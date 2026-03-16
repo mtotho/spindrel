@@ -1,6 +1,10 @@
+import collections
+import queue
 import shutil
 import subprocess
 import sys
+import time
+import warnings
 from pathlib import Path
 
 TTS_AVAILABLE = shutil.which("piper") is not None and shutil.which("aplay") is not None
@@ -14,13 +18,89 @@ try:
 except ImportError:
     STT_AVAILABLE = False
 
+try:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*CUDAExecutionProvider.*")
+        from openwakeword.model import Model as OwwModel
+
+    WAKEWORD_AVAILABLE = True
+except ImportError:
+    WAKEWORD_AVAILABLE = False
+
 _whisper_model: "WhisperModel | None" = None
+_oww_model: "OwwModel | None" = None
+_oww_keys: list[str] = []
+
+
+# --- Shared Mic (callback-based) ---
+
+SAMPLE_RATE = 16000
+CHANNELS = 1
+BLOCKSIZE = 1024
+CHUNKS_PER_SECOND = SAMPLE_RATE // BLOCKSIZE
+
+_audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
+_mic_stream: "sd.InputStream | None" = None
+
+
+def _mic_callback(indata, frames, time_info, status):
+    _audio_q.put(indata.copy())
+
+
+def _open_mic() -> None:
+    """Start the persistent callback-based mic stream."""
+    global _mic_stream
+    if _mic_stream is not None and _mic_stream.active:
+        return
+    if _mic_stream is not None:
+        try:
+            _mic_stream.close()
+        except Exception:
+            pass
+
+    # Drain any stale data from previous session
+    while not _audio_q.empty():
+        try:
+            _audio_q.get_nowait()
+        except queue.Empty:
+            break
+
+    _mic_stream = sd.InputStream(
+        samplerate=SAMPLE_RATE, channels=CHANNELS,
+        dtype="float32", blocksize=BLOCKSIZE,
+        callback=_mic_callback,
+    )
+    _mic_stream.start()
+
+
+def close_mic() -> None:
+    global _mic_stream
+    if _mic_stream is not None:
+        try:
+            _mic_stream.stop()
+            _mic_stream.close()
+        except Exception:
+            pass
+        _mic_stream = None
+
+
+def _read_chunk(timeout: float = 2.0) -> "np.ndarray":
+    """Read one chunk from the callback queue."""
+    return _audio_q.get(timeout=timeout)
+
+
+def _drain_queue() -> None:
+    """Discard any buffered audio to get fresh data."""
+    while not _audio_q.empty():
+        try:
+            _audio_q.get_nowait()
+        except queue.Empty:
+            break
 
 
 # --- TTS ---
 
-def _ensure_model(model: str, model_dir: Path) -> Path:
-    """Download the piper voice model if it doesn't exist. Returns the .onnx path."""
+def _ensure_piper_model(model: str, model_dir: Path) -> Path:
     onnx_path = model_dir / f"{model}.onnx"
     if onnx_path.exists():
         return onnx_path
@@ -45,7 +125,7 @@ def speak(text: str, model: str, model_dir: str) -> None:
     resolved_dir = Path(model_dir).expanduser()
 
     try:
-        onnx_path = _ensure_model(model, resolved_dir)
+        onnx_path = _ensure_piper_model(model, resolved_dir)
 
         piper_proc = subprocess.Popen(
             ["piper", "--model", str(onnx_path), "--output-raw"],
@@ -75,7 +155,6 @@ def speak(text: str, model: str, model_dir: str) -> None:
 
 
 def check_tts_ready(model: str, model_dir: str) -> str | None:
-    """Returns an error message if TTS can't work, or None if ready."""
     if not shutil.which("piper"):
         return "piper not found in PATH. Install with: pip install piper-tts"
     if not shutil.which("aplay"):
@@ -84,7 +163,7 @@ def check_tts_ready(model: str, model_dir: str) -> str | None:
     resolved_dir = Path(model_dir).expanduser()
 
     try:
-        onnx_path = _ensure_model(model, resolved_dir)
+        onnx_path = _ensure_piper_model(model, resolved_dir)
     except Exception as e:
         return f"Failed to get voice model: {e}"
 
@@ -108,13 +187,12 @@ def check_tts_ready(model: str, model_dir: str) -> str | None:
 
 # --- STT ---
 
-SAMPLE_RATE = 16000
-CHANNELS = 1
 SILENCE_THRESHOLD = 0.01
-SILENCE_DURATION = 1.5
+SILENCE_DURATION = 2.5
 MAX_RECORD_SECONDS = 30
 MAX_IDLE_SECONDS = 8
 MIN_RECORD_SECONDS = 0.5
+PRE_BUFFER_SECONDS = 0.5
 
 
 def _get_whisper(model_name: str) -> "WhisperModel":
@@ -126,52 +204,65 @@ def _get_whisper(model_name: str) -> "WhisperModel":
     return _whisper_model
 
 
-def record_audio() -> "np.ndarray | None":
-    """Record audio from mic until silence is detected. Returns numpy array or None."""
+def record_audio(idle_timeout: float | None = None) -> "np.ndarray | None":
+    """Record from mic with pre-buffer. Auto-stops on 2.5s silence after speech,
+    or after idle_timeout seconds if no speech detected at all."""
     if not STT_AVAILABLE:
         return None
+
+    _open_mic()
+    _drain_queue()
+
+    idle_limit = idle_timeout or MAX_IDLE_SECONDS
+    pre_buffer_size = int(PRE_BUFFER_SECONDS * CHUNKS_PER_SECOND)
+    pre_buffer: collections.deque = collections.deque(maxlen=pre_buffer_size)
 
     chunks: list = []
     silent_chunks = 0
     has_speech = False
     peak_rms = 0.0
-    chunks_per_second = SAMPLE_RATE // 1024
-    silence_chunks_needed = int(SILENCE_DURATION * chunks_per_second)
+    silence_chunks_needed = int(SILENCE_DURATION * CHUNKS_PER_SECOND)
+    idle_chunks_needed = int(idle_limit * CHUNKS_PER_SECOND)
+    max_chunks = int(MAX_RECORD_SECONDS * CHUNKS_PER_SECOND)
 
     print("Listening... (speak now, auto-stops on silence)")
-    print(f"  threshold={SILENCE_THRESHOLD}  silence_after={SILENCE_DURATION}s  max={MAX_RECORD_SECONDS}s")
 
     try:
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
-                            dtype="float32", blocksize=1024) as stream:
-            for i in range(int(MAX_RECORD_SECONDS * chunks_per_second)):
-                data, _ = stream.read(1024)
+        for i in range(max_chunks):
+            data = _read_chunk()
+            rms = float(np.sqrt(np.mean(data ** 2)))
+            peak_rms = max(peak_rms, rms)
+
+            if not has_speech:
+                pre_buffer.append(data.copy())
+            else:
                 chunks.append(data.copy())
 
-                rms = float(np.sqrt(np.mean(data ** 2)))
-                peak_rms = max(peak_rms, rms)
+            if rms > SILENCE_THRESHOLD:
+                if not has_speech:
+                    print("  Speech detected!")
+                    chunks.extend(pre_buffer)
+                    pre_buffer.clear()
+                has_speech = True
+                silent_chunks = 0
+            else:
+                silent_chunks += 1
 
-                if rms > SILENCE_THRESHOLD:
-                    if not has_speech:
-                        print("  Speech detected!")
-                    has_speech = True
-                    silent_chunks = 0
-                else:
-                    silent_chunks += 1
+            if i % (CHUNKS_PER_SECOND // 2) == 0:
+                bar_len = min(int(rms * 500), 30)
+                bar = "#" * bar_len
+                elapsed = (len(chunks) + len(pre_buffer)) / CHUNKS_PER_SECOND
+                state = "SPEECH" if rms > SILENCE_THRESHOLD else "quiet"
+                print(f"  [{elapsed:4.1f}s] {state:6s} |{bar:<30s}| rms={rms:.4f}", end="\r")
 
-                # Print level indicator every ~0.5s
-                if i % (chunks_per_second // 2) == 0:
-                    bar_len = min(int(rms * 500), 30)
-                    bar = "#" * bar_len
-                    elapsed = len(chunks) / chunks_per_second
-                    state = "SPEECH" if rms > SILENCE_THRESHOLD else "quiet"
-                    print(f"  [{elapsed:4.1f}s] {state:6s} |{bar:<30s}| rms={rms:.4f}", end="\r")
+            total_seconds = len(chunks) / CHUNKS_PER_SECOND
+            if has_speech and silent_chunks >= silence_chunks_needed and total_seconds >= MIN_RECORD_SECONDS:
+                break
 
-                total_seconds = len(chunks) / chunks_per_second
-                if has_speech and silent_chunks >= silence_chunks_needed and total_seconds >= MIN_RECORD_SECONDS:
-                    break
+            if not has_speech and i >= idle_chunks_needed:
+                break
 
-            print()  # newline after \r progress
+        print()
 
     except KeyboardInterrupt:
         print("\nRecording cancelled.")
@@ -180,19 +271,16 @@ def record_audio() -> "np.ndarray | None":
         print(f"[STT] Recording error: {e}", file=sys.stderr)
         return None
 
-    duration = len(chunks) / chunks_per_second
-    print(f"  Recorded {duration:.1f}s, peak level={peak_rms:.4f}")
-
     if not has_speech:
-        print("No speech detected. Try speaking louder or check your mic.")
         return None
 
-    print("Recording complete.")
+    duration = len(chunks) / CHUNKS_PER_SECOND
+    print(f"  Recorded {duration:.1f}s, peak level={peak_rms:.4f}")
+
     return np.concatenate(chunks)
 
 
 def transcribe(audio: "np.ndarray", model_name: str) -> str | None:
-    """Transcribe audio array to text using faster-whisper."""
     if not STT_AVAILABLE:
         return None
 
@@ -211,7 +299,6 @@ def transcribe(audio: "np.ndarray", model_name: str) -> str | None:
 
 
 def check_stt_ready() -> str | None:
-    """Returns an error message if STT can't work, or None if ready."""
     if not STT_AVAILABLE:
         missing = []
         try:
@@ -229,11 +316,104 @@ def check_stt_ready() -> str | None:
         return f"Missing packages: {', '.join(missing)}. Install with: pip install -e \"client/[voice]\""
 
     try:
-        devices = sd.query_devices()
         default_in = sd.query_devices(kind="input")
         if default_in is None:
             return "No input audio device found."
     except Exception as e:
         return f"Audio device error: {e}"
 
+    return None
+
+
+# --- Wake Word ---
+
+WAKEWORD_CHUNK = 1280  # 80ms at 16kHz, optimal for openwakeword
+WAKEWORD_THRESHOLD = 0.5
+
+
+def _get_oww_model() -> "OwwModel":
+    global _oww_model, _oww_keys
+    if _oww_model is None:
+        print("Loading wake word models...")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*CUDAExecutionProvider.*")
+            _oww_model = OwwModel()
+        # Dummy predict to populate prediction_buffer keys
+        dummy = np.zeros(WAKEWORD_CHUNK, dtype=np.int16)
+        _oww_model.predict(dummy)
+        _oww_keys = list(_oww_model.prediction_buffer.keys())
+        print(f"Wake words available: {', '.join(_oww_keys)}")
+        _oww_model.reset()
+    return _oww_model
+
+
+def listen_for_wakeword(wake_words: list[str] | None = None) -> str | None:
+    """Block until a wake word is detected. Returns the detected wake word name, or None on cancel."""
+    if not WAKEWORD_AVAILABLE or not STT_AVAILABLE:
+        return None
+
+    _open_mic()
+    _drain_queue()
+
+    model = _get_oww_model()
+
+    if wake_words:
+        listen_keys = [k for k in _oww_keys if k in wake_words]
+        skipped = [w for w in wake_words if w not in _oww_keys]
+        if skipped:
+            print(f"  Not available: {', '.join(skipped)}")
+            print(f"  (valid options: {', '.join(_oww_keys)})")
+        if not listen_keys:
+            print("No matching wake words found — check WAKE_WORDS in config.")
+            return None
+    else:
+        listen_keys = _oww_keys
+
+    model.reset()
+    print(f"Listening for: {', '.join(listen_keys)}")
+    print("  (Ctrl+C to stop)")
+
+    chunk_count = 0
+    try:
+        while True:
+            data = _read_chunk()
+            audio_int16 = (data.flatten() * 32767).astype(np.int16)
+            # openwakeword expects exactly WAKEWORD_CHUNK samples;
+            # pad or trim to fit since our blocksize may differ
+            if len(audio_int16) < WAKEWORD_CHUNK:
+                audio_int16 = np.pad(audio_int16, (0, WAKEWORD_CHUNK - len(audio_int16)))
+            elif len(audio_int16) > WAKEWORD_CHUNK:
+                audio_int16 = audio_int16[:WAKEWORD_CHUNK]
+
+            prediction = model.predict(audio_int16)
+
+            chunk_count += 1
+
+            best_name = ""
+            best_score = 0.0
+            for name in listen_keys:
+                score = float(prediction.get(name, 0))
+                if score > best_score:
+                    best_score = score
+                    best_name = name
+
+            if chunk_count % 25 == 0 and best_score > 0.01:
+                print(f"  {best_name}: {best_score:.2f}", end="\r")
+
+            if best_score > WAKEWORD_THRESHOLD:
+                print(f"  Wake word detected: {best_name} (score={best_score:.2f})")
+                model.reset()
+                return best_name
+
+    except KeyboardInterrupt:
+        print("\nWake word listening stopped.")
+        return None
+    except Exception as e:
+        print(f"[Wakeword] Error: {e}", file=sys.stderr)
+        return None
+
+
+def check_wakeword_ready() -> str | None:
+    if not WAKEWORD_AVAILABLE:
+        return "openwakeword not installed. Install with: pip install -e \"client/[wakeword]\""
     return None

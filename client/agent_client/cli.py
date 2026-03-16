@@ -5,9 +5,9 @@ import uuid
 import httpx
 
 from agent_client.audio import (
-    STT_AVAILABLE, TTS_AVAILABLE,
-    check_stt_ready, check_tts_ready,
-    record_audio, speak, transcribe,
+    STT_AVAILABLE, TTS_AVAILABLE, WAKEWORD_AVAILABLE,
+    check_stt_ready, check_tts_ready, check_wakeword_ready,
+    close_mic, listen_for_wakeword, record_audio, speak, transcribe,
 )
 from agent_client.client import AgentClient
 from agent_client.config import load_config
@@ -112,6 +112,50 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         ctx["_voice_text"] = text
         return False
 
+    elif cmd == "/vc":
+        if not STT_AVAILABLE:
+            print("Voice input not available. Install with: pip install -e \"client/[voice]\"")
+            return True
+        ctx["_voice_conversation"] = True
+        print("Voice conversation mode. Speak after each response. Stay silent or Ctrl+C to exit.")
+        audio = record_audio()
+        if audio is None:
+            ctx.pop("_voice_conversation", None)
+            print("Voice conversation ended.")
+            return True
+        text = transcribe(audio, ctx["whisper_model"])
+        if text is None:
+            ctx.pop("_voice_conversation", None)
+            print("Voice conversation ended.")
+            return True
+        print(f"  You said: {text}")
+        ctx["_voice_text"] = text
+        return False
+
+    elif cmd == "/listen":
+        if not WAKEWORD_AVAILABLE:
+            print("Wake word not available. Install with: pip install -e \"client/[wakeword]\"")
+            return True
+        if not STT_AVAILABLE:
+            print("Voice input not available. Install with: pip install -e \"client/[voice]\"")
+            return True
+        ctx["_wake_word_mode"] = True
+        detected = listen_for_wakeword(ctx["wake_words"])
+        if detected is None:
+            ctx.pop("_wake_word_mode", None)
+            return True
+        audio = record_audio()
+        if audio is None:
+            ctx.pop("_wake_word_mode", None)
+            return True
+        text = transcribe(audio, ctx["whisper_model"])
+        if text is None:
+            ctx.pop("_wake_word_mode", None)
+            return True
+        print(f"  You said: {text}")
+        ctx["_voice_text"] = text
+        return False
+
     elif cmd == "/tts":
         if ctx["tts"]:
             ctx["tts"] = False
@@ -131,7 +175,9 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         print("  /session [uuid]  Show or switch session")
         print("  /sessions        List all sessions")
         print("  /history         Show current session history")
-        print("  /v               Voice input (record + transcribe)")
+        print("  /v               Voice input (single turn)")
+        print("  /vc              Voice conversation (continuous)")
+        print("  /listen          Wake word mode (say wake word to talk)")
         print("  /bots            List available bots")
         print("  /bot [id]        Show or switch bot")
         print("  /tts             Toggle text-to-speech")
@@ -199,6 +245,7 @@ def main():
         "piper_model": config.piper_model,
         "piper_model_dir": config.piper_model_dir,
         "whisper_model": config.whisper_model,
+        "wake_words": config.wake_words,
     }
 
     # Verify connectivity
@@ -242,7 +289,49 @@ def main():
                 print(f"\n{response_text}\n")
                 if ctx["tts"] and response_text:
                     speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+
+                # Voice conversation loop: auto-listen after response
+                while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+                    if ctx.get("_wake_word_mode"):
+                        detected = listen_for_wakeword(ctx["wake_words"])
+                        if detected is None:
+                            ctx.pop("_wake_word_mode", None)
+                            break
+
+                    audio = record_audio()
+                    if audio is None:
+                        if ctx.get("_wake_word_mode"):
+                            continue  # No speech, go back to listening for wake word
+                        print("Voice conversation ended.")
+                        ctx.pop("_voice_conversation", None)
+                        break
+                    text = transcribe(audio, ctx["whisper_model"])
+                    if text is None:
+                        if ctx.get("_wake_word_mode"):
+                            continue
+                        print("Voice conversation ended.")
+                        ctx.pop("_voice_conversation", None)
+                        break
+                    print(f"  You said: {text}")
+                    result = client.chat(
+                        message=text,
+                        session_id=ctx["session_id"],
+                        bot_id=ctx["bot_id"],
+                    )
+                    response_text = result["response"]
+                    print(f"\n{response_text}\n")
+                    if ctx["tts"] and response_text:
+                        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+
+            except KeyboardInterrupt:
+                if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+                    print("\nVoice mode ended.")
+                    ctx.pop("_voice_conversation", None)
+                    ctx.pop("_wake_word_mode", None)
+                else:
+                    raise
             except httpx.HTTPStatusError as e:
+                ctx.pop("_voice_conversation", None)
                 if e.response.status_code == 401:
                     print("Authentication failed. Check your API key.")
                 elif e.response.status_code == 404:
@@ -250,15 +339,19 @@ def main():
                 else:
                     print(f"Server error ({e.response.status_code}): {e.response.text}")
             except httpx.ConnectError:
+                ctx.pop("_voice_conversation", None)
                 print(f"Cannot connect to server at {config.agent_url}")
             except httpx.TimeoutException:
+                ctx.pop("_voice_conversation", None)
                 print("Request timed out. The server may be processing a complex request.")
             except httpx.HTTPError as e:
+                ctx.pop("_voice_conversation", None)
                 print(f"HTTP error: {e}")
 
     except KeyboardInterrupt:
         print("\nGoodbye.")
     finally:
+        close_mic()
         client.close()
 
 

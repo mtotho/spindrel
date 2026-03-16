@@ -10,7 +10,8 @@ dependencies = [
 [project.optional-dependencies]
 tts = ["piper-tts", "pathvalidate"]
 stt = ["sounddevice", "numpy", "faster-whisper"]
-voice = ["agent-client[tts]", "agent-client[stt]"]
+wakeword = ["openwakeword"]
+voice = ["agent-client[tts]", "agent-client[stt]", "agent-client[wakeword]"]
 
 [project.scripts]
 agent-chat = "agent_client.cli:main"

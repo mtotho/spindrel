@@ -13,6 +13,7 @@ _DEFAULTS = {
     "PIPER_MODEL": "en_US-lessac-medium",
     "PIPER_MODEL_DIR": "~/.local/share/piper",
     "WHISPER_MODEL": "base.en",
+    "WAKE_WORDS": "",
 }
 
 
@@ -25,6 +26,7 @@ class ClientConfig:
     piper_model: str = "en_US-lessac-medium"
     piper_model_dir: str = "~/.local/share/piper"
     whisper_model: str = "base.en"
+    wake_words: list[str] | None = None
 
 
 def load_config() -> ClientConfig:
@@ -53,4 +55,10 @@ def load_config() -> ClientConfig:
         piper_model=values.get("PIPER_MODEL", "en_US-lessac-medium"),
         piper_model_dir=values.get("PIPER_MODEL_DIR", "~/.local/share/piper"),
         whisper_model=values.get("WHISPER_MODEL", "base.en"),
+        wake_words=_parse_list(values.get("WAKE_WORDS", "")),
     )
+
+
+def _parse_list(val: str) -> list[str] | None:
+    items = [x.strip() for x in val.split(",") if x.strip()]
+    return items if items else None
