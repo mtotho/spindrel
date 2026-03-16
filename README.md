@@ -256,6 +256,20 @@ When TTS is enabled, responses are printed and spoken aloud using [Piper](https:
 
 `aplay` is required (part of `alsa-utils`).
 
+#### Silent responses
+
+The client supports `[silent]...[/silent]` tags in bot responses. Text inside these tags is displayed (dimmed) but not spoken aloud. This is useful for routine confirmations like smart home actions or simple command output where TTS would be annoying.
+
+To enable, add an instruction to your bot's system prompt:
+
+```
+When you execute a routine action, wrap the confirmation in [silent]...[/silent] tags.
+Example: [silent]Office light turned off.[/silent]
+Only speak without tags when there's an error or something genuinely useful to say.
+```
+
+Mixed responses work too — `[silent]Light off.[/silent] By the way, your bedroom light has been on for 12 hours.` speaks only the second part.
+
 ### Voice config
 
 All optional, in `~/.config/agent-client/config.env`:

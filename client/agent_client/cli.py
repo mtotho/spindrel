@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -24,6 +25,25 @@ _TOOL_DISPLAY_NAMES = {
     "client_action": None,
     "shell_exec": None,  # handled specially via tool_request
 }
+
+
+_SILENT_RE = re.compile(r"\[silent\](.*?)\[/silent\]", re.DOTALL)
+
+
+def _strip_silent(text: str) -> tuple[str, str, bool]:
+    """Parse [silent]...[/silent] markers from response text.
+
+    Returns (display_text, speakable_text, has_silent).
+    - display_text: full text with markers stripped (shown in terminal)
+    - speakable_text: only the non-silent portions (sent to TTS)
+    - has_silent: whether any silent markers were found
+    """
+    if "[silent]" not in text:
+        return text, text, False
+
+    speakable = _SILENT_RE.sub("", text).strip()
+    display = _SILENT_RE.sub(lambda m: f"\033[2m{m.group(1)}\033[0m", text)
+    return display, speakable, True
 
 
 def _execute_client_tool(tool_name: str, arguments: dict) -> str:
@@ -520,15 +540,16 @@ def main():
             try:
                 result = _send_streaming(client, line, ctx)
                 response_text = result["response"]
-                print(f"\n{response_text}\n")
+                display_text, speakable_text, _ = _strip_silent(response_text)
+                print(f"\n{display_text}\n")
                 _handle_client_actions(result.get("client_actions", []), client, ctx)
-                if ctx["tts"] and response_text:
+                if ctx["tts"] and speakable_text:
                     if ctx.get("_wake_word_mode"):
-                        if _speak_interruptible(response_text, ctx):
+                        if _speak_interruptible(speakable_text, ctx):
                             play_tone()
                             ctx["_wakeword_predetected"] = True
                     else:
-                        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+                        speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"])
 
                 # Voice conversation loop: auto-listen after response
                 while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
@@ -556,15 +577,16 @@ def main():
                     print(f"  You said: {text}")
                     result = _send_streaming(client, text, ctx)
                     response_text = result["response"]
-                    print(f"\n{response_text}\n")
+                    display_text, speakable_text, _ = _strip_silent(response_text)
+                    print(f"\n{display_text}\n")
                     _handle_client_actions(result.get("client_actions", []), client, ctx)
-                    if ctx["tts"] and response_text:
+                    if ctx["tts"] and speakable_text:
                         if ctx.get("_wake_word_mode"):
-                            if _speak_interruptible(response_text, ctx):
+                            if _speak_interruptible(speakable_text, ctx):
                                 play_tone()
                                 ctx["_wakeword_predetected"] = True
                         else:
-                            speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+                            speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"])
 
             except KeyboardInterrupt:
                 if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
