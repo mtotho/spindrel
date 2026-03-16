@@ -72,7 +72,13 @@ async def run_stream(
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
+    tool_names = [t["function"]["name"] for t in all_tools] if all_tools else []
+    logger.debug("Tools available: %s", tool_names or "(none)")
+
     for iteration in range(settings.AGENT_MAX_ITERATIONS):
+        logger.debug("--- Iteration %d ---", iteration + 1)
+        logger.debug("Calling LLM (%s) with %d messages", bot.model, len(messages))
+
         response = await _client.chat.completions.create(
             model=bot.model,
             messages=messages,
@@ -83,17 +89,30 @@ async def run_stream(
         msg_dict = msg.model_dump(exclude_none=True)
         messages.append(msg_dict)
 
+        if response.usage:
+            logger.debug(
+                "Token usage: prompt=%d completion=%d total=%d",
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+            )
+
         if not msg.tool_calls:
+            text = msg.content or ""
+            logger.info("Final response (%d chars): %r", len(text), text[:120])
             yield {
                 "type": "response",
-                "text": msg.content or "",
+                "text": text,
                 "client_actions": _extract_client_actions(messages, turn_start),
             }
             return
 
+        logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
+
         for tc in msg.tool_calls:
             name = tc.function.name
             args = tc.function.arguments
+            logger.info("Tool call: %s(%s)", name, args)
 
             yield {"type": "tool_start", "tool": name}
 
@@ -103,6 +122,9 @@ async def run_stream(
                 result = await call_mcp_tool(name, args)
             else:
                 result = json.dumps({"error": f"Unknown tool: {name}"})
+
+            result_preview = result[:200] + "..." if len(result) > 200 else result
+            logger.debug("Tool result [%s]: %s", name, result_preview)
 
             messages.append({
                 "role": "tool",
@@ -114,6 +136,7 @@ async def run_stream(
             try:
                 parsed = json.loads(result)
                 if isinstance(parsed, dict) and "error" in parsed:
+                    logger.warning("Tool %s returned error: %s", name, parsed["error"])
                     tool_event["error"] = parsed["error"]
             except (json.JSONDecodeError, TypeError):
                 pass

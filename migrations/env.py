@@ -1,5 +1,3 @@
-from logging.config import fileConfig
-
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
@@ -12,9 +10,6 @@ config = context.config
 # driver for a sync one since Alembic runs synchronously.
 sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
 config.set_main_option("sqlalchemy.url", sync_url)
-
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 

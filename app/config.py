@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
+    LOG_LEVEL: str = "INFO"
 
     # Web tools
     SEARXNG_URL: str = "http://searxng:8080"

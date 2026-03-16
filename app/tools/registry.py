@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -40,7 +41,10 @@ async def call_local_tool(name: str, arguments: str) -> str:
         return json.dumps({"error": f"Unknown local tool: {name}"})
     try:
         args = json.loads(arguments) if arguments else {}
+        t0 = time.monotonic()
         result = await entry["function"](**args)
+        elapsed = time.monotonic() - t0
+        logger.debug("Tool %s completed in %.1fms", name, elapsed * 1000)
         return result if isinstance(result, str) else json.dumps(result)
     except Exception as e:
         logger.exception("Error executing local tool %s", name)

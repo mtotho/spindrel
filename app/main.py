@@ -4,24 +4,27 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.agent.bots import load_bots
+from app.config import settings
 from app.db.engine import run_migrations
 
 logger = logging.getLogger(__name__)
 
+LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
+LOG_DATE_FORMAT = "%H:%M:%S"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logging.basicConfig(level=logging.INFO)
+    level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+    logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
     logger.info("Running database migrations...")
     await run_migrations()
-    # Re-init logging — alembic's fileConfig wipes our handlers
-    logging.basicConfig(level=logging.INFO, force=True)
     logger.info("Loading bot configurations...")
     load_bots()
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
 
-    logger.info("Agent server ready.")
+    logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     yield
 
 
