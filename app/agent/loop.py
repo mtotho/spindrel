@@ -59,9 +59,11 @@ async def run_stream(
     """
     turn_start = len(messages)
 
-    if bot.rag:
-        chunks = await retrieve_context(user_message)
+    skill_ids = bot.skills if bot.skills else None
+    if bot.skills or bot.rag:
+        chunks = await retrieve_context(user_message, skill_ids=skill_ids)
         if chunks:
+            yield {"type": "skill_context", "count": len(chunks)}
             context = "\n\n---\n\n".join(chunks)
             messages.append({
                 "role": "system",

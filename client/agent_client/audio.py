@@ -3,6 +3,7 @@ import queue
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import warnings
 from pathlib import Path
@@ -30,6 +31,9 @@ except ImportError:
 _whisper_model: "WhisperModel | None" = None
 _oww_model: "OwwModel | None" = None
 _oww_keys: list[str] = []
+
+_tts_lock = threading.Lock()
+_tts_procs: list[subprocess.Popen] = []
 
 
 # --- Shared Mic (callback-based) ---
@@ -139,19 +143,46 @@ def speak(text: str, model: str, model_dir: str) -> None:
             stderr=subprocess.PIPE,
         )
         piper_proc.stdout.close()
-        piper_proc.stdin.write(text.encode())
-        piper_proc.stdin.close()
+
+        with _tts_lock:
+            _tts_procs[:] = [piper_proc, aplay_proc]
+
+        try:
+            piper_proc.stdin.write(text.encode())
+            piper_proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+
         aplay_proc.wait()
         piper_proc.wait()
 
-        if piper_proc.returncode != 0:
+        with _tts_lock:
+            _tts_procs.clear()
+
+        if piper_proc.returncode and piper_proc.returncode > 0:
             err = piper_proc.stderr.read().decode().strip()
-            print(f"[TTS] piper error: {err}", file=sys.stderr)
-        if aplay_proc.returncode != 0:
+            if err:
+                print(f"[TTS] piper error: {err}", file=sys.stderr)
+        if aplay_proc.returncode and aplay_proc.returncode > 0:
             err = aplay_proc.stderr.read().decode().strip()
-            print(f"[TTS] aplay error: {err}", file=sys.stderr)
+            if err:
+                print(f"[TTS] aplay error: {err}", file=sys.stderr)
     except Exception as e:
+        with _tts_lock:
+            _tts_procs.clear()
         print(f"[TTS] playback failed: {e}", file=sys.stderr)
+
+
+def stop_speaking() -> None:
+    """Kill any running TTS playback immediately."""
+    with _tts_lock:
+        for proc in _tts_procs:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+        _tts_procs.clear()
 
 
 def check_tts_ready(model: str, model_dir: str) -> str | None:
@@ -376,8 +407,12 @@ def _get_oww_model() -> "OwwModel":
     return _oww_model
 
 
-def listen_for_wakeword(wake_words: list[str] | None = None) -> str | None:
-    """Block until a wake word is detected. Returns the detected wake word name, or None on cancel."""
+def listen_for_wakeword(
+    wake_words: list[str] | None = None,
+    stop_event: "threading.Event | None" = None,
+) -> str | None:
+    """Block until a wake word is detected. Returns the detected wake word name,
+    or None on cancel or if stop_event is set."""
     if not WAKEWORD_AVAILABLE or not STT_AVAILABLE:
         return None
 
@@ -399,16 +434,39 @@ def listen_for_wakeword(wake_words: list[str] | None = None) -> str | None:
         listen_keys = _oww_keys
 
     model.reset()
-    print(f"Listening for: {', '.join(listen_keys)}")
-    print("  (Ctrl+C to stop)")
+    if stop_event is not None:
+        # Flush internal ONNX state (RNN hidden layers) by running
+        # predictions on silence — model.reset() only clears the
+        # prediction buffer, not the neural network hidden state,
+        # so residual activation from a previous real detection can
+        # cause an instant false trigger on the first chunk of audio.
+        _flush = np.zeros(WAKEWORD_CHUNK, dtype=np.int16)
+        for _ in range(20):
+            model.predict(_flush)
+        model.reset()
 
+    print(f"Listening for: {', '.join(listen_keys)}")
+    if stop_event is None:
+        print("  (Ctrl+C to stop)")
+
+    chunk_timeout = 0.2 if stop_event is not None else 2.0
+    # During TTS playback the mic picks up speaker audio which can
+    # cause brief false positives — require sustained detection.
+    consecutive_needed = 3 if stop_event is not None else 1
+    consecutive_count = 0
     chunk_count = 0
     try:
         while True:
-            data = _read_chunk()
+            if stop_event is not None and stop_event.is_set():
+                model.reset()
+                return None
+
+            try:
+                data = _read_chunk(timeout=chunk_timeout)
+            except queue.Empty:
+                continue
+
             audio_int16 = (data.flatten() * 32767).astype(np.int16)
-            # openwakeword expects exactly WAKEWORD_CHUNK samples;
-            # pad or trim to fit since our blocksize may differ
             if len(audio_int16) < WAKEWORD_CHUNK:
                 audio_int16 = np.pad(audio_int16, (0, WAKEWORD_CHUNK - len(audio_int16)))
             elif len(audio_int16) > WAKEWORD_CHUNK:
@@ -430,9 +488,13 @@ def listen_for_wakeword(wake_words: list[str] | None = None) -> str | None:
                 print(f"  {best_name}: {best_score:.2f}", end="\r")
 
             if best_score > WAKEWORD_THRESHOLD:
-                print(f"  Wake word detected: {best_name} (score={best_score:.2f})")
-                model.reset()
-                return best_name
+                consecutive_count += 1
+                if consecutive_count >= consecutive_needed:
+                    print(f"  Wake word detected: {best_name} (score={best_score:.2f})")
+                    model.reset()
+                    return best_name
+            else:
+                consecutive_count = 0
 
     except KeyboardInterrupt:
         print("\nWake word listening stopped.")

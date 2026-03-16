@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.agent.bots import load_bots
+from app.agent.skills import load_skills
 from app.config import settings
 from app.db.engine import run_migrations
 
@@ -24,6 +25,8 @@ async def lifespan(app: FastAPI):
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
 
+    logger.info("Loading skills...")
+    await load_skills()
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     yield
 

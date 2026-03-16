@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536
     RAG_TOP_K: int = 5
-    RAG_SIMILARITY_THRESHOLD: float = 0.75
+    RAG_SIMILARITY_THRESHOLD: float = 0.3
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

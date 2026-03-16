@@ -6,6 +6,7 @@ services:
     env_file: .env
     volumes:
       - ./bots:/app/bots
+      - ./skills:/app/skills
     depends_on:
       postgres:
         condition: service_healthy

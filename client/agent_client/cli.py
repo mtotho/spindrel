@@ -2,6 +2,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import uuid
 
 import httpx
@@ -9,7 +10,7 @@ import httpx
 from agent_client.audio import (
     STT_AVAILABLE, TTS_AVAILABLE, WAKEWORD_AVAILABLE,
     check_stt_ready, check_tts_ready, check_wakeword_ready,
-    close_mic, listen_for_wakeword, play_tone, record_audio, speak, transcribe,
+    close_mic, listen_for_wakeword, play_tone, record_audio, speak, stop_speaking, transcribe,
 )
 from agent_client.client import AgentClient
 from agent_client.config import load_config
@@ -59,6 +60,26 @@ def _tool_status(tool_name: str) -> str | None:
     return f"Using {tool_name}"
 
 
+def _speak_interruptible(response_text: str, ctx: dict) -> bool:
+    """Speak response in a background thread while listening for wake word.
+
+    Returns True if the wake word interrupted TTS playback.
+    """
+    tts_done = threading.Event()
+
+    def _tts_worker():
+        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+        tts_done.set()
+
+    thread = threading.Thread(target=_tts_worker, daemon=True)
+    thread.start()
+
+    detected = listen_for_wakeword(ctx["wake_words"], stop_event=tts_done)
+    stop_speaking()
+    thread.join(timeout=2)
+    return detected is not None
+
+
 def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
     """Send a message via streaming and display tool status in real time.
 
@@ -77,7 +98,11 @@ def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
     ):
         etype = event.get("type")
 
-        if etype == "tool_start":
+        if etype == "skill_context":
+            count = event.get("count", 0)
+            print(f"  [Using {count} skill chunk{'s' if count != 1 else ''}...]")
+
+        elif etype == "tool_start":
             label = _tool_status(event.get("tool", ""))
             if label:
                 print(f"  [{label}...]")
@@ -498,11 +523,16 @@ def main():
                 print(f"\n{response_text}\n")
                 _handle_client_actions(result.get("client_actions", []), client, ctx)
                 if ctx["tts"] and response_text:
-                    speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+                    if ctx.get("_wake_word_mode"):
+                        if _speak_interruptible(response_text, ctx):
+                            play_tone()
+                            ctx["_wakeword_predetected"] = True
+                    else:
+                        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
 
                 # Voice conversation loop: auto-listen after response
                 while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
-                    if ctx.get("_wake_word_mode"):
+                    if ctx.get("_wake_word_mode") and not ctx.pop("_wakeword_predetected", False):
                         detected = listen_for_wakeword(ctx["wake_words"])
                         if detected is None:
                             ctx.pop("_wake_word_mode", None)
@@ -529,7 +559,12 @@ def main():
                     print(f"\n{response_text}\n")
                     _handle_client_actions(result.get("client_actions", []), client, ctx)
                     if ctx["tts"] and response_text:
-                        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+                        if ctx.get("_wake_word_mode"):
+                            if _speak_interruptible(response_text, ctx):
+                                play_tone()
+                                ctx["_wakeword_predetected"] = True
+                        else:
+                            speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
 
             except KeyboardInterrupt:
                 if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):

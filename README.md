@@ -76,6 +76,63 @@ context_compaction: true
 
 Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but bot configs are loaded at startup so a full restart is needed.
 
+**`skills`** lists skill IDs (filenames without `.md`) from the `skills/` directory. When a bot has skills, the server automatically retrieves relevant skill content for each user message via vector similarity search and injects it into the LLM's context. See "Skills" below.
+
+### Skills (skills/*.md)
+
+Skills are curated knowledge files that give bots domain expertise. Drop a `.md` file in `skills/` and list it in a bot's config — the bot will automatically pull in relevant sections when the user asks about that topic.
+
+**How it works:**
+
+1. On server startup, each `.md` file is chunked by `## ` sections and embedded via your LiteLLM embedding model
+2. Embeddings are stored in the `documents` table (pgvector with HNSW index)
+3. Unchanged files are skipped on restart (tracked by content hash)
+4. At query time, the user's message is embedded and matched against skill chunks via cosine similarity
+5. Matching chunks are injected into the LLM context as a system message
+
+**Creating a skill:**
+
+```markdown
+---
+name: Home Assistant
+description: Home Assistant automation and configuration
+---
+
+# Home Assistant
+
+## Automations
+
+Automations have three parts: trigger, condition, action...
+
+## Integrations
+
+Integrations connect HA to devices and services...
+```
+
+The `---` frontmatter block is optional. `name` controls the display name in context (defaults to the filename in title case). The content is split at `## ` headings — each section becomes an independently searchable chunk.
+
+**Adding skills to a bot:**
+
+```yaml
+# bots/my_bot.yaml
+skills:
+  - home_assistant
+  - arch_linux
+```
+
+Skill IDs are filenames without the `.md` extension. Only the listed skills are searched for that bot.
+
+**Embedding config** (in `.env`):
+
+```
+EMBEDDING_MODEL=text-embedding-3-small   # model name via LiteLLM
+EMBEDDING_DIM=1536                       # must match the model's output dimension
+RAG_TOP_K=5                              # max chunks to retrieve per query
+RAG_SIMILARITY_THRESHOLD=0.75            # minimum cosine similarity (0-1)
+```
+
+The embedding model is called through your LiteLLM proxy, so any model LiteLLM supports works here.
+
 ### Available local tools
 
 | Tool | Description |
@@ -340,13 +397,14 @@ When running in Docker, the `.env` should use Docker service names (`postgres`, 
 
 ```
 app/              Server application
-  agent/          Agent loop, bot config, RAG stub
+  agent/          Agent loop, bot config, skills, RAG retrieval
   db/             SQLAlchemy models + engine
   routers/        FastAPI endpoints (/chat, /chat/stream, /sessions, /health)
   services/       Session persistence
   tools/          Tool registry, MCP proxy, local tools
     local/        Python tool implementations (web_search, client_action, etc.)
 bots/             Bot YAML configs
+skills/           Skill knowledge files (*.md)
 client/           CLI client (separate installable package)
   agent_client/   Client source (cli, http client, audio, config, state)
 migrations/       Alembic migrations

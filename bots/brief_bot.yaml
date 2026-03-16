@@ -19,7 +19,8 @@ local_tools:
   - fetch_url
 client_tools:
   - shell_exec
-rag: false
+skills:
+  - arch_linux
 context_compaction: true
 compaction_interval: 15
 compaction_keep_turns: 4
