@@ -15,6 +15,7 @@ dependencies = [
     "openai",
     "pyyaml",
     "pgvector",
+    "playwright",
 ]
 
 [project.optional-dependencies]

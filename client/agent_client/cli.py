@@ -14,6 +14,56 @@ from agent_client.config import load_config
 from agent_client.state import load_bot_id, load_session_id, new_session_id, save_bot_id, save_session_id
 
 
+_TOOL_DISPLAY_NAMES = {
+    "web_search": "Searching the web",
+    "fetch_url": "Reading webpage",
+    "get_current_time": "Checking the time",
+    "client_action": None,
+}
+
+
+def _tool_status(tool_name: str) -> str | None:
+    """Return a human-readable status string, or None to suppress display."""
+    if tool_name in _TOOL_DISPLAY_NAMES:
+        return _TOOL_DISPLAY_NAMES[tool_name]
+    return f"Using {tool_name}"
+
+
+def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
+    """Send a message via streaming and display tool status in real time.
+
+    Returns a dict with 'response' and 'client_actions' matching the non-streaming shape.
+    """
+    response_text = ""
+    client_actions: list[dict] = []
+
+    for event in client.chat_stream(
+        message=message,
+        session_id=ctx["session_id"],
+        bot_id=ctx["bot_id"],
+    ):
+        etype = event.get("type")
+
+        if etype == "tool_start":
+            label = _tool_status(event.get("tool", ""))
+            if label:
+                print(f"  [{label}...]")
+
+        elif etype == "tool_result":
+            if "error" in event:
+                print(f"  [error: {event['error']}]")
+
+        elif etype == "response":
+            response_text = event.get("text", "")
+            client_actions = event.get("client_actions", [])
+
+        elif etype == "error":
+            detail = event.get("detail", "Unknown error")
+            print(f"  [error] {detail}")
+
+    return {"response": response_text, "client_actions": client_actions}
+
+
 def _short_id(sid: uuid.UUID) -> str:
     return str(sid)[:6]
 
@@ -370,11 +420,7 @@ def main():
                     continue
 
             try:
-                result = client.chat(
-                    message=line,
-                    session_id=ctx["session_id"],
-                    bot_id=ctx["bot_id"],
-                )
+                result = _send_streaming(client, line, ctx)
                 response_text = result["response"]
                 print(f"\n{response_text}\n")
                 _handle_client_actions(result.get("client_actions", []), client, ctx)
@@ -405,11 +451,7 @@ def main():
                         ctx.pop("_voice_conversation", None)
                         break
                     print(f"  You said: {text}")
-                    result = client.chat(
-                        message=text,
-                        session_id=ctx["session_id"],
-                        bot_id=ctx["bot_id"],
-                    )
+                    result = _send_streaming(client, text, ctx)
                     response_text = result["response"]
                     print(f"\n{response_text}\n")
                     _handle_client_actions(result.get("client_actions", []), client, ctx)

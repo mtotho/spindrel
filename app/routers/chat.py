@@ -1,13 +1,15 @@
+import json
 import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
-from app.agent.loop import run
+from app.agent.loop import run, run_stream
 from app.dependencies import get_db, verify_auth
 from app.services.sessions import load_or_create, persist_turn
 
@@ -71,3 +73,38 @@ async def chat(
         response=result.response,
         client_actions=result.client_actions,
     )
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    bot = get_bot(req.bot_id)
+    logger.info("POST /chat/stream  bot=%s  session=%s  message=%r", req.bot_id, req.session_id, req.message[:80])
+
+    try:
+        session_id, messages = await load_or_create(
+            db, req.session_id, req.client_id, req.bot_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    from_index = len(messages)
+
+    async def event_generator():
+        try:
+            async for event in run_stream(messages, bot, req.message):
+                if await request.is_disconnected():
+                    break
+                event_with_session = {**event, "session_id": str(session_id)}
+                yield f"data: {json.dumps(event_with_session)}\n\n"
+        except Exception as e:
+            logger.exception("Streaming agent loop error")
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+        finally:
+            await persist_turn(db, session_id, messages, from_index)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

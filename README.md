@@ -1,14 +1,16 @@
 # Agent Server
 
-Self-hosted FastAPI agent server. Text-in, text-out chat with configurable LLM backend via LiteLLM, persistent sessions, and a tool system (local Python + MCP).
+Self-hosted FastAPI agent server. Text-in, text-out chat with configurable LLM backend via LiteLLM, persistent sessions, a tool system (local Python + MCP), web search, and a voice-enabled CLI client with wake word detection.
 
 ## Quick Start
 
 ```bash
 cp .env.example .env         # edit this first — see "Configuration" below
-./scripts/dev-server.sh      # starts postgres + server (terminal 1)
+./scripts/dev-server.sh      # starts postgres + searxng + playwright + server (terminal 1)
 ./scripts/dev-client.sh      # starts the CLI chat client (terminal 2)
 ```
+
+The dev-server script starts three Docker containers (postgres, searxng, playwright) and then runs the FastAPI server locally with `--reload`.
 
 ## Configuration
 
@@ -21,17 +23,21 @@ API_KEY=dev
 DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:5432/agentdb
 LITELLM_BASE_URL=http://localhost:4000/v1
 LITELLM_API_KEY=your-litellm-key
+
+# Web tools
+SEARXNG_URL=http://searxng:8080
+PLAYWRIGHT_WS_URL=ws://playwright:3000
 ```
 
 `API_KEY` is the bearer token that clients use to authenticate. For local dev, any value works — just make sure the client uses the same one.
 
 `LITELLM_BASE_URL` points to your LiteLLM proxy. The server calls it with the OpenAI SDK, so this should be the `/v1` endpoint. LiteLLM needs to be running separately — it is not managed by this project's docker-compose.
 
+`SEARXNG_URL` and `PLAYWRIGHT_WS_URL` point to the web tool services. Both are included in docker-compose and start automatically with `dev-server.sh`.
+
 ### Bots (bots/*.yaml)
 
 A bot is a named configuration that tells the server which model to use, what system prompt to send, and which tools are available. Bot YAML files live in `bots/` and are loaded once at server startup.
-
-The server ships with one bot:
 
 ```yaml
 # bots/default.yaml
@@ -45,7 +51,7 @@ local_tools: []
 rag: false
 ```
 
-**`model`** is a LiteLLM model alias. It gets passed straight through to the LiteLLM `/v1/chat/completions` endpoint. Whatever models you've configured in LiteLLM, use those names here. For example if LiteLLM has `gpt-4.1-mini` mapped to an OpenAI key, or `claude-sonnet` mapped to Anthropic, those are the strings you'd put in `model`.
+**`model`** is a LiteLLM model alias. It gets passed straight through to the LiteLLM `/v1/chat/completions` endpoint. Whatever models you've configured in LiteLLM, use those names here.
 
 **To create a new bot**, add a YAML file to `bots/`:
 
@@ -56,31 +62,40 @@ name: "Code Assistant"
 model: claude-sonnet-4-20250514
 system_prompt: |
   You are a senior software engineer. Be concise and direct.
-  Provide code examples when helpful.
 mcp_servers: []
 local_tools:
   - get_current_time
+  - web_search
+  - fetch_url
+  - client_action
 rag: false
 ```
 
-Then restart the server (or `./scripts/dev-server.sh` — uvicorn `--reload` picks up YAML changes in `bots/` on next request since they're loaded at startup, so you'd need a full restart).
+Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but bot configs are loaded at startup so a full restart is needed.
 
-**`local_tools`** lists tool names the bot is allowed to use. Available tools are defined in `app/tools/local/`. The example `get_current_time` tool is included.
+### Available local tools
+
+| Tool | Description |
+|---|---|
+| `get_current_time` | Returns current UTC time |
+| `web_search` | Search the web via SearXNG. Returns top N results as JSON |
+| `fetch_url` | Fetch and read a webpage via Playwright (falls back to httpx) |
+| `client_action` | Perform actions on the client device (new session, switch bot, toggle TTS, etc.) |
 
 **`mcp_servers`** lists LiteLLM MCP server aliases. If LiteLLM has MCP servers configured (e.g. `filesystem`, `github`), put their aliases here and the bot will have access to those tools.
 
 ## Using the CLI Client
 
-Start it with:
-
 ```bash
 ./scripts/dev-client.sh
-# or with a specific bot:
+# with a specific bot:
 ./scripts/dev-client.sh --bot code
-# with TTS enabled:
+# with TTS:
 ./scripts/dev-client.sh --tts
-# with full voice (TTS + voice input):
+# with full voice (TTS + STT + wake word):
 ./scripts/dev-client.sh --tts --voice
+# start directly in wake word listen mode:
+./scripts/dev-client.sh --tts --listen
 ```
 
 You'll see a prompt like:
@@ -91,8 +106,6 @@ Type /help for commands.
 
 [default|a1b2c3] >
 ```
-
-The prompt shows `[bot_id|session_id]`. Just type a message and hit enter.
 
 ### Commands
 
@@ -105,32 +118,69 @@ The prompt shows `[bot_id|session_id]`. Just type a message and hit enter.
 | `/sessions` | List all sessions on the server |
 | `/history` | Print the current session's message history |
 | `/v` | Voice input — record, transcribe, send |
-| `/bot <id>` | Switch to a different bot mid-session |
+| `/vc` | Voice conversation — continuous back-and-forth |
+| `/listen` | Wake word mode — say the wake word to trigger recording |
+| `/bot <id>` | Switch to a different bot |
 | `/bots` | List available bots |
 | `/tts` | Toggle text-to-speech on/off |
 | `/quit` | Exit (Ctrl+C also works) |
 
-### Voice Input (STT)
+### Streaming tool status
 
-Type `/v` to start recording. Speak into your mic — recording **auto-stops when you stop talking** (silence detection). The audio is transcribed locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and sent as a chat message. Combined with TTS, this gives you a full voice conversation loop.
+The client uses Server-Sent Events (`POST /chat/stream`) to get real-time feedback during the agent loop. When the bot uses tools, you see status immediately:
+
+```
+[brief_bot|a1b2c3] > what's in the news today?
+  [Searching the web...]
+  [Reading webpage...]
+
+Here's what's happening today: ...
+```
+
+This works in all modes — typed input, voice, and wake word listen mode.
+
+### Wake word mode
+
+Type `/listen` or start with `--listen` to enter wake word mode. The client listens for a wake word (e.g. "hey jarvis"), plays a confirmation tone, records your speech, transcribes it, and sends it to the bot. After the response, it goes back to listening.
+
+Configure wake words in `~/.config/agent-client/config.env` or the server `.env`:
+
+```
+WAKE_WORDS=hey_jarvis,hey_computer
+```
+
+Available wake words depend on what [openwakeword](https://github.com/dscripka/openWakeWord) supports. The client prints available options on first use.
+
+### Voice commands (client actions)
+
+When a bot has `client_action` in its `local_tools`, you can perform client operations by voice. The bot interprets your intent and calls the tool, which the client executes:
+
+- "Start a new session" — creates a fresh session
+- "Switch to the code bot" — switches bot
+- "Turn on text to speech" — toggles TTS
+- "Show me my sessions" — lists sessions
+- "What have we been talking about?" — prints history + bot summarizes
+
+These work because `client_action` is a server-side tool that returns structured data. The client receives the actions alongside the response and executes them locally.
+
+### Voice input (STT)
+
+Type `/v` to record a single voice input, or `/vc` for continuous voice conversation. Recording auto-stops on silence. Audio is transcribed locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
 
 The whisper model (~150MB for `base.en`) downloads on first use.
 
-**Requires:** `./scripts/dev-client.sh --voice` (or `--tts` which also pulls in voice deps).
+**Requires:** `--voice` flag (or `--listen`, which implies `--voice`).
 
 ### Text-to-Speech (TTS)
 
-When TTS is enabled, the bot's response is **printed and spoken aloud** using [Piper](https://github.com/rhasspy/piper), a fully local neural TTS engine. Nothing leaves the machine.
+When TTS is enabled, responses are printed and spoken aloud using [Piper](https://github.com/rhasspy/piper), a fully local neural TTS engine.
 
 **Enable TTS** by any of:
+- CLI flag: `--tts`
+- Config file: `TTS_ENABLED=true` in `~/.config/agent-client/config.env`
+- In-session: `/tts`
 
-- CLI flag: `./scripts/dev-client.sh --tts`
-- Config file: set `TTS_ENABLED=true` in `~/.config/agent-client/config.env`
-- In-session: type `/tts` to toggle on/off
-
-The dev script auto-installs all deps when you pass `--tts` or `--voice`. Piper downloads its voice model (~60MB) on first use.
-
-`aplay` is also required (part of `alsa-utils`, should already be on most Linux systems).
+`aplay` is required (part of `alsa-utils`).
 
 ### Voice config
 
@@ -141,9 +191,8 @@ TTS_ENABLED=true
 PIPER_MODEL=en_US-lessac-medium
 PIPER_MODEL_DIR=~/.local/share/piper
 WHISPER_MODEL=base.en
+WAKE_WORDS=hey_jarvis,hey_computer
 ```
-
-If `piper` or `aplay` aren't in PATH, TTS is disabled with an error. The text REPL always works regardless.
 
 ### How the client finds its settings
 
@@ -151,29 +200,67 @@ The client checks these in order (later overrides earlier):
 
 1. `~/.config/agent-client/config.env` (optional persistent config)
 2. Environment variables (`AGENT_URL`, `API_KEY`, `BOT_ID`, `TTS_ENABLED`, etc.)
-3. CLI flags (`--url`, `--key`, `--bot`, `--tts`/`--no-tts`)
+3. CLI flags (`--url`, `--key`, `--bot`, `--tts`/`--no-tts`, `--listen`)
 
 For local dev the scripts handle all of this — they pull `API_KEY` from your `.env` automatically.
 
 ### Sessions
 
-The client generates a session UUID on first run and saves it to `~/.config/agent-client/state.json`. This means conversations persist across client restarts. Use `/new` to start a fresh conversation.
+The client generates a session UUID on first run and saves it to `~/.config/agent-client/state.json`. Conversations persist across client restarts. Use `/new` to start a fresh conversation.
+
+## API
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Health check (no auth) |
+| `/chat` | POST | Send a message, get a response |
+| `/chat/stream` | POST | Same as `/chat` but streams SSE events with tool status |
+| `/sessions` | GET | List sessions (optional `?client_id=` filter) |
+| `/sessions/{id}` | GET | Get session with full message history |
+| `/sessions/{id}` | DELETE | Delete a session |
+| `/bots` | GET | List available bots |
+
+All endpoints except `/health` require `Authorization: Bearer <API_KEY>`.
+
+### POST /chat
+
+```json
+{"message": "hello", "session_id": "uuid", "client_id": "cli", "bot_id": "default"}
+```
+
+Returns:
+
+```json
+{"session_id": "uuid", "response": "Hi!", "client_actions": []}
+```
+
+### POST /chat/stream
+
+Same request body. Returns `text/event-stream` with events:
+
+```
+data: {"type": "tool_start", "tool": "web_search", "session_id": "uuid"}
+
+data: {"type": "tool_result", "tool": "web_search", "session_id": "uuid"}
+
+data: {"type": "response", "text": "Here's what I found...", "client_actions": [], "session_id": "uuid"}
+```
 
 ## Local Development Setup (manual)
 
 If you don't want to use the scripts:
 
-### 1. Postgres
+### 1. Docker services
 
 ```bash
-docker compose up postgres -d
+docker compose up postgres searxng playwright -d
 ```
 
 Useful commands:
 
 ```bash
 docker compose logs postgres       # check logs
-docker compose down                # stop
+docker compose down                # stop all
 docker compose down -v             # stop + wipe data
 ```
 
@@ -211,7 +298,9 @@ For deploying everything containerized:
 docker compose up --build
 ```
 
-Note: when running in Docker, use Docker service names in `.env` (`postgres` not `localhost`).
+This starts four services: `agent-server`, `postgres`, `searxng`, and `playwright`.
+
+When running in Docker, the `.env` should use Docker service names (`postgres`, `searxng`, `playwright`) not `localhost`.
 
 ## Project Layout
 
@@ -219,75 +308,13 @@ Note: when running in Docker, use Docker service names in `.env` (`postgres` not
 app/              Server application
   agent/          Agent loop, bot config, RAG stub
   db/             SQLAlchemy models + engine
-  routers/        FastAPI endpoints (/chat, /sessions, /health)
+  routers/        FastAPI endpoints (/chat, /chat/stream, /sessions, /health)
   services/       Session persistence
   tools/          Tool registry, MCP proxy, local tools
+    local/        Python tool implementations (web_search, client_action, etc.)
 bots/             Bot YAML configs
 client/           CLI client (separate installable package)
+  agent_client/   Client source (cli, http client, audio, config, state)
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
-```
-## Project Structure
-
-```
-agent-server/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI app, lifespan, route registration
-│   ├── config.py                # Settings from env vars (pydantic-settings)
-│   ├── dependencies.py          # FastAPI deps: db session, auth
-│   │
-│   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── chat.py              # POST /chat
-│   │   └── sessions.py          # GET/DELETE /sessions endpoints
-│   │
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── loop.py              # Core agent loop (tool call iteration)
-│   │   ├── bots.py              # Bot registry and config loader
-│   │   └── rag.py               # Stub: retrieve_context() returns []
-│   │
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── registry.py          # Central tool dispatcher
-│   │   ├── mcp.py               # Fetch + proxy MCP tools from LiteLLM
-│   │   └── local/               # Custom Python tool implementations
-│   │       ├── __init__.py      # Imports all tool modules to trigger registration
-│   │       └── example.py       # get_current_time, send_notification
-│   │
-│   ├── services/
-│   │   ├── __init__.py
-│   │   └── sessions.py          # Session CRUD, message persistence
-│   │
-│   └── db/
-│       ├── __init__.py
-│       ├── engine.py            # Async engine + session factory
-│       └── models.py            # SQLAlchemy ORM models
-│
-├── client/                      # Test client / desktop client (separate package)
-│   ├── agent_client/
-│   │   ├── __init__.py
-│   │   ├── cli.py               # Phase 1: interactive REPL
-│   │   ├── client.py            # HTTP client (shared across all phases)
-│   │   ├── config.py            # Load settings from config file
-│   │   ├── state.py             # Session ID persistence
-│   │   ├── audio.py             # Phase 2: recording + STT (optional import)
-│   │   └── daemon.py            # Phase 3: background process (future)
-│   └── pyproject.toml
-│
-├── bots/                        # Bot definition files (YAML)
-│   └── default.yaml
-│
-├── migrations/                  # Alembic migration directory
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions/
-│
-├── docker-compose.yml
-├── Dockerfile
-├── alembic.ini
-├── pyproject.toml
-├── .env.example
-└── .gitignore
 ```

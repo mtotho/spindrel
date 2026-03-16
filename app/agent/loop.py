@@ -1,6 +1,8 @@
 import json
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -41,8 +43,18 @@ def _extract_client_actions(messages: list[dict], from_index: int) -> list[dict]
     return actions
 
 
-async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunResult:
+async def run_stream(
+    messages: list[dict], bot: BotConfig, user_message: str
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Core agent loop as an async generator that yields status events.
+
+    Events:
+      {"type": "tool_start", "tool": "<name>"}
+      {"type": "tool_result", "tool": "<name>"}
+      {"type": "response", "text": "...", "client_actions": [...]}
+    """
     turn_start = len(messages)
+
     if bot.rag:
         chunks = await retrieve_context(user_message)
         if chunks:
@@ -72,20 +84,22 @@ async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunRes
         messages.append(msg_dict)
 
         if not msg.tool_calls:
-            return RunResult(
-                response=msg.content or "",
-                client_actions=_extract_client_actions(messages, turn_start),
-            )
+            yield {
+                "type": "response",
+                "text": msg.content or "",
+                "client_actions": _extract_client_actions(messages, turn_start),
+            }
+            return
 
         for tc in msg.tool_calls:
             name = tc.function.name
             args = tc.function.arguments
 
+            yield {"type": "tool_start", "tool": name}
+
             if is_local_tool(name):
                 result = await call_local_tool(name, args)
-            elif any(
-                name.startswith(f"{s}_") for s in bot.mcp_servers
-            ):
+            elif any(name.startswith(f"{s}_") for s in bot.mcp_servers):
                 result = await call_mcp_tool(name, args)
             else:
                 result = json.dumps({"error": f"Unknown tool: {name}"})
@@ -95,6 +109,15 @@ async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunRes
                 "tool_call_id": tc.id,
                 "content": result,
             })
+
+            tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict) and "error" in parsed:
+                    tool_event["error"] = parsed["error"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+            yield tool_event
 
     logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
     messages.append({
@@ -107,7 +130,18 @@ async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunRes
     )
     msg = response.choices[0].message
     messages.append(msg.model_dump(exclude_none=True))
-    return RunResult(
-        response=msg.content or "",
-        client_actions=_extract_client_actions(messages, turn_start),
-    )
+    yield {
+        "type": "response",
+        "text": msg.content or "",
+        "client_actions": _extract_client_actions(messages, turn_start),
+    }
+
+
+async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunResult:
+    """Non-streaming wrapper: runs the agent loop and returns the final result."""
+    result = RunResult()
+    async for event in run_stream(messages, bot, user_message):
+        if event["type"] == "response":
+            result.response = event["text"]
+            result.client_actions = event.get("client_actions", [])
+    return result

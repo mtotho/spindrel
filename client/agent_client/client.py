@@ -1,4 +1,6 @@
+import json
 import uuid
+from collections.abc import Generator
 from typing import Any
 
 import httpx
@@ -27,6 +29,29 @@ class AgentClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    def chat_stream(
+        self, message: str, session_id: uuid.UUID, bot_id: str, client_id: str = "cli"
+    ) -> Generator[dict[str, Any], None, None]:
+        """Stream SSE events from the agent loop. Yields parsed event dicts."""
+        with self._http.stream(
+            "POST",
+            "/chat/stream",
+            json={
+                "message": message,
+                "session_id": str(session_id),
+                "client_id": client_id,
+                "bot_id": bot_id,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    yield json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
 
     def list_sessions(self, client_id: str | None = None) -> list[dict]:
         params = {}
