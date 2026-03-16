@@ -7,6 +7,7 @@ from app.agent.bots import load_bots
 from app.agent.skills import load_skills
 from app.config import settings
 from app.db.engine import run_migrations
+from app.tools.mcp import load_mcp_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ async def lifespan(app: FastAPI):
     await run_migrations()
     logger.info("Loading bot configurations...")
     load_bots()
+    logger.info("Loading MCP server config...")
+    load_mcp_config()
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
 

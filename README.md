@@ -148,15 +148,29 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 
 **`compaction_model`** overrides the model used for summarization. By default it uses the global `COMPACTION_MODEL`, falling back to the bot's own model.
 
-**`mcp_servers`** lists MCP server names as configured in your LiteLLM proxy. Tools from each server are namespaced with a prefix (e.g. a server named `HAOS` exposes tools like `HAOS_call_service`, `HAOS_get_states`). The agent server fetches available tools from LiteLLM's MCP endpoint on each turn, filters to the bot's allowed servers, and proxies tool calls back through LiteLLM.
+**`mcp_servers`** lists MCP server names defined in `mcp.yaml`. The agent server fetches available tools from each server's MCP endpoint, makes them available to the LLM, and proxies tool calls back.
 
 ```yaml
 mcp_servers:
-  - HAOS
-  - filesystem
+  - homeassistant
+  - github
 ```
 
-Requires `LITELLM_MCP_URL` in `.env` (defaults to `http://litellm:4000/mcp`). Tool schemas are cached for 60 seconds.
+### MCP Servers (mcp.yaml)
+
+MCP server connections are defined in `mcp.yaml` at the project root. Each entry maps a name (referenced by bots) to a URL and optional API key:
+
+```yaml
+homeassistant:
+  url: http://litellm:4000/homeassistant/mcp
+  api_key: ${LITELLM_API_KEY}
+
+github:
+  url: http://some-other-mcp-server:8080/mcp
+  api_key: ${GITHUB_MCP_KEY}
+```
+
+Values support `${ENV_VAR}` substitution so you can keep secrets in `.env`. The URL should be the full MCP endpoint — this works with any MCP-compatible server, not just LiteLLM. Tool schemas are cached for 60 seconds.
 
 ## Using the CLI Client
 
@@ -427,6 +441,7 @@ app/              Server application
     local/        Python tool implementations (web_search, client_action, etc.)
 bots/             Bot YAML configs
 skills/           Skill knowledge files (*.md)
+mcp.yaml          MCP server connection config
 client/           CLI client (separate installable package)
   agent_client/   Client source (cli, http client, audio, config, state)
 migrations/       Alembic migrations

@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Agent Voice Client",
+    "slug": "agent-voice-client",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "agent-voice-client",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "com.agentvoiceclient",
+      "versionCode": 1,
+      "permissions": [
+        "RECORD_AUDIO",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "SYSTEM_ALERT_WINDOW",
+        "INTERNET",
+        "WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Agent Voice Client to access the microphone for voice commands."
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.agentvoiceclient"
+    }
+  }
+}

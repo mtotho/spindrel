@@ -1,30 +1,82 @@
 import asyncio
 import json
 import logging
+import os
+import re
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
-
-from app.config import settings
+import yaml
 
 logger = logging.getLogger(__name__)
 
+MCP_CONFIG_PATH = Path("mcp.yaml")
+
+_ENV_VAR_RE = re.compile(r"\$\{(\w+)\}")
+
+_servers: dict[str, "MCPServerConfig"] = {}
 _cache: dict[str, dict[str, Any]] = {}
 _cache_ttl = 60.0
 _lock = asyncio.Lock()
 
 
-def _litellm_base() -> str:
-    """Derive the LiteLLM proxy root from LITELLM_BASE_URL (strip /v1 suffix)."""
-    base = settings.LITELLM_BASE_URL.rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    return base
+@dataclass
+class MCPServerConfig:
+    name: str
+    url: str
+    api_key: str = ""
 
 
-def _server_mcp_url(server_name: str) -> str:
-    return f"{_litellm_base()}/{server_name}/mcp"
+def _resolve_env_vars(value: str) -> str:
+    """Replace ${VAR_NAME} placeholders with environment variable values.
+
+    Checks os.environ first, then falls back to pydantic settings (which
+    loads from .env) for known config values.
+    """
+    from app.config import settings
+
+    def _lookup(match: re.Match) -> str:
+        var = match.group(1)
+        env_val = os.environ.get(var)
+        if env_val is not None:
+            return env_val
+        return getattr(settings, var, "")
+
+    return _ENV_VAR_RE.sub(_lookup, value)
+
+
+def load_mcp_config(config_path: Path = MCP_CONFIG_PATH) -> None:
+    """Load MCP server definitions from mcp.yaml."""
+    _servers.clear()
+    if not config_path.exists():
+        logger.info("No MCP config at %s, skipping", config_path)
+        return
+
+    with open(config_path) as f:
+        data = yaml.safe_load(f)
+
+    if not data or not isinstance(data, dict):
+        logger.warning("MCP config at %s is empty or invalid", config_path)
+        return
+
+    for name, conf in data.items():
+        if not isinstance(conf, dict) or "url" not in conf:
+            logger.warning("MCP server '%s' missing 'url', skipping", name)
+            continue
+        server = MCPServerConfig(
+            name=name,
+            url=_resolve_env_vars(str(conf["url"])),
+            api_key=_resolve_env_vars(str(conf.get("api_key", ""))),
+        )
+        _servers[name] = server
+        logger.info("Loaded MCP server: %s -> %s", name, server.url)
+
+
+def _get_server(name: str) -> MCPServerConfig | None:
+    return _servers.get(name)
 
 
 async def fetch_mcp_tools(allowed_servers: list[str] | None = None) -> list[dict]:
@@ -32,56 +84,58 @@ async def fetch_mcp_tools(allowed_servers: list[str] | None = None) -> list[dict
         return []
 
     all_tools: list[dict] = []
-
-    for server in allowed_servers:
+    for server_name in allowed_servers:
+        server = _get_server(server_name)
+        if not server:
+            logger.warning("Bot references unknown MCP server '%s' (not in mcp.yaml)", server_name)
+            continue
         tools = await _fetch_server_tools(server)
         all_tools.extend(tools)
 
     return all_tools
 
 
-async def _fetch_server_tools(server_name: str) -> list[dict]:
+async def _fetch_server_tools(server: MCPServerConfig) -> list[dict]:
     now = time.monotonic()
-    cached = _cache.get(server_name)
+    cached = _cache.get(server.name)
     if cached and (now - cached["fetched_at"]) < _cache_ttl:
-        logger.debug("MCP cache hit for '%s': %d tools", server_name, len(cached["tools"]))
+        logger.debug("MCP cache hit for '%s': %d tools", server.name, len(cached["tools"]))
         return cached["tools"]
 
     async with _lock:
-        cached = _cache.get(server_name)
+        cached = _cache.get(server.name)
         if cached and (time.monotonic() - cached["fetched_at"]) < _cache_ttl:
             return cached["tools"]
 
-        url = _server_mcp_url(server_name)
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if server.api_key:
+            headers["Authorization"] = f"Bearer {server.api_key}"
+
         try:
-            logger.info("Fetching MCP tools from %s", url)
+            logger.info("Fetching MCP tools from %s", server.url)
             async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
                 resp = await client.post(
-                    url,
+                    server.url,
                     json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
-                    headers={
-                        "Authorization": f"Bearer {settings.LITELLM_API_KEY}",
-                        "Content-Type": "application/json",
-                        "Accept": "application/json, text/event-stream",
-                    },
+                    headers=headers,
                 )
                 if resp.status_code != 200:
                     logger.error("MCP server '%s' returned %d: %s",
-                                  server_name, resp.status_code, resp.text[:500])
+                                  server.name, resp.status_code, resp.text[:500])
                     resp.raise_for_status()
-                ct = resp.headers.get("content-type", "")
-                logger.debug("MCP response: status=%d content-type=%s body=%s",
-                              resp.status_code, ct, resp.text[:500])
 
+                ct = resp.headers.get("content-type", "")
                 if "text/event-stream" in ct:
                     data = _parse_sse_json(resp.text)
                 else:
                     data = resp.json()
-                tools = data.get("result", {}).get("tools", [])
 
+                tools = data.get("result", {}).get("tools", [])
                 if not tools:
-                    logger.warning("MCP server '%s' returned 0 tools. Response: %s",
-                                    server_name, json.dumps(data)[:500])
+                    logger.warning("MCP server '%s' returned 0 tools", server.name)
 
                 openai_tools = []
                 for tool in tools:
@@ -94,13 +148,13 @@ async def _fetch_server_tools(server_name: str) -> list[dict]:
                         },
                     })
 
-                _cache[server_name] = {"tools": openai_tools, "fetched_at": time.monotonic()}
+                _cache[server.name] = {"tools": openai_tools, "fetched_at": time.monotonic()}
                 tool_names = [t["function"]["name"] for t in openai_tools]
                 logger.info("Fetched %d MCP tools from '%s': %s",
-                             len(openai_tools), server_name, tool_names)
+                             len(openai_tools), server.name, tool_names)
                 return openai_tools
         except Exception:
-            logger.exception("Failed to fetch MCP tools from %s", url)
+            logger.exception("Failed to fetch MCP tools from %s", server.url)
             if cached:
                 return cached["tools"]
             return []
@@ -108,24 +162,29 @@ async def _fetch_server_tools(server_name: str) -> list[dict]:
 
 async def call_mcp_tool(tool_name: str, arguments: str) -> str:
     server_name = _find_server_for_tool(tool_name)
-    url = _server_mcp_url(server_name) if server_name else f"{_litellm_base()}/mcp"
+    server = _get_server(server_name) if server_name else None
+    if not server:
+        return json.dumps({"error": f"No MCP server found for tool: {tool_name}"})
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if server.api_key:
+        headers["Authorization"] = f"Bearer {server.api_key}"
 
     try:
         args = json.loads(arguments) if arguments else {}
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.post(
-                url,
+                server.url,
                 json={
                     "jsonrpc": "2.0",
                     "method": "tools/call",
                     "params": {"name": tool_name, "arguments": args},
                     "id": 1,
                 },
-                headers={
-                    "Authorization": f"Bearer {settings.LITELLM_API_KEY}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
+                headers=headers,
             )
             resp.raise_for_status()
             ct = resp.headers.get("content-type", "")

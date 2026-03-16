@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     # LiteLLM
     LITELLM_BASE_URL: str = "http://litellm:4000/v1"
     LITELLM_API_KEY: str = ""
-    LITELLM_MCP_URL: str = ""  # deprecated: MCP URLs are now derived per-server from LITELLM_BASE_URL
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15

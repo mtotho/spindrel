@@ -43,3 +43,6 @@ migrations/versions/__pycache__/
 # Keys and credentials
 *.pem
 *.key
+
+node_modules/
+android-client/node_modules/

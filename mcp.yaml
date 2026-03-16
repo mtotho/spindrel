@@ -1,0 +1,9 @@
+# MCP server definitions.
+# Bots reference these by name in their mcp_servers list.
+#
+# Each server needs a url (the MCP endpoint) and optionally an api_key.
+# If api_key is omitted, no Authorization header is sent.
+
+homeassistant:
+  url: http://llama.tothdev.lan:4000/homeassistant/mcp
+  api_key: ${LITELLM_API_KEY}
