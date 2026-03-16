@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: uuid.UUID
     response: str
+    client_actions: list[dict] = []
 
 
 @router.get("/bots")
@@ -55,12 +56,18 @@ async def chat(
     from_index = len(messages)
 
     try:
-        response_text = await run(messages, bot, req.message)
+        result = await run(messages, bot, req.message)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
 
-    logger.info("Response (%d chars): %r", len(response_text), response_text[:100])
+    logger.info("Response (%d chars): %r", len(result.response), result.response[:100])
+    if result.client_actions:
+        logger.info("Client actions: %s", result.client_actions)
 
     await persist_turn(db, session_id, messages, from_index)
 
-    return ChatResponse(session_id=session_id, response=response_text)
+    return ChatResponse(
+        session_id=session_id,
+        response=result.response,
+        client_actions=result.client_actions,
+    )

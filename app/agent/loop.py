@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
 
@@ -18,7 +19,30 @@ _client = AsyncOpenAI(
 )
 
 
-async def run(messages: list[dict], bot: BotConfig, user_message: str) -> str:
+@dataclass
+class RunResult:
+    response: str = ""
+    client_actions: list[dict] = field(default_factory=list)
+
+
+def _extract_client_actions(messages: list[dict], from_index: int) -> list[dict]:
+    """Scan messages added during this turn for client_action tool calls."""
+    actions = []
+    for msg in messages[from_index:]:
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            continue
+        for tc in msg["tool_calls"]:
+            if tc.get("function", {}).get("name") == "client_action":
+                try:
+                    args = json.loads(tc["function"]["arguments"])
+                    actions.append(args)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    return actions
+
+
+async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunResult:
+    turn_start = len(messages)
     if bot.rag:
         chunks = await retrieve_context(user_message)
         if chunks:
@@ -48,7 +72,10 @@ async def run(messages: list[dict], bot: BotConfig, user_message: str) -> str:
         messages.append(msg_dict)
 
         if not msg.tool_calls:
-            return msg.content or ""
+            return RunResult(
+                response=msg.content or "",
+                client_actions=_extract_client_actions(messages, turn_start),
+            )
 
         for tc in msg.tool_calls:
             name = tc.function.name
@@ -80,4 +107,7 @@ async def run(messages: list[dict], bot: BotConfig, user_message: str) -> str:
     )
     msg = response.choices[0].message
     messages.append(msg.model_dump(exclude_none=True))
-    return msg.content or ""
+    return RunResult(
+        response=msg.content or "",
+        client_actions=_extract_client_actions(messages, turn_start),
+    )

@@ -227,3 +227,67 @@ client/           CLI client (separate installable package)
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
 ```
+## Project Structure
+
+```
+agent-server/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                  # FastAPI app, lifespan, route registration
+│   ├── config.py                # Settings from env vars (pydantic-settings)
+│   ├── dependencies.py          # FastAPI deps: db session, auth
+│   │
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── chat.py              # POST /chat
+│   │   └── sessions.py          # GET/DELETE /sessions endpoints
+│   │
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── loop.py              # Core agent loop (tool call iteration)
+│   │   ├── bots.py              # Bot registry and config loader
+│   │   └── rag.py               # Stub: retrieve_context() returns []
+│   │
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── registry.py          # Central tool dispatcher
+│   │   ├── mcp.py               # Fetch + proxy MCP tools from LiteLLM
+│   │   └── local/               # Custom Python tool implementations
+│   │       ├── __init__.py      # Imports all tool modules to trigger registration
+│   │       └── example.py       # get_current_time, send_notification
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   └── sessions.py          # Session CRUD, message persistence
+│   │
+│   └── db/
+│       ├── __init__.py
+│       ├── engine.py            # Async engine + session factory
+│       └── models.py            # SQLAlchemy ORM models
+│
+├── client/                      # Test client / desktop client (separate package)
+│   ├── agent_client/
+│   │   ├── __init__.py
+│   │   ├── cli.py               # Phase 1: interactive REPL
+│   │   ├── client.py            # HTTP client (shared across all phases)
+│   │   ├── config.py            # Load settings from config file
+│   │   ├── state.py             # Session ID persistence
+│   │   ├── audio.py             # Phase 2: recording + STT (optional import)
+│   │   └── daemon.py            # Phase 3: background process (future)
+│   └── pyproject.toml
+│
+├── bots/                        # Bot definition files (YAML)
+│   └── default.yaml
+│
+├── migrations/                  # Alembic migration directory
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│
+├── docker-compose.yml
+├── Dockerfile
+├── alembic.ini
+├── pyproject.toml
+├── .env.example
+└── .gitignore
+```

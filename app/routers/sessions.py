@@ -27,7 +27,7 @@ class MessageOut(BaseModel):
     id: uuid.UUID
     role: str
     content: Optional[str] = None
-    tool_calls: Optional[dict] = None
+    tool_calls: Optional[list] = None
     tool_call_id: Optional[str] = None
     created_at: datetime
 

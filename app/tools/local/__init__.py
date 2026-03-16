@@ -1,1 +1,1 @@
-from app.tools.local import example  # noqa: F401
+from app.tools.local import client_action, example  # noqa: F401

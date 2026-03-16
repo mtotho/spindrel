@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 
 source .venv/bin/activate
 
-# Install with voice extras if --tts or --voice is in the args
-if [[ " $* " == *" --tts "* ]] || [[ " $* " == *" --voice "* ]]; then
+# Install with voice extras if --tts, --voice, or --listen is in the args
+if [[ " $* " == *" --tts "* ]] || [[ " $* " == *" --voice "* ]] || [[ " $* " == *" --listen "* ]]; then
     pip install -q -e "client/[voice]"
 else
     pip install -q -e client/

@@ -325,6 +325,35 @@ def check_stt_ready() -> str | None:
     return None
 
 
+# --- Tone ---
+
+def play_tone(volume: float = 0.3) -> None:
+    """Play a short rising two-tone chime to confirm wake word detection."""
+    if not STT_AVAILABLE:
+        return
+    try:
+        duration = 0.1
+        gap_duration = 0.03
+        sr = SAMPLE_RATE
+
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        tone1 = np.sin(2 * np.pi * 660 * t)
+        tone2 = np.sin(2 * np.pi * 880 * t)
+        gap = np.zeros(int(sr * gap_duration))
+
+        chime = np.concatenate([tone1, gap, tone2]).astype(np.float32) * volume
+
+        fade_len = int(0.005 * sr)
+        if fade_len > 0:
+            chime[:fade_len] *= np.linspace(0, 1, fade_len, dtype=np.float32)
+            chime[-fade_len:] *= np.linspace(1, 0, fade_len, dtype=np.float32)
+
+        sd.play(chime, samplerate=sr)
+        sd.wait()
+    except Exception:
+        pass
+
+
 # --- Wake Word ---
 
 WAKEWORD_CHUNK = 1280  # 80ms at 16kHz, optimal for openwakeword
