@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,20 +87,22 @@ async def persist_turn(
     from_index: int,
 ) -> None:
     new_messages = messages[from_index:]
-    for msg in new_messages:
+    now = datetime.now(timezone.utc)
+    for i, msg in enumerate(new_messages):
         record = Message(
             session_id=session_id,
             role=msg["role"],
             content=msg.get("content"),
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
+            created_at=now + timedelta(microseconds=i),
         )
         db.add(record)
 
     await db.execute(
         update(Session)
         .where(Session.id == session_id)
-        .values(last_active=datetime.now(timezone.utc))
+        .values(last_active=now)
     )
     await db.commit()
 
@@ -108,56 +110,86 @@ async def persist_turn(
 
 
 def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
-    """Remove orphaned tool messages that would cause LLM API errors.
+    """Fix tool message ordering and strip orphans.
 
-    Gemini (and others) require every tool result to have a matching
-    tool_call in a preceding assistant message, and vice versa.  DB
-    round-trips, compaction watermarks, or malformed tool_call IDs can
-    break these pairs.  Strip any that don't match.
+    LLMs (especially Gemini via LiteLLM) require strict ordering:
+    assistant(tool_calls) must come before its tool(results), and every
+    tool result must have a matching tool_call.  DB round-trips can break
+    ordering (same-timestamp inserts) and compaction can orphan messages.
+
+    Strategy: extract tool call/result groups, reinsert them in the
+    correct position, and strip anything that can't be matched.
     """
-    # Collect all tool_call IDs present in assistant tool_calls
-    offered_ids: set[str] = set()
-    for msg in messages:
+    # Pass 1: find where each tool_call ID is offered (assistant) and
+    # answered (tool result), by position in the message list.
+    call_positions: dict[str, int] = {}   # tc_id → index of assistant msg
+    result_positions: dict[str, int] = {} # tc_id → index of tool msg
+
+    for i, msg in enumerate(messages):
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             for tc in msg["tool_calls"]:
                 tc_id = tc.get("id") or ""
                 if tc_id:
-                    offered_ids.add(tc_id)
+                    call_positions[tc_id] = i
+        elif msg.get("role") == "tool" and msg.get("tool_call_id"):
+            result_positions[msg["tool_call_id"]] = i
 
-    # Collect all tool_call IDs referenced by tool result messages
-    answered_ids: set[str] = set()
-    for msg in messages:
-        if msg.get("role") == "tool" and msg.get("tool_call_id"):
-            answered_ids.add(msg["tool_call_id"])
+    # Pass 2: identify problems
+    all_call_ids = set(call_positions.keys())
+    all_result_ids = set(result_positions.keys())
+    orphan_results = all_result_ids - all_call_ids
+    orphan_calls = all_call_ids - all_result_ids
+    misordered = {
+        tc_id for tc_id in (all_call_ids & all_result_ids)
+        if call_positions[tc_id] >= result_positions[tc_id]
+    }
 
-    orphan_tool_ids = answered_ids - offered_ids
-    orphan_call_ids = offered_ids - answered_ids
-
-    if not orphan_tool_ids and not orphan_call_ids:
+    if not orphan_results and not orphan_calls and not misordered:
         return messages
 
-    if orphan_tool_ids:
-        logger.warning("Stripping %d orphaned tool result(s)", len(orphan_tool_ids))
-    if orphan_call_ids:
-        logger.warning("Stripping %d unanswered tool call(s)", len(orphan_call_ids))
+    if orphan_results:
+        logger.warning("Stripping %d orphaned tool result(s)", len(orphan_results))
+    if orphan_calls:
+        logger.warning("Stripping %d unanswered tool call(s)", len(orphan_calls))
+    if misordered:
+        logger.warning("Reordering %d misordered tool sequence(s)", len(misordered))
+
+    # Pass 3: rebuild.  Pull out misordered tool results, strip orphans,
+    # then reinsert tool results right after their tool_call source.
+    displaced: dict[str, dict] = {}  # tc_id → tool result msg (pulled out)
+    result_indices_to_skip: set[int] = set()
+
+    for tc_id in misordered:
+        idx = result_positions[tc_id]
+        displaced[tc_id] = messages[idx]
+        result_indices_to_skip.add(idx)
 
     cleaned: list[dict] = []
-    for msg in messages:
-        if msg.get("role") == "tool" and msg.get("tool_call_id") in orphan_tool_ids:
+    for i, msg in enumerate(messages):
+        if i in result_indices_to_skip:
+            continue
+
+        if msg.get("role") == "tool" and msg.get("tool_call_id") in orphan_results:
             continue
 
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             kept = [tc for tc in msg["tool_calls"]
-                    if (tc.get("id") or "") not in orphan_call_ids]
+                    if (tc.get("id") or "") not in orphan_calls]
             if not kept:
-                # Assistant message had only orphaned tool calls — keep as
-                # plain text if it has content, otherwise drop entirely.
                 if msg.get("content"):
                     cleaned.append({"role": "assistant", "content": msg["content"]})
                 continue
-            msg = {**msg, "tool_calls": kept}
+            if len(kept) != len(msg["tool_calls"]):
+                msg = {**msg, "tool_calls": kept}
 
         cleaned.append(msg)
+
+        # Reinsert any displaced tool results right after their source
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tc_id = tc.get("id") or ""
+                if tc_id in displaced:
+                    cleaned.append(displaced.pop(tc_id))
 
     return cleaned
 
