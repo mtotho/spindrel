@@ -128,7 +128,7 @@ Skill IDs are filenames without the `.md` extension. Only the listed skills are 
 EMBEDDING_MODEL=text-embedding-3-small   # model name via LiteLLM
 EMBEDDING_DIM=1536                       # must match the model's output dimension
 RAG_TOP_K=5                              # max chunks to retrieve per query
-RAG_SIMILARITY_THRESHOLD=0.75            # minimum cosine similarity (0-1)
+RAG_SIMILARITY_THRESHOLD=0.3             # minimum cosine similarity (0-1)
 ```
 
 The embedding model is called through your LiteLLM proxy, so any model LiteLLM supports works here.
@@ -148,7 +148,15 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 
 **`compaction_model`** overrides the model used for summarization. By default it uses the global `COMPACTION_MODEL`, falling back to the bot's own model.
 
-**`mcp_servers`** lists LiteLLM MCP server aliases. If LiteLLM has MCP servers configured (e.g. `filesystem`, `github`), put their aliases here and the bot will have access to those tools.
+**`mcp_servers`** lists MCP server names as configured in your LiteLLM proxy. Tools from each server are namespaced with a prefix (e.g. a server named `HAOS` exposes tools like `HAOS_call_service`, `HAOS_get_states`). The agent server fetches available tools from LiteLLM's MCP endpoint on each turn, filters to the bot's allowed servers, and proxies tool calls back through LiteLLM.
+
+```yaml
+mcp_servers:
+  - HAOS
+  - filesystem
+```
+
+Requires `LITELLM_MCP_URL` in `.env` (defaults to `http://litellm:4000/mcp`). Tool schemas are cached for 60 seconds.
 
 ## Using the CLI Client
 

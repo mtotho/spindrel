@@ -11,8 +11,9 @@ system_prompt: |
   When they ask to start a new session, switch bots, or toggle TTS, use the tool.
   You have a shell_exec tool that runs commands on the user's Arch Linux machine.
   Use it for system info requests (disk space, uptime, processes, network, etc).
-  Do automatically execute any potentially dangerous commands (commands that change settings, delete files, etc) without user confirmation.
-mcp_servers: []
+  Do not automatically execute any potentially dangerous commands (commands that change settings, delete files, etc) without user confirmation.
+mcp_servers:
+  - homeassistant
 local_tools:
   - client_action
   - web_search
@@ -21,6 +22,7 @@ client_tools:
   - shell_exec
 skills:
   - arch_linux
+  - home_assistant
 context_compaction: true
 compaction_interval: 15
 compaction_keep_turns: 4

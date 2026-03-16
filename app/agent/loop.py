@@ -13,7 +13,7 @@ from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
-from app.tools.mcp import call_mcp_tool, fetch_mcp_tools
+from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
 
 logger = logging.getLogger(__name__)
@@ -143,7 +143,7 @@ async def run_stream(
                     result = json.dumps({"error": "Client did not respond in time"})
             elif is_local_tool(name):
                 result = await call_local_tool(name, args)
-            elif any(name.startswith(f"{s}_") for s in bot.mcp_servers):
+            elif is_mcp_tool(name):
                 result = await call_mcp_tool(name, args)
             else:
                 result = json.dumps({"error": f"Unknown tool: {name}"})
