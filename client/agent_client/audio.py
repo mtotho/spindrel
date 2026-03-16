@@ -122,7 +122,7 @@ def _ensure_piper_model(model: str, model_dir: Path) -> Path:
     return onnx_path
 
 
-def speak(text: str, model: str, model_dir: str) -> None:
+def speak(text: str, model: str, model_dir: str, speed: float = 1.0) -> None:
     if not TTS_AVAILABLE:
         return
 
@@ -131,8 +131,13 @@ def speak(text: str, model: str, model_dir: str) -> None:
     try:
         onnx_path = _ensure_piper_model(model, resolved_dir)
 
+        piper_cmd = ["piper", "--model", str(onnx_path), "--output-raw"]
+        if speed != 1.0:
+            # --length-scale is inverse: < 1.0 = faster, > 1.0 = slower
+            piper_cmd.extend(["--length-scale", str(1.0 / speed)])
+
         piper_proc = subprocess.Popen(
-            ["piper", "--model", str(onnx_path), "--output-raw"],
+            piper_cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -230,7 +235,11 @@ def _get_whisper(model_name: str) -> "WhisperModel":
     global _whisper_model
     if _whisper_model is None:
         print("Loading whisper model (first time may download ~150MB)...")
-        _whisper_model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        try:
+            _whisper_model = WhisperModel(model_name, device="auto", compute_type="auto")
+        except Exception:
+            print("  CUDA not available, using CPU...")
+            _whisper_model = WhisperModel(model_name, device="cpu", compute_type="int8")
         print("Whisper ready.")
     return _whisper_model
 
@@ -312,6 +321,7 @@ def record_audio(idle_timeout: float | None = None) -> "np.ndarray | None":
 
 
 def transcribe(audio: "np.ndarray", model_name: str) -> str | None:
+    global _whisper_model
     if not STT_AVAILABLE:
         return None
 
@@ -319,8 +329,17 @@ def transcribe(audio: "np.ndarray", model_name: str) -> str | None:
 
     print("Transcribing...")
     audio_flat = audio.flatten()
-    segments, _ = model.transcribe(audio_flat, beam_size=1, language="en")
-    text = " ".join(seg.text.strip() for seg in segments).strip()
+    try:
+        segments, _ = model.transcribe(audio_flat, beam_size=1, language="en")
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+    except RuntimeError as e:
+        if "libcublas" in str(e) or "cuda" in str(e).lower():
+            print("  CUDA runtime error, reloading model on CPU...")
+            _whisper_model = WhisperModel(model_name, device="cpu", compute_type="int8")
+            segments, _ = _whisper_model.transcribe(audio_flat, beam_size=1, language="en")
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+        else:
+            raise
 
     if not text:
         print("No speech recognized.")
@@ -358,28 +377,45 @@ def check_stt_ready() -> str | None:
 
 # --- Tone ---
 
-def play_tone(volume: float = 0.3) -> None:
-    """Play a short rising two-tone chime to confirm wake word detection."""
-    if not STT_AVAILABLE:
-        return
-    try:
+def _generate_tone(preset: str, sr: int, volume: float) -> "np.ndarray":
+    """Generate a tone waveform for a named preset."""
+    fade_len = int(0.005 * sr)
+
+    if preset == "beep":
+        duration = 0.15
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        samples = np.sin(2 * np.pi * 800 * t).astype(np.float32) * volume
+    elif preset == "ping":
+        duration = 0.08
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        samples = np.sin(2 * np.pi * 1200 * t).astype(np.float32) * volume
+    else:
+        # "chime" — default two-tone rising
         duration = 0.1
         gap_duration = 0.03
-        sr = SAMPLE_RATE
-
         t = np.linspace(0, duration, int(sr * duration), endpoint=False)
         tone1 = np.sin(2 * np.pi * 660 * t)
         tone2 = np.sin(2 * np.pi * 880 * t)
         gap = np.zeros(int(sr * gap_duration))
+        samples = np.concatenate([tone1, gap, tone2]).astype(np.float32) * volume
 
-        chime = np.concatenate([tone1, gap, tone2]).astype(np.float32) * volume
+    if fade_len > 0 and len(samples) > 2 * fade_len:
+        samples[:fade_len] *= np.linspace(0, 1, fade_len, dtype=np.float32)
+        samples[-fade_len:] *= np.linspace(1, 0, fade_len, dtype=np.float32)
 
-        fade_len = int(0.005 * sr)
-        if fade_len > 0:
-            chime[:fade_len] *= np.linspace(0, 1, fade_len, dtype=np.float32)
-            chime[-fade_len:] *= np.linspace(1, 0, fade_len, dtype=np.float32)
+    return samples
 
-        sd.play(chime, samplerate=sr)
+
+def play_tone(volume: float = 0.3, preset: str = "chime") -> None:
+    """Play a short sound to confirm wake word detection.
+
+    Presets: 'chime' (two-tone rising), 'beep' (single 800Hz), 'ping' (quick 1200Hz).
+    """
+    if not STT_AVAILABLE:
+        return
+    try:
+        samples = _generate_tone(preset, SAMPLE_RATE, volume)
+        sd.play(samples, samplerate=SAMPLE_RATE)
         sd.wait()
     except Exception:
         pass

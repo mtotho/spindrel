@@ -73,6 +73,24 @@ class AgentClient:
         resp.raise_for_status()
         return resp.json()
 
+    def transcribe(self, audio_bytes: bytes) -> str | None:
+        """Send raw float32 PCM audio to the server for transcription.
+
+        Returns transcribed text, or None if the server doesn't support it.
+        """
+        try:
+            resp = self._http.post(
+                "/transcribe",
+                content=audio_bytes,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            resp.raise_for_status()
+            return resp.json().get("text") or None
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
     def list_bots(self) -> list[dict]:
         resp = self._http.get("/bots")
         resp.raise_for_status()

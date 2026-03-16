@@ -2,27 +2,38 @@ import * as Speech from "expo-speech";
 
 let currentlyPlaying = false;
 
-export async function speak(text: string): Promise<void> {
+export interface TtsOptions {
+  voice?: string;
+  speed?: number;
+}
+
+export async function speak(text: string, options?: TtsOptions): Promise<void> {
   if (!text.trim()) return;
 
   currentlyPlaying = true;
+  const speechOptions: Speech.SpeechOptions = {
+    language: "en-US",
+    rate: options?.speed ?? 1.0,
+    onDone: () => {
+      currentlyPlaying = false;
+    },
+    onStopped: () => {
+      currentlyPlaying = false;
+    },
+    onError: () => {
+      currentlyPlaying = false;
+    },
+  };
+
+  if (options?.voice) {
+    speechOptions.voice = options.voice;
+  }
+
   return new Promise<void>((resolve) => {
-    Speech.speak(text, {
-      language: "en-US",
-      rate: 1.0,
-      onDone: () => {
-        currentlyPlaying = false;
-        resolve();
-      },
-      onStopped: () => {
-        currentlyPlaying = false;
-        resolve();
-      },
-      onError: () => {
-        currentlyPlaying = false;
-        resolve();
-      },
-    });
+    speechOptions.onDone = () => { currentlyPlaying = false; resolve(); };
+    speechOptions.onStopped = () => { currentlyPlaying = false; resolve(); };
+    speechOptions.onError = () => { currentlyPlaying = false; resolve(); };
+    Speech.speak(text, speechOptions);
   });
 }
 

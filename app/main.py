@@ -30,6 +30,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading skills...")
     await load_skills()
+    if settings.STT_PROVIDER:
+        logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
+        from app.stt import warm_up as stt_warm_up
+        stt_warm_up()
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     yield
 
@@ -37,10 +41,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Agent Server", lifespan=lifespan)
 
 # Register routers
-from app.routers import chat, sessions  # noqa: E402
+from app.routers import chat, sessions, transcribe  # noqa: E402
 
 app.include_router(chat.router)
 app.include_router(sessions.router)
+app.include_router(transcribe.router)
 
 
 @app.get("/health")

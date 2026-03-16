@@ -12,6 +12,8 @@ _DEFAULTS = {
     "TTS_ENABLED": "false",
     "PIPER_MODEL": "en_US-lessac-medium",
     "PIPER_MODEL_DIR": "~/.local/share/piper",
+    "TTS_SPEED": "1.0",
+    "LISTEN_SOUND": "chime",
     "WHISPER_MODEL": "base.en",
     "WAKE_WORDS": "",
 }
@@ -25,6 +27,8 @@ class ClientConfig:
     tts_enabled: bool = False
     piper_model: str = "en_US-lessac-medium"
     piper_model_dir: str = "~/.local/share/piper"
+    tts_speed: float = 1.0
+    listen_sound: str = "chime"
     whisper_model: str = "base.en"
     wake_words: list[str] | None = None
 
@@ -47,6 +51,11 @@ def load_config() -> ClientConfig:
         if env_val is not None:
             values[key] = env_val
 
+    try:
+        tts_speed = float(values.get("TTS_SPEED", "1.0"))
+    except ValueError:
+        tts_speed = 1.0
+
     return ClientConfig(
         agent_url=values["AGENT_URL"].rstrip("/"),
         api_key=values["API_KEY"],
@@ -54,6 +63,8 @@ def load_config() -> ClientConfig:
         tts_enabled=values.get("TTS_ENABLED", "false").lower() in ("true", "1", "yes"),
         piper_model=values.get("PIPER_MODEL", "en_US-lessac-medium"),
         piper_model_dir=values.get("PIPER_MODEL_DIR", "~/.local/share/piper"),
+        tts_speed=tts_speed,
+        listen_sound=values.get("LISTEN_SOUND", "chime"),
         whisper_model=values.get("WHISPER_MODEL", "base.en"),
         wake_words=_parse_list(values.get("WAKE_WORDS", "")),
     )

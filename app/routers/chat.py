@@ -34,7 +34,13 @@ class ChatResponse(BaseModel):
 
 @router.get("/bots")
 async def bots(_auth: str = Depends(verify_auth)):
-    return [{"id": b.id, "name": b.name, "model": b.model} for b in list_bots()]
+    result = []
+    for b in list_bots():
+        entry: dict = {"id": b.id, "name": b.name, "model": b.model}
+        if b.voice:
+            entry["voice"] = b.voice
+        result.append(entry)
+    return result
 
 
 @router.post("/chat", response_model=ChatResponse)

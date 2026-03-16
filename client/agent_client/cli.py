@@ -11,7 +11,8 @@ import httpx
 from agent_client.audio import (
     STT_AVAILABLE, TTS_AVAILABLE, WAKEWORD_AVAILABLE,
     check_stt_ready, check_tts_ready, check_wakeword_ready,
-    close_mic, listen_for_wakeword, play_tone, record_audio, speak, stop_speaking, transcribe,
+    close_mic, listen_for_wakeword, play_tone, record_audio, speak, stop_speaking,
+    transcribe as local_transcribe,
 )
 from agent_client.client import AgentClient
 from agent_client.config import load_config
@@ -88,7 +89,7 @@ def _speak_interruptible(response_text: str, ctx: dict) -> bool:
     tts_done = threading.Event()
 
     def _tts_worker():
-        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"])
+        speak(response_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
         tts_done.set()
 
     thread = threading.Thread(target=_tts_worker, daemon=True)
@@ -197,6 +198,7 @@ def _handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) 
             if bot_id:
                 ctx["bot_id"] = bot_id
                 save_bot_id(bot_id)
+                _apply_bot_voice(client, ctx)
                 print(f"  [action] Switched bot to: {bot_id}")
             else:
                 print("  [action] switch_bot missing bot_id param")
@@ -342,6 +344,7 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         else:
             ctx["bot_id"] = parts[1]
             save_bot_id(parts[1])
+            _apply_bot_voice(client, ctx)
             print(f"Switched bot to: {ctx['bot_id']}")
         return True
 
@@ -352,7 +355,7 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         audio = record_audio()
         if audio is None:
             return True
-        text = transcribe(audio, ctx["whisper_model"])
+        text = _transcribe(audio, client, ctx)
         if text is None:
             return True
         print(f"  You said: {text}")
@@ -370,7 +373,7 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             ctx.pop("_voice_conversation", None)
             print("Voice conversation ended.")
             return True
-        text = transcribe(audio, ctx["whisper_model"])
+        text = _transcribe(audio, client, ctx)
         if text is None:
             ctx.pop("_voice_conversation", None)
             print("Voice conversation ended.")
@@ -391,12 +394,12 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         if detected is None:
             ctx.pop("_wake_word_mode", None)
             return True
-        play_tone()
+        play_tone(preset=ctx.get("listen_sound", "chime"))
         audio = record_audio()
         if audio is None:
             ctx.pop("_wake_word_mode", None)
             return True
-        text = transcribe(audio, ctx["whisper_model"])
+        text = _transcribe(audio, client, ctx)
         if text is None:
             ctx.pop("_wake_word_mode", None)
             return True
@@ -433,6 +436,40 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         return True
 
     return False
+
+
+def _transcribe(audio, client: AgentClient, ctx: dict) -> str | None:
+    """Transcribe audio, trying server-side first then falling back to local."""
+    import numpy as np
+
+    try:
+        audio_bytes = audio.flatten().astype(np.float32).tobytes()
+        text = client.transcribe(audio_bytes)
+        if text is not None:
+            return text
+    except Exception:
+        pass
+
+    return local_transcribe(audio, ctx["whisper_model"])
+
+
+def _apply_bot_voice(client: AgentClient, ctx: dict) -> None:
+    """Fetch voice config for current bot from server and apply overrides to ctx."""
+    try:
+        bots = client.list_bots()
+        for b in bots:
+            if b["id"] == ctx["bot_id"] and b.get("voice"):
+                voice = b["voice"]
+                ctx["piper_model"] = voice.get("piper_model", ctx["_default_piper_model"])
+                ctx["tts_speed"] = voice.get("speed", ctx["_default_tts_speed"])
+                ctx["listen_sound"] = voice.get("listen_sound", ctx["_default_listen_sound"])
+                return
+    except Exception:
+        pass
+    # No bot-specific voice config — restore defaults
+    ctx["piper_model"] = ctx["_default_piper_model"]
+    ctx["tts_speed"] = ctx["_default_tts_speed"]
+    ctx["listen_sound"] = ctx["_default_listen_sound"]
 
 
 def main():
@@ -496,13 +533,19 @@ def main():
         "tts": tts_on,
         "piper_model": config.piper_model,
         "piper_model_dir": config.piper_model_dir,
+        "tts_speed": config.tts_speed,
+        "listen_sound": config.listen_sound,
         "whisper_model": config.whisper_model,
         "wake_words": config.wake_words,
+        "_default_piper_model": config.piper_model,
+        "_default_tts_speed": config.tts_speed,
+        "_default_listen_sound": config.listen_sound,
     }
 
-    # Verify connectivity
+    # Verify connectivity and load bot voice config
     try:
         client.health()
+        _apply_bot_voice(client, ctx)
     except httpx.HTTPError:
         print(f"Warning: Cannot reach server at {config.agent_url}")
 
@@ -546,10 +589,10 @@ def main():
                 if ctx["tts"] and speakable_text:
                     if ctx.get("_wake_word_mode"):
                         if _speak_interruptible(speakable_text, ctx):
-                            play_tone()
+                            play_tone(preset=ctx.get("listen_sound", "chime"))
                             ctx["_wakeword_predetected"] = True
                     else:
-                        speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"])
+                        speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
 
                 # Voice conversation loop: auto-listen after response
                 while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
@@ -558,7 +601,7 @@ def main():
                         if detected is None:
                             ctx.pop("_wake_word_mode", None)
                             break
-                        play_tone()
+                        play_tone(preset=ctx.get("listen_sound", "chime"))
 
                     audio = record_audio()
                     if audio is None:
@@ -567,7 +610,7 @@ def main():
                         print("Voice conversation ended.")
                         ctx.pop("_voice_conversation", None)
                         break
-                    text = transcribe(audio, ctx["whisper_model"])
+                    text = _transcribe(audio, client, ctx)
                     if text is None:
                         if ctx.get("_wake_word_mode"):
                             continue
@@ -583,10 +626,10 @@ def main():
                     if ctx["tts"] and speakable_text:
                         if ctx.get("_wake_word_mode"):
                             if _speak_interruptible(speakable_text, ctx):
-                                play_tone()
+                                play_tone(preset=ctx.get("listen_sound", "chime"))
                                 ctx["_wakeword_predetected"] = True
                         else:
-                            speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"])
+                            speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
 
             except KeyboardInterrupt:
                 if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):

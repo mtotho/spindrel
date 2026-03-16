@@ -72,9 +72,16 @@ rag: false
 context_compaction: true
 # compaction_interval: 10   # optional per-bot override
 # compaction_model: gpt-4o-mini  # optional cheaper model for summaries
+voice:
+  piper_model: en_US-amy-medium    # Python client TTS voice
+  android_voice: en-US-default     # Android client TTS voice (expo-speech)
+  speed: 1.0                      # speech rate multiplier (both clients)
+  listen_sound: chime              # wake word confirmation sound preset
 ```
 
 Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but bot configs are loaded at startup so a full restart is needed.
+
+**`voice`** provides per-bot overrides for voice/sound settings. All fields are optional — missing fields fall back to the client's global defaults. See "Voice config" below for details.
 
 **`skills`** lists skill IDs (filenames without `.md`) from the `skills/` directory. When a bot has skills, the server automatically retrieves relevant skill content for each user message via vector similarity search and injects it into the LLM's context. See "Skills" below.
 
@@ -253,9 +260,24 @@ These work because `client_action` is a server-side tool that returns structured
 
 ### Voice input (STT)
 
-Type `/v` to record a single voice input, or `/vc` for continuous voice conversation. Recording auto-stops on silence. Audio is transcribed locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+Type `/v` to record a single voice input, or `/vc` for continuous voice conversation. Recording auto-stops on silence.
 
-The whisper model (~150MB for `base.en`) downloads on first use.
+**Server-side transcription** is the default. The client sends recorded audio to the server's `POST /transcribe` endpoint, which runs [faster-whisper](https://github.com/SYSTRAN/faster-whisper). This keeps transcription fast (especially with GPU acceleration on the server) and removes ML dependencies from the client. If the server is unreachable, the client falls back to local transcription automatically.
+
+The whisper model (~150MB for `base.en`) downloads on first use (on whichever side runs it).
+
+**Server STT config** (in `.env`):
+
+```
+STT_PROVIDER=local                  # "local" (faster-whisper); future: "groq", "openai"
+WHISPER_MODEL=base.en               # model name (base.en, small.en, medium.en, etc.)
+WHISPER_DEVICE=auto                 # "auto" (GPU if available), "cpu", "cuda"
+WHISPER_COMPUTE_TYPE=auto           # "auto", "int8", "float16", "float32"
+WHISPER_BEAM_SIZE=1                 # beam size for decoding
+WHISPER_LANGUAGE=en                 # language code
+```
+
+`WHISPER_DEVICE=auto` uses CUDA when available and gracefully falls back to CPU if CUDA runtime libraries are missing.
 
 **Requires:** `--voice` flag (or `--listen`, which implies `--voice`).
 
@@ -292,9 +314,44 @@ All optional, in `~/.config/agent-client/config.env`:
 TTS_ENABLED=true
 PIPER_MODEL=en_US-lessac-medium
 PIPER_MODEL_DIR=~/.local/share/piper
+TTS_SPEED=1.0
+LISTEN_SOUND=chime
 WHISPER_MODEL=base.en
 WAKE_WORDS=hey_jarvis,hey_computer
 ```
+
+`PIPER_MODEL` sets the TTS voice. The format is `{language}-{name}-{quality}`. Models download automatically on first use (~30-80MB each). Common en_US voices:
+
+| Model | Description |
+|---|---|
+| `en_US-lessac-medium` | Female, clear and natural — **the default** |
+| `en_US-lessac-high` | Same voice, higher quality (larger model) |
+| `en_US-amy-medium` | Female, warm tone |
+| `en_US-ryan-medium` | Male, neutral |
+| `en_US-ryan-high` | Same voice, higher quality |
+| `en_US-joe-medium` | Male, casual |
+| `en_US-john-medium` | Male |
+| `en_US-bryce-medium` | Male |
+| `en_US-kristin-medium` | Female |
+| `en_US-kusal-medium` | Male |
+| `en_US-norman-medium` | Male |
+| `en_US-ljspeech-high` | Female, classic TTS voice |
+| `en_US-hfc_female-medium` | Female |
+| `en_US-hfc_male-medium` | Male |
+
+British English voices are also available (e.g. `en_GB-alan-medium`, `en_GB-alba-medium`). See the [full voice list](https://github.com/rhasspy/piper/blob/master/VOICES.md) for all languages and voices.
+
+`TTS_SPEED` controls speech rate. Values > 1.0 are faster, < 1.0 are slower.
+
+`LISTEN_SOUND` is the confirmation tone played when the wake word is detected. Available presets:
+
+| Preset | Description |
+|---|---|
+| `chime` | Two-tone rising (660Hz + 880Hz) — the default |
+| `beep` | Single short 800Hz tone |
+| `ping` | Quick high-pitched 1200Hz blip |
+
+These client-side defaults can be overridden per-bot via the `voice` section in bot YAML. When you switch bots, the client fetches voice config from the server and applies any bot-specific overrides automatically.
 
 ### How the client finds its settings
 
@@ -342,10 +399,11 @@ compaction_model: gpt-4o-mini  # override model for this bot
 | `/health` | GET | Health check (no auth) |
 | `/chat` | POST | Send a message, get a response |
 | `/chat/stream` | POST | Same as `/chat` but streams SSE events with tool status |
+| `/transcribe` | POST | Transcribe audio to text (server-side STT) |
 | `/sessions` | GET | List sessions with titles (optional `?client_id=` filter) |
 | `/sessions/{id}` | GET | Get session with full message history |
 | `/sessions/{id}` | DELETE | Delete a session |
-| `/bots` | GET | List available bots |
+| `/bots` | GET | List available bots (includes per-bot `voice` config) |
 
 All endpoints except `/health` require `Authorization: Bearer <API_KEY>`.
 
@@ -372,6 +430,26 @@ data: {"type": "tool_result", "tool": "web_search", "session_id": "uuid"}
 
 data: {"type": "response", "text": "Here's what I found...", "client_actions": [], "session_id": "uuid"}
 ```
+
+### POST /transcribe
+
+Send raw audio for server-side transcription.
+
+```
+POST /transcribe
+Content-Type: application/octet-stream
+Authorization: Bearer <API_KEY>
+
+Body: raw 16kHz mono float32 PCM audio bytes
+```
+
+Returns:
+
+```json
+{"text": "hello world"}
+```
+
+Audio must be between 0.1s and 60s. The server runs faster-whisper (or whichever `STT_PROVIDER` is configured) and returns the transcribed text.
 
 ## Local Development Setup (manual)
 
@@ -435,8 +513,9 @@ When running in Docker, the `.env` should use Docker service names (`postgres`, 
 app/              Server application
   agent/          Agent loop, bot config, skills, RAG retrieval
   db/             SQLAlchemy models + engine
-  routers/        FastAPI endpoints (/chat, /chat/stream, /sessions, /health)
+  routers/        FastAPI endpoints (/chat, /chat/stream, /sessions, /transcribe, /health)
   services/       Session persistence
+  stt/            Speech-to-text provider abstraction (local whisper, future cloud)
   tools/          Tool registry, MCP proxy, local tools
     local/        Python tool implementations (web_search, client_action, etc.)
 bots/             Bot YAML configs
@@ -444,6 +523,7 @@ skills/           Skill knowledge files (*.md)
 mcp.yaml          MCP server connection config
 client/           CLI client (separate installable package)
   agent_client/   Client source (cli, http client, audio, config, state)
+android-client/   React Native Android client
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
 ```

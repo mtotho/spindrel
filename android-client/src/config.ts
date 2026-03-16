@@ -7,6 +7,9 @@ export interface AppConfig {
   clientId: string;
   wakeWord: string;
   ttsEnabled: boolean;
+  ttsVoice: string;
+  ttsSpeed: number;
+  listenSound: string;
   overlayEnabled: boolean;
 }
 
@@ -19,6 +22,9 @@ const DEFAULTS: AppConfig = {
   clientId: "android-tablet",
   wakeWord: "jarvis",
   ttsEnabled: true,
+  ttsVoice: "",
+  ttsSpeed: 1.0,
+  listenSound: "chime",
   overlayEnabled: true,
 };
 

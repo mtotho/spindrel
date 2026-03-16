@@ -16,6 +16,8 @@ dependencies = [
     "pyyaml",
     "pgvector",
     "playwright",
+    "faster-whisper",
+    "numpy",
 ]
 
 [project.optional-dependencies]

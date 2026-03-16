@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     COMPACTION_INTERVAL: int = 10
     COMPACTION_KEEP_TURNS: int = 2
 
+    # STT / Transcription
+    STT_PROVIDER: str = "local"  # "local" (faster-whisper) or future: "groq", "openai"
+    WHISPER_MODEL: str = "base.en"
+    WHISPER_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
+    WHISPER_COMPUTE_TYPE: str = "auto"  # "auto", "int8", "float16", "float32"
+    WHISPER_BEAM_SIZE: int = 1
+    WHISPER_LANGUAGE: str = "en"
+
     # RAG (stubbed)
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536
