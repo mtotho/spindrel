@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
@@ -7,8 +9,10 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
+from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
 from app.config import settings
+from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
 
@@ -68,7 +72,8 @@ async def run_stream(
 
     local_schemas = get_local_tool_schemas(bot.local_tools)
     mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
-    all_tools = local_schemas + mcp_schemas
+    client_schemas = get_client_tool_schemas(bot.client_tools)
+    all_tools = local_schemas + mcp_schemas + client_schemas
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
@@ -116,7 +121,25 @@ async def run_stream(
 
             yield {"type": "tool_start", "tool": name}
 
-            if is_local_tool(name):
+            if is_client_tool(name):
+                request_id = str(uuid.uuid4())
+                try:
+                    tool_args = json.loads(args) if args else {}
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                yield {
+                    "type": "tool_request",
+                    "request_id": request_id,
+                    "tool": name,
+                    "arguments": tool_args,
+                }
+                future = create_pending(request_id)
+                try:
+                    result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
+                except asyncio.TimeoutError:
+                    logger.warning("Client tool %s timed out (request %s)", name, request_id)
+                    result = json.dumps({"error": "Client did not respond in time"})
+            elif is_local_tool(name):
                 result = await call_local_tool(name, args)
             elif any(name.startswith(f"{s}_") for s in bot.mcp_servers):
                 result = await call_mcp_tool(name, args)

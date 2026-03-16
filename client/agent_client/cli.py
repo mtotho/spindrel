@@ -1,4 +1,6 @@
 import argparse
+import json
+import subprocess
 import sys
 import uuid
 
@@ -19,7 +21,35 @@ _TOOL_DISPLAY_NAMES = {
     "fetch_url": "Reading webpage",
     "get_current_time": "Checking the time",
     "client_action": None,
+    "shell_exec": None,  # handled specially via tool_request
 }
+
+
+def _execute_client_tool(tool_name: str, arguments: dict) -> str:
+    """Execute a client-side tool and return the result as a string."""
+    if tool_name == "shell_exec":
+        command = arguments.get("command", "")
+        print(f"  [shell] $ {command}")
+        try:
+            proc = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = proc.stdout
+            if proc.stderr:
+                output += ("\n" if output else "") + proc.stderr
+            if proc.returncode != 0:
+                output += f"\n[exit code {proc.returncode}]"
+            return output.strip() or "(no output)"
+        except subprocess.TimeoutExpired:
+            return "[error: command timed out after 30s]"
+        except Exception as e:
+            return f"[error: {e}]"
+
+    return json.dumps({"error": f"Unknown client tool: {tool_name}"})
 
 
 def _tool_status(tool_name: str) -> str | None:
@@ -31,6 +61,9 @@ def _tool_status(tool_name: str) -> str | None:
 
 def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
     """Send a message via streaming and display tool status in real time.
+
+    Handles tool_request events by executing client-side tools and posting
+    results back to the server, then continues reading the stream.
 
     Returns a dict with 'response' and 'client_actions' matching the non-streaming shape.
     """
@@ -48,6 +81,16 @@ def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
             label = _tool_status(event.get("tool", ""))
             if label:
                 print(f"  [{label}...]")
+
+        elif etype == "tool_request":
+            tool_name = event.get("tool", "")
+            arguments = event.get("arguments", {})
+            request_id = event.get("request_id", "")
+            result = _execute_client_tool(tool_name, arguments)
+            try:
+                client.submit_tool_result(request_id, result)
+            except httpx.HTTPError as e:
+                print(f"  [error submitting tool result: {e}]")
 
         elif etype == "tool_result":
             if "error" in event:

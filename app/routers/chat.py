@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
 from app.agent.loop import run, run_stream
+from app.agent.pending import resolve_pending
 from app.dependencies import get_db, verify_auth
 from app.services.sessions import load_or_create, persist_turn
 
@@ -108,3 +109,19 @@ async def chat_stream(
             await persist_turn(db, session_id, messages, from_index)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+class ToolResultRequest(BaseModel):
+    request_id: str
+    result: str
+
+
+@router.post("/chat/tool_result")
+async def submit_tool_result(
+    req: ToolResultRequest,
+    _auth: str = Depends(verify_auth),
+):
+    logger.info("POST /chat/tool_result  request_id=%s  result_len=%d", req.request_id, len(req.result))
+    if not resolve_pending(req.request_id, req.result):
+        raise HTTPException(status_code=404, detail=f"No pending request: {req.request_id}")
+    return {"status": "ok"}

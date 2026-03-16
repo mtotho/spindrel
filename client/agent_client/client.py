@@ -53,6 +53,13 @@ class AgentClient:
                 except json.JSONDecodeError:
                     continue
 
+    def submit_tool_result(self, request_id: str, result: str) -> None:
+        resp = self._http.post(
+            "/chat/tool_result",
+            json={"request_id": request_id, "result": result},
+        )
+        resp.raise_for_status()
+
     def list_sessions(self, client_id: str | None = None) -> list[dict]:
         params = {}
         if client_id:

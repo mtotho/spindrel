@@ -20,6 +20,7 @@ class BotConfig:
     system_prompt: str
     mcp_servers: list[str] = field(default_factory=list)
     local_tools: list[str] = field(default_factory=list)
+    client_tools: list[str] = field(default_factory=list)
     rag: bool = False
 
 
@@ -38,6 +39,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             system_prompt=data.get("system_prompt", "You are a helpful assistant."),
             mcp_servers=data.get("mcp_servers", []),
             local_tools=data.get("local_tools", []),
+            client_tools=data.get("client_tools", []),
             rag=data.get("rag", False),
         )
         _registry[bot.id] = bot
