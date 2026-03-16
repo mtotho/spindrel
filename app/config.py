@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     SEARXNG_URL: str = "http://searxng:8080"
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
 
+    # Context compaction
+    COMPACTION_MODEL: str = ""
+    COMPACTION_INTERVAL: int = 10
+    COMPACTION_KEEP_TURNS: int = 2
+
     # RAG (stubbed)
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536

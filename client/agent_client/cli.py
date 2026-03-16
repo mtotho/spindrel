@@ -111,6 +111,32 @@ def _short_id(sid: uuid.UUID) -> str:
     return str(sid)[:6]
 
 
+def _format_last_active(raw: str) -> str:
+    """Turn an ISO timestamp into a human-friendly relative time."""
+    if not raw:
+        return ""
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        delta = now - dt
+        seconds = int(delta.total_seconds())
+        if seconds < 60:
+            return "just now"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        if days < 30:
+            return f"{days}d ago"
+        return dt.strftime("%b %d")
+    except (ValueError, TypeError):
+        return raw[:16]
+
+
 def _handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) -> None:
     """Execute client-side actions returned by the server."""
     for action_info in actions:
@@ -156,7 +182,9 @@ def _handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) 
                 else:
                     for s in sessions:
                         active = " *" if str(ctx["session_id"]) == s["id"] else ""
-                        print(f"  {s['id'][:8]}  bot={s['bot_id']}  client={s['client_id']}  last={s['last_active']}{active}")
+                        title = s.get("title") or "(untitled)"
+                        last = _format_last_active(s.get("last_active", ""))
+                        print(f"  {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}{active}")
             except httpx.HTTPError as e:
                 print(f"  [action] Error listing sessions: {e}")
 
@@ -225,7 +253,9 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             else:
                 for s in sessions:
                     active = " *" if str(ctx["session_id"]) == s["id"] else ""
-                    print(f"  {s['id'][:8]}  bot={s['bot_id']}  client={s['client_id']}  last={s['last_active']}{active}")
+                    title = s.get("title") or "(untitled)"
+                    last = _format_last_active(s.get("last_active", ""))
+                    print(f"  {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}{active}")
         except httpx.HTTPError as e:
             print(f"Error listing sessions: {e}")
         return True

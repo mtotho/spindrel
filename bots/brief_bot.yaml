@@ -20,3 +20,6 @@ local_tools:
 client_tools:
   - shell_exec
 rag: false
+context_compaction: true
+compaction_interval: 15
+compaction_keep_turns: 4

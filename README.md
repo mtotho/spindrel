@@ -69,6 +69,9 @@ local_tools:
   - fetch_url
   - client_action
 rag: false
+context_compaction: true
+# compaction_interval: 10   # optional per-bot override
+# compaction_model: gpt-4o-mini  # optional cheaper model for summaries
 ```
 
 Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but bot configs are loaded at startup so a full restart is needed.
@@ -81,6 +84,12 @@ Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but
 | `web_search` | Search the web via SearXNG. Returns top N results as JSON |
 | `fetch_url` | Fetch and read a webpage via Playwright (falls back to httpx) |
 | `client_action` | Perform actions on the client device (new session, switch bot, toggle TTS, etc.) |
+
+**`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
+
+**`compaction_interval`** overrides the global `COMPACTION_INTERVAL` for this bot. This is the number of user turns (not messages) between compaction runs. Default is 10.
+
+**`compaction_model`** overrides the model used for summarization. By default it uses the global `COMPACTION_MODEL`, falling back to the bot's own model.
 
 **`mcp_servers`** lists LiteLLM MCP server aliases. If LiteLLM has MCP servers configured (e.g. `filesystem`, `github`), put their aliases here and the bot will have access to those tools.
 
@@ -208,6 +217,31 @@ For local dev the scripts handle all of this — they pull `API_KEY` from your `
 
 The client generates a session UUID on first run and saves it to `~/.config/agent-client/state.json`. Conversations persist across client restarts. Use `/new` to start a fresh conversation.
 
+### Context Compaction
+
+Long conversations are automatically summarized to keep context windows manageable. After a configurable number of user turns (default 10), the server asks an LLM to produce:
+
+- A **title** for the session (shown in `/sessions` listings instead of bare UUIDs)
+- A **detailed summary** capturing key facts, decisions, code references, and ongoing tasks
+
+On the next message, instead of replaying the entire history, the session loads: system prompt + summary + the last few turns verbatim (default 2, configurable via `COMPACTION_KEEP_TURNS`). This means the LLM always has exact recall of the most recent exchanges while older context comes from the summary. Old messages are preserved in the database and still visible via `/history`.
+
+This runs as a background task — it doesn't slow down your chat response. Configure it globally in `.env`:
+
+```
+COMPACTION_MODEL=gemini/gemini-2.5-flash   # cheap/fast model for summaries
+COMPACTION_INTERVAL=10                      # user turns between compactions
+COMPACTION_KEEP_TURNS=2                     # recent turns kept verbatim alongside summary
+```
+
+Or per-bot in YAML:
+
+```yaml
+context_compaction: true       # default true; set false to disable
+compaction_interval: 5         # override for this bot
+compaction_model: gpt-4o-mini  # override model for this bot
+```
+
 ## API
 
 | Endpoint | Method | Description |
@@ -215,7 +249,7 @@ The client generates a session UUID on first run and saves it to `~/.config/agen
 | `/health` | GET | Health check (no auth) |
 | `/chat` | POST | Send a message, get a response |
 | `/chat/stream` | POST | Same as `/chat` but streams SSE events with tool status |
-| `/sessions` | GET | List sessions (optional `?client_id=` filter) |
+| `/sessions` | GET | List sessions with titles (optional `?client_id=` filter) |
 | `/sessions/{id}` | GET | Get session with full message history |
 | `/sessions/{id}` | DELETE | Delete a session |
 | `/bots` | GET | List available bots |

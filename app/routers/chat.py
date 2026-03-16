@@ -67,7 +67,7 @@ async def chat(
     if result.client_actions:
         logger.info("Client actions: %s", result.client_actions)
 
-    await persist_turn(db, session_id, messages, from_index)
+    await persist_turn(db, session_id, bot, messages, from_index)
 
     return ChatResponse(
         session_id=session_id,
@@ -106,7 +106,7 @@ async def chat_stream(
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
         finally:
-            await persist_turn(db, session_id, messages, from_index)
+            await persist_turn(db, session_id, bot, messages, from_index)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

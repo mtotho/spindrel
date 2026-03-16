@@ -17,6 +17,7 @@ class SessionSummary(BaseModel):
     id: uuid.UUID
     client_id: str
     bot_id: str
+    title: Optional[str] = None
     created_at: datetime
     last_active: datetime
 

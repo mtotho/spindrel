@@ -1,5 +1,7 @@
 import json
 
+from sqlalchemy import select
+
 from app.tools.registry import register
 
 CLIENT_ACTIONS = {
@@ -7,19 +9,50 @@ CLIENT_ACTIONS = {
     "switch_bot": "Switch to a different bot/assistant. Requires 'bot_id' in params.",
     "switch_session": "Switch to an existing session by UUID. Requires 'session_id' in params.",
     "toggle_tts": "Toggle text-to-speech output on or off.",
-    "list_sessions": "Display all conversation sessions to the user.",
+    "list_sessions": "List sessions and display them. If the user wants to switch "
+                     "to a specific session, follow up with switch_session using the "
+                     "session_id from the results.",
     "list_bots": "Display all available bots/assistants to the user.",
-    "show_history": "Display the conversation history. You should then summarize the conversation in one sentence.",
+    "show_history": "Display the conversation history. You should then summarize "
+                    "the conversation based on context.",
 }
 
 _TOOL_RESULTS = {
     "show_history": "Conversation history has been displayed to the user. "
-                    "Provide a brief one-sentence summary of what was discussed so far.",
-    "list_sessions": "Sessions have been displayed to the user.",
+                    "Provide a brief summary of what was discussed so far based on "
+                    "the conversation summary and recent messages in your context.",
     "list_bots": "Available bots have been displayed to the user.",
 }
 
 _DESCRIPTIONS = "\n".join(f"- {k}: {v}" for k, v in CLIENT_ACTIONS.items())
+
+
+async def _list_sessions_result() -> str:
+    from app.db.engine import async_session
+    from app.db.models import Session
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(Session).order_by(Session.last_active.desc())
+        )
+        sessions = result.scalars().all()
+
+    entries = []
+    for s in sessions:
+        entries.append({
+            "id": str(s.id),
+            "bot_id": s.bot_id,
+            "title": s.title,
+            "last_active": s.last_active.isoformat() if s.last_active else None,
+        })
+
+    return json.dumps({
+        "status": "ok",
+        "action": "list_sessions",
+        "params": {},
+        "result": "Sessions displayed to user. Data below for your reference.",
+        "sessions": entries,
+    })
 
 
 @register({
@@ -57,5 +90,9 @@ _DESCRIPTIONS = "\n".join(f"- {k}: {v}" for k, v in CLIENT_ACTIONS.items())
 async def client_action(action: str, params: dict | None = None) -> str:
     if action not in CLIENT_ACTIONS:
         return json.dumps({"error": f"Unknown action: {action}"})
+
+    if action == "list_sessions":
+        return await _list_sessions_result()
+
     result = _TOOL_RESULTS.get(action, f"Action '{action}' executed on client.")
     return json.dumps({"status": "ok", "action": action, "params": params or {}, "result": result})

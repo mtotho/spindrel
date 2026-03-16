@@ -22,6 +22,9 @@ class BotConfig:
     local_tools: list[str] = field(default_factory=list)
     client_tools: list[str] = field(default_factory=list)
     rag: bool = False
+    context_compaction: bool = True
+    compaction_interval: int | None = None
+    compaction_model: str | None = None
 
 
 def load_bots(bots_dir: Path = BOTS_DIR) -> None:
@@ -41,6 +44,9 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             local_tools=data.get("local_tools", []),
             client_tools=data.get("client_tools", []),
             rag=data.get("rag", False),
+            context_compaction=data.get("context_compaction", True),
+            compaction_interval=data.get("compaction_interval"),
+            compaction_model=data.get("compaction_model"),
         )
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)
