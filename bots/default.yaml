@@ -1,0 +1,8 @@
+id: default
+name: "Default Assistant"
+model: gemini/gemini-2.5-flash
+system_prompt: |
+  You are a helpful assistant.
+mcp_servers: []
+local_tools: []
+rag: false

@@ -1,0 +1,20 @@
+[project]
+name = "agent-client"
+version = "0.1.0"
+description = "CLI client for the agent server"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+]
+
+[project.optional-dependencies]
+tts = ["piper-tts", "pathvalidate"]
+stt = ["sounddevice", "numpy", "faster-whisper"]
+voice = ["agent-client[tts]", "agent-client[stt]"]
+
+[project.scripts]
+agent-chat = "agent_client.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
