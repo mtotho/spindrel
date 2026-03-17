@@ -6,12 +6,31 @@ export interface AppConfig {
   botId: string;
   clientId: string;
   wakeWord: string;
+  wakeWordEnabled: boolean;
+  picovoiceAccessKey: string;
   ttsEnabled: boolean;
   ttsVoice: string;
   ttsSpeed: number;
   listenSound: string;
   overlayEnabled: boolean;
 }
+
+export const BUILT_IN_WAKE_WORDS = [
+  "alexa",
+  "americano",
+  "blueberry",
+  "bumblebee",
+  "computer",
+  "grapefruit",
+  "grasshopper",
+  "hey google",
+  "hey siri",
+  "jarvis",
+  "ok google",
+  "picovoice",
+  "porcupine",
+  "terminator",
+] as const;
 
 const STORAGE_KEY = "agent_config";
 
@@ -21,6 +40,8 @@ const DEFAULTS: AppConfig = {
   botId: "default",
   clientId: "android-tablet",
   wakeWord: "jarvis",
+  wakeWordEnabled: false,
+  picovoiceAccessKey: "",
   ttsEnabled: true,
   ttsVoice: "",
   ttsSpeed: 1.0,

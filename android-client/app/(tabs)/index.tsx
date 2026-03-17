@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  PermissionsAndroid,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +16,7 @@ import { voiceService } from "../../src/service/VoiceService";
 import { getSession, healthCheck, type VoiceState } from "../../src/agent";
 import { getSessionId } from "../../src/session";
 import { loadConfig } from "../../src/config";
+import { startForegroundService } from "../../src/native/VoiceServiceBridge";
 
 const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
 const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
@@ -64,6 +67,40 @@ export default function HomeScreen() {
 
   useEffect(() => {
     healthCheck().then(setConnected);
+
+    const initService = async () => {
+      if (Platform.OS === "android") {
+        try {
+          const micGranted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            {
+              title: "Microphone Permission",
+              message: "Agent Voice Client needs microphone access for voice commands.",
+              buttonPositive: "Allow",
+            }
+          );
+          if (micGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+            console.warn("Microphone permission denied — foreground service cannot start");
+            return;
+          }
+        } catch (e) {
+          console.warn("Permission request error:", e);
+        }
+      }
+
+      await startForegroundService().catch((e) =>
+        console.warn("Failed to start foreground service:", e)
+      );
+
+      const config = await loadConfig();
+      if (config.wakeWordEnabled && config.picovoiceAccessKey) {
+        voiceService.setWakeWordEnabled(true).catch((e) =>
+          console.warn("Failed to start wake word:", e)
+        );
+      }
+    };
+
+    initService();
   }, []);
 
   useEffect(() => {
@@ -76,6 +113,14 @@ export default function HomeScreen() {
       if (state === "idle") {
         setTranscript(undefined);
       }
+    });
+  }, []);
+
+  // Subscribe to messages from wake-word-triggered interactions
+  useEffect(() => {
+    return voiceService.addMessageListener((userText, assistantText) => {
+      addMessage({ role: "user", text: userText, timestamp: Date.now() });
+      addMessage({ role: "assistant", text: assistantText, timestamp: Date.now() });
     });
   }, []);
 

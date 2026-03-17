@@ -2,8 +2,18 @@ import { chat, stripSilent, transcribe, type VoiceState } from "../agent";
 import { speak, stopSpeaking } from "../voice/tts";
 import { startRecording, stopRecording, wavFileToFloat32, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
+import { updateForegroundNotification } from "../native/VoiceServiceBridge";
+import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
 
 type StateListener = (state: VoiceState, detail?: string) => void;
+type MessageListener = (userText: string, assistantText: string) => void;
+
+const NOTIFICATION_TEXT: Record<VoiceState, string> = {
+  idle: "Listening for wake word...",
+  listening: "Hearing you...",
+  processing: "Thinking...",
+  responding: "Speaking...",
+};
 
 /**
  * Orchestrates the full voice pipeline:
@@ -16,10 +26,27 @@ type StateListener = (state: VoiceState, detail?: string) => void;
 export class VoiceService {
   private state: VoiceState = "idle";
   private listeners: Set<StateListener> = new Set();
+  private messageListeners: Set<MessageListener> = new Set();
+  private wakeWordActive = false;
+
+  constructor() {
+    setWakeWordCallback(() => this.onWakeWordDetected());
+  }
 
   addListener(listener: StateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  addMessageListener(listener: MessageListener): () => void {
+    this.messageListeners.add(listener);
+    return () => this.messageListeners.delete(listener);
+  }
+
+  private emitMessage(userText: string, assistantText: string): void {
+    for (const listener of this.messageListeners) {
+      listener(userText, assistantText);
+    }
   }
 
   getState(): VoiceState {
@@ -30,6 +57,61 @@ export class VoiceService {
     this.state = state;
     for (const listener of this.listeners) {
       listener(state, detail);
+    }
+    const notifText = detail && state === "responding"
+      ? detail.slice(0, 100)
+      : NOTIFICATION_TEXT[state];
+    updateForegroundNotification(notifText).catch(() => {});
+  }
+
+  /**
+   * Enable or disable continuous wake word detection.
+   * When enabled, the wake word triggers the full voice pipeline automatically.
+   */
+  async setWakeWordEnabled(enabled: boolean): Promise<void> {
+    if (enabled && !this.wakeWordActive) {
+      const config = await loadConfig();
+      if (!config.picovoiceAccessKey) {
+        console.warn("Cannot enable wake word: no Picovoice access key");
+        return;
+      }
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
+      this.wakeWordActive = true;
+    } else if (!enabled && this.wakeWordActive) {
+      await stopWakeWordDetection();
+      this.wakeWordActive = false;
+    }
+  }
+
+  private async onWakeWordDetected(): Promise<void> {
+    if (this.state !== "idle") return;
+
+    // Pause wake word listening while we handle the voice interaction.
+    // Porcupine and expo-av both capture from the mic — they can't run simultaneously.
+    await stopWakeWordDetection();
+
+    let lastTranscript = "";
+    const unsub = this.addListener((state, detail) => {
+      if (state === "processing" && detail && detail !== "Transcribing...") {
+        lastTranscript = detail;
+      }
+    });
+
+    try {
+      const response = await this.processVoice();
+      if (lastTranscript && response) {
+        this.emitMessage(lastTranscript, response);
+      }
+    } catch (error) {
+      console.error("Wake word voice pipeline error:", error);
+    } finally {
+      unsub();
+    }
+
+    // Resume wake word listening if still enabled
+    if (this.wakeWordActive) {
+      const config = await loadConfig();
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
     }
   }
 
@@ -122,6 +204,14 @@ export class VoiceService {
     stopSpeaking();
     stopRecording();
     this.setState("idle");
+  }
+
+  async stopAll(): Promise<void> {
+    this.stop();
+    if (this.wakeWordActive) {
+      await stopWakeWordDetection();
+      this.wakeWordActive = false;
+    }
   }
 }
 

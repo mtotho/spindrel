@@ -10,8 +10,9 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { loadConfig, saveConfig, type AppConfig } from "../../src/config";
+import { loadConfig, saveConfig, BUILT_IN_WAKE_WORDS, type AppConfig } from "../../src/config";
 import { healthCheck, listBots } from "../../src/agent";
+import { voiceService } from "../../src/service/VoiceService";
 
 export default function SettingsScreen() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -186,16 +187,54 @@ export default function SettingsScreen() {
         />
       </View>
 
-      <Text style={styles.label}>Wake Word</Text>
+      {/* Wake Word */}
+      <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Wake Word</Text>
+
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Enable Wake Word</Text>
+        <Switch
+          value={config.wakeWordEnabled}
+          onValueChange={(v) => {
+            updateField("wakeWordEnabled", v);
+            voiceService.setWakeWordEnabled(v).catch(() => {});
+          }}
+          trackColor={{ true: "#1d4ed8", false: "#374151" }}
+          thumbColor={config.wakeWordEnabled ? "#60a5fa" : "#9ca3af"}
+        />
+      </View>
+
+      <Text style={styles.label}>Picovoice Access Key</Text>
       <TextInput
         style={styles.input}
-        value={config.wakeWord}
-        onChangeText={(v) => updateField("wakeWord", v)}
-        placeholder="jarvis"
+        value={config.picovoiceAccessKey}
+        onChangeText={(v) => updateField("picovoiceAccessKey", v)}
+        placeholder="Get free key at console.picovoice.ai"
         placeholderTextColor="#6b7280"
         autoCapitalize="none"
         autoCorrect={false}
+        secureTextEntry
       />
+      <Text style={styles.hintText}>
+        Free from console.picovoice.ai — no credit card required
+      </Text>
+
+      <Text style={styles.label}>Keyword</Text>
+      <View style={styles.wakeWordGrid}>
+        {BUILT_IN_WAKE_WORDS.map((kw) => {
+          const isActive = config.wakeWord === kw;
+          return (
+            <Pressable
+              key={kw}
+              style={[styles.wakeWordChip, isActive && styles.wakeWordChipActive]}
+              onPress={() => updateField("wakeWord", kw)}
+            >
+              <Text style={[styles.wakeWordText, isActive && styles.wakeWordTextActive]}>
+                {kw}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       {/* Save */}
       {dirty && (
@@ -314,6 +353,33 @@ const styles = StyleSheet.create({
     color: "#e0e0e0",
     fontSize: 15,
     fontWeight: "500",
+  },
+  wakeWordGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  wakeWordChip: {
+    backgroundColor: "#1a1a2e",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#2a2a4e",
+  },
+  wakeWordChipActive: {
+    borderColor: "#60a5fa",
+    backgroundColor: "#0f1b3e",
+  },
+  wakeWordText: {
+    color: "#9ca3af",
+    fontSize: 13,
+    fontWeight: "500",
+    textTransform: "capitalize",
+  },
+  wakeWordTextActive: {
+    color: "#60a5fa",
   },
   saveButton: {
     backgroundColor: "#065f46",
