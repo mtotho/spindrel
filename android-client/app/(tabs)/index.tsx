@@ -13,7 +13,7 @@ import {
 import { useFocusEffect } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import { voiceService } from "../../src/service/VoiceService";
-import { getCachedBot, getSession, healthCheck, type VoiceState } from "../../src/agent";
+import { getCachedBot, getSession, healthCheck, refreshBotCache, type VoiceState } from "../../src/agent";
 import { getSessionId } from "../../src/session";
 import { loadConfig } from "../../src/config";
 import { startForegroundService } from "../../src/native/VoiceServiceBridge";
@@ -21,6 +21,11 @@ import { hasOverlayPermission, requestOverlayPermission } from "../../src/native
 
 const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
 const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
+const TRANSCRIPT_TAG_RE = /\[transcript\][\s\S]*?\[\/transcript\]\s*/g;
+
+function stripTranscriptTags(text: string): string {
+  return text.replace(TRANSCRIPT_TAG_RE, "").trim();
+}
 
 function MessageText({ text, style }: { text: string; style: any }) {
   if (!text.includes("[silent]")) {
@@ -69,7 +74,10 @@ export default function HomeScreen() {
   const lastLoadedSession = useRef<string>("");
 
   useEffect(() => {
-    healthCheck().then(setConnected);
+    healthCheck().then((ok) => {
+      setConnected(ok);
+      if (ok) refreshBotCache().catch(() => {});
+    });
 
     const initService = async () => {
       if (Platform.OS === "android") {
@@ -188,9 +196,11 @@ export default function HomeScreen() {
       for (const msg of detail.messages) {
         if (msg.role === "system" || msg.role === "tool") continue;
         if (!msg.content) continue;
+        const content = msg.role === "assistant" ? stripTranscriptTags(msg.content) : msg.content;
+        if (!content) continue;
         loaded.push({
           role: msg.role === "user" ? "user" : "assistant",
-          text: msg.content,
+          text: content,
           timestamp: new Date(msg.created_at).getTime(),
         });
       }

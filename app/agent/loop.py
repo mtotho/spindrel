@@ -187,6 +187,8 @@ async def run_stream(
 
             if native_audio and not transcript_emitted:
                 transcript, text = _extract_transcript(text)
+                # Update the stored assistant message to strip transcript tags
+                messages[-1]["content"] = text
                 yield {"type": "transcript", "text": transcript}
                 if transcript:
                     logger.info("Audio transcript: %r", transcript[:100])
@@ -282,6 +284,7 @@ async def run_stream(
     text = msg.content or ""
     if native_audio and not transcript_emitted:
         transcript, text = _extract_transcript(text)
+        messages[-1]["content"] = text
         yield {"type": "transcript", "text": transcript}
         if transcript:
             messages[user_msg_index] = {"role": "user", "content": transcript}

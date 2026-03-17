@@ -37,8 +37,16 @@ export default function SettingsScreen() {
 
   const updateField = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
     if (!config) return;
-    setConfig({ ...config, [key]: value });
+    const updated = { ...config, [key]: value };
+    setConfig(updated);
     setDirty(true);
+  };
+
+  const updateAndSave = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
+    if (!config) return;
+    const updated = { ...config, [key]: value };
+    setConfig(updated);
+    saveConfig(updated);
   };
 
   const selectBot = (botId: string) => {
@@ -230,7 +238,7 @@ export default function SettingsScreen() {
         </View>
         <Switch
           value={config.audioNative}
-          onValueChange={(v) => updateField("audioNative", v)}
+          onValueChange={(v) => updateAndSave("audioNative", v)}
           trackColor={{ true: "#1d4ed8", false: "#374151" }}
           thumbColor={config.audioNative ? "#60a5fa" : "#9ca3af"}
         />
