@@ -235,6 +235,41 @@ function handleStreamEvent(event: StreamEvent, callbacks?: AgentCallbacks): void
   }
 }
 
+/**
+ * Send raw float32 audio to the server for transcription.
+ * The server runs Whisper and returns {"text": "..."}.
+ *
+ * @param audioData - Float32Array of audio samples at 16kHz mono
+ * @returns The transcribed text, or empty string if nothing was recognized
+ */
+export async function transcribe(audioData: Float32Array): Promise<string> {
+  const config = await loadConfig();
+  if (!config.apiKey) {
+    throw new Error("API key not configured");
+  }
+
+  const resp = await fetch(`${config.agentUrl}/transcribe`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: audioData.buffer,
+  });
+
+  if (!resp.ok) {
+    if (resp.status === 400) {
+      const data = await resp.json();
+      throw new Error(data.detail || "Bad audio data");
+    }
+    if (resp.status === 401) throw new Error("Authentication failed.");
+    throw new Error(`Transcription error: ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  return data.text || "";
+}
+
 async function submitToolResult(requestId: string, result: string): Promise<void> {
   await apiFetch("/chat/tool_result", {
     method: "POST",

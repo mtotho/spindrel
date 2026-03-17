@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,11 +24,13 @@ export default function HomeScreen() {
 
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
+  const micPulse = useRef(new Animated.Value(1)).current;
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [stateDetail, setStateDetail] = useState<string>();
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [transcript, setTranscript] = useState<string>();
 
   useEffect(() => {
     healthCheck().then(setConnected);
@@ -37,8 +40,29 @@ export default function HomeScreen() {
     return voiceService.addListener((state, detail) => {
       setVoiceState(state);
       setStateDetail(detail);
+      if (state === "processing" && detail && !detail.startsWith("Using ") && detail !== "Transcribing...") {
+        setTranscript(detail);
+      }
+      if (state === "idle") {
+        setTranscript(undefined);
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (voiceState === "listening") {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulse, { toValue: 1.15, duration: 600, useNativeDriver: true }),
+          Animated.timing(micPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      micPulse.setValue(1);
+    }
+  }, [voiceState, micPulse]);
 
   const addMessage = (msg: Message) => {
     setMessages((prev) => [...prev, msg]);
@@ -63,6 +87,29 @@ export default function HomeScreen() {
     }
   };
 
+  const handleMic = async () => {
+    if (voiceState === "listening") {
+      voiceService.stop();
+      return;
+    }
+    if (voiceState !== "idle") return;
+
+    try {
+      const response = await voiceService.processVoice();
+      if (transcript) {
+        addMessage({ role: "user", text: transcript, timestamp: Date.now() });
+      }
+      if (response) {
+        addMessage({ role: "assistant", text: response, timestamp: Date.now() });
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Voice input failed";
+      addMessage({ role: "status", text: `Error: ${msg}`, timestamp: Date.now() });
+    }
+  };
+
+  const busy = voiceState === "processing" || voiceState === "responding";
+
   const stateColor = {
     idle: "#4ade80",
     listening: "#facc15",
@@ -82,7 +129,7 @@ export default function HomeScreen() {
       {/* Status bar */}
       <View style={styles.statusBar}>
         <View style={[styles.statusDot, { backgroundColor: stateColor }]} />
-        <Text style={styles.statusText}>{stateLabel}</Text>
+        <Text style={styles.statusText} numberOfLines={1}>{stateLabel}</Text>
         <View style={styles.statusRight}>
           <View
             style={[
@@ -100,7 +147,7 @@ export default function HomeScreen() {
       <ScrollView ref={scrollRef} style={styles.messages} contentContainerStyle={styles.messagesContent}>
         {messages.length === 0 && (
           <Text style={styles.emptyText}>
-            Type a message below or configure settings to get started.
+            Type a message or tap the mic button to speak.
           </Text>
         )}
         {messages.map((msg, i) => (
@@ -129,6 +176,22 @@ export default function HomeScreen() {
 
       {/* Input */}
       <View style={styles.inputRow}>
+        <Animated.View style={{ transform: [{ scale: micPulse }] }}>
+          <Pressable
+            style={[
+              styles.micButton,
+              voiceState === "listening" && styles.micButtonActive,
+              busy && styles.micButtonDisabled,
+            ]}
+            onPress={handleMic}
+            disabled={busy}
+          >
+            <Text style={styles.micIcon}>
+              {voiceState === "listening" ? "⏹" : "🎤"}
+            </Text>
+          </Pressable>
+        </Animated.View>
+
         <TextInput
           style={styles.textInput}
           value={input}
@@ -137,15 +200,15 @@ export default function HomeScreen() {
           placeholderTextColor="#6b7280"
           returnKeyType="send"
           onSubmitEditing={handleSend}
-          editable={voiceState !== "processing"}
+          editable={!busy && voiceState !== "listening"}
         />
         <Pressable
-          style={[styles.sendButton, voiceState === "processing" && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (busy || voiceState === "listening") && styles.sendButtonDisabled]}
           onPress={handleSend}
-          disabled={voiceState === "processing"}
+          disabled={busy || voiceState === "listening"}
         >
           <Text style={styles.sendButtonText}>
-            {voiceState === "processing" ? "..." : "Send"}
+            {busy ? "..." : "Send"}
           </Text>
         </Pressable>
       </View>
@@ -246,6 +309,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a2e",
     borderTopWidth: 1,
     borderTopColor: "#2a2a4e",
+    alignItems: "center",
+  },
+  micButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#16213e",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#2a2a4e",
+  },
+  micButtonActive: {
+    backgroundColor: "#7f1d1d",
+    borderColor: "#ef4444",
+  },
+  micButtonDisabled: {
+    opacity: 0.4,
+  },
+  micIcon: {
+    fontSize: 20,
   },
   textInput: {
     flex: 1,

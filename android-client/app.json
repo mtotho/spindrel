@@ -29,7 +29,8 @@
         {
           "microphonePermission": "Allow Agent Voice Client to access the microphone for voice commands."
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "ios": {
       "bundleIdentifier": "com.agentvoiceclient"

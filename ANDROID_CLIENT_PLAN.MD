@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A React Native app (Expo bare workflow) that runs as a background foreground service on Android/Fire OS. It listens for a wake word, captures speech, sends it to the agent server, speaks the response via TTS, and displays a floating overlay on top of whatever app is foregrounded — including your Home Assistant dashboard.
+A React Native app (Expo bare workflow) that runs as a background foreground service on Android/Fire OS. It listens for a wake word, captures speech, sends it to the agent server for transcription, sends the transcript to the chat endpoint, speaks the response via TTS, and displays a floating overlay on top of whatever app is foregrounded — including your Home Assistant dashboard.
 
 ---
 
@@ -44,13 +44,13 @@ Porcupine wake word detection
       │ wake word detected
       ▼
 Mic capture (expo-av)
-      │
+      │ raw float32 audio
       ▼
-Android on-device STT
-      │ transcript
+POST /transcribe → Agent Server (Whisper)
+      │ transcript text
       ▼
-POST /chat → Agent Server
-      │ response text
+POST /chat/stream → Agent Server (SSE)
+      │ response text + client_actions
       ▼
 expo-speech TTS playback
 + overlay text update
@@ -62,7 +62,7 @@ expo-speech TTS playback
 
 | Permission | Purpose |
 |------------|---------|
-| `RECORD_AUDIO` | Mic access for wake word + STT |
+| `RECORD_AUDIO` | Mic access for wake word + recording |
 | `FOREGROUND_SERVICE` | Keep process alive in background |
 | `FOREGROUND_SERVICE_MICROPHONE` | Android 14+ mic in foreground service |
 | `SYSTEM_ALERT_WINDOW` | Draw floating overlay on top of other apps |
@@ -77,13 +77,28 @@ expo-speech TTS playback
 |---------|---------|-------|
 | `@picovoice/porcupine-react-native` | Wake word detection | Free tier, one built-in keyword |
 | `expo-av` | Audio capture | Mic recording after wake word |
-| `@react-native-voice/voice` | Android on-device STT | No Whisper needed, instant, free |
 | `expo-speech` | TTS playback | Wraps Android native TTS engine |
-| `expo-task-manager` | Background task registration | Required for foreground service |
-| `react-native-foreground-service` | Foreground service + notification | Keeps process alive |
-| `react-native-overlay-window` | `SYSTEM_ALERT_WINDOW` overlay | Floating UI over HA dashboard |
 | `expo-keep-awake` | Prevent screen sleep | Keep tablet awake |
-| `axios` or `fetch` | HTTP to agent server | Simple REST calls |
+| `fetch` / `XMLHttpRequest` | HTTP to agent server | SSE streaming via XHR onprogress |
+
+**Not needed initially:**
+- `@react-native-voice/voice` — future option for local on-device STT (configurable)
+- `expo-task-manager` — evaluate if needed for foreground service vs custom native module
+- `react-native-foreground-service` / `react-native-overlay-window` — evaluate library health before adopting
+
+---
+
+## STT Strategy
+
+**Default: Server-side transcription** via `POST /transcribe`. The Android client records raw float32 audio at 16kHz, sends the buffer to the server, and gets back `{"text": "..."}`. The server runs Whisper (faster-whisper) — same model used by the Python CLI client.
+
+**Future: Local on-device STT** as a configuration option. Android devices have built-in speech recognition (`@react-native-voice/voice`) that runs offline if the language pack is installed. This would be added as a setting: `sttMode: "server" | "local"`.
+
+Benefits of server-side first:
+- No extra native dependency on the client
+- Same transcription quality as the Python client
+- Works on all Android devices (no offline language pack needed)
+- Simpler initial implementation
 
 ---
 
@@ -92,31 +107,31 @@ expo-speech TTS playback
 ```
 android-client/
 ├── app/
-│   ├── index.tsx              # App entry, service bootstrap
-│   ├── overlay.tsx            # Floating overlay UI component
-│   ├── settings.tsx           # Config screen (server URL, API key, bot)
-│   └── _layout.tsx
+│   ├── index.tsx              # Main chat screen, status bar, message bubbles
+│   ├── settings.tsx           # Config screen (server URL, API key, bot, etc.)
+│   └── _layout.tsx            # Navigation layout
 │
 ├── src/
-│   ├── agent.ts               # POST /chat, session management
+│   ├── agent.ts               # SSE streaming client, transcribe, session management
 │   ├── config.ts              # Load/save config from AsyncStorage
 │   ├── session.ts             # Session ID persistence
 │   ├── voice/
-│   │   ├── wakeword.ts        # Porcupine init + event handling
-│   │   ├── stt.ts             # Speech-to-text wrapper
-│   │   └── tts.ts             # Text-to-speech wrapper
+│   │   ├── wakeword.ts        # Porcupine init + event handling (stub)
+│   │   ├── stt.ts             # Server-side STT via POST /transcribe
+│   │   └── tts.ts             # Text-to-speech via expo-speech
 │   └── service/
-│       └── VoiceService.ts    # Foreground service orchestration
+│       └── VoiceService.ts    # Foreground service orchestration / state machine
 │
-├── android/                   # Native Android project (bare workflow)
+├── android/                   # Native Android project (generated by expo prebuild)
 │   └── app/
+│       ├── build/outputs/apk/debug/app-debug.apk   # ← Debug APK output
 │       └── src/main/
-│           ├── AndroidManifest.xml   # Permissions declared here
+│           ├── AndroidManifest.xml
 │           └── ...
 │
-├── app.json
+├── app.json                   # Expo config with permissions
 ├── package.json
-└── .env                       # AGENT_URL, API_KEY, BOT_ID
+└── tsconfig.json
 ```
 
 ---
@@ -143,7 +158,7 @@ Identical contract to the Python CLI client:
 
 - Session ID generated client-side as UUID on first run
 - Persisted to `AsyncStorage`
-- Sent with every `/chat` request
+- Sent with every `/chat/stream` request
 - Server creates session on first sight, continues on resume
 - New session triggered via settings screen or voice command handled server-side
 
@@ -165,10 +180,10 @@ The foreground service is the core of the app. It runs continuously, survives th
 IDLE (wake word listening)
       │ wake word detected
       ▼
-LISTENING (mic recording + VAD)
+LISTENING (mic recording + silence detection)
       │ silence detected
       ▼
-PROCESSING (STT → POST /chat)
+PROCESSING (POST /transcribe → POST /chat/stream)
       │ response received
       ▼
 RESPONDING (TTS playback + overlay display)
@@ -224,29 +239,11 @@ Access key is free from Picovoice Console — no credit card.
 
 ---
 
-## STT — Android On-Device
-
-`@react-native-voice/voice` wraps Android's built-in speech recognition. Runs on-device (Pixel/Fire tablets have local models), no API call, instant response.
-
-```typescript
-// src/voice/stt.ts
-import Voice from '@react-native-voice/voice';
-
-Voice.onSpeechResults = (e) => {
-  const transcript = e.value?.[0] ?? '';
-  onTranscript(transcript);
-};
-
-await Voice.start('en-US');
-```
-
-Note: Android on-device STT requires the device to have the offline language pack installed. Fire tablets have this by default for English.
-
----
-
 ## TTS — expo-speech
 
 Wraps Android's native TTS engine. Fully local, no internet.
+
+Supports `[silent]...[/silent]` markers from the server — text inside markers is displayed but not spoken.
 
 ```typescript
 // src/voice/tts.ts
@@ -276,40 +273,58 @@ Uses **SSE streaming** via `POST /chat/stream` (matching the Python client), not
 
 SSE streaming uses `XMLHttpRequest.onprogress` in React Native (more reliable than `fetch` ReadableStream).
 
+**Server-side transcription** via `POST /transcribe`:
+- Accepts raw float32 audio at 16kHz as the request body
+- Returns `{"text": "transcribed text"}`
+- Content-Type: `application/octet-stream`
+
 See `src/agent.ts` for the full implementation.
 
 ---
 
-## Build and Sideload to Fire Tablet
+## Building
 
 ### Prerequisites
 
-Either:
-- **Local build**: Android Studio + SDK installed, Java 17+
-- **Cloud build**: EAS account (free tier), no local SDK needed — recommended
+- **Android SDK** installed locally (Android Studio or standalone SDK)
+- Set `ANDROID_HOME` environment variable, or create `android/local.properties` with `sdk.dir=/path/to/Android/Sdk`
+- Java 17+
+- Node.js 18+
 
-### Steps
+### First-time setup
 
 ```bash
-# Create project
-npx create-expo-app android-client --template bare-minimum
 cd android-client
+npm install
+npx expo prebuild         # generates android/ directory from app.json
+```
 
-# Install dependencies
-npx expo install expo-av expo-speech expo-task-manager expo-keep-awake
-npm install @picovoice/porcupine-react-native @react-native-voice/voice
-npm install react-native-foreground-service react-native-overlay-window
-npm install @react-native-async-storage/async-storage uuid
+### Build & run (debug, to connected device/emulator)
 
-# Build APK (cloud)
+```bash
+ANDROID_HOME=/path/to/Android/Sdk npx expo run:android
+```
+
+### Build output
+
+The debug APK is generated at:
+
+```
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Release APK (for sideloading)
+
+```bash
+# Local release build
+ANDROID_HOME=/path/to/Android/Sdk npx expo run:android --variant release
+# → android/app/build/outputs/apk/release/app-release.apk
+
+# OR cloud build via EAS (no local SDK needed)
 npm install -g eas-cli
 eas login
 eas build:configure
 eas build --platform android --profile preview
-# → downloads APK when done
-
-# OR build locally
-npx expo run:android --variant release
 ```
 
 ### Sideload to Fire Tablet
@@ -317,7 +332,7 @@ npx expo run:android --variant release
 1. Enable developer mode on Fire tablet: Settings → Device Options → tap Serial Number 7 times
 2. Enable ADB: Settings → Developer Options → Enable ADB
 3. `adb connect <tablet-ip>:5555`
-4. `adb install app-release.apk`
+4. `adb install android/app/build/outputs/apk/debug/app-debug.apk`
 
 ---
 
@@ -327,9 +342,9 @@ npx expo run:android --variant release
 |-------|------|-----------|
 | 1 | Project scaffolding, bare workflow, permissions in manifest | App installs on tablet |
 | 2 | Config screen + AsyncStorage (URL, key, bot, client ID) | Settings persist across restarts |
-| 3 | Agent client (`/chat` POST, session ID) | Can send hardcoded message, get response |
-| 4 | TTS — `expo-speech` | Response spoken aloud |
-| 5 | STT — `@react-native-voice/voice` | Can speak, get transcript, send to server, hear response |
+| 3 | Agent client (SSE streaming `/chat/stream`, session ID, client_actions) | Can send message, get streamed response |
+| 4 | TTS — `expo-speech` with `[silent]` marker support | Response spoken aloud |
+| 5 | Audio recording + server-side STT via `POST /transcribe` | Mic button: speak → transcript → response → TTS |
 | 6 | Foreground service + persistent notification with state | App survives backgrounding |
 | 7 | Porcupine wake word in foreground service | Hands-free trigger works |
 | 8 | Floating overlay UI | Visual feedback over HA dashboard |
@@ -351,9 +366,14 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 
 ## What You Don't Need
 
-- Whisper (Android on-device STT is sufficient and faster)
+- Whisper on the client (server runs it via `POST /transcribe`)
 - Piper (expo-speech uses Android's native TTS engine)
-- Any server changes — the `/chat/stream` endpoint contract is identical to the Python CLI client
+- Any server changes — uses existing `/transcribe`, `/chat/stream`, `/bots`, `/sessions` endpoints
+
+## Future Enhancements
+
+- **Local STT option**: Add `@react-native-voice/voice` as a configurable alternative to server-side transcription. Setting: `sttMode: "server" | "local"`. Local is faster (no network round-trip) but requires offline language packs.
+- **Server-side TTS**: If the server adds a TTS endpoint, could stream audio back instead of using expo-speech.
 
 ## Implementation Status
 
@@ -363,7 +383,7 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 | 2 | ✅ Done | Config via AsyncStorage, settings screen with test connection |
 | 3 | ✅ Done | SSE streaming agent client, session management, client_actions |
 | 4 | ✅ Done | TTS via expo-speech with [silent] marker support |
-| 5 | Stub | STT interface defined, needs @react-native-voice/voice |
+| 5 | In progress | Server-side transcribe function added, needs audio recording + mic button |
 | 6 | Not started | Foreground service |
 | 7 | Stub | Wake word interface defined, needs Porcupine |
 | 8 | Not started | Floating overlay |

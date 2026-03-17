@@ -16,7 +16,7 @@ export interface AppConfig {
 const STORAGE_KEY = "agent_config";
 
 const DEFAULTS: AppConfig = {
-  agentUrl: "http://localhost:8000",
+  agentUrl: "http://10.0.2.2:8000",
   apiKey: "",
   botId: "default",
   clientId: "android-tablet",
