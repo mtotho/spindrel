@@ -475,6 +475,8 @@ The app runs an Android foreground service with a persistent notification so the
 2. Enable ADB: Settings > Developer Options > Enable ADB
 3. `adb connect <tablet-ip>:5555`
 4. `adb install android-client/android/app/build/outputs/apk/debug/app-debug.apk`
+5. I had to run this on my Android "GO" Edition since the option wasn't in the UI. `adb shell pm grant com.agentvoiceclient android.permission.SYSTEM_ALERT_WINDOW`
+
 
 ### More details
 

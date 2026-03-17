@@ -17,6 +17,7 @@ import { getSession, healthCheck, type VoiceState } from "../../src/agent";
 import { getSessionId } from "../../src/session";
 import { loadConfig } from "../../src/config";
 import { startForegroundService } from "../../src/native/VoiceServiceBridge";
+import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
 
 const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
 const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
@@ -94,6 +95,16 @@ export default function HomeScreen() {
       );
 
       const config = await loadConfig();
+
+      if (config.overlayEnabled) {
+        const overlayGranted = await hasOverlayPermission().catch(() => false);
+        if (!overlayGranted) {
+          await requestOverlayPermission().catch(() => {});
+        }
+        await voiceService.checkOverlayPermission().catch(() => {});
+        voiceService.showBadge().catch(() => {});
+      }
+
       if (config.wakeWordEnabled && config.picovoiceAccessKey) {
         voiceService.setWakeWordEnabled(true).catch((e) =>
           console.warn("Failed to start wake word:", e)

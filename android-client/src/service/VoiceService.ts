@@ -2,8 +2,9 @@ import { chat, stripSilent, transcribe, type VoiceState } from "../agent";
 import { speak, stopSpeaking } from "../voice/tts";
 import { startRecording, stopRecording, readAudioFile, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
-import { updateForegroundNotification } from "../native/VoiceServiceBridge";
+import { updateForegroundNotification, moveToBackground } from "../native/VoiceServiceBridge";
 import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
+import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasOverlayPermission, showBadge, updateBadge, hideBadge, onBadgeTap } from "../native/OverlayBridge";
 
 type StateListener = (state: VoiceState, detail?: string) => void;
 type MessageListener = (userText: string, assistantText: string) => void;
@@ -28,9 +29,82 @@ export class VoiceService {
   private listeners: Set<StateListener> = new Set();
   private messageListeners: Set<MessageListener> = new Set();
   private wakeWordActive = false;
+  private overlayPermissionGranted: boolean | null = null;
+  private badgeActive = false;
+  private badgeTapUnsub: (() => void) | null = null;
 
   constructor() {
     setWakeWordCallback(() => this.onWakeWordDetected());
+  }
+
+  async checkOverlayPermission(): Promise<boolean> {
+    this.overlayPermissionGranted = await hasOverlayPermission();
+    return this.overlayPermissionGranted;
+  }
+
+  async showBadge(): Promise<void> {
+    if (this.overlayPermissionGranted === null) {
+      await this.checkOverlayPermission();
+    }
+    if (!this.overlayPermissionGranted) return;
+
+    await showBadge(this.state).catch(() => {});
+    this.badgeActive = true;
+
+    if (!this.badgeTapUnsub) {
+      this.badgeTapUnsub = onBadgeTap(() => this.onBadgeTapped());
+    }
+  }
+
+  async hideBadge(): Promise<void> {
+    await hideBadge().catch(() => {});
+    this.badgeActive = false;
+    if (this.badgeTapUnsub) {
+      this.badgeTapUnsub();
+      this.badgeTapUnsub = null;
+    }
+  }
+
+  private async onBadgeTapped(): Promise<void> {
+    if (this.state === "listening") {
+      this.stop();
+      return;
+    }
+    if (this.state !== "idle") return;
+
+    // Pause wake word if active — mic can't be shared
+    if (this.wakeWordActive) {
+      await stopWakeWordDetection();
+    }
+
+    let lastTranscript = "";
+    const unsub = this.addListener((state, detail) => {
+      // Once recording has started, push the app back to background.
+      // expo-av brings the Activity forward when accessing the mic.
+      if (state === "listening") {
+        setTimeout(() => moveToBackground().catch(() => {}), 300);
+      }
+      if (state === "processing" && detail && detail !== "Transcribing...") {
+        lastTranscript = detail;
+      }
+    });
+
+    try {
+      const response = await this.processVoice();
+      if (lastTranscript && response) {
+        this.emitMessage(lastTranscript, response);
+      }
+    } catch (error) {
+      console.error("Badge tap voice pipeline error:", error);
+    } finally {
+      unsub();
+    }
+
+    // Resume wake word if it was active
+    if (this.wakeWordActive) {
+      const config = await loadConfig();
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
+    }
   }
 
   addListener(listener: StateListener): () => void {
@@ -62,6 +136,44 @@ export class VoiceService {
       ? detail.slice(0, 100)
       : NOTIFICATION_TEXT[state];
     updateForegroundNotification(notifText).catch(() => {});
+    this.updateOverlayForState(state, detail);
+  }
+
+  private async updateOverlayForState(state: VoiceState, detail?: string): Promise<void> {
+    const config = await loadConfig();
+    if (!config.overlayEnabled) return;
+    if (this.overlayPermissionGranted === null) {
+      await this.checkOverlayPermission();
+    }
+    if (!this.overlayPermissionGranted) return;
+
+    try {
+      if (this.badgeActive) {
+        await updateBadge(state);
+      }
+
+      switch (state) {
+        case "listening":
+          await showOverlay("listening", "");
+          break;
+        case "processing":
+          await updateOverlay("processing", detail || "");
+          break;
+        case "responding":
+          await updateOverlay("responding", detail || "");
+          break;
+        case "idle":
+          if (detail) {
+            await updateOverlay("idle", detail);
+            await dismissOverlayAfterDelay(3000);
+          } else {
+            await dismissOverlayAfterDelay(3000);
+          }
+          break;
+      }
+    } catch {
+      // Overlay errors should never break the voice pipeline
+    }
   }
 
   /**
@@ -208,6 +320,8 @@ export class VoiceService {
 
   async stopAll(): Promise<void> {
     this.stop();
+    await hideOverlay().catch(() => {});
+    await this.hideBadge().catch(() => {});
     if (this.wakeWordActive) {
       await stopWakeWordDetection();
       this.wakeWordActive = false;

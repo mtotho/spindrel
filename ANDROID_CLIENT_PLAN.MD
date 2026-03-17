@@ -116,6 +116,7 @@ android-client/
 │   ├── config.ts              # Load/save config from AsyncStorage
 │   ├── session.ts             # Session ID persistence
 │   ├── native/
+│   │   ├── OverlayBridge.ts       # TypeScript bridge to native overlay module
 │   │   └── VoiceServiceBridge.ts  # TypeScript bridge to native foreground service module
 │   ├── voice/
 │   │   ├── wakeword.ts        # Porcupine wake word detection via PorcupineManager
@@ -133,9 +134,11 @@ android-client/
 │           └── java/com/agentvoiceclient/
 │               ├── MainActivity.kt
 │               ├── MainApplication.kt
+│               ├── OverlayModule.kt           # React Native native module for floating overlay
+│               ├── OverlayView.kt             # WindowManager overlay view (dark pill UI)
 │               ├── VoiceForegroundService.kt  # Android foreground service (persistent notification + wake lock)
 │               ├── VoiceServiceModule.kt      # React Native native module bridge
-│               └── VoiceServicePackage.kt     # Registers native module with RN
+│               └── VoiceServicePackage.kt     # Registers native modules with RN
 │
 ├── app.json                   # Expo config with permissions
 ├── package.json
@@ -376,7 +379,7 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 
 - Whisper on the client (server runs it via `POST /transcribe`)
 - Piper (expo-speech uses Android's native TTS engine)
-- Any server changes — uses existing `/transcribe`, `/chat/stream`, `/bots`, `/sessions` endpoints
+- Any server changes — the server's `/transcribe` endpoint now accepts both raw float32 PCM (Python CLI) and audio files like M4A/WAV/OGG (Android client), decoded via ffmpeg
 
 ## Future Enhancements
 
@@ -389,11 +392,18 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 1 | ✅ Done | Project scaffolded, permissions in app.json, structure created |
-| 2 | ✅ Done | Config via AsyncStorage, settings screen with test connection |
+| 2 | ✅ Done | Config via AsyncStorage, settings screen with detailed connection test + error messages |
 | 3 | ✅ Done | Non-streaming `/chat` client (SSE broken in RN, see Future Enhancements), session management, client_actions |
 | 4 | ✅ Done | TTS via expo-speech with [silent] marker support |
-| 5 | ✅ Done | Audio recording (expo-av) + server-side STT + mic button with silence detection |
-| 6 | ✅ Done | **Foreground service**: Kotlin `VoiceForegroundService` with persistent notification, wake lock, and state updates. Native module `VoiceServiceModule` bridges JS ↔ native (start/stop/updateNotification). Notification reflects VoiceService state in real-time. Starts on app mount. |
-| 7 | ✅ Done | **Wake word**: `@picovoice/porcupine-react-native` with `PorcupineManager`. Supports all 14 built-in keywords (configurable in settings). Picovoice access key stored in config. Wake word detection pauses during recording/processing and auto-resumes. VoiceService state machine handles IDLE→LISTENING transition hands-free. |
-| 8 | Not started | **Floating overlay**: `SYSTEM_ALERT_WINDOW` permission draws a dark semi-transparent pill over the kiosk app showing listening/transcript/response state. Requires native module or `react-native-overlay-window`. This is the key feature for running behind HA dashboard. |
-| 9 | Not started | Polish: error handling, reconnect logic, overlay animations, production-ready |
+| 5 | ✅ Done | Audio recording (expo-av AAC/M4A on Android) + server-side STT (accepts audio files, not just raw float32) + mic button with silence detection. Transcribed text displayed as user message in chat. |
+| 6 | ✅ Done | **Foreground service**: Kotlin `VoiceForegroundService` with persistent notification, wake lock, and state updates. Native module `VoiceServiceModule` bridges JS ↔ native (start/stop/updateNotification). Notification reflects VoiceService state in real-time. Starts on app mount after requesting RECORD_AUDIO runtime permission. |
+| 7 | ✅ Done | **Wake word**: `@picovoice/porcupine-react-native` + `@picovoice/react-native-voice-processor` (peer dep). `PorcupineManager` with all 14 built-in keywords (configurable in settings). Picovoice access key preloaded from server `.env` at build time via `scripts/generate-env.js`. Wake word detection pauses during recording (mic conflict) and auto-resumes. VoiceService state machine handles IDLE→LISTENING transition hands-free. Wake-word-triggered messages appear in chat UI via message listener. |
+| 8 | ✅ Done | **Floating overlay**: Native `OverlayModule` + `OverlayView` (Kotlin) draws a dark semi-transparent pill via `WindowManager` + `TYPE_APPLICATION_OVERLAY` on top of whatever app is foregrounded. Shows state indicator (colored dot) + text for listening/processing/responding states. Auto-fades 3s after response. Tap to dismiss. `SYSTEM_ALERT_WINDOW` permission requested on init and in settings with grant button. VoiceService drives overlay state transitions automatically when `overlayEnabled` is true. |
+| 9 | Not started | **Polish**: reconnect logic (auto-retry on server disconnect), error recovery (graceful fallback when server is unreachable mid-conversation), overlay fade animations, notification tap to open app, optional auto-start foreground service on device boot. |
+
+## Developer Notes
+
+- **Build script**: `./scripts/dev-android.sh` (or `--clean` for clean native rebuild). Generates config, installs deps, builds + runs.
+- **Config preloading**: `scripts/generate-env.js` reads `../.env` and writes `src/env.generated.ts` (gitignored). `API_KEY`, `ANDROID_AGENT_URL`, and `PICOVOICE_ACCESS_KEY` are baked in as defaults. Runs automatically via npm `preandroid`/`prestart` hooks.
+- **Audio format**: Android MediaRecorder cannot produce WAV. Recording uses AAC in M4A container. Server `/transcribe` endpoint detects `Content-Type` and decodes audio files via ffmpeg (built into faster-whisper).
+- **Stale closure pitfall**: React state captured in async callbacks (like `handleMic`) can go stale. Use refs (`transcriptRef`) to capture values that change during an `await`.

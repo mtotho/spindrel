@@ -14,6 +14,7 @@ import { useFocusEffect } from "expo-router";
 import { loadConfig, saveConfig, BUILT_IN_WAKE_WORDS, type AppConfig } from "../../src/config";
 import { listBots, testConnection } from "../../src/agent";
 import { voiceService } from "../../src/service/VoiceService";
+import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
 
 type ConnectionState = "untested" | "testing" | "connected" | "partial" | "failed";
 
@@ -23,12 +24,14 @@ export default function SettingsScreen() {
   const [connMessage, setConnMessage] = useState<string>("");
   const [bots, setBots] = useState<Array<{ id: string; name: string; model: string }>>([]);
   const [dirty, setDirty] = useState(false);
+  const [overlayPermission, setOverlayPermission] = useState<boolean | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       loadConfig().then((c) => {
         setConfig(c);
       });
+      hasOverlayPermission().then(setOverlayPermission).catch(() => {});
     }, [])
   );
 
@@ -219,14 +222,66 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Overlay</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.switchLabel}>Overlay</Text>
+          {config.overlayEnabled && overlayPermission === false && (
+            <Text style={[styles.hintText, { color: "#fb923c", marginTop: 4 }]}>
+              Permission required — tap Grant below
+            </Text>
+          )}
+          {config.overlayEnabled && overlayPermission === true && (
+            <Text style={[styles.hintText, { color: "#4ade80", marginTop: 4 }]}>
+              Permission granted
+            </Text>
+          )}
+        </View>
         <Switch
           value={config.overlayEnabled}
-          onValueChange={(v) => updateField("overlayEnabled", v)}
+          onValueChange={async (v) => {
+            updateField("overlayEnabled", v);
+            if (v) {
+              const granted = await hasOverlayPermission();
+              setOverlayPermission(granted);
+              if (!granted) {
+                Alert.alert(
+                  "Overlay Permission",
+                  "To show the voice assistant overlay on top of other apps, you need to grant the \"Display over other apps\" permission. Tap Grant to open Android settings.",
+                  [
+                    { text: "Later", style: "cancel" },
+                    {
+                      text: "Grant",
+                      onPress: async () => {
+                        await requestOverlayPermission();
+                      },
+                    },
+                  ]
+                );
+              }
+              voiceService.checkOverlayPermission();
+            }
+          }}
           trackColor={{ true: "#1d4ed8", false: "#374151" }}
           thumbColor={config.overlayEnabled ? "#60a5fa" : "#9ca3af"}
         />
       </View>
+
+      {config.overlayEnabled && overlayPermission === false && (
+        <Pressable
+          style={[styles.testButton, { backgroundColor: "#78350f" }]}
+          onPress={async () => {
+            await requestOverlayPermission();
+            setTimeout(async () => {
+              const granted = await hasOverlayPermission();
+              setOverlayPermission(granted);
+              voiceService.checkOverlayPermission();
+            }, 1000);
+          }}
+        >
+          <Text style={[styles.testButtonText, { color: "#fbbf24" }]}>
+            Grant Overlay Permission
+          </Text>
+        </Pressable>
+      )}
 
       {/* Wake Word */}
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Wake Word</Text>

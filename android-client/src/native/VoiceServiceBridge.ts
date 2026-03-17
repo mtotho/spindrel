@@ -16,3 +16,8 @@ export async function updateForegroundNotification(text: string): Promise<void> 
   if (Platform.OS !== "android") return;
   await VoiceServiceModule.updateNotification(text);
 }
+
+export async function moveToBackground(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await VoiceServiceModule.moveToBackground();
+}
