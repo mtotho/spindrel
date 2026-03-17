@@ -155,6 +155,8 @@ let recordingChunks: Int16Array[] = [];
 let recordingLength = 0;
 let recordingMeterCb: MeteringCallback | null = null;
 let recordingResolve: ((uri: string | null) => void) | null = null;
+/** When set, trim this many ms from the start of the recording (used after wake word to drop "jarvis" etc. from transcription). */
+let recordingTrimStartMs = 0;
 
 // Frame processing state
 let sampleRate = 16000;
@@ -296,14 +298,19 @@ export function resumeWakeWord(): void {
  * before the switch) are prepended to the recording — this captures
  * speech that overlapped with the wake word.
  */
+/** Default trim when not specified via config. */
+const DEFAULT_WAKE_WORD_TRIM_MS = 800;
+
 export async function startRecordingPipeline(
   onMeter: MeteringCallback | null,
   preserveRingBuffer: boolean,
+  trimStartMs?: number,
 ): Promise<string | null> {
   recordingChunks = [];
   recordingLength = 0;
   recordingMeterCb = onMeter;
   processingFrame = false;
+  recordingTrimStartMs = preserveRingBuffer ? (trimStartMs ?? DEFAULT_WAKE_WORD_TRIM_MS) : 0;
 
   if (preserveRingBuffer && ringBuffer) {
     const prefill = ringBuffer.drain();
@@ -369,8 +376,20 @@ export async function stopRecordingPipeline(): Promise<void> {
   recordingChunks = [];
   recordingLength = 0;
 
+  let toWrite = merged;
+  if (recordingTrimStartMs > 0) {
+    const trimSamples = Math.min(
+      Math.floor((sampleRate * recordingTrimStartMs) / 1000),
+      merged.length - 1,
+    );
+    if (trimSamples > 0 && trimSamples < merged.length) {
+      toWrite = merged.subarray(trimSamples);
+    }
+    recordingTrimStartMs = 0;
+  }
+
   try {
-    const wav = buildWav(merged, sampleRate);
+    const wav = buildWav(toWrite, sampleRate);
     const path = `${FileSystem.cacheDirectory}recording_${Date.now()}.wav`;
     const base64 = uint8ToBase64(wav);
     await FileSystem.writeAsStringAsync(path, base64, {

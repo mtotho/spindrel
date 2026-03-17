@@ -519,6 +519,22 @@ export default function SettingsScreen() {
         Boost mic input for wake word (1.0 = normal, 1.5–2.0 can help on quiet tablets). Restart wake word after changing.
       </Text>
 
+      <Text style={styles.label}>Trim after wake word (ms)</Text>
+      <TextInput
+        style={styles.input}
+        value={String(config.wakeWordTrimMs)}
+        onChangeText={(v) => {
+          const n = parseInt(v, 10);
+          if (!Number.isNaN(n) && n >= 0) updateField("wakeWordTrimMs", n);
+        }}
+        placeholder="800"
+        placeholderTextColor="#6b7280"
+        keyboardType="number-pad"
+      />
+      <Text style={styles.hintText}>
+        Ms of recording to drop from the start after wake word so "jarvis" etc. is not transcribed. Default 800.
+      </Text>
+
       <Text style={styles.label}>Keyword</Text>
       <View style={styles.wakeWordGrid}>
         {BUILT_IN_WAKE_WORDS.map((kw) => {

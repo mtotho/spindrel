@@ -44,10 +44,12 @@ export type RecordingStatusCallback = (status: {
  * @param onStatus Optional callback for metering updates
  * @param preserveRingBuffer If true, prepend ring buffer audio (captures
  *   speech overlapping the wake word)
+ * @param trimStartMs When preserveRingBuffer is true, trim this many ms from the start (from config).
  */
 export async function startRecording(
   onStatus?: RecordingStatusCallback,
   preserveRingBuffer = false,
+  trimStartMs?: number,
 ): Promise<string | null> {
   if (isActive) return null;
   isActive = true;
@@ -119,7 +121,7 @@ export async function startRecording(
     }
   };
 
-  startRecordingPipeline(meterCb, preserveRingBuffer)
+  startRecordingPipeline(meterCb, preserveRingBuffer, trimStartMs)
     .then((uri) => {
       isActive = false;
       resolveOuter!(uri);

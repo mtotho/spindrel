@@ -373,9 +373,14 @@ export class VoiceService {
         }
       };
 
+      const config = await loadConfig();
       let uri: string | null;
       try {
-        uri = await startRecording(statusCb, preserveRingBuffer);
+        uri = await startRecording(
+          statusCb,
+          preserveRingBuffer,
+          preserveRingBuffer ? config.wakeWordTrimMs : undefined,
+        );
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Recording failed";
         this.setState("idle", msg);
@@ -387,7 +392,6 @@ export class VoiceService {
         return "";
       }
 
-      const config = await loadConfig();
       const bot = getCachedBot(config.botId);
       const useNative = config.audioNative || bot?.audio_input === "native";
 

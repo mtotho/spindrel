@@ -88,6 +88,7 @@ const VARIANT_LABELS: Record<string, string> = {
 /**
  * True if the voice runs on-device (starts instantly).
  * -local = local; -network = cloud (adds delay).
+ * -language = local
  */
 export function isLocalVoice(identifier: string): boolean {
   return identifier.endsWith("-local") || !identifier.endsWith("-network");
