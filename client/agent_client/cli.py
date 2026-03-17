@@ -123,6 +123,10 @@ def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
             count = event.get("count", 0)
             print(f"  [Using {count} skill chunk{'s' if count != 1 else ''}...]")
 
+        elif etype == "memory_context":
+            count = event.get("count", 0)
+            print(f"  [Recalled {count} memor{'ies' if count != 1 else 'y'}...]")
+
         elif etype == "tool_start":
             label = _tool_status(event.get("tool", ""))
             if label:
@@ -420,12 +424,37 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
                 print("TTS on")
         return True
 
+    elif cmd == "/compact":
+        try:
+            print("  Compacting session...")
+            result = client.summarize_session(ctx["session_id"])
+            print(f"  Title: {result.get('title', '(none)')}")
+            summary = result.get("summary", "")
+            if len(summary) > 200:
+                summary = summary[:200] + "..."
+            print(f"  Summary: {summary}")
+            if result.get("memory_written"):
+                print("  Memory written to KB.")
+            else:
+                print("  No memory written (disabled or filtered out).")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                print("Session not found on server (send a message first).")
+            elif e.response.status_code == 400:
+                print("Nothing to summarize yet.")
+            else:
+                print(f"Error: {e}")
+        except httpx.HTTPError as e:
+            print(f"Error: {e}")
+        return True
+
     elif cmd == "/help":
         print("Commands:")
         print("  /new             Start a new session")
         print("  /session [uuid]  Show or switch session")
         print("  /sessions        List all sessions")
         print("  /history         Show current session history")
+        print("  /compact         Force compaction + memory storage now")
         print("  /v               Voice input (single turn)")
         print("  /vc              Voice conversation (continuous)")
         print("  /listen          Wake word mode (say wake word to talk)")

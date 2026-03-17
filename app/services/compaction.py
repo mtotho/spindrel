@@ -8,6 +8,7 @@ from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig
+from app.agent.memory import write_memory
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Message, Session
@@ -31,7 +32,23 @@ decisions, code snippets or file paths mentioned, user preferences expressed, an
 any ongoing tasks. This summary will replace the full history, so capture everything \
 the assistant would need to continue the conversation seamlessly.
 
+IMPORTANT: Include human-readable time references in the summary text itself \
+(e.g. "On March 5, 2025: ..." or "During the week of March 1-7: ..."). \
+These summaries may be stored as long-term memories and retrieved weeks later, \
+so temporal context is essential for the model to reason about when things happened.
+
 Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+_MEMORY_ADDENDUM = """
+
+Additionally, produce a third field in the JSON:
+- "memory": Content worth storing in long-term memory, or null if nothing qualifies.
+
+{prompt}
+
+The "memory" field should contain ONLY the filtered content worth remembering \
+long-term (with time references preserved), or null if nothing qualifies. \
+The "summary" field is unaffected — it should still capture everything as before."""
 
 
 def _get_compaction_model(bot: BotConfig) -> str:
@@ -60,10 +77,22 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
 
 
 async def _generate_summary(
-    conversation: list[dict], model: str, existing_summary: str | None
-) -> tuple[str, str]:
-    """Call the LLM to produce a title and summary. Returns (title, summary)."""
-    prompt_messages: list[dict] = [{"role": "system", "content": _SUMMARIZE_PROMPT}]
+    conversation: list[dict],
+    model: str,
+    existing_summary: str | None,
+    memory_prompt: str | None = None,
+) -> tuple[str, str, str | None]:
+    """Call the LLM to produce a title, summary, and optionally memory content.
+
+    Returns (title, summary, memory_content). memory_content is None when
+    no memory_prompt is provided or when the LLM determines nothing is
+    worth storing.
+    """
+    system = _SUMMARIZE_PROMPT
+    if memory_prompt:
+        system += _MEMORY_ADDENDUM.format(prompt=memory_prompt)
+
+    prompt_messages: list[dict] = [{"role": "system", "content": system}]
 
     if existing_summary:
         prompt_messages.append({
@@ -95,11 +124,13 @@ async def _generate_summary(
         data = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("Compaction LLM returned non-JSON: %s", raw[:200])
-        return ("Conversation", raw)
+        return ("Conversation", raw, None)
 
     title = data.get("title", "Conversation")
     summary = data.get("summary", raw)
-    return (title, summary)
+    memory_content = data.get("memory") if memory_prompt else None
+
+    return (title, summary, memory_content)
 
 
 async def maybe_compact(
@@ -154,20 +185,24 @@ async def _run_compaction(
 
         async with async_session() as db:
             session = await db.get(Session, session_id)
-            existing_summary = session.summary if session else None
+            if session is None:
+                return
+            existing_summary = session.summary
+            client_id = session.client_id
 
         conversation = _messages_for_summary(messages)
         if not conversation:
             logger.debug("No conversation content to compact for %s", session_id)
             return
 
-        title, summary = await _generate_summary(conversation, model, existing_summary)
+        memory_prompt = bot.memory.prompt if bot.memory.enabled else None
+        title, summary, memory_content = await _generate_summary(
+            conversation, model, existing_summary, memory_prompt=memory_prompt,
+        )
 
         keep_turns = settings.COMPACTION_KEEP_TURNS
 
         async with async_session() as db:
-            # Find the Nth-from-last user message to use as watermark,
-            # so the last N turns are always loaded verbatim alongside the summary.
             recent_user_msgs = await db.execute(
                 select(Message.id)
                 .where(Message.session_id == session_id)
@@ -178,7 +213,6 @@ async def _run_compaction(
             user_msg_ids = recent_user_msgs.scalars().all()
 
             if user_msg_ids:
-                # Watermark = the message just before the oldest "kept" user message
                 oldest_kept_id = user_msg_ids[-1]
                 oldest_kept = await db.get(Message, oldest_kept_id)
                 preceding = await db.execute(
@@ -190,12 +224,28 @@ async def _run_compaction(
                 )
                 watermark_id = preceding.scalar()
                 if watermark_id is None:
-                    # All messages are within the keep window — nothing to compact
                     logger.debug("All messages within keep window for %s, skipping", session_id)
                     return
             else:
                 logger.debug("No user messages to compact for %s", session_id)
                 return
+
+            # Get time range of messages being summarized (everything before the keep window)
+            time_range = await db.execute(
+                select(func.min(Message.created_at), func.max(Message.created_at))
+                .where(Message.session_id == session_id)
+                .where(Message.created_at <= oldest_kept.created_at)
+                .where(Message.role.in_(["user", "assistant"]))
+            )
+            range_start, range_end = time_range.one()
+
+            msg_count_result = await db.execute(
+                select(func.count())
+                .where(Message.session_id == session_id)
+                .where(Message.created_at <= oldest_kept.created_at)
+                .where(Message.role.in_(["user", "assistant"]))
+            )
+            msg_count = msg_count_result.scalar() or 0
 
             await db.execute(
                 update(Session)
@@ -208,9 +258,26 @@ async def _run_compaction(
             )
             await db.commit()
 
+        if bot.memory.enabled:
+            # If a memory prompt was used, memory_content is the filtered
+            # result (or None if nothing worth storing). Without a prompt,
+            # store the full summary.
+            content_to_store = memory_content if memory_prompt else summary
+            if content_to_store:
+                await write_memory(
+                    summary_text=content_to_store,
+                    client_id=client_id,
+                    session_id=session_id,
+                    message_range_start=range_start,
+                    message_range_end=range_end,
+                    message_count=msg_count,
+                )
+            else:
+                logger.info("Memory filter: nothing worth storing for session %s", session_id)
+
         logger.info(
-            "Compaction complete for %s: title=%r, summary_len=%d",
-            session_id, title, len(summary),
+            "Compaction complete for %s: title=%r, summary_len=%d, memory=%s",
+            session_id, title, len(summary), bot.memory.enabled,
         )
     except Exception:
         logger.exception("Compaction failed for session %s", session_id)

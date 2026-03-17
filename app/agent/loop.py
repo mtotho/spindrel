@@ -9,6 +9,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
+from app.agent.memory import retrieve_memories
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
 from app.config import settings
@@ -48,13 +49,18 @@ def _extract_client_actions(messages: list[dict], from_index: int) -> list[dict]
 
 
 async def run_stream(
-    messages: list[dict], bot: BotConfig, user_message: str
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: str,
+    session_id: uuid.UUID | None = None,
+    client_id: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
     Events:
       {"type": "tool_start", "tool": "<name>"}
       {"type": "tool_result", "tool": "<name>"}
+      {"type": "memory_context", "count": <int>}
       {"type": "response", "text": "...", "client_actions": [...]}
     """
     turn_start = len(messages)
@@ -68,6 +74,21 @@ async def run_stream(
             messages.append({
                 "role": "system",
                 "content": f"Relevant context:\n\n{context}",
+            })
+
+    if bot.memory.enabled and session_id and client_id:
+        memories = await retrieve_memories(
+            query=user_message,
+            session_id=session_id,
+            client_id=client_id,
+            cross_session=bot.memory.cross_session,
+        )
+        if memories:
+            yield {"type": "memory_context", "count": len(memories)}
+            messages.append({
+                "role": "system",
+                "content": "Relevant memories from past conversations:\n\n"
+                + "\n\n---\n\n".join(memories),
             })
 
     messages.append({"role": "user", "content": user_message})
@@ -185,10 +206,19 @@ async def run_stream(
     }
 
 
-async def run(messages: list[dict], bot: BotConfig, user_message: str) -> RunResult:
+async def run(
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: str,
+    session_id: uuid.UUID | None = None,
+    client_id: str | None = None,
+) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
-    async for event in run_stream(messages, bot, user_message):
+    async for event in run_stream(
+        messages, bot, user_message,
+        session_id=session_id, client_id=client_id,
+    ):
         if event["type"] == "response":
             result.response = event["text"]
             result.client_actions = event.get("client_actions", [])

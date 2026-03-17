@@ -13,6 +13,13 @@ _registry: dict[str, "BotConfig"] = {}
 
 
 @dataclass
+class MemoryConfig:
+    enabled: bool = False
+    cross_session: bool = False
+    prompt: str | None = None
+
+
+@dataclass
 class BotConfig:
     id: str
     name: str
@@ -27,6 +34,7 @@ class BotConfig:
     compaction_interval: int | None = None
     compaction_model: str | None = None
     voice: dict | None = None
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 def load_bots(bots_dir: Path = BOTS_DIR) -> None:
@@ -37,6 +45,13 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
     for path in bots_dir.glob("*.yaml"):
         with open(path) as f:
             data = yaml.safe_load(f)
+        mem_data = data.get("memory", {})
+        memory_cfg = MemoryConfig(
+            enabled=mem_data.get("enabled", False),
+            cross_session=mem_data.get("cross_session", False),
+            prompt=mem_data.get("prompt"),
+        )
+
         bot = BotConfig(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -51,6 +66,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             compaction_interval=data.get("compaction_interval"),
             compaction_model=data.get("compaction_model"),
             voice=data.get("voice"),
+            memory=memory_cfg,
         )
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)

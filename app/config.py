@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
 
+    # Memory
+    MEMORY_RETRIEVAL_LIMIT: int = 5
+    MEMORY_SIMILARITY_THRESHOLD: float = 0.75
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

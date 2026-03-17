@@ -72,6 +72,9 @@ rag: false
 context_compaction: true
 # compaction_interval: 10   # optional per-bot override
 # compaction_model: gpt-4o-mini  # optional cheaper model for summaries
+memory:
+  enabled: true              # log compaction summaries to memory KB + retrieve on each turn
+  cross_session: false       # widen retrieval to other sessions for this client
 voice:
   piper_model: en_US-amy-medium    # Python client TTS voice
   android_voice: en-US-default     # Android client TTS voice (expo-speech)
@@ -212,6 +215,7 @@ Type /help for commands.
 | `/session <uuid>` | Switch to a specific session |
 | `/sessions` | List all sessions on the server |
 | `/history` | Print the current session's message history |
+| `/compact` | Force compaction + memory storage now |
 | `/v` | Voice input — record, transcribe, send |
 | `/vc` | Voice conversation — continuous back-and-forth |
 | `/listen` | Wake word mode — say the wake word to trigger recording |
@@ -392,6 +396,39 @@ compaction_interval: 5         # override for this bot
 compaction_model: gpt-4o-mini  # override model for this bot
 ```
 
+### Long-Term Memory
+
+When `memory.enabled` is set on a bot, compaction summaries are additionally written to a dedicated `memories` table with vector embeddings. These entries accumulate over time — each compaction appends a new memory rather than overwriting the previous one.
+
+On each turn, the user's message is embedded and searched against stored memories via pgvector cosine similarity. Only memories above the similarity threshold (default 0.75) are injected, so irrelevant turns add nothing to context. When relevant memories are found, the client shows `[Recalled N memories...]`.
+
+This is designed for long-lived sessions (weeks/months). Compaction keeps the active context lean, while the memory KB lets the model recall specifics from far back — "remember when I set up the Raspberry Pi?" finds the memory entry from three weeks ago.
+
+**Bot config:**
+
+```yaml
+memory:
+  enabled: true          # log compaction summaries + retrieve relevant memories
+  cross_session: false   # default: search only current session's memories
+                         # true: search all sessions for this client
+  prompt: |              # optional: filter what gets stored in memory
+    Only store information that reveals something new about the user: their
+    preferences, projects, setup, people they mention, or decisions they made.
+    Do not store routine commands (light switches, weather checks, timers)
+    or small talk.
+```
+
+When `prompt` is set, each compaction summary is run through a distillation LLM call before being written to the KB. The LLM strips out noise and keeps only what matches the prompt's criteria. If nothing in the summary is worth remembering, the write is skipped entirely. This doesn't affect the session summary — only what goes into long-term memory.
+
+**Global config** (in `.env`):
+
+```
+MEMORY_RETRIEVAL_LIMIT=5          # max memory chunks to retrieve per turn
+MEMORY_SIMILARITY_THRESHOLD=0.75  # minimum cosine similarity (0-1)
+```
+
+**Manual trigger:** `POST /sessions/{id}/summarize` forces a compaction and memory write regardless of turn count. Useful for explicitly capturing a conversation before switching context.
+
 ## API
 
 | Endpoint | Method | Description |
@@ -403,6 +440,7 @@ compaction_model: gpt-4o-mini  # override model for this bot
 | `/sessions` | GET | List sessions with titles (optional `?client_id=` filter) |
 | `/sessions/{id}` | GET | Get session with full message history |
 | `/sessions/{id}` | DELETE | Delete a session |
+| `/sessions/{id}/summarize` | POST | Force summarization + memory write |
 | `/bots` | GET | List available bots (includes per-bot `voice` config) |
 
 All endpoints except `/health` require `Authorization: Bearer <API_KEY>`.

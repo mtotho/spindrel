@@ -65,7 +65,10 @@ async def chat(
     from_index = len(messages)
 
     try:
-        result = await run(messages, bot, req.message)
+        result = await run(
+            messages, bot, req.message,
+            session_id=session_id, client_id=req.client_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
 
@@ -103,7 +106,10 @@ async def chat_stream(
 
     async def event_generator():
         try:
-            async for event in run_stream(messages, bot, req.message):
+            async for event in run_stream(
+                messages, bot, req.message,
+                session_id=session_id, client_id=req.client_id,
+            ):
                 if await request.is_disconnected():
                     break
                 event_with_session = {**event, "session_id": str(session_id)}

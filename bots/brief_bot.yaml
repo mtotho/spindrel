@@ -27,3 +27,10 @@ skills:
 context_compaction: true
 compaction_interval: 15
 compaction_keep_turns: 4
+memory:
+  enabled: true
+  cross_session: false
+  prompt: |
+    Store any information that reveals helpful information about this user for future reference. Like which devices are available, what the user's preferences are, what type of projects
+    the user is working on, what type of problems the user is having, etc. Do not store routine commands (light switches, weather checks, timers). On the other hand, if for example, the user
+    is asking you to "cd into the xyz project folder" it mighjt be worth mentioning exact paths they frequent related to a project or something.

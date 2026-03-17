@@ -91,6 +91,11 @@ class AgentClient:
                 return None
             raise
 
+    def summarize_session(self, session_id: uuid.UUID) -> dict:
+        resp = self._http.post(f"/sessions/{session_id}/summarize")
+        resp.raise_for_status()
+        return resp.json()
+
     def list_bots(self) -> list[dict]:
         resp = self._http.get("/bots")
         resp.raise_for_status()
