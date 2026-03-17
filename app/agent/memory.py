@@ -25,6 +25,17 @@ async def _embed(text: str) -> list[float]:
     return response.data[0].embedding
 
 
+def _date_prefix(range_start, range_end) -> str:
+    """Build a human-readable date prefix from message timestamps."""
+    if range_start is None:
+        return ""
+    start_str = range_start.strftime("%B %-d, %Y")
+    if range_end is None or range_start.date() == range_end.date():
+        return f"[{start_str}] "
+    end_str = range_end.strftime("%B %-d, %Y")
+    return f"[{start_str} – {end_str}] "
+
+
 async def write_memory(
     summary_text: str,
     client_id: str,
@@ -34,6 +45,8 @@ async def write_memory(
     message_count: int | None = None,
 ) -> None:
     """Embed content and write it to the memories table."""
+    summary_text = _date_prefix(message_range_start, message_range_end) + summary_text
+
     try:
         embedding = await _embed(summary_text)
     except Exception:

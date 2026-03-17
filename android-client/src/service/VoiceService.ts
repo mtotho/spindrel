@@ -3,8 +3,8 @@ import { chatStream, getCachedBot, stripSilent, transcribe, type AudioInput, typ
 import { speak, stopSpeaking } from "../voice/tts";
 import { startRecording, stopRecording, readAudioFile, readAudioFileBase64, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
-import { updateForegroundNotification, moveToBackground } from "../native/VoiceServiceBridge";
-import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
+import { updateForegroundNotification, moveToForeground, moveToBackground } from "../native/VoiceServiceBridge";
+import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection, destroyWakeWord } from "../voice/wakeword";
 import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasOverlayPermission, showBadge, updateBadge, hideBadge, onBadgeTap, onOverlayTap } from "../native/OverlayBridge";
 
 type StateListener = (state: VoiceState, detail?: string) => void;
@@ -23,15 +23,12 @@ const NOTIFICATION_TEXT: Record<VoiceState, string> = {
  * Orchestrates the full voice pipeline:
  *   IDLE → LISTENING → PROCESSING → RESPONDING → IDLE
  *
- * Two trigger modes:
- *   - In-app: user taps mic button, no overlay, stays in foreground
- *   - Background: wake word or badge tap — overlay shown, app stays in
- *     foreground during the entire pipeline (recording + transcription +
- *     chat + TTS), then moves to background when finished.
- *
- * The app MUST stay foregrounded during the pipeline because React Native's
- * JS bridge and network layer are throttled on Fire OS when backgrounded,
- * even with a foreground service running.
+ * Trigger modes:
+ *   - In-app mic / wake word: no overlay, stays in foreground
+ *   - Background badge tap or wake word: we bring the app to the foreground
+ *     so the JS thread receives audio frames (Android throttles JS when
+ *     backgrounded). Overlay shown, then we run the full pipeline and
+ *     move back to background when done.
  */
 export class VoiceService {
   private state: VoiceState = "idle";
@@ -126,7 +123,6 @@ export class VoiceService {
   // ─── Background-triggered pipeline (badge tap) ────────────────────
 
   private async onBadgeTapped(): Promise<void> {
-    // Allow cancelling from any active state
     if (this.state !== "idle") {
       this.stop();
       return;
@@ -136,11 +132,16 @@ export class VoiceService {
     this.pipelineActive = true;
     this.backgroundTriggered = true;
 
+    const wasInForeground = this.isAppInForeground();
+    if (!wasInForeground) {
+      await moveToForeground().catch(() => {});
+      await delay(400);
+    }
+
     if (this.wakeWordActive) {
       await stopWakeWordDetection();
     }
 
-    // Hide badge — the overlay pill takes over
     if (this.badgeActive) {
       await hideBadge().catch(() => {});
       this.badgeActive = false;
@@ -155,10 +156,6 @@ export class VoiceService {
     });
 
     try {
-      // The app will stay foregrounded during recording (expo-av brings it
-      // forward) and during network calls (required for XHR to work on
-      // Fire OS). The overlay is drawn on top via SYSTEM_ALERT_WINDOW.
-      // We only moveToBackground AFTER the full pipeline completes.
       const response = await this.processVoice();
 
       if (lastTranscript && response) {
@@ -171,18 +168,18 @@ export class VoiceService {
       this.backgroundTriggered = false;
       this.pipelineActive = false;
 
-      // Pipeline done — return to kiosk browser and re-show badge
-      await moveToBackground().catch(() => {});
+      if (!wasInForeground) {
+        await moveToBackground().catch(() => {});
+      }
 
-      if (this.badgeEnabled) {
-        // Brief delay so AppState catches up with moveToBackground
+      if (this.badgeEnabled && !this.isAppInForeground()) {
         await delay(200);
         await showBadge(this.state).catch(() => {});
         this.badgeActive = true;
       }
-    }
 
-    await this.restartWakeWord();
+      await this.restartWakeWord();
+    }
   }
 
   // ─── Background-triggered pipeline (wake word) ────────────────────
@@ -190,8 +187,15 @@ export class VoiceService {
   private async onWakeWordDetected(): Promise<void> {
     if (this.state !== "idle" || this.pipelineActive) return;
 
+    const wasInForeground = this.isAppInForeground();
+
     this.pipelineActive = true;
-    this.backgroundTriggered = true;
+    this.backgroundTriggered = !wasInForeground;
+
+    if (!wasInForeground) {
+      await moveToForeground().catch(() => {});
+      await delay(400);
+    }
 
     await stopWakeWordDetection();
 
@@ -209,7 +213,7 @@ export class VoiceService {
     });
 
     try {
-      const response = await this.processVoice();
+      const response = await this.processVoice(undefined, true);
       if (lastTranscript && response) {
         this.emitMessage(lastTranscript, response);
       }
@@ -220,16 +224,18 @@ export class VoiceService {
       this.backgroundTriggered = false;
       this.pipelineActive = false;
 
-      await moveToBackground().catch(() => {});
+      if (!wasInForeground) {
+        await moveToBackground().catch(() => {});
+      }
 
-      if (this.badgeEnabled) {
+      if (this.badgeEnabled && !this.isAppInForeground()) {
         await delay(200);
         await showBadge(this.state).catch(() => {});
         this.badgeActive = true;
       }
-    }
 
-    await this.restartWakeWord();
+      await this.restartWakeWord();
+    }
   }
 
   private async restartWakeWord(): Promise<void> {
@@ -370,61 +376,72 @@ export class VoiceService {
   /**
    * Full voice pipeline: record audio → chat (with transcription or native audio) → TTS.
    * Returns the assistant's display text, or empty string if cancelled.
+   *
+   * @param onMeter Optional metering callback for in-app UI
+   * @param preserveRingBuffer When true, prepends the ring buffer audio
+   *   to the recording — captures speech that overlapped the wake word
    */
-  async processVoice(onMeter?: (metering: number) => void): Promise<string> {
+  async processVoice(onMeter?: (metering: number) => void, preserveRingBuffer = false): Promise<string> {
     if (this.state !== "idle") return "";
 
-    this.setState("listening");
+    try {
+      this.setState("listening");
 
-    const statusCb: RecordingStatusCallback = (status) => {
-      if (status.metering !== undefined) {
-        onMeter?.(status.metering);
+      const statusCb: RecordingStatusCallback = (status) => {
+        if (status.metering !== undefined) {
+          onMeter?.(status.metering);
+        }
+      };
+
+      let uri: string | null;
+      try {
+        uri = await startRecording(statusCb, preserveRingBuffer);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Recording failed";
+        this.setState("idle", msg);
+        throw error;
       }
-    };
 
-    let uri: string | null;
-    try {
-      uri = await startRecording(statusCb);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Recording failed";
-      this.setState("idle", msg);
-      throw error;
+      if (!uri || this.isCancelled()) {
+        if (!this.isCancelled()) this.setState("idle");
+        return "";
+      }
+
+      const config = await loadConfig();
+      const bot = getCachedBot(config.botId);
+      const useNative = config.audioNative || bot?.audio_input === "native";
+
+      if (useNative) {
+        return await this.processNativeAudio(uri);
+      }
+
+      this.setState("processing", "Transcribing...");
+
+      let transcript: string;
+      try {
+        const audioFile = await readAudioFile(uri);
+        transcript = await transcribe(audioFile.data, audioFile.mimeType);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Transcription failed";
+        this.setState("idle", msg);
+        throw error;
+      }
+
+      if (this.isCancelled()) return "";
+
+      if (!transcript.trim()) {
+        this.setState("idle", "No speech detected");
+        return "";
+      }
+
+      return await this.processTranscript(transcript);
+    } finally {
+      // Resume wake word when called directly (in-app mic), not from
+      // onWakeWordDetected/onBadgeTapped which manage this themselves
+      if (this.wakeWordActive && !this.pipelineActive) {
+        this.restartWakeWord().catch(() => {});
+      }
     }
-
-    // Bail if cancelled via stop() during recording
-    if (!uri || this.isCancelled()) {
-      if (!this.isCancelled()) this.setState("idle");
-      return "";
-    }
-
-    const config = await loadConfig();
-    const bot = getCachedBot(config.botId);
-    const useNative = config.audioNative || bot?.audio_input === "native";
-
-    if (useNative) {
-      return this.processNativeAudio(uri);
-    }
-
-    this.setState("processing", "Transcribing...");
-
-    let transcript: string;
-    try {
-      const audioFile = await readAudioFile(uri);
-      transcript = await transcribe(audioFile.data, audioFile.mimeType);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Transcription failed";
-      this.setState("idle", msg);
-      throw error;
-    }
-
-    if (this.isCancelled()) return "";
-
-    if (!transcript.trim()) {
-      this.setState("idle", "No speech detected");
-      return "";
-    }
-
-    return this.processTranscript(transcript);
   }
 
   /**
@@ -543,7 +560,7 @@ export class VoiceService {
     await hideOverlay().catch(() => {});
     await this.disableBadge().catch(() => {});
     if (this.wakeWordActive) {
-      await stopWakeWordDetection();
+      await destroyWakeWord();
       this.wakeWordActive = false;
     }
   }

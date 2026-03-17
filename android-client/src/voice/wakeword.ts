@@ -1,11 +1,17 @@
-import { PorcupineManager, BuiltInKeywords } from "@picovoice/porcupine-react-native";
+/**
+ * Wake word detection — thin wrapper around audio-pipeline.
+ *
+ * The audio pipeline manages VoiceProcessor and low-level Porcupine
+ * internally. This module just maps keyword strings to BuiltInKeywords
+ * and exposes start/stop/callback for VoiceService.
+ */
+
+import { BuiltInKeywords } from "@picovoice/porcupine-react-native";
+import { startPipeline, stopPipeline, isPipelineActive, resumeWakeWord, pauseWakeWord } from "./audio-pipeline";
 
 export type WakeWordCallback = () => void;
 
-let manager: PorcupineManager | null = null;
 let callback: WakeWordCallback | null = null;
-let isRunning = false;
-let transitioning = false;
 
 const KEYWORD_MAP: Record<string, BuiltInKeywords> = {
   alexa: BuiltInKeywords.ALEXA,
@@ -32,7 +38,6 @@ export async function startWakeWordDetection(
   keyword: string,
   accessKey: string
 ): Promise<void> {
-  if (isRunning || transitioning) return;
   if (!accessKey) {
     console.warn("Picovoice access key not configured — wake word disabled");
     return;
@@ -44,50 +49,29 @@ export async function startWakeWordDetection(
     return;
   }
 
-  transitioning = true;
-  try {
-    manager = await PorcupineManager.fromBuiltInKeywords(
-      accessKey,
-      [builtIn],
-      (_keywordIndex) => {
-        callback?.();
-      },
-      (error) => {
-        console.error("Porcupine processing error:", error.message);
-      }
-    );
+  if (isPipelineActive()) {
+    resumeWakeWord();
+    return;
+  }
 
-    await manager.start();
-    isRunning = true;
+  try {
+    await startPipeline({ accessKey, keyword: builtIn }, () => {
+      callback?.();
+    });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("Failed to start Porcupine:", msg);
-    manager = null;
-  } finally {
-    transitioning = false;
+    console.error("Failed to start wake word pipeline:", msg);
   }
 }
 
 export async function stopWakeWordDetection(): Promise<void> {
-  if (!isRunning || !manager || transitioning) return;
+  pauseWakeWord();
+}
 
-  // Capture to local and null out immediately to prevent concurrent
-  // calls from operating on the same manager instance
-  transitioning = true;
-  const mgr = manager;
-  manager = null;
-  isRunning = false;
-
-  try {
-    await mgr.stop();
-    mgr.delete();
-  } catch (error) {
-    console.error("Error stopping Porcupine:", error);
-  } finally {
-    transitioning = false;
-  }
+export async function destroyWakeWord(): Promise<void> {
+  await stopPipeline();
 }
 
 export function isWakeWordActive(): boolean {
-  return isRunning;
+  return isPipelineActive();
 }

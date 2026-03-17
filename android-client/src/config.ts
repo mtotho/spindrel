@@ -52,14 +52,15 @@ const DEFAULTS: AppConfig = {
   audioNative: false,
 };
 
+let cachedConfig: AppConfig | null = null;
+
 export async function loadConfig(): Promise<AppConfig> {
+  if (cachedConfig) return cachedConfig;
+
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      // Don't let empty saved values override build-time defaults.
-      // If the user never set a value, the saved "" shouldn't clobber
-      // a key that was baked in from .env at build time.
       const merged = { ...DEFAULTS };
       for (const key of Object.keys(saved) as Array<keyof AppConfig>) {
         const val = saved[key];
@@ -70,16 +71,20 @@ export async function loadConfig(): Promise<AppConfig> {
           (merged as any)[key] = val;
         }
       }
+      cachedConfig = merged;
       return merged;
     }
   } catch {}
-  return { ...DEFAULTS };
+  cachedConfig = { ...DEFAULTS };
+  return cachedConfig;
 }
 
 export async function saveConfig(config: Partial<AppConfig>): Promise<AppConfig> {
+  cachedConfig = null;
   const current = await loadConfig();
   const merged = { ...current, ...config };
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+  cachedConfig = merged;
   return merged;
 }
 

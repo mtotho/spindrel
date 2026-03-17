@@ -21,3 +21,8 @@ export async function moveToBackground(): Promise<void> {
   if (Platform.OS !== "android") return;
   await VoiceServiceModule.moveToBackground();
 }
+
+export async function moveToForeground(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await VoiceServiceModule.moveToForeground();
+}

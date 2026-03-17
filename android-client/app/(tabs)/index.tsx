@@ -131,6 +131,17 @@ export default function HomeScreen() {
       if (state === "processing" && detail && !detail.startsWith("Using ") && detail !== "Transcribing..." && detail !== "Sending audio...") {
         setTranscript(detail);
         transcriptRef.current = detail;
+        // Update pending user message placeholder with actual transcript
+        if (pendingTranscriptIdx.current !== null) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const idx = pendingTranscriptIdx.current!;
+            if (idx < updated.length && updated[idx].role === "user") {
+              updated[idx] = { ...updated[idx], text: detail };
+            }
+            return updated;
+          });
+        }
       }
       if (state === "idle") {
         setTranscript(undefined);
@@ -266,26 +277,15 @@ export default function HomeScreen() {
     responseHandled.current = false;
 
     try {
-      const config = await loadConfig();
-      const bot = getCachedBot(config.botId);
-      const useNative = config.audioNative || bot?.audio_input === "native";
-
-      if (useNative) {
-        setMessages((prev) => {
-          pendingTranscriptIdx.current = prev.length;
-          return [...prev, { role: "user", text: "...", timestamp: Date.now() }];
-        });
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      }
+      // Add placeholder user message so it appears before the response
+      setMessages((prev) => {
+        pendingTranscriptIdx.current = prev.length;
+        return [...prev, { role: "user", text: "...", timestamp: Date.now() }];
+      });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
       await voiceService.processVoice();
-      const spokenText = transcriptRef.current;
       transcriptRef.current = undefined;
-
-      if (!useNative && spokenText) {
-        addMessage({ role: "user", text: spokenText, timestamp: Date.now() });
-      }
-
       pendingTranscriptIdx.current = null;
     } catch (error) {
       pendingTranscriptIdx.current = null;
