@@ -33,7 +33,6 @@ class BotConfig:
     context_compaction: bool = True
     compaction_interval: int | None = None
     compaction_model: str | None = None
-    voice: dict | None = None
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
 
@@ -66,7 +65,6 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             context_compaction=data.get("context_compaction", True),
             compaction_interval=data.get("compaction_interval"),
             compaction_model=data.get("compaction_model"),
-            voice=data.get("voice"),
             audio_input=data.get("audio_input", "transcribe"),
             memory=memory_cfg,
         )

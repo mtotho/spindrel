@@ -5,6 +5,7 @@ import { startRecording, stopRecording, readAudioFile, readAudioFileBase64, type
 import { loadConfig } from "../config";
 import { updateForegroundNotification, moveToForeground, moveToBackground } from "../native/VoiceServiceBridge";
 import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection, destroyWakeWord } from "../voice/wakeword";
+import { playListenTone, type ListenSoundPreset } from "../voice/tone";
 import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasOverlayPermission, showBadge, updateBadge, hideBadge, onBadgeTap, onOverlayTap } from "../native/OverlayBridge";
 
 type StateListener = (state: VoiceState, detail?: string) => void;
@@ -186,6 +187,10 @@ export class VoiceService {
 
     await stopWakeWordDetection();
 
+    const config = await loadConfig();
+    const preset = (config.listenSound === "beep" || config.listenSound === "ping" ? config.listenSound : "chime") as ListenSoundPreset;
+    await playListenTone(preset).catch(() => {});
+
     if (this.badgeActive) {
       await hideBadge().catch(() => {});
       this.badgeActive = false;
@@ -217,7 +222,7 @@ export class VoiceService {
     if (!this.wakeWordActive) return;
     try {
       const config = await loadConfig();
-      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity);
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity, config.wakeWordGain);
     } catch (e) {
       console.error("Failed to restart wake word:", e);
     }
@@ -338,7 +343,7 @@ export class VoiceService {
         console.warn("Cannot enable wake word: no Picovoice access key");
         return;
       }
-      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity);
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity, config.wakeWordGain);
       this.wakeWordActive = true;
     } else if (!enabled && this.wakeWordActive) {
       await stopWakeWordDetection();
@@ -469,7 +474,7 @@ export class VoiceService {
       this.emitResponse(display);
       if (config.ttsEnabled && speakable) {
         await yieldToMain();
-        await speak(speakable);
+        await speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed });
       }
 
       this.setState("idle");
@@ -507,7 +512,7 @@ export class VoiceService {
       this.emitResponse(display);
       if (config.ttsEnabled && speakable) {
         await yieldToMain();
-        await speak(speakable);
+        await speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed });
       }
 
       this.setState("idle");

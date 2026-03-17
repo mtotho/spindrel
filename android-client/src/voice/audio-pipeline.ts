@@ -29,6 +29,8 @@ export interface PipelineConfig {
   keyword: BuiltInKeywords;
   /** Sensitivity in [0, 1]. Higher = more sensitive (easier to trigger, more false alarms). Default 0.75 */
   sensitivity?: number;
+  /** Input gain applied to mic before wake word. 1.0 = normal; 1.5–2.0 can help on quiet mics. */
+  gain?: number;
 }
 
 type PipelineMode = "idle" | "wakeword" | "recording";
@@ -158,18 +160,29 @@ let recordingResolve: ((uri: string | null) => void) | null = null;
 let sampleRate = 16000;
 let processingFrame = false;
 let listenersRegistered = false;
+let wakeWordGain = 1.0;
+
+function applyGain(frame: number[], gain: number): number[] {
+  if (gain <= 0 || Math.abs(gain - 1) < 0.01) return frame;
+  const out: number[] = [];
+  for (let i = 0; i < frame.length; i++) {
+    const v = Math.round(frame[i] * gain);
+    out.push(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+  }
+  return out;
+}
 
 const frameListener = (frame: number[]): void => {
-  // Only skip during wake word Porcupine processing; recording frames are synchronous
   if (processingFrame && mode === "wakeword") return;
 
   if (mode === "wakeword") {
-    ringBuffer?.push(frame);
+    const frameForWake = wakeWordGain !== 1 ? applyGain(frame, wakeWordGain) : frame;
+    ringBuffer?.push(frameForWake);
 
     if (!porcupine) return;
     processingFrame = true;
     porcupine
-      .process(frame)
+      .process(frameForWake)
       .then((keywordIndex) => {
         if (keywordIndex >= 0) {
           wakeWordCb?.();
@@ -233,6 +246,7 @@ export async function startPipeline(config: PipelineConfig, onWakeWord: WakeWord
   }
 
   wakeWordCb = onWakeWord;
+  wakeWordGain = Math.max(0.5, Math.min(3, config.gain ?? 1));
 
   const sensitivity = Math.max(0, Math.min(1, config.sensitivity ?? 0.75));
   porcupine = await Porcupine.fromBuiltInKeywords(

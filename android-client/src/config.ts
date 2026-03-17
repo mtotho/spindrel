@@ -9,6 +9,8 @@ export interface AppConfig {
   wakeWord: string;
   wakeWordEnabled: boolean;
   wakeWordSensitivity: number;
+  /** Mic gain for wake word (1.0 = normal, 1.5–2.0 can help on quiet devices). */
+  wakeWordGain: number;
   picovoiceAccessKey: string;
   ttsEnabled: boolean;
   ttsVoice: string;
@@ -45,6 +47,7 @@ const DEFAULTS: AppConfig = {
   wakeWord: "jarvis",
   wakeWordEnabled: false,
   wakeWordSensitivity: 1,
+  wakeWordGain: 1.0,
   picovoiceAccessKey: BUILD_PICOVOICE_KEY || "",
   ttsEnabled: true,
   ttsVoice: "",

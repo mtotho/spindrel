@@ -217,7 +217,7 @@ def _handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) 
             if bot_id:
                 ctx["bot_id"] = bot_id
                 save_bot_id(bot_id)
-                _apply_bot_voice(client, ctx)
+                _apply_bot_audio(client, ctx)
                 print(f"  [action] Switched bot to: {bot_id}")
             else:
                 print("  [action] switch_bot missing bot_id param")
@@ -363,7 +363,7 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         else:
             ctx["bot_id"] = parts[1]
             save_bot_id(parts[1])
-            _apply_bot_voice(client, ctx)
+            _apply_bot_audio(client, ctx)
             audio_mode = "native" if ctx.get("audio_native") else "transcribe"
             print(f"Switched bot to: {ctx['bot_id']} | audio {audio_mode}")
         return True
@@ -447,6 +447,32 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             else:
                 ctx["tts"] = True
                 print("TTS on")
+        return True
+
+    elif cmd == "/tts_voice":
+        if len(parts) < 2:
+            print(f"TTS voice: {ctx['piper_model']} (set in config or: /tts_voice <model>)")
+        else:
+            model = parts[1]
+            err = check_tts_ready(model, ctx["piper_model_dir"])
+            if err:
+                print(f"Cannot use that voice: {err}")
+            else:
+                ctx["piper_model"] = model
+                print(f"TTS voice set to: {model}")
+        return True
+
+    elif cmd == "/tone":
+        presets = ("chime", "beep", "ping")
+        if len(parts) < 2:
+            print(f"Listen tone: {ctx.get('listen_sound', 'chime')} (options: {', '.join(presets)})")
+        else:
+            preset = parts[1].lower()
+            if preset in presets:
+                ctx["listen_sound"] = preset
+                print(f"Listen tone set to: {preset}")
+            else:
+                print(f"Unknown preset. Use one of: {', '.join(presets)}")
         return True
 
     elif cmd == "/compact":
@@ -540,28 +566,16 @@ def _audio_to_base64(audio) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _apply_bot_voice(client: AgentClient, ctx: dict) -> None:
-    """Fetch voice + audio config for current bot from server and apply overrides to ctx."""
+def _apply_bot_audio(client: AgentClient, ctx: dict) -> None:
+    """Fetch audio config for current bot from server (e.g. audio_input=native). Voice/tone stay client-local."""
     try:
         bots = client.list_bots()
         for b in bots:
             if b["id"] == ctx["bot_id"]:
-                if b.get("voice"):
-                    voice = b["voice"]
-                    ctx["piper_model"] = voice.get("piper_model", ctx["_default_piper_model"])
-                    ctx["tts_speed"] = voice.get("speed", ctx["_default_tts_speed"])
-                    ctx["listen_sound"] = voice.get("listen_sound", ctx["_default_listen_sound"])
-                else:
-                    ctx["piper_model"] = ctx["_default_piper_model"]
-                    ctx["tts_speed"] = ctx["_default_tts_speed"]
-                    ctx["listen_sound"] = ctx["_default_listen_sound"]
                 ctx["audio_native"] = b.get("audio_input") == "native" or ctx["_default_audio_native"]
                 return
     except Exception:
         pass
-    ctx["piper_model"] = ctx["_default_piper_model"]
-    ctx["tts_speed"] = ctx["_default_tts_speed"]
-    ctx["listen_sound"] = ctx["_default_listen_sound"]
     ctx["audio_native"] = ctx["_default_audio_native"]
 
 
@@ -640,7 +654,7 @@ def main():
     # Verify connectivity and load bot voice config
     try:
         client.health()
-        _apply_bot_voice(client, ctx)
+        _apply_bot_audio(client, ctx)
     except httpx.HTTPError:
         print(f"Warning: Cannot reach server at {config.agent_url}")
 

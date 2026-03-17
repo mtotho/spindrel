@@ -44,8 +44,6 @@ async def bots(_auth: str = Depends(verify_auth)):
     result = []
     for b in list_bots():
         entry: dict = {"id": b.id, "name": b.name, "model": b.model}
-        if b.voice:
-            entry["voice"] = b.voice
         if b.audio_input != "transcribe":
             entry["audio_input"] = b.audio_input
         result.append(entry)

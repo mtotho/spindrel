@@ -355,7 +355,7 @@ British English voices are also available (e.g. `en_GB-alan-medium`, `en_GB-alba
 | `beep` | Single short 800Hz tone |
 | `ping` | Quick high-pitched 1200Hz blip |
 
-These client-side defaults can be overridden per-bot via the `voice` section in bot YAML. When you switch bots, the client fetches voice config from the server and applies any bot-specific overrides automatically.
+Voice and listen tone are configured **only on the client** (each client has its own TTS engine and available voices). Set them in `~/.config/agent-client/config.env` (Python) or in the app’s Settings screen (Android). The server does not send voice or tone settings per bot.
 
 ### How the client finds its settings
 
@@ -364,6 +364,8 @@ The client checks these in order (later overrides earlier):
 1. `~/.config/agent-client/config.env` (optional persistent config)
 2. Environment variables (`AGENT_URL`, `API_KEY`, `BOT_ID`, `TTS_ENABLED`, etc.)
 3. CLI flags (`--url`, `--key`, `--bot`, `--tts`/`--no-tts`, `--listen`)
+
+In-session overrides (for the current run only): `/tts_voice <model>` sets the Piper TTS voice; `/tone chime|beep|ping` sets the listen confirmation sound. Use `/tts_voice` or `/tone` with no argument to show the current value.
 
 For local dev the scripts handle all of this — they pull `API_KEY` from your `.env` automatically.
 

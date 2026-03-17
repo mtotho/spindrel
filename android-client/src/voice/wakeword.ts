@@ -38,6 +38,7 @@ export async function startWakeWordDetection(
   keyword: string,
   accessKey: string,
   sensitivity?: number,
+  gain?: number,
 ): Promise<void> {
   if (!accessKey) {
     console.warn("Picovoice access key not configured — wake word disabled");
@@ -57,7 +58,7 @@ export async function startWakeWordDetection(
 
   try {
     await startPipeline(
-      { accessKey, keyword: builtIn, sensitivity },
+      { accessKey, keyword: builtIn, sensitivity, gain },
       () => callback?.(),
     );
   } catch (error) {

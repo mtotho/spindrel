@@ -15,6 +15,9 @@ import { loadConfig, saveConfig, BUILT_IN_WAKE_WORDS, type AppConfig } from "../
 import { testConnection, refreshBotCache } from "../../src/agent";
 import { voiceService } from "../../src/service/VoiceService";
 import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
+import * as Speech from "expo-speech";
+import { LISTEN_SOUND_PRESETS, playListenTone, type ListenSoundPreset } from "../../src/voice/tone";
+import { voiceDisplayName } from "../../src/voice/voiceLabels";
 
 type ConnectionState = "untested" | "testing" | "connected" | "partial" | "failed";
 
@@ -25,6 +28,7 @@ export default function SettingsScreen() {
   const [bots, setBots] = useState<Array<{ id: string; name: string; model: string }>>([]);
   const [dirty, setDirty] = useState(false);
   const [overlayPermission, setOverlayPermission] = useState<boolean | null>(null);
+  const [ttsVoices, setTtsVoices] = useState<Array<{ identifier: string; name: string; language: string }>>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -32,6 +36,17 @@ export default function SettingsScreen() {
         setConfig(c);
       });
       hasOverlayPermission().then(setOverlayPermission).catch(() => {});
+
+      const loadVoices = async () => {
+        const voices = await Speech.getAvailableVoicesAsync();
+        if (voices.length > 0) {
+          setTtsVoices(voices.map((v) => ({ identifier: v.identifier, name: v.name, language: v.language })));
+        } else {
+          setTimeout(loadVoices, 1000);
+        }
+      };
+      Speech.speak(" ", { rate: 1 });
+      setTimeout(() => void loadVoices(), 300);
     }, [])
   );
 
@@ -229,6 +244,73 @@ export default function SettingsScreen() {
         />
       </View>
 
+      <Text style={styles.label}>TTS Voice</Text>
+      {ttsVoices.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }} contentContainerStyle={{ gap: 8, flexDirection: "row", paddingVertical: 4 }}>
+          <Pressable
+            style={[styles.wakeWordChip, !config.ttsVoice && styles.wakeWordChipActive]}
+            onPress={() => updateField("ttsVoice", "")}
+          >
+            <Text style={[styles.wakeWordText, !config.ttsVoice && styles.wakeWordTextActive]}>Default</Text>
+          </Pressable>
+          {ttsVoices.map((v) => {
+            const isActive = config.ttsVoice === v.identifier;
+            const label = voiceDisplayName(v.identifier, v.name && v.name !== v.identifier ? v.name : undefined);
+            return (
+              <Pressable
+                key={v.identifier}
+                style={[styles.wakeWordChip, isActive && styles.wakeWordChipActive]}
+                onPress={() => updateField("ttsVoice", v.identifier)}
+              >
+                <Text style={[styles.wakeWordText, isActive && styles.wakeWordTextActive]} numberOfLines={1}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={[styles.hintText, { marginTop: 4 }]}>Loading voices…</Text>
+      )}
+      <Text style={styles.hintText}>Device TTS voices. Default uses system default.</Text>
+
+      <Text style={styles.label}>TTS Speed</Text>
+      <TextInput
+        style={styles.input}
+        value={String(config.ttsSpeed)}
+        onChangeText={(v) => {
+          const n = parseFloat(v);
+          if (!Number.isNaN(n) && n > 0) updateField("ttsSpeed", n);
+        }}
+        placeholder="1.0"
+        placeholderTextColor="#6b7280"
+        keyboardType="decimal-pad"
+      />
+      <Text style={styles.hintText}>1.0 = normal; higher = faster.</Text>
+
+      <Text style={styles.label}>Listen sound</Text>
+      <View style={styles.wakeWordGrid}>
+        {LISTEN_SOUND_PRESETS.map((preset) => {
+          const isActive = (config.listenSound || "chime") === preset;
+          return (
+            <Pressable
+              key={preset}
+              style={[styles.wakeWordChip, isActive && styles.wakeWordChipActive]}
+              onPress={() => updateField("listenSound", preset)}
+            >
+              <Text style={[styles.wakeWordText, isActive && styles.wakeWordTextActive]}>{preset}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.hintText}>Tone played when wake word is detected.</Text>
+      <Pressable
+        style={[styles.testButton, { marginTop: 8, alignSelf: "flex-start" }]}
+        onPress={() => playListenTone((config.listenSound as ListenSoundPreset) || "chime")}
+      >
+        <Text style={styles.testButtonText}>Play listen tone</Text>
+      </Pressable>
+
       <View style={styles.switchRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.switchLabel}>Native Audio Input</Text>
@@ -335,6 +417,22 @@ export default function SettingsScreen() {
       />
       <Text style={styles.hintText}>
         Free from console.picovoice.ai — no credit card required
+      </Text>
+
+      <Text style={styles.label}>Wake Word Gain</Text>
+      <TextInput
+        style={styles.input}
+        value={String(config.wakeWordGain)}
+        onChangeText={(v) => {
+          const n = parseFloat(v);
+          if (!Number.isNaN(n)) updateField("wakeWordGain", n);
+        }}
+        placeholder="1.0"
+        placeholderTextColor="#6b7280"
+        keyboardType="decimal-pad"
+      />
+      <Text style={styles.hintText}>
+        Boost mic input for wake word (1.0 = normal, 1.5–2.0 can help on quiet tablets). Restart wake word after changing.
       </Text>
 
       <Text style={styles.label}>Keyword</Text>
