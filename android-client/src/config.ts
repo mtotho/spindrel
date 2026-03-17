@@ -8,6 +8,7 @@ export interface AppConfig {
   clientId: string;
   wakeWord: string;
   wakeWordEnabled: boolean;
+  wakeWordSensitivity: number;
   picovoiceAccessKey: string;
   ttsEnabled: boolean;
   ttsVoice: string;
@@ -43,6 +44,7 @@ const DEFAULTS: AppConfig = {
   clientId: "android-tablet",
   wakeWord: "jarvis",
   wakeWordEnabled: false,
+  wakeWordSensitivity: 1,
   picovoiceAccessKey: BUILD_PICOVOICE_KEY || "",
   ttsEnabled: true,
   ttsVoice: "",

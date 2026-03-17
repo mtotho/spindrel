@@ -147,24 +147,11 @@ export class VoiceService {
       this.badgeActive = false;
     }
 
-    let lastTranscript = "";
-    const STATUS_DETAILS = new Set(["Transcribing...", "Sending audio..."]);
-    const unsub = this.addListener((state, detail) => {
-      if (state === "processing" && detail && !STATUS_DETAILS.has(detail) && !detail.startsWith("Using ")) {
-        lastTranscript = detail;
-      }
-    });
-
     try {
-      const response = await this.processVoice();
-
-      if (lastTranscript && response) {
-        this.emitMessage(lastTranscript, response);
-      }
+      await this.processVoice();
     } catch (error) {
       console.error("Badge tap voice pipeline error:", error);
     } finally {
-      unsub();
       this.backgroundTriggered = false;
       this.pipelineActive = false;
 
@@ -204,23 +191,11 @@ export class VoiceService {
       this.badgeActive = false;
     }
 
-    let lastTranscript = "";
-    const STATUS_DETAILS_WW = new Set(["Transcribing...", "Sending audio..."]);
-    const unsub = this.addListener((state, detail) => {
-      if (state === "processing" && detail && !STATUS_DETAILS_WW.has(detail) && !detail.startsWith("Using ")) {
-        lastTranscript = detail;
-      }
-    });
-
     try {
-      const response = await this.processVoice(undefined, true);
-      if (lastTranscript && response) {
-        this.emitMessage(lastTranscript, response);
-      }
+      await this.processVoice(undefined, true);
     } catch (error) {
       console.error("Wake word voice pipeline error:", error);
     } finally {
-      unsub();
       this.backgroundTriggered = false;
       this.pipelineActive = false;
 
@@ -242,7 +217,7 @@ export class VoiceService {
     if (!this.wakeWordActive) return;
     try {
       const config = await loadConfig();
-      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity);
     } catch (e) {
       console.error("Failed to restart wake word:", e);
     }
@@ -363,7 +338,7 @@ export class VoiceService {
         console.warn("Cannot enable wake word: no Picovoice access key");
         return;
       }
-      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
+      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey, config.wakeWordSensitivity);
       this.wakeWordActive = true;
     } else if (!enabled && this.wakeWordActive) {
       await stopWakeWordDetection();
@@ -468,6 +443,7 @@ export class VoiceService {
     };
 
     let lastTranscript = "";
+    const config = await loadConfig();
 
     try {
       const result = await chatStream("", {
@@ -489,14 +465,11 @@ export class VoiceService {
       }
 
       const { display, speakable } = stripSilent(result.response);
+      this.setState("responding", display);
       this.emitResponse(display);
-
-      const config = await loadConfig();
       if (config.ttsEnabled && speakable) {
-        this.setState("responding", display);
+        await yieldToMain();
         await speak(speakable);
-      } else {
-        this.setState("responding", display);
       }
 
       this.setState("idle");
@@ -516,6 +489,9 @@ export class VoiceService {
     if (!transcript.trim()) return "";
 
     this.setState("processing", transcript);
+    this.emitTranscript(transcript);
+
+    const config = await loadConfig();
 
     try {
       const result = await chatStream(transcript, {
@@ -527,14 +503,11 @@ export class VoiceService {
       if (this.isCancelled()) return "";
 
       const { display, speakable } = stripSilent(result.response);
+      this.setState("responding", display);
       this.emitResponse(display);
-
-      const config = await loadConfig();
       if (config.ttsEnabled && speakable) {
-        this.setState("responding", display);
+        await yieldToMain();
         await speak(speakable);
-      } else {
-        this.setState("responding", display);
       }
 
       this.setState("idle");
@@ -568,6 +541,10 @@ export class VoiceService {
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function yieldToMain(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
 }
 
 export const voiceService = new VoiceService();

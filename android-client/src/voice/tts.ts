@@ -2,6 +2,15 @@ import * as Speech from "expo-speech";
 
 let currentlyPlaying = false;
 
+/**
+ * Warm up the TTS engine so the first real speak() starts quickly.
+ * Call once on app load (e.g. when starting the voice service).
+ * Android TTS can take 5–10s to initialize on first use otherwise.
+ */
+export function warmUp(): Promise<void> {
+  return speak(" ").catch(() => {});
+}
+
 export interface TtsOptions {
   voice?: string;
   speed?: number;

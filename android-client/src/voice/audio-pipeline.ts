@@ -27,6 +27,8 @@ export type MeteringCallback = (rmsDb: number) => void;
 export interface PipelineConfig {
   accessKey: string;
   keyword: BuiltInKeywords;
+  /** Sensitivity in [0, 1]. Higher = more sensitive (easier to trigger, more false alarms). Default 0.75 */
+  sensitivity?: number;
 }
 
 type PipelineMode = "idle" | "wakeword" | "recording";
@@ -232,9 +234,13 @@ export async function startPipeline(config: PipelineConfig, onWakeWord: WakeWord
 
   wakeWordCb = onWakeWord;
 
+  const sensitivity = Math.max(0, Math.min(1, config.sensitivity ?? 0.75));
   porcupine = await Porcupine.fromBuiltInKeywords(
     config.accessKey,
     [config.keyword],
+    undefined,
+    undefined,
+    [sensitivity],
   );
 
   sampleRate = porcupine.sampleRate;

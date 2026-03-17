@@ -36,7 +36,8 @@ export function setWakeWordCallback(cb: WakeWordCallback): void {
 
 export async function startWakeWordDetection(
   keyword: string,
-  accessKey: string
+  accessKey: string,
+  sensitivity?: number,
 ): Promise<void> {
   if (!accessKey) {
     console.warn("Picovoice access key not configured — wake word disabled");
@@ -55,9 +56,10 @@ export async function startWakeWordDetection(
   }
 
   try {
-    await startPipeline({ accessKey, keyword: builtIn }, () => {
-      callback?.();
-    });
+    await startPipeline(
+      { accessKey, keyword: builtIn, sensitivity },
+      () => callback?.(),
+    );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("Failed to start wake word pipeline:", msg);

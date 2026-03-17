@@ -18,6 +18,7 @@ import { getSessionId } from "../../src/session";
 import { loadConfig } from "../../src/config";
 import { startForegroundService } from "../../src/native/VoiceServiceBridge";
 import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
+import { warmUp as ttsWarmUp } from "../../src/voice/tts";
 
 const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
 const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
@@ -119,6 +120,8 @@ export default function HomeScreen() {
           console.warn("Failed to start wake word:", e)
         );
       }
+
+      ttsWarmUp().catch(() => {});
     };
 
     initService();
@@ -157,8 +160,7 @@ export default function HomeScreen() {
     });
   }, []);
 
-  // Subscribe to transcript events from native audio mode.
-  // Updates a pending user message placeholder with what the AI heard.
+  // Transcript: update placeholder (mic flow) or add new user message (wake word/badge flow).
   const pendingTranscriptIdx = useRef<number | null>(null);
   useEffect(() => {
     return voiceService.addTranscriptListener((transcript) => {
@@ -171,17 +173,16 @@ export default function HomeScreen() {
           }
           return updated;
         });
+      } else {
+        addMessage({ role: "user", text: transcript || "[couldn't hear]", timestamp: Date.now() });
       }
     });
   }, []);
 
-  // Show assistant response in chat immediately, before TTS finishes.
-  // Starts true so only UI-initiated flows (handleMic/handleSend) arm it.
-  const responseHandled = useRef(true);
+  // Show assistant response as soon as we have it; TTS runs in parallel.
   useEffect(() => {
     return voiceService.addResponseListener((response) => {
-      if (response && !responseHandled.current) {
-        responseHandled.current = true;
+      if (response) {
         addMessage({ role: "assistant", text: response, timestamp: Date.now() });
       }
     });
@@ -255,7 +256,6 @@ export default function HomeScreen() {
 
     setInput("");
     addMessage({ role: "user", text, timestamp: Date.now() });
-    responseHandled.current = false;
 
     try {
       await voiceService.processTranscript(text);
@@ -274,7 +274,6 @@ export default function HomeScreen() {
 
     transcriptRef.current = undefined;
     pendingTranscriptIdx.current = null;
-    responseHandled.current = false;
 
     try {
       // Add placeholder user message so it appears before the response
