@@ -372,6 +372,7 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 
 ## Future Enhancements
 
+- **SSE streaming re-enablement**: Currently using `POST /chat` (non-streaming) because React Native's XHR drops SSE connections during server-side tool execution pauses, causing the server's `request.is_disconnected()` check to abort the loop. Fix options: (1) use `react-native-sse` library with proper keep-alive, (2) use `fetch` with `ReadableStream` + `TextDecoder` (requires RN 0.76+ / Hermes), or (3) add a server-side option to disable the `is_disconnected()` check for trusted clients. The `chatStream()` function in `agent.ts` is preserved and ready to swap back in. Streaming would enable real-time tool status in the overlay UI.
 - **Local STT option**: Add `@react-native-voice/voice` as a configurable alternative to server-side transcription. Setting: `sttMode: "server" | "local"`. Local is faster (no network round-trip) but requires offline language packs.
 - **Server-side TTS**: If the server adds a TTS endpoint, could stream audio back instead of using expo-speech.
 
@@ -381,9 +382,9 @@ Phases 1-5 can be built and tested as a normal foregrounded app. Phases 6-8 are 
 |-------|--------|-------|
 | 1 | ✅ Done | Project scaffolded, permissions in app.json, structure created |
 | 2 | ✅ Done | Config via AsyncStorage, settings screen with test connection |
-| 3 | ✅ Done | SSE streaming agent client, session management, client_actions |
+| 3 | ✅ Done | Non-streaming `/chat` client (SSE broken in RN, see Future Enhancements), session management, client_actions |
 | 4 | ✅ Done | TTS via expo-speech with [silent] marker support |
-| 5 | In progress | Server-side transcribe function added, needs audio recording + mic button |
+| 5 | ✅ Done | Audio recording (expo-av) + server-side STT + mic button with silence detection |
 | 6 | Not started | Foreground service |
 | 7 | Stub | Wake word interface defined, needs Porcupine |
 | 8 | Not started | Floating overlay |

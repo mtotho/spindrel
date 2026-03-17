@@ -84,11 +84,39 @@ export async function listBots(): Promise<Array<{ id: string; name: string; mode
   return resp.json();
 }
 
+export interface SessionSummary {
+  id: string;
+  client_id: string;
+  bot_id: string;
+  title?: string;
+  created_at: string;
+  last_active: string;
+}
+
+export interface SessionMessage {
+  id: string;
+  role: string;
+  content?: string;
+  tool_calls?: unknown[];
+  tool_call_id?: string;
+  created_at: string;
+}
+
+export interface SessionDetail {
+  session: SessionSummary;
+  messages: SessionMessage[];
+}
+
 export async function listSessions(
   clientId?: string
-): Promise<Array<{ id: string; title?: string; bot_id: string; last_active: string }>> {
+): Promise<SessionSummary[]> {
   const params = clientId ? `?client_id=${encodeURIComponent(clientId)}` : "";
   const resp = await apiFetch(`/sessions${params}`);
+  return resp.json();
+}
+
+export async function getSession(sessionId: string): Promise<SessionDetail> {
+  const resp = await apiFetch(`/sessions/${sessionId}`);
   return resp.json();
 }
 

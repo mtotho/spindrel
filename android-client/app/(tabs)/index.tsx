@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Pressable,
@@ -8,10 +8,38 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
-import { voiceService } from "../src/service/VoiceService";
-import { healthCheck, type VoiceState } from "../src/agent";
+import { voiceService } from "../../src/service/VoiceService";
+import { getSession, healthCheck, type VoiceState } from "../../src/agent";
+import { getSessionId } from "../../src/session";
+import { loadConfig } from "../../src/config";
+
+const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
+const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
+
+function MessageText({ text, style }: { text: string; style: any }) {
+  if (!text.includes("[silent]")) {
+    return <Text style={style}>{text}</Text>;
+  }
+
+  const parts = text.split(SILENT_SPLIT_RE);
+  return (
+    <Text style={style}>
+      {parts.map((part, i) => {
+        const match = part.match(SILENT_UNWRAP_RE);
+        if (match) {
+          return (
+            <Text key={i} style={{ fontStyle: "italic", opacity: 0.6 }}>
+              {match[1]}
+            </Text>
+          );
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
+    </Text>
+  );
+}
 
 interface Message {
   role: "user" | "assistant" | "status";
@@ -22,7 +50,6 @@ interface Message {
 export default function HomeScreen() {
   useKeepAwake();
 
-  const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const micPulse = useRef(new Animated.Value(1)).current;
   const [input, setInput] = useState("");
@@ -31,6 +58,9 @@ export default function HomeScreen() {
   const [stateDetail, setStateDetail] = useState<string>();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [transcript, setTranscript] = useState<string>();
+  const [sessionId, setSessionId] = useState<string>("");
+  const [botId, setBotId] = useState<string>("default");
+  const lastLoadedSession = useRef<string>("");
 
   useEffect(() => {
     healthCheck().then(setConnected);
@@ -48,6 +78,42 @@ export default function HomeScreen() {
       }
     });
   }, []);
+
+  const loadSessionHistory = useCallback(async () => {
+    const config = await loadConfig();
+    setBotId(config.botId);
+
+    const currentId = await getSessionId();
+    setSessionId(currentId);
+
+    if (currentId === lastLoadedSession.current) return;
+    lastLoadedSession.current = currentId;
+
+    try {
+      const detail = await getSession(currentId);
+      const loaded: Message[] = [];
+      for (const msg of detail.messages) {
+        if (msg.role === "system" || msg.role === "tool") continue;
+        if (!msg.content) continue;
+        loaded.push({
+          role: msg.role === "user" ? "user" : "assistant",
+          text: msg.content,
+          timestamp: new Date(msg.created_at).getTime(),
+        });
+      }
+      setMessages(loaded);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+    } catch {
+      setMessages([]);
+    }
+  }, []);
+
+  // Load history on mount and when returning from settings (session may have changed)
+  useFocusEffect(
+    useCallback(() => {
+      loadSessionHistory();
+    }, [loadSessionHistory])
+  );
 
   useEffect(() => {
     if (voiceState === "listening") {
@@ -131,15 +197,16 @@ export default function HomeScreen() {
         <View style={[styles.statusDot, { backgroundColor: stateColor }]} />
         <Text style={styles.statusText} numberOfLines={1}>{stateLabel}</Text>
         <View style={styles.statusRight}>
+          <Text style={styles.botLabel}>{botId}</Text>
+          {sessionId ? (
+            <Text style={styles.sessionLabel}>{sessionId.slice(0, 6)}</Text>
+          ) : null}
           <View
             style={[
               styles.connectionDot,
               { backgroundColor: connected ? "#4ade80" : connected === false ? "#ef4444" : "#6b7280" },
             ]}
           />
-          <Pressable onPress={() => router.push("/settings")} style={styles.settingsButton}>
-            <Text style={styles.settingsIcon}>⚙</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -152,7 +219,7 @@ export default function HomeScreen() {
         )}
         {messages.map((msg, i) => (
           <View
-            key={i}
+            key={`${sessionId}-${i}`}
             style={[
               styles.messageBubble,
               msg.role === "user"
@@ -162,14 +229,18 @@ export default function HomeScreen() {
                   : styles.statusBubble,
             ]}
           >
-            <Text
-              style={[
-                styles.messageText,
-                msg.role === "status" && styles.statusMessageText,
-              ]}
-            >
-              {msg.text}
-            </Text>
+            {msg.role === "assistant" ? (
+              <MessageText text={msg.text} style={styles.messageText} />
+            ) : (
+              <Text
+                style={[
+                  styles.messageText,
+                  msg.role === "status" && styles.statusMessageText,
+                ]}
+              >
+                {msg.text}
+              </Text>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -246,17 +317,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  botLabel: {
+    color: "#60a5fa",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  sessionLabel: {
+    color: "#6b7280",
+    fontSize: 11,
+    fontFamily: "monospace",
+  },
   connectionDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-  },
-  settingsButton: {
-    padding: 4,
-  },
-  settingsIcon: {
-    fontSize: 20,
-    color: "#9ca3af",
   },
   messages: {
     flex: 1,
