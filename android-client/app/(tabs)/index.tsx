@@ -102,7 +102,7 @@ export default function HomeScreen() {
           await requestOverlayPermission().catch(() => {});
         }
         await voiceService.checkOverlayPermission().catch(() => {});
-        voiceService.showBadge().catch(() => {});
+        voiceService.enableBadge().catch(() => {});
       }
 
       if (config.wakeWordEnabled && config.picovoiceAccessKey) {

@@ -29,15 +29,23 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
   },
 };
 
-const SILENCE_THRESHOLD_DB = -35;
-const SILENCE_DURATION_MS = 2000;
+// Adaptive silence detection: calibrate noise floor from the first ~1s,
+// then detect speech/silence relative to it. This handles different devices
+// and environments without hard-coded dB thresholds.
+const CALIBRATION_SAMPLES = 5;
+const SPEECH_MARGIN_DB = 8;
+const SILENCE_MARGIN_DB = 4;
+const SILENCE_DURATION_MS = 1500;
 const MAX_DURATION_MS = 30000;
+const MAX_AFTER_SPEECH_MS = 10000;
 const METERING_INTERVAL_MS = 200;
 
 let currentRecording: Audio.Recording | null = null;
 let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 let maxTimer: ReturnType<typeof setTimeout> | null = null;
+let speechTimer: ReturnType<typeof setTimeout> | null = null;
 let meteringInterval: ReturnType<typeof setInterval> | null = null;
+let cancelResolve: ((uri: string | null) => void) | null = null;
 
 export type RecordingStatusCallback = (status: {
   isRecording: boolean;
@@ -76,11 +84,19 @@ export async function startRecording(
   await recording.startAsync();
   currentRecording = recording;
 
+  const calibrationReadings: number[] = [];
+  let noiseFloor = -40;
+  let speechThreshold = -32;
+  let silenceThreshold = -36;
+  let calibrated = false;
   let heardSpeech = false;
 
   return new Promise<string | null>((resolve) => {
+    cancelResolve = resolve;
+
     const finish = async () => {
       cleanup();
+      cancelResolve = null;
       if (!currentRecording) {
         resolve(null);
         return;
@@ -115,13 +131,29 @@ export async function startRecording(
           metering,
         });
 
-        if (metering > SILENCE_THRESHOLD_DB) {
+        // Calibration phase: sample the noise floor from the first readings
+        if (!calibrated) {
+          calibrationReadings.push(metering);
+          if (calibrationReadings.length >= CALIBRATION_SAMPLES) {
+            calibrated = true;
+            noiseFloor = calibrationReadings.reduce((a, b) => a + b, 0) / calibrationReadings.length;
+            speechThreshold = noiseFloor + SPEECH_MARGIN_DB;
+            silenceThreshold = noiseFloor + SILENCE_MARGIN_DB;
+          }
+          return;
+        }
+
+        if (metering > speechThreshold) {
           heardSpeech = true;
           if (silenceTimer) {
             clearTimeout(silenceTimer);
             silenceTimer = null;
           }
-        } else if (heardSpeech && !silenceTimer) {
+          // Cap total recording time after first speech detected
+          if (!speechTimer) {
+            speechTimer = setTimeout(finish, MAX_AFTER_SPEECH_MS);
+          }
+        } else if (heardSpeech && metering <= silenceThreshold && !silenceTimer) {
           silenceTimer = setTimeout(finish, SILENCE_DURATION_MS);
         }
       } catch {}
@@ -131,6 +163,8 @@ export async function startRecording(
 
 export async function stopRecording(): Promise<void> {
   cleanup();
+  const pendingResolve = cancelResolve;
+  cancelResolve = null;
   if (currentRecording) {
     try {
       const status = await currentRecording.getStatusAsync();
@@ -141,6 +175,8 @@ export async function stopRecording(): Promise<void> {
     currentRecording = null;
     await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
   }
+  // Resolve the pending startRecording promise so the pipeline doesn't hang
+  pendingResolve?.(null);
 }
 
 function cleanup() {
@@ -151,6 +187,10 @@ function cleanup() {
   if (maxTimer) {
     clearTimeout(maxTimer);
     maxTimer = null;
+  }
+  if (speechTimer) {
+    clearTimeout(speechTimer);
+    speechTimer = null;
   }
   if (meteringInterval) {
     clearInterval(meteringInterval);

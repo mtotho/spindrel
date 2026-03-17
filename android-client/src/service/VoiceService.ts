@@ -1,3 +1,4 @@
+import { AppState, type AppStateStatus } from "react-native";
 import { chat, stripSilent, transcribe, type VoiceState } from "../agent";
 import { speak, stopSpeaking } from "../voice/tts";
 import { startRecording, stopRecording, readAudioFile, type RecordingStatusCallback } from "../voice/recorder";
@@ -32,9 +33,33 @@ export class VoiceService {
   private overlayPermissionGranted: boolean | null = null;
   private badgeActive = false;
   private badgeTapUnsub: (() => void) | null = null;
+  private appState: AppStateStatus = AppState.currentState;
+  private badgeEnabled = false;
 
   constructor() {
     setWakeWordCallback(() => this.onWakeWordDetected());
+    AppState.addEventListener("change", (next) => {
+      const wasForeground = this.appState === "active";
+      this.appState = next;
+      const isForeground = next === "active";
+
+      if (wasForeground && !isForeground && this.badgeEnabled) {
+        showBadge(this.state).catch(() => {});
+        this.badgeActive = true;
+      } else if (!wasForeground && isForeground && this.badgeEnabled) {
+        // Don't hide the badge during an active voice interaction —
+        // the user needs it to cancel. Only hide when idle.
+        if (this.state === "idle") {
+          hideBadge().catch(() => {});
+          this.badgeActive = false;
+          hideOverlay().catch(() => {});
+        }
+      }
+    });
+  }
+
+  private isAppInForeground(): boolean {
+    return this.appState === "active";
   }
 
   async checkOverlayPermission(): Promise<boolean> {
@@ -42,21 +67,28 @@ export class VoiceService {
     return this.overlayPermissionGranted;
   }
 
-  async showBadge(): Promise<void> {
+  async enableBadge(): Promise<void> {
     if (this.overlayPermissionGranted === null) {
       await this.checkOverlayPermission();
     }
     if (!this.overlayPermissionGranted) return;
 
-    await showBadge(this.state).catch(() => {});
-    this.badgeActive = true;
+    this.badgeEnabled = true;
+    this.badgeActive = false;
 
     if (!this.badgeTapUnsub) {
       this.badgeTapUnsub = onBadgeTap(() => this.onBadgeTapped());
     }
+
+    // Only show the badge if the app is currently backgrounded
+    if (!this.isAppInForeground()) {
+      await showBadge(this.state).catch(() => {});
+      this.badgeActive = true;
+    }
   }
 
-  async hideBadge(): Promise<void> {
+  async disableBadge(): Promise<void> {
+    this.badgeEnabled = false;
     await hideBadge().catch(() => {});
     this.badgeActive = false;
     if (this.badgeTapUnsub) {
@@ -78,19 +110,30 @@ export class VoiceService {
     }
 
     let lastTranscript = "";
+    let didMoveToBackground = false;
     const unsub = this.addListener((state, detail) => {
-      // Once recording has started, push the app back to background.
-      // expo-av brings the Activity forward when accessing the mic.
-      if (state === "listening") {
-        setTimeout(() => moveToBackground().catch(() => {}), 300);
-      }
       if (state === "processing" && detail && detail !== "Transcribing...") {
         lastTranscript = detail;
       }
     });
 
     try {
+      // processVoice calls startRecording which uses expo-av.
+      // expo-av brings the Activity to foreground when accessing the mic.
+      // We schedule moveToBackground after a delay to push it back once
+      // expo-av has finished bringing it forward.
+      const moveBackTimer = setTimeout(() => {
+        didMoveToBackground = true;
+        moveToBackground().catch(() => {});
+      }, 600);
+
       const response = await this.processVoice();
+
+      clearTimeout(moveBackTimer);
+      if (!didMoveToBackground) {
+        await moveToBackground().catch(() => {});
+      }
+
       if (lastTranscript && response) {
         this.emitMessage(lastTranscript, response);
       }
@@ -147,29 +190,30 @@ export class VoiceService {
     }
     if (!this.overlayPermissionGranted) return;
 
+    const inForeground = this.isAppInForeground();
+
     try {
-      if (this.badgeActive) {
+      // Badge color updates only when badge is visible (app backgrounded)
+      if (this.badgeActive && !inForeground) {
         await updateBadge(state);
       }
 
-      switch (state) {
-        case "listening":
-          await showOverlay("listening", "");
-          break;
-        case "processing":
-          await updateOverlay("processing", detail || "");
-          break;
-        case "responding":
-          await updateOverlay("responding", detail || "");
-          break;
-        case "idle":
-          if (detail) {
-            await updateOverlay("idle", detail);
-            await dismissOverlayAfterDelay(3000);
-          } else {
-            await dismissOverlayAfterDelay(3000);
-          }
-          break;
+      // Always allow hiding/dismissing the overlay (cleanup).
+      // Only show/update the overlay when the app is NOT in the foreground.
+      if (state === "idle") {
+        await hideOverlay();
+      } else if (!inForeground) {
+        switch (state) {
+          case "listening":
+            await showOverlay("listening", "");
+            break;
+          case "processing":
+            await updateOverlay("processing", detail || "");
+            break;
+          case "responding":
+            await updateOverlay("responding", detail || "");
+            break;
+        }
       }
     } catch {
       // Overlay errors should never break the voice pipeline
@@ -277,9 +321,6 @@ export class VoiceService {
   }
 
   /**
-   * Process a text transcript through the agent and speak the result.
-   */
-  /**
    * Uses the non-streaming POST /chat endpoint. React Native's XHR
    * doesn't keep SSE connections alive during server-side tool execution,
    * causing the server to detect a disconnection and abort. The non-streaming
@@ -321,7 +362,7 @@ export class VoiceService {
   async stopAll(): Promise<void> {
     this.stop();
     await hideOverlay().catch(() => {});
-    await this.hideBadge().catch(() => {});
+    await this.disableBadge().catch(() => {});
     if (this.wakeWordActive) {
       await stopWakeWordDetection();
       this.wakeWordActive = false;
