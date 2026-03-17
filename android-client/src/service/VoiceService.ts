@@ -1,5 +1,7 @@
 import { AppState, type AppStateStatus } from "react-native";
-import { chatStream, getCachedBot, stripSilent, transcribe, type AudioInput, type VoiceState } from "../agent";
+import { chatStream, getCachedBot, stripSilent, type AudioInput, type VoiceState } from "../agent";
+import { transcribeAudio } from "../voice/stt";
+import { initCheetah } from "../voice/cheetah-stt";
 import { speak, stopSpeaking } from "../voice/tts";
 import { startRecording, stopRecording, readAudioFile, readAudioFileBase64, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
@@ -374,12 +376,25 @@ export class VoiceService {
       };
 
       const config = await loadConfig();
-      let uri: string | null;
+      const bot = getCachedBot(config.botId);
+      const useNative = config.audioNative || bot?.audio_input === "native";
+      const useLocalStt = !useNative && config.transcriptionMode === "local";
+
+      if (useLocalStt && config.picovoiceAccessKey?.trim()) {
+        try {
+          await initCheetah(config.picovoiceAccessKey);
+        } catch (e) {
+          console.warn("Local STT init failed, falling back to server:", e);
+        }
+      }
+
+      let result: string | { transcript: string } | null;
       try {
-        uri = await startRecording(
+        result = await startRecording(
           statusCb,
           preserveRingBuffer,
           preserveRingBuffer ? config.wakeWordTrimMs : undefined,
+          useLocalStt && !!config.picovoiceAccessKey?.trim(),
         );
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Recording failed";
@@ -387,28 +402,28 @@ export class VoiceService {
         throw error;
       }
 
-      if (!uri || this.isCancelled()) {
+      if (!result || this.isCancelled()) {
         if (!this.isCancelled()) this.setState("idle");
         return "";
       }
 
-      const bot = getCachedBot(config.botId);
-      const useNative = config.audioNative || bot?.audio_input === "native";
-
-      if (useNative) {
-        return await this.processNativeAudio(uri);
-      }
-
-      this.setState("processing", "Transcribing...");
-
       let transcript: string;
-      try {
-        const audioFile = await readAudioFile(uri);
-        transcript = await transcribe(audioFile.data, audioFile.mimeType);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Transcription failed";
-        this.setState("idle", msg);
-        throw error;
+      if (typeof result === "object" && "transcript" in result) {
+        transcript = result.transcript;
+      } else {
+        const uri = result as string;
+        if (useNative) {
+          return await this.processNativeAudio(uri);
+        }
+        this.setState("processing", "Transcribing...");
+        try {
+          const audioFile = await readAudioFile(uri);
+          transcript = await transcribeAudio(audioFile.data, audioFile.mimeType);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Transcription failed";
+          this.setState("idle", msg);
+          throw error;
+        }
       }
 
       if (this.isCancelled()) return "";

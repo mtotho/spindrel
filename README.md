@@ -461,11 +461,18 @@ PICOVOICE_ACCESS_KEY=your-key-here             # free from console.picovoice.ai
 
 These become the defaults in the app. You can still override them in the in-app settings screen. `API_KEY` is also read automatically.
 
+### Transcription (Server vs Local)
+
+In Settings you can choose **Transcription**:
+
+- **Server (Whisper)** — Recorded audio is sent to `POST /transcribe` and transcribed by faster-whisper on the server. Default; works for any audio format the server supports.
+- **Local (Cheetah)** — On-device transcription with [Picovoice Cheetah](https://picovoice.ai/docs/cheetah/). No audio is sent for STT; uses the same Picovoice access key as wake word. Place the English model file `cheetah_params.pv` (from [Picovoice’s repo](https://github.com/Picovoice/cheetah/tree/master/lib/common)) in `android-client/cheetah_params.pv` so it is bundled with the app.
+
 ### Wake word detection
 
 Uses [Picovoice Porcupine](https://picovoice.ai/platform/porcupine/) for on-device wake word detection. Free tier supports 14 built-in keywords (Jarvis, Alexa, Computer, etc.). Get a free access key at [console.picovoice.ai](https://console.picovoice.ai) — no credit card required.
 
-Configure in the app's Settings tab under "Wake Word", or preload via `PICOVOICE_ACCESS_KEY` in `.env`.
+Configure in the app's Settings tab under "Wake Word", or preload via `PICOVOICE_ACCESS_KEY` in `.env`. The same key is used for wake word and for local (Cheetah) transcription.
 
 ### Foreground service
 

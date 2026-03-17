@@ -284,6 +284,32 @@ def _handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) 
                 print(f"  [action] Error: {e}")
 
 
+def _fuzzy_find_session(sessions, query):
+    """Return a session dict matching query by uuid prefix or title (case-insensitive substring), or None."""
+    if not query:
+        return None
+    query = query.strip().lower()
+    # 1. Try prefix match on UUID
+    matches = [s for s in sessions if s["id"].lower().startswith(query)]
+    if len(matches) == 1:
+        return matches[0]
+    # 2. Try substring in title
+    matches_title = [s for s in sessions if s.get("title") and query in s["title"].lower()]
+    if len(matches_title) == 1:
+        return matches_title[0]
+    # 3. Return None or, if several matches, print them for user hint
+    if matches or matches_title:
+        choices = matches + [m for m in matches_title if m not in matches]
+        print("More than one session found matching your input:")
+        for s in choices:
+            title = s.get("title") or "(untitled)"
+            print(f"  {s['id'][:8]} {title} bot={s['bot_id']}")
+
+        print("  ⚄ Selecting first match...")
+        return choices[0]
+    return None
+
+
 def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
     """Handle slash commands. Returns True if the input was a command."""
     parts = line.strip().split(maxsplit=1)
@@ -303,12 +329,40 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             print(f"Current session: {ctx['session_id']}")
             return True
         try:
-            sid = uuid.UUID(parts[1])
-            ctx["session_id"] = sid
-            save_session_id(sid)
-            print(f"Switched to session: {sid}")
-        except ValueError:
-            print("Invalid UUID.")
+            sessions = client.list_sessions()
+            raw = parts[1]
+            if raw.isdigit():
+                index = int(raw) - 1
+                if index >= 0 and index < len(sessions):
+                    ctx["session_id"] = sessions[index]["id"]
+                    save_session_id(ctx["session_id"])
+                    title = sessions[index].get("title") or "(untitled)"
+                    print(f" ✓ Switched to session: {ctx['session_id'][:8]} {title}")
+                else:
+                    print("Invalid session number.")
+                return True
+            # Try exact UUID
+            try:
+                sid = uuid.UUID(raw)
+                # Verify this UUID exists in list
+                found = any(str(s["id"]) == str(sid) for s in sessions)
+                if found:
+                    ctx["session_id"] = sid
+                    save_session_id(sid)
+                    print(f"Switched to session: {sid}")
+                else:
+                    print("Session with this UUID not found.")
+            except ValueError:
+                # Fuzzy match by id prefix or title
+                found = _fuzzy_find_session(sessions, raw)
+                if found:
+                    ctx["session_id"] = uuid.UUID(found["id"])
+                    save_session_id(ctx["session_id"])
+                    print(f"Switched to session: {found['id']} ({found.get('title', '(untitled)')})")
+                else:
+                    print("No session found matching identifier or title.")
+        except Exception as e:
+            print(f"Error looking up session: {e}")
         return True
 
     elif cmd == "/sessions":
@@ -317,11 +371,19 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             if not sessions:
                 print("No sessions.")
             else:
-                for s in sessions:
-                    active = " *" if str(ctx["session_id"]) == s["id"] else ""
-                    title = s.get("title") or "(untitled)"
+                index = 0
+                for i, s in enumerate(sessions):
+                    selected = str(ctx["session_id"]) == s["id"]
+                    arrow = "[*]" if selected else ""
+                    title = (s.get("title") or "(untitled)")[:30]
                     last = _format_last_active(s.get("last_active", ""))
-                    print(f"  {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}{active}")
+                    if selected:
+                        print(f"  {arrow} {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}")
+                    else:
+                        print(f"      {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}")
+
+                print("  ")
+                print("  Select a session by typing /session <partial id or title or number>")
         except httpx.HTTPError as e:
             print(f"Error listing sessions: {e}")
         return True
@@ -518,6 +580,8 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         print("  /bots            List available bots")
         print("  /bot [id]        Show or switch bot")
         print("  /tts             Toggle text-to-speech")
+        print("  /tts_voice [model] GET or SET TTS voice")
+        print("  /tone [preset]   GET or SET listen tone")
         print("  /audio           Toggle native audio (send audio to model directly)")
         print("  /quit            Exit")
         return True

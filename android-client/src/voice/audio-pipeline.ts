@@ -18,6 +18,11 @@
 import { VoiceProcessor } from "@picovoice/react-native-voice-processor";
 import { Porcupine, BuiltInKeywords } from "@picovoice/porcupine-react-native";
 import * as FileSystem from "expo-file-system";
+import {
+  processCheetahFrame,
+  flushCheetah,
+  getCheetahFrameLength,
+} from "./cheetah-stt";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -154,9 +159,14 @@ let wakeWordCb: WakeWordDetectedCallback | null = null;
 let recordingChunks: Int16Array[] = [];
 let recordingLength = 0;
 let recordingMeterCb: MeteringCallback | null = null;
-let recordingResolve: ((uri: string | null) => void) | null = null;
+/** Resolves with WAV URI (server/native path) or { transcript } (local STT path). */
+let recordingResolve: ((result: string | { transcript: string } | null) => void) | null = null;
 /** When set, trim this many ms from the start of the recording (used after wake word to drop "jarvis" etc. from transcription). */
 let recordingTrimStartMs = 0;
+
+// Local STT (Cheetah) streaming state
+let recordingLocalStt = false;
+let recordingTranscript = "";
 
 // Frame processing state
 let sampleRate = 16000;
@@ -197,12 +207,20 @@ const frameListener = (frame: number[]): void => {
         processingFrame = false;
       });
   } else if (mode === "recording") {
-    const chunk = new Int16Array(frame.length);
-    for (let i = 0; i < frame.length; i++) {
-      chunk[i] = frame[i];
+    if (recordingLocalStt) {
+      processCheetahFrame([...frame])
+        .then((t) => {
+          if (t) recordingTranscript += t;
+        })
+        .catch((err) => console.error("Cheetah process error:", err));
+    } else {
+      const chunk = new Int16Array(frame.length);
+      for (let i = 0; i < frame.length; i++) {
+        chunk[i] = frame[i];
+      }
+      recordingChunks.push(chunk);
+      recordingLength += chunk.length;
     }
-    recordingChunks.push(chunk);
-    recordingLength += chunk.length;
 
     recordingMeterCb?.(computeRmsDb(frame));
   }
@@ -291,41 +309,67 @@ export function resumeWakeWord(): void {
 }
 
 /**
- * Switch to recording mode. Returns a promise that resolves with the
- * WAV file URI when recording is stopped (via stopRecordingPipeline).
+ * Switch to recording mode. Returns a promise that resolves when recording stops:
+ * - With a WAV file URI (string) when localStt is false (server or native audio path).
+ * - With { transcript: string } when localStt is true (on-device Cheetah; no WAV).
  *
- * If preserveRingBuffer is true, the ring buffer contents (audio from
- * before the switch) are prepended to the recording — this captures
- * speech that overlapped with the wake word.
+ * If preserveRingBuffer is true, the ring buffer contents are prepended (or fed to Cheetah when localStt).
  */
 /** Default trim when not specified via config. */
 const DEFAULT_WAKE_WORD_TRIM_MS = 800;
+
+export type RecordingResult = string | { transcript: string } | null;
 
 export async function startRecordingPipeline(
   onMeter: MeteringCallback | null,
   preserveRingBuffer: boolean,
   trimStartMs?: number,
-): Promise<string | null> {
+  localStt = false,
+): Promise<RecordingResult> {
   recordingChunks = [];
   recordingLength = 0;
   recordingMeterCb = onMeter;
   processingFrame = false;
   recordingTrimStartMs = preserveRingBuffer ? (trimStartMs ?? DEFAULT_WAKE_WORD_TRIM_MS) : 0;
+  recordingLocalStt = localStt;
+  recordingTranscript = "";
 
-  if (preserveRingBuffer && ringBuffer) {
-    const prefill = ringBuffer.drain();
-    if (prefill.length > 0) {
-      recordingChunks.push(prefill);
-      recordingLength += prefill.length;
+  if (localStt) {
+    if (preserveRingBuffer && ringBuffer) {
+      const prefill = ringBuffer.drain();
+      const trimSamples = Math.min(
+        Math.floor((sampleRate * recordingTrimStartMs) / 1000),
+        Math.max(0, prefill.length - 1),
+      );
+      const trimmed = trimSamples > 0 && trimSamples < prefill.length ? prefill.subarray(trimSamples) : prefill;
+      const frameLen = getCheetahFrameLength();
+      for (let i = 0; i < trimmed.length; i += frameLen) {
+        if (i + frameLen <= trimmed.length) {
+          const frame = Array.from(trimmed.subarray(i, i + frameLen));
+          processCheetahFrame(frame)
+            .then((t) => {
+              if (t) recordingTranscript += t;
+            })
+            .catch((err) => console.error("Cheetah process error:", err));
+        }
+      }
+    } else {
+      ringBuffer?.clear();
     }
   } else {
-    ringBuffer?.clear();
+    if (preserveRingBuffer && ringBuffer) {
+      const prefill = ringBuffer.drain();
+      if (prefill.length > 0) {
+        recordingChunks.push(prefill);
+        recordingLength += prefill.length;
+      }
+    } else {
+      ringBuffer?.clear();
+    }
   }
 
-  // Ensure listeners are registered (needed when wake word was never enabled)
   ensureListeners();
 
-  // Ensure VoiceProcessor is running (it may already be from wake word mode)
   const vp = VoiceProcessor.instance;
   const isRecording = await vp.isRecording();
   if (!isRecording) {
@@ -335,14 +379,14 @@ export async function startRecordingPipeline(
 
   mode = "recording";
 
-  return new Promise<string | null>((resolve) => {
+  return new Promise<RecordingResult>((resolve) => {
     recordingResolve = resolve;
   });
 }
 
 /**
- * Stop recording and write the accumulated PCM data as a WAV file.
- * Resolves the promise returned by startRecordingPipeline.
+ * Stop recording. When localStt was used, flushes Cheetah and resolves with { transcript }.
+ * Otherwise writes WAV and resolves with the file URI.
  */
 export async function stopRecordingPipeline(): Promise<void> {
   if (mode !== "recording") {
@@ -351,12 +395,29 @@ export async function stopRecordingPipeline(): Promise<void> {
     return;
   }
 
-  mode = "idle";
   const resolve = recordingResolve;
   recordingResolve = null;
   recordingMeterCb = null;
+  const wasLocalStt = recordingLocalStt;
+  mode = "idle";
 
-  // If wake word isn't active, stop VoiceProcessor to release the mic
+  if (wasLocalStt) {
+    try {
+      const flushText = await flushCheetah();
+      if (flushText) recordingTranscript += flushText;
+      resolve?.({ transcript: recordingTranscript.trim() });
+    } catch (e) {
+      console.error("Cheetah flush error:", e);
+      resolve?.({ transcript: recordingTranscript.trim() });
+    }
+    recordingTranscript = "";
+    recordingLocalStt = false;
+    if (!porcupine) {
+      await cleanupStandaloneVP();
+    }
+    return;
+  }
+
   if (!porcupine) {
     await cleanupStandaloneVP();
   }
@@ -366,7 +427,6 @@ export async function stopRecordingPipeline(): Promise<void> {
     return;
   }
 
-  // Merge chunks into a single Int16Array
   const merged = new Int16Array(recordingLength);
   let offset = 0;
   for (const chunk of recordingChunks) {
@@ -411,6 +471,8 @@ export function cancelRecording(): void {
   recordingChunks = [];
   recordingLength = 0;
   recordingMeterCb = null;
+  recordingLocalStt = false;
+  recordingTranscript = "";
   recordingResolve?.(null);
   recordingResolve = null;
 

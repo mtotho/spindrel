@@ -1,19 +1,16 @@
-import { transcribe } from "../agent";
+import { loadConfig } from "../config";
+import { transcribe as transcribeOnServer } from "../agent";
 
 /**
- * Server-side STT via POST /transcribe.
+ * Transcribe audio via the server (POST /transcribe, faster-whisper).
+ * Used when recording produced a WAV URI (server or fallback path).
  *
- * Sends audio file bytes (M4A, WAV, etc.) to the agent server.
- * The server decodes via ffmpeg and runs Whisper transcription.
- *
- * Future: add a "local" mode using @react-native-voice/voice
- * for on-device transcription (configurable via settings).
+ * Local (Cheetah) transcription is done in the pipeline during recording;
+ * the pipeline returns { transcript } directly and transcribeAudio is not called.
  */
-
 export async function transcribeAudio(audioData: ArrayBuffer, mimeType: string): Promise<string> {
   if (audioData.byteLength < 100) {
     return "";
   }
-
-  return transcribe(audioData, mimeType);
+  return transcribeOnServer(audioData, mimeType);
 }

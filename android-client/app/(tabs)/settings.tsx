@@ -395,6 +395,37 @@ export default function SettingsScreen() {
         <Text style={styles.testButtonText}>Play listen tone</Text>
       </Pressable>
 
+      <Text style={styles.label}>Transcription</Text>
+      <View style={styles.pickerRow}>
+        <Pressable
+          style={[
+            styles.pickerOption,
+            config.transcriptionMode === "server" && styles.pickerOptionSelected,
+          ]}
+          onPress={() => updateAndSave("transcriptionMode", "server")}
+        >
+          <Text style={[styles.pickerOptionText, config.transcriptionMode === "server" && styles.pickerOptionTextSelected]}>
+            Server (Whisper)
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.pickerOption,
+            config.transcriptionMode === "local" && styles.pickerOptionSelected,
+          ]}
+          onPress={() => updateAndSave("transcriptionMode", "local")}
+        >
+          <Text style={[styles.pickerOptionText, config.transcriptionMode === "local" && styles.pickerOptionTextSelected]}>
+            Local (Cheetah)
+          </Text>
+        </Pressable>
+      </View>
+      <Text style={styles.hintText}>
+        {config.transcriptionMode === "local"
+          ? "On-device transcription with Picovoice Cheetah. Uses the same Picovoice key as wake word. No audio sent to server for STT."
+          : "Send recorded audio to the server for transcription (faster-whisper)."}
+      </Text>
+
       <View style={styles.switchRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.switchLabel}>Native Audio Input</Text>
@@ -693,6 +724,33 @@ const styles = StyleSheet.create({
     color: "#e0e0e0",
     fontSize: 15,
     fontWeight: "500",
+  },
+  pickerRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+  },
+  pickerOption: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: "#1a1a2e",
+    borderWidth: 1,
+    borderColor: "#2a2a4e",
+    alignItems: "center",
+  },
+  pickerOptionSelected: {
+    borderColor: "#60a5fa",
+    backgroundColor: "#0f1b3e",
+  },
+  pickerOptionText: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  pickerOptionTextSelected: {
+    color: "#60a5fa",
   },
   wakeWordGrid: {
     flexDirection: "row",

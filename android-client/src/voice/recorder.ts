@@ -12,6 +12,7 @@ import {
   startRecordingPipeline,
   stopRecordingPipeline,
   cancelRecording as cancelPipelineRecording,
+  type RecordingResult,
 } from "./audio-pipeline";
 
 // ─── Silence detection tuning ────────────────────────────────────────
@@ -37,20 +38,21 @@ export type RecordingStatusCallback = (status: {
 }) => void;
 
 /**
- * Start recording audio. Returns a promise that resolves with the
- * WAV file URI when recording stops (via silence detection, max duration,
- * or manual stop).
+ * Start recording. Resolves when recording stops (silence, max duration, or manual stop).
+ * - When localStt is false: resolves with WAV file URI (string).
+ * - When localStt is true: resolves with { transcript: string } from Cheetah (no WAV).
  *
  * @param onStatus Optional callback for metering updates
- * @param preserveRingBuffer If true, prepend ring buffer audio (captures
- *   speech overlapping the wake word)
- * @param trimStartMs When preserveRingBuffer is true, trim this many ms from the start (from config).
+ * @param preserveRingBuffer If true, prepend ring buffer (or feed to Cheetah when localStt)
+ * @param trimStartMs When preserveRingBuffer is true, trim this many ms from the start
+ * @param localStt When true, stream frames to Cheetah and return transcript instead of URI
  */
 export async function startRecording(
   onStatus?: RecordingStatusCallback,
   preserveRingBuffer = false,
   trimStartMs?: number,
-): Promise<string | null> {
+  localStt = false,
+): Promise<RecordingResult> {
   if (isActive) return null;
   isActive = true;
 
@@ -64,8 +66,8 @@ export async function startRecording(
   let lastMeterTime = 0;
   let finished = false;
 
-  let resolveOuter: (uri: string | null) => void;
-  const outerPromise = new Promise<string | null>((resolve) => {
+  let resolveOuter: (result: RecordingResult) => void;
+  const outerPromise = new Promise<RecordingResult>((resolve) => {
     resolveOuter = resolve;
   });
 
@@ -74,7 +76,6 @@ export async function startRecording(
     finished = true;
     cleanup();
     await stopRecordingPipeline();
-    // The pipeline's promise resolves with the URI — we handle it below
   };
 
   maxTimer = setTimeout(finish, MAX_DURATION_MS);
@@ -121,10 +122,10 @@ export async function startRecording(
     }
   };
 
-  startRecordingPipeline(meterCb, preserveRingBuffer, trimStartMs)
-    .then((uri) => {
+  startRecordingPipeline(meterCb, preserveRingBuffer, trimStartMs, localStt)
+    .then((result) => {
       isActive = false;
-      resolveOuter!(uri);
+      resolveOuter!(result);
     })
     .catch((err) => {
       isActive = false;

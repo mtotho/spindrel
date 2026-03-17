@@ -20,6 +20,8 @@ export interface AppConfig {
   listenSound: string;
   overlayEnabled: boolean;
   audioNative: boolean;
+  /** "server" = POST to agent /transcribe (Whisper); "local" = on-device Picovoice Cheetah */
+  transcriptionMode: "server" | "local";
 }
 
 export const BUILT_IN_WAKE_WORDS = [
@@ -58,6 +60,7 @@ const DEFAULTS: AppConfig = {
   listenSound: "chime",
   overlayEnabled: true,
   audioNative: false,
+  transcriptionMode: "server",
 };
 
 let cachedConfig: AppConfig | null = null;

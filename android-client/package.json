@@ -14,6 +14,7 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@picovoice/cheetah-react-native": "^3.0.0",
     "@picovoice/porcupine-react-native": "^4.0.0",
     "@picovoice/react-native-voice-processor": "^1.2.3",
     "@react-native-async-storage/async-storage": "^2.1.0",
