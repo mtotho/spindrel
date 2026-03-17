@@ -16,6 +16,7 @@ _DEFAULTS = {
     "LISTEN_SOUND": "chime",
     "WHISPER_MODEL": "base.en",
     "WAKE_WORDS": "",
+    "AUDIO_NATIVE": "false",
 }
 
 
@@ -31,6 +32,7 @@ class ClientConfig:
     listen_sound: str = "chime"
     whisper_model: str = "base.en"
     wake_words: list[str] | None = None
+    audio_native: bool = False
 
 
 def load_config() -> ClientConfig:
@@ -67,6 +69,7 @@ def load_config() -> ClientConfig:
         listen_sound=values.get("LISTEN_SOUND", "chime"),
         whisper_model=values.get("WHISPER_MODEL", "base.en"),
         wake_words=_parse_list(values.get("WAKE_WORDS", "")),
+        audio_native=values.get("AUDIO_NATIVE", "false").lower() in ("true", "1", "yes"),
     )
 
 

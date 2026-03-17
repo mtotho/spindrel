@@ -14,6 +14,7 @@ export interface AppConfig {
   ttsSpeed: number;
   listenSound: string;
   overlayEnabled: boolean;
+  audioNative: boolean;
 }
 
 export const BUILT_IN_WAKE_WORDS = [
@@ -48,6 +49,7 @@ const DEFAULTS: AppConfig = {
   ttsSpeed: 1.0,
   listenSound: "chime",
   overlayEnabled: true,
+  audioNative: false,
 };
 
 export async function loadConfig(): Promise<AppConfig> {

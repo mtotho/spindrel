@@ -101,21 +101,32 @@ def _speak_interruptible(response_text: str, ctx: dict) -> bool:
     return detected is not None
 
 
-def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
+def _send_streaming(
+    client: AgentClient,
+    message: str,
+    ctx: dict,
+    audio_data: str | None = None,
+    audio_format: str | None = None,
+    audio_native: bool | None = None,
+) -> dict:
     """Send a message via streaming and display tool status in real time.
 
     Handles tool_request events by executing client-side tools and posting
     results back to the server, then continues reading the stream.
 
-    Returns a dict with 'response' and 'client_actions' matching the non-streaming shape.
+    Returns a dict with 'response', 'transcript', and 'client_actions'.
     """
     response_text = ""
+    transcript_text = ""
     client_actions: list[dict] = []
 
     for event in client.chat_stream(
         message=message,
         session_id=ctx["session_id"],
         bot_id=ctx["bot_id"],
+        audio_data=audio_data,
+        audio_format=audio_format,
+        audio_native=audio_native,
     ):
         etype = event.get("type")
 
@@ -146,6 +157,10 @@ def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
             if "error" in event:
                 print(f"  [error: {event['error']}]")
 
+        elif etype == "transcript":
+            transcript_text = event.get("text", "")
+            print(f"  [heard: {transcript_text}]")
+
         elif etype == "response":
             response_text = event.get("text", "")
             client_actions = event.get("client_actions", [])
@@ -154,7 +169,7 @@ def _send_streaming(client: AgentClient, message: str, ctx: dict) -> dict:
             detail = event.get("detail", "Unknown error")
             print(f"  [error] {detail}")
 
-    return {"response": response_text, "client_actions": client_actions}
+    return {"response": response_text, "transcript": transcript_text, "client_actions": client_actions}
 
 
 def _short_id(sid: uuid.UUID) -> str:
@@ -349,7 +364,8 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             ctx["bot_id"] = parts[1]
             save_bot_id(parts[1])
             _apply_bot_voice(client, ctx)
-            print(f"Switched bot to: {ctx['bot_id']}")
+            audio_mode = "native" if ctx.get("audio_native") else "transcribe"
+            print(f"Switched bot to: {ctx['bot_id']} | audio {audio_mode}")
         return True
 
     elif cmd in ("/v", "/voice"):
@@ -359,6 +375,9 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         audio = record_audio()
         if audio is None:
             return True
+        if ctx.get("audio_native"):
+            ctx["_voice_audio"] = audio
+            return False
         text = _transcribe(audio, client, ctx)
         if text is None:
             return True
@@ -377,6 +396,9 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             ctx.pop("_voice_conversation", None)
             print("Voice conversation ended.")
             return True
+        if ctx.get("audio_native"):
+            ctx["_voice_audio"] = audio
+            return False
         text = _transcribe(audio, client, ctx)
         if text is None:
             ctx.pop("_voice_conversation", None)
@@ -403,6 +425,9 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         if audio is None:
             ctx.pop("_wake_word_mode", None)
             return True
+        if ctx.get("audio_native"):
+            ctx["_voice_audio"] = audio
+            return False
         text = _transcribe(audio, client, ctx)
         if text is None:
             ctx.pop("_wake_word_mode", None)
@@ -448,6 +473,12 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             print(f"Error: {e}")
         return True
 
+    elif cmd == "/audio":
+        ctx["audio_native"] = not ctx.get("audio_native", False)
+        state = "native" if ctx["audio_native"] else "transcribe"
+        print(f"Audio input mode: {state}")
+        return True
+
     elif cmd == "/help":
         print("Commands:")
         print("  /new             Start a new session")
@@ -461,6 +492,7 @@ def _handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         print("  /bots            List available bots")
         print("  /bot [id]        Show or switch bot")
         print("  /tts             Toggle text-to-speech")
+        print("  /audio           Toggle native audio (send audio to model directly)")
         print("  /quit            Exit")
         return True
 
@@ -482,23 +514,55 @@ def _transcribe(audio, client: AgentClient, ctx: dict) -> str | None:
     return local_transcribe(audio, ctx["whisper_model"])
 
 
+def _audio_to_base64(audio) -> str:
+    """Convert a numpy audio array to base64-encoded WAV for native audio input."""
+    import base64
+    import io
+    import struct
+
+    import numpy as np
+
+    samples = audio.flatten().astype(np.float32)
+    # Encode as 16-bit PCM WAV
+    pcm = (samples * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    num_samples = len(pcm)
+    data_size = num_samples * 2
+    # WAV header
+    buf.write(b"RIFF")
+    buf.write(struct.pack("<I", 36 + data_size))
+    buf.write(b"WAVE")
+    buf.write(b"fmt ")
+    buf.write(struct.pack("<IHHIIHH", 16, 1, 1, 16000, 32000, 2, 16))
+    buf.write(b"data")
+    buf.write(struct.pack("<I", data_size))
+    buf.write(pcm.tobytes())
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def _apply_bot_voice(client: AgentClient, ctx: dict) -> None:
-    """Fetch voice config for current bot from server and apply overrides to ctx."""
+    """Fetch voice + audio config for current bot from server and apply overrides to ctx."""
     try:
         bots = client.list_bots()
         for b in bots:
-            if b["id"] == ctx["bot_id"] and b.get("voice"):
-                voice = b["voice"]
-                ctx["piper_model"] = voice.get("piper_model", ctx["_default_piper_model"])
-                ctx["tts_speed"] = voice.get("speed", ctx["_default_tts_speed"])
-                ctx["listen_sound"] = voice.get("listen_sound", ctx["_default_listen_sound"])
+            if b["id"] == ctx["bot_id"]:
+                if b.get("voice"):
+                    voice = b["voice"]
+                    ctx["piper_model"] = voice.get("piper_model", ctx["_default_piper_model"])
+                    ctx["tts_speed"] = voice.get("speed", ctx["_default_tts_speed"])
+                    ctx["listen_sound"] = voice.get("listen_sound", ctx["_default_listen_sound"])
+                else:
+                    ctx["piper_model"] = ctx["_default_piper_model"]
+                    ctx["tts_speed"] = ctx["_default_tts_speed"]
+                    ctx["listen_sound"] = ctx["_default_listen_sound"]
+                ctx["audio_native"] = b.get("audio_input") == "native" or ctx["_default_audio_native"]
                 return
     except Exception:
         pass
-    # No bot-specific voice config — restore defaults
     ctx["piper_model"] = ctx["_default_piper_model"]
     ctx["tts_speed"] = ctx["_default_tts_speed"]
     ctx["listen_sound"] = ctx["_default_listen_sound"]
+    ctx["audio_native"] = ctx["_default_audio_native"]
 
 
 def main():
@@ -566,9 +630,11 @@ def main():
         "listen_sound": config.listen_sound,
         "whisper_model": config.whisper_model,
         "wake_words": config.wake_words,
+        "audio_native": config.audio_native,
         "_default_piper_model": config.piper_model,
         "_default_tts_speed": config.tts_speed,
         "_default_listen_sound": config.listen_sound,
+        "_default_audio_native": config.audio_native,
     }
 
     # Verify connectivity and load bot voice config
@@ -579,7 +645,8 @@ def main():
         print(f"Warning: Cannot reach server at {config.agent_url}")
 
     tts_status = "on" if ctx["tts"] else "off"
-    print(f"Agent Chat — session {_short_id(ctx['session_id'])} | bot {ctx['bot_id']} | tts {tts_status}")
+    audio_mode = "native" if ctx.get("audio_native") else "transcribe"
+    print(f"Agent Chat — session {_short_id(ctx['session_id'])} | bot {ctx['bot_id']} | tts {tts_status} | audio {audio_mode}")
     print("Type /help for commands.\n")
 
     pending_input = "/listen" if args.listen else None
@@ -604,7 +671,70 @@ def main():
             if line.startswith("/"):
                 if _handle_command(line, client, ctx):
                     continue
-                if "_voice_text" in ctx:
+                if "_voice_audio" in ctx:
+                    voice_audio = ctx.pop("_voice_audio")
+                    b64 = _audio_to_base64(voice_audio)
+                    try:
+                        result = _send_streaming(
+                            client, "", ctx,
+                            audio_data=b64, audio_format="wav", audio_native=True,
+                        )
+                        response_text = result["response"]
+                        display_text, speakable_text, _ = _strip_silent(response_text)
+                        print(f"\n{display_text}\n")
+                        _handle_client_actions(result.get("client_actions", []), client, ctx)
+                        if ctx["tts"] and speakable_text:
+                            if ctx.get("_wake_word_mode"):
+                                if _speak_interruptible(speakable_text, ctx):
+                                    play_tone(preset=ctx.get("listen_sound", "chime"))
+                                    ctx["_wakeword_predetected"] = True
+                            else:
+                                speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+                    except KeyboardInterrupt:
+                        if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+                            print("\nVoice mode ended.")
+                            ctx.pop("_voice_conversation", None)
+                            ctx.pop("_wake_word_mode", None)
+                        else:
+                            raise
+                    except httpx.HTTPError as e:
+                        ctx.pop("_voice_conversation", None)
+                        print(f"HTTP error: {e}")
+
+                    # Voice conversation loop for native audio
+                    while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+                        if ctx.get("_wake_word_mode") and not ctx.pop("_wakeword_predetected", False):
+                            detected = listen_for_wakeword(ctx["wake_words"])
+                            if detected is None:
+                                ctx.pop("_wake_word_mode", None)
+                                break
+                            play_tone(preset=ctx.get("listen_sound", "chime"))
+
+                        audio = record_audio()
+                        if audio is None:
+                            if ctx.get("_wake_word_mode"):
+                                continue
+                            print("Voice conversation ended.")
+                            ctx.pop("_voice_conversation", None)
+                            break
+                        b64 = _audio_to_base64(audio)
+                        result = _send_streaming(
+                            client, "", ctx,
+                            audio_data=b64, audio_format="wav", audio_native=True,
+                        )
+                        response_text = result["response"]
+                        display_text, speakable_text, _ = _strip_silent(response_text)
+                        print(f"\n{display_text}\n")
+                        _handle_client_actions(result.get("client_actions", []), client, ctx)
+                        if ctx["tts"] and speakable_text:
+                            if ctx.get("_wake_word_mode"):
+                                if _speak_interruptible(speakable_text, ctx):
+                                    play_tone(preset=ctx.get("listen_sound", "chime"))
+                                    ctx["_wakeword_predetected"] = True
+                            else:
+                                speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+                    continue
+                elif "_voice_text" in ctx:
                     line = ctx.pop("_voice_text")
                 else:
                     continue

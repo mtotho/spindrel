@@ -2,7 +2,7 @@ import { loadConfig } from "./config";
 import { getSessionId, newSessionId, setSessionId, setActiveBotId } from "./session";
 
 export interface StreamEvent {
-  type: "skill_context" | "tool_start" | "tool_request" | "tool_result" | "response" | "error";
+  type: "skill_context" | "tool_start" | "tool_request" | "tool_result" | "response" | "transcript" | "error";
   session_id?: string;
   count?: number;
   tool?: string;
@@ -22,6 +22,7 @@ export interface ClientAction {
 export interface ChatResult {
   sessionId: string;
   response: string;
+  transcript: string;
   clientActions: ClientAction[];
 }
 
@@ -30,7 +31,14 @@ export type VoiceState = "idle" | "listening" | "processing" | "responding";
 export interface AgentCallbacks {
   onStateChange?: (state: VoiceState, detail?: string) => void;
   onToolStatus?: (tool: string) => void;
+  onTranscript?: (text: string) => void;
   onError?: (error: string) => void;
+}
+
+export interface AudioInput {
+  audioData: string;  // base64-encoded audio
+  audioFormat: string;  // e.g. "m4a", "wav", "webm"
+  audioNative: boolean;
 }
 
 const SILENT_RE = /\[silent\]([\s\S]*?)\[\/silent\]/g;
@@ -138,6 +146,9 @@ export async function testConnection(): Promise<{ ok: boolean; message: string }
     }
 
     const bots = await resp.json();
+    if (Array.isArray(bots)) {
+      _cachedBots = bots;
+    }
     const count = Array.isArray(bots) ? bots.length : 0;
     return { ok: true, message: `Connected — ${count} bot${count !== 1 ? "s" : ""} available` };
   } catch (error: unknown) {
@@ -148,9 +159,27 @@ export async function testConnection(): Promise<{ ok: boolean; message: string }
   }
 }
 
-export async function listBots(): Promise<Array<{ id: string; name: string; model: string }>> {
+export interface BotInfo {
+  id: string;
+  name: string;
+  model: string;
+  audio_input?: string;
+}
+
+export async function listBots(): Promise<BotInfo[]> {
   const resp = await apiFetch("/bots");
   return resp.json();
+}
+
+let _cachedBots: BotInfo[] = [];
+
+export async function refreshBotCache(): Promise<BotInfo[]> {
+  _cachedBots = await listBots();
+  return _cachedBots;
+}
+
+export function getCachedBot(botId: string): BotInfo | undefined {
+  return _cachedBots.find((b) => b.id === botId);
 }
 
 export interface SessionSummary {
@@ -193,28 +222,44 @@ export async function getSession(sessionId: string): Promise<SessionDetail> {
  * Send a message using the non-streaming endpoint.
  * Simple but doesn't support real-time status or tool_request.
  */
-export async function chat(message: string, callbacks?: AgentCallbacks): Promise<ChatResult> {
+export async function chat(
+  message: string,
+  callbacks?: AgentCallbacks,
+  audio?: AudioInput,
+): Promise<ChatResult> {
   const config = await loadConfig();
   const sessionId = await getSessionId();
 
   callbacks?.onStateChange?.("processing");
 
+  const body: Record<string, unknown> = {
+    message,
+    session_id: sessionId,
+    client_id: config.clientId,
+    bot_id: config.botId,
+  };
+  if (audio) {
+    body.audio_data = audio.audioData;
+    body.audio_format = audio.audioFormat;
+    body.audio_native = audio.audioNative;
+  }
+
   const resp = await apiFetch("/chat", {
     method: "POST",
-    body: JSON.stringify({
-      message,
-      session_id: sessionId,
-      client_id: config.clientId,
-      bot_id: config.botId,
-    }),
+    body: JSON.stringify(body),
   });
 
   const data = await resp.json();
   const result: ChatResult = {
     sessionId: data.session_id,
     response: data.response,
+    transcript: data.transcript || "",
     clientActions: data.client_actions || [],
   };
+
+  if (result.transcript) {
+    callbacks?.onTranscript?.(result.transcript);
+  }
 
   await handleClientActions(result.clientActions, config.botId);
   return result;
@@ -225,10 +270,12 @@ export async function chat(message: string, callbacks?: AgentCallbacks): Promise
  * Supports real-time tool status, tool_request, and progressive updates.
  *
  * Uses XMLHttpRequest for reliable SSE support in React Native.
+ * Server sends `: keepalive` comments to prevent idle connection drops.
  */
 export async function chatStream(
   message: string,
-  callbacks?: AgentCallbacks
+  callbacks?: AgentCallbacks,
+  audio?: AudioInput,
 ): Promise<ChatResult> {
   const config = await loadConfig();
   const sessionId = await getSessionId();
@@ -243,6 +290,7 @@ export async function chatStream(
 
     let lastIndex = 0;
     let responseText = "";
+    let transcriptText = "";
     let clientActions: ClientAction[] = [];
     let resultSessionId = sessionId;
 
@@ -256,6 +304,10 @@ export async function chatStream(
         try {
           const event: StreamEvent = JSON.parse(line.substring(6));
           handleStreamEvent(event, callbacks);
+
+          if (event.type === "transcript") {
+            transcriptText = event.text || "";
+          }
 
           if (event.type === "response") {
             responseText = event.text || "";
@@ -285,6 +337,7 @@ export async function chatStream(
       resolve({
         sessionId: resultSessionId,
         response: responseText,
+        transcript: transcriptText,
         clientActions,
       });
     };
@@ -302,14 +355,19 @@ export async function chatStream(
     };
 
     xhr.timeout = 120000;
-    xhr.send(
-      JSON.stringify({
-        message,
-        session_id: sessionId,
-        client_id: config.clientId,
-        bot_id: config.botId,
-      })
-    );
+
+    const body: Record<string, unknown> = {
+      message,
+      session_id: sessionId,
+      client_id: config.clientId,
+      bot_id: config.botId,
+    };
+    if (audio) {
+      body.audio_data = audio.audioData;
+      body.audio_format = audio.audioFormat;
+      body.audio_native = audio.audioNative;
+    }
+    xhr.send(JSON.stringify(body));
   });
 }
 
@@ -325,6 +383,9 @@ function handleStreamEvent(event: StreamEvent, callbacks?: AgentCallbacks): void
       if (event.error) {
         callbacks?.onError?.(`Tool error: ${event.error}`);
       }
+      break;
+    case "transcript":
+      callbacks?.onTranscript?.(event.text || "");
       break;
     case "error":
       callbacks?.onError?.(event.detail || "Unknown error");

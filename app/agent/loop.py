@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
@@ -25,10 +26,50 @@ _client = AsyncOpenAI(
     timeout=60.0,
 )
 
+_TRANSCRIPT_RE = re.compile(r"\[transcript\](.*?)\[/transcript\]", re.DOTALL)
+
+_AUDIO_TRANSCRIPT_INSTRUCTION = (
+    "The user's message includes audio input. Before your response, include an exact "
+    "transcription of what the user said in [transcript]...[/transcript] tags. "
+    "Place the transcript on its own line before your actual reply. Example:\n"
+    "[transcript]Hello, how are you?[/transcript]\n"
+    "I'm doing well! How can I help?"
+)
+
+
+def _build_audio_user_message(audio_data: str, audio_format: str | None) -> dict:
+    """Construct a multimodal user message with an audio content part."""
+    fmt = audio_format or "m4a"
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "input_audio",
+                "input_audio": {"data": audio_data, "format": fmt},
+            },
+        ],
+    }
+
+
+def _extract_transcript(text: str) -> tuple[str, str]:
+    """Parse [transcript]...[/transcript] from model response.
+
+    Returns (transcript, clean_response). If no tags found, transcript is empty
+    and clean_response is the original text.
+    """
+    match = _TRANSCRIPT_RE.search(text)
+    if not match:
+        return "", text
+
+    transcript = match.group(1).strip()
+    clean = text[:match.start()] + text[match.end():]
+    return transcript, clean.strip()
+
 
 @dataclass
 class RunResult:
     response: str = ""
+    transcript: str = ""
     client_actions: list[dict] = field(default_factory=list)
 
 
@@ -54,6 +95,8 @@ async def run_stream(
     user_message: str,
     session_id: uuid.UUID | None = None,
     client_id: str | None = None,
+    audio_data: str | None = None,
+    audio_format: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -61,8 +104,10 @@ async def run_stream(
       {"type": "tool_start", "tool": "<name>"}
       {"type": "tool_result", "tool": "<name>"}
       {"type": "memory_context", "count": <int>}
+      {"type": "transcript", "text": "..."}
       {"type": "response", "text": "...", "client_actions": [...]}
     """
+    native_audio = audio_data is not None
     turn_start = len(messages)
 
     skill_ids = bot.skills if bot.skills else None
@@ -91,7 +136,17 @@ async def run_stream(
                 + "\n\n---\n\n".join(memories),
             })
 
-    messages.append({"role": "user", "content": user_message})
+    if native_audio:
+        messages.append({
+            "role": "system",
+            "content": _AUDIO_TRANSCRIPT_INSTRUCTION,
+        })
+        user_msg = _build_audio_user_message(audio_data, audio_format)
+        messages.append(user_msg)
+        user_msg_index = len(messages) - 1
+    else:
+        messages.append({"role": "user", "content": user_message})
+        user_msg_index = len(messages) - 1
 
     local_schemas = get_local_tool_schemas(bot.local_tools)
     mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
@@ -102,6 +157,8 @@ async def run_stream(
 
     tool_names = [t["function"]["name"] for t in all_tools] if all_tools else []
     logger.debug("Tools available: %s", tool_names or "(none)")
+
+    transcript_emitted = False
 
     for iteration in range(settings.AGENT_MAX_ITERATIONS):
         logger.debug("--- Iteration %d ---", iteration + 1)
@@ -127,6 +184,18 @@ async def run_stream(
 
         if not msg.tool_calls:
             text = msg.content or ""
+
+            if native_audio and not transcript_emitted:
+                transcript, text = _extract_transcript(text)
+                yield {"type": "transcript", "text": transcript}
+                if transcript:
+                    logger.info("Audio transcript: %r", transcript[:100])
+                    messages[user_msg_index] = {"role": "user", "content": transcript}
+                else:
+                    logger.warning("Native audio response contained no transcript tags")
+                    messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+                transcript_emitted = True
+
             logger.info("Final response (%d chars): %r", len(text), text[:120])
             yield {
                 "type": "response",
@@ -134,6 +203,16 @@ async def run_stream(
                 "client_actions": _extract_client_actions(messages, turn_start),
             }
             return
+
+        # If native audio and first iteration with tool calls, try to extract
+        # transcript from any content the model returned alongside tool calls
+        if native_audio and not transcript_emitted and msg.content:
+            transcript, remaining = _extract_transcript(msg.content)
+            if transcript:
+                logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
+                yield {"type": "transcript", "text": transcript}
+                messages[user_msg_index] = {"role": "user", "content": transcript}
+                transcript_emitted = True
 
         logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
 
@@ -199,9 +278,19 @@ async def run_stream(
     )
     msg = response.choices[0].message
     messages.append(msg.model_dump(exclude_none=True))
+
+    text = msg.content or ""
+    if native_audio and not transcript_emitted:
+        transcript, text = _extract_transcript(text)
+        yield {"type": "transcript", "text": transcript}
+        if transcript:
+            messages[user_msg_index] = {"role": "user", "content": transcript}
+        else:
+            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+
     yield {
         "type": "response",
-        "text": msg.content or "",
+        "text": text,
         "client_actions": _extract_client_actions(messages, turn_start),
     }
 
@@ -212,14 +301,19 @@ async def run(
     user_message: str,
     session_id: uuid.UUID | None = None,
     client_id: str | None = None,
+    audio_data: str | None = None,
+    audio_format: str | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
     async for event in run_stream(
         messages, bot, user_message,
         session_id=session_id, client_id=client_id,
+        audio_data=audio_data, audio_format=audio_format,
     ):
         if event["type"] == "response":
             result.response = event["text"]
             result.client_actions = event.get("client_actions", [])
+        elif event["type"] == "transcript":
+            result.transcript = event["text"]
     return result

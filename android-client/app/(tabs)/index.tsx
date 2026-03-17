@@ -13,7 +13,7 @@ import {
 import { useFocusEffect } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import { voiceService } from "../../src/service/VoiceService";
-import { getSession, healthCheck, type VoiceState } from "../../src/agent";
+import { getCachedBot, getSession, healthCheck, type VoiceState } from "../../src/agent";
 import { getSessionId } from "../../src/session";
 import { loadConfig } from "../../src/config";
 import { startForegroundService } from "../../src/native/VoiceServiceBridge";
@@ -65,6 +65,7 @@ export default function HomeScreen() {
   const transcriptRef = useRef<string>();
   const [sessionId, setSessionId] = useState<string>("");
   const [botId, setBotId] = useState<string>("default");
+  const [audioMode, setAudioMode] = useState<"native" | "stt">("stt");
   const lastLoadedSession = useRef<string>("");
 
   useEffect(() => {
@@ -119,7 +120,7 @@ export default function HomeScreen() {
     return voiceService.addListener((state, detail) => {
       setVoiceState(state);
       setStateDetail(detail);
-      if (state === "processing" && detail && !detail.startsWith("Using ") && detail !== "Transcribing...") {
+      if (state === "processing" && detail && !detail.startsWith("Using ") && detail !== "Transcribing..." && detail !== "Sending audio...") {
         setTranscript(detail);
         transcriptRef.current = detail;
       }
@@ -137,9 +138,43 @@ export default function HomeScreen() {
     });
   }, []);
 
+  // Subscribe to transcript events from native audio mode.
+  // Updates a pending user message placeholder with what the AI heard.
+  const pendingTranscriptIdx = useRef<number | null>(null);
+  useEffect(() => {
+    return voiceService.addTranscriptListener((transcript) => {
+      if (pendingTranscriptIdx.current !== null) {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const idx = pendingTranscriptIdx.current!;
+          if (idx < updated.length && updated[idx].role === "user") {
+            updated[idx] = { ...updated[idx], text: transcript || "[couldn't hear]" };
+          }
+          return updated;
+        });
+      }
+    });
+  }, []);
+
+  // Show assistant response in chat immediately, before TTS finishes.
+  // Starts true so only UI-initiated flows (handleMic/handleSend) arm it.
+  const responseHandled = useRef(true);
+  useEffect(() => {
+    return voiceService.addResponseListener((response) => {
+      if (response && !responseHandled.current) {
+        responseHandled.current = true;
+        addMessage({ role: "assistant", text: response, timestamp: Date.now() });
+      }
+    });
+  }, []);
+
   const loadSessionHistory = useCallback(async () => {
     const config = await loadConfig();
     setBotId(config.botId);
+
+    const bot = getCachedBot(config.botId);
+    const useNative = config.audioNative || bot?.audio_input === "native";
+    setAudioMode(useNative ? "native" : "stt");
 
     const currentId = await getSessionId();
     setSessionId(currentId);
@@ -199,12 +234,10 @@ export default function HomeScreen() {
 
     setInput("");
     addMessage({ role: "user", text, timestamp: Date.now() });
+    responseHandled.current = false;
 
     try {
-      const response = await voiceService.processTranscript(text);
-      if (response) {
-        addMessage({ role: "assistant", text: response, timestamp: Date.now() });
-      }
+      await voiceService.processTranscript(text);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Request failed";
       addMessage({ role: "status", text: `Error: ${msg}`, timestamp: Date.now() });
@@ -219,19 +252,33 @@ export default function HomeScreen() {
     if (voiceState !== "idle") return;
 
     transcriptRef.current = undefined;
+    pendingTranscriptIdx.current = null;
+    responseHandled.current = false;
 
     try {
-      const response = await voiceService.processVoice();
+      const config = await loadConfig();
+      const bot = getCachedBot(config.botId);
+      const useNative = config.audioNative || bot?.audio_input === "native";
+
+      if (useNative) {
+        setMessages((prev) => {
+          pendingTranscriptIdx.current = prev.length;
+          return [...prev, { role: "user", text: "...", timestamp: Date.now() }];
+        });
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+
+      await voiceService.processVoice();
       const spokenText = transcriptRef.current;
       transcriptRef.current = undefined;
 
-      if (spokenText) {
+      if (!useNative && spokenText) {
         addMessage({ role: "user", text: spokenText, timestamp: Date.now() });
       }
-      if (response) {
-        addMessage({ role: "assistant", text: response, timestamp: Date.now() });
-      }
+
+      pendingTranscriptIdx.current = null;
     } catch (error) {
+      pendingTranscriptIdx.current = null;
       const msg = error instanceof Error ? error.message : "Voice input failed";
       addMessage({ role: "status", text: `Error: ${msg}`, timestamp: Date.now() });
     }
@@ -261,6 +308,9 @@ export default function HomeScreen() {
         <Text style={styles.statusText} numberOfLines={1}>{stateLabel}</Text>
         <View style={styles.statusRight}>
           <Text style={styles.botLabel}>{botId}</Text>
+          <Text style={[styles.audioModeLabel, audioMode === "native" && styles.audioModeNative]}>
+            {audioMode === "native" ? "native" : "stt"}
+          </Text>
           {sessionId ? (
             <Text style={styles.sessionLabel}>{sessionId.slice(0, 6)}</Text>
           ) : null}
@@ -384,6 +434,21 @@ const styles = StyleSheet.create({
     color: "#60a5fa",
     fontSize: 12,
     fontWeight: "600",
+  },
+  audioModeLabel: {
+    color: "#6b7280",
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    backgroundColor: "#2a2a4e",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  audioModeNative: {
+    color: "#fbbf24",
+    backgroundColor: "#422006",
   },
   sessionLabel: {
     color: "#6b7280",

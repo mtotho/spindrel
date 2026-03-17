@@ -29,13 +29,14 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
   },
 };
 
-// Adaptive silence detection: calibrate noise floor from the first ~1s,
-// then detect speech/silence relative to it. This handles different devices
-// and environments without hard-coded dB thresholds.
-const CALIBRATION_SAMPLES = 5;
+// Adaptive silence detection: calibrate noise floor from the first ~600ms,
+// then detect speech/silence relative to it. Calibration readings are
+// capped so that early speech doesn't inflate the noise floor.
+const CALIBRATION_SAMPLES = 3;
+const CALIBRATION_CEILING_DB = -30;
 const SPEECH_MARGIN_DB = 8;
-const SILENCE_MARGIN_DB = 4;
-const SILENCE_DURATION_MS = 1500;
+const SILENCE_MARGIN_DB = 5;
+const SILENCE_DURATION_MS = 1000;
 const MAX_DURATION_MS = 30000;
 const MAX_AFTER_SPEECH_MS = 10000;
 const METERING_INTERVAL_MS = 200;
@@ -131,9 +132,14 @@ export async function startRecording(
           metering,
         });
 
-        // Calibration phase: sample the noise floor from the first readings
+        // Calibration phase: sample the noise floor from the first readings.
+        // Cap readings at CALIBRATION_CEILING_DB so that speech during
+        // calibration doesn't inflate the noise floor and break detection.
         if (!calibrated) {
-          calibrationReadings.push(metering);
+          calibrationReadings.push(Math.min(metering, CALIBRATION_CEILING_DB));
+          if (metering > CALIBRATION_CEILING_DB + SPEECH_MARGIN_DB) {
+            heardSpeech = true;
+          }
           if (calibrationReadings.length >= CALIBRATION_SAMPLES) {
             calibrated = true;
             noiseFloor = calibrationReadings.reduce((a, b) => a + b, 0) / calibrationReadings.length;
@@ -225,6 +231,41 @@ export async function readAudioFile(uri: string): Promise<AudioFile> {
   // Detect format from file header
   const mimeType = detectMimeType(bytes);
   return { data: bytes.buffer, mimeType };
+}
+
+/**
+ * Read a recorded audio file and return its base64-encoded content + format
+ * string (e.g. "m4a", "wav") suitable for native audio input to the model.
+ */
+export async function readAudioFileBase64(uri: string): Promise<{ base64: string; format: string }> {
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  if (base64.length < 100) {
+    throw new Error("Audio file is too small — recording may have failed");
+  }
+
+  const binaryStr = atob(base64);
+  const bytes = new Uint8Array(Math.min(binaryStr.length, 12));
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+
+  const mime = detectMimeType(bytes);
+  const format = mimeToFormat(mime);
+  return { base64, format };
+}
+
+function mimeToFormat(mime: string): string {
+  switch (mime) {
+    case "audio/wav": return "wav";
+    case "audio/mp4": return "m4a";
+    case "audio/webm": return "webm";
+    case "audio/mpeg": return "mp3";
+    case "audio/ogg": return "ogg";
+    default: return "m4a";
+  }
 }
 
 function detectMimeType(bytes: Uint8Array): string {

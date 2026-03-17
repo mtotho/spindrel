@@ -31,18 +31,33 @@ class AgentClient:
         return resp.json()
 
     def chat_stream(
-        self, message: str, session_id: uuid.UUID, bot_id: str, client_id: str = "cli"
+        self,
+        message: str,
+        session_id: uuid.UUID,
+        bot_id: str,
+        client_id: str = "cli",
+        audio_data: str | None = None,
+        audio_format: str | None = None,
+        audio_native: bool | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         """Stream SSE events from the agent loop. Yields parsed event dicts."""
+        body: dict[str, Any] = {
+            "message": message,
+            "session_id": str(session_id),
+            "client_id": client_id,
+            "bot_id": bot_id,
+        }
+        if audio_data is not None:
+            body["audio_data"] = audio_data
+        if audio_format is not None:
+            body["audio_format"] = audio_format
+        if audio_native is not None:
+            body["audio_native"] = audio_native
+
         with self._http.stream(
             "POST",
             "/chat/stream",
-            json={
-                "message": message,
-                "session_id": str(session_id),
-                "client_id": client_id,
-                "bot_id": bot_id,
-            },
+            json=body,
         ) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():

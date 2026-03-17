@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { loadConfig, saveConfig, BUILT_IN_WAKE_WORDS, type AppConfig } from "../../src/config";
-import { listBots, testConnection } from "../../src/agent";
+import { testConnection, refreshBotCache } from "../../src/agent";
 import { voiceService } from "../../src/service/VoiceService";
 import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
 
@@ -72,7 +72,7 @@ export default function SettingsScreen() {
       // Fetch bots if fully connected
       if (!result.message.includes("but")) {
         try {
-          const b = await listBots();
+          const b = await refreshBotCache();
           setBots(b);
         } catch {
           // bots list failed but connection is ok
@@ -218,6 +218,21 @@ export default function SettingsScreen() {
           onValueChange={(v) => updateField("ttsEnabled", v)}
           trackColor={{ true: "#1d4ed8", false: "#374151" }}
           thumbColor={config.ttsEnabled ? "#60a5fa" : "#9ca3af"}
+        />
+      </View>
+
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.switchLabel}>Native Audio Input</Text>
+          <Text style={[styles.hintText, { marginTop: 4 }]}>
+            Send audio directly to the AI model instead of transcribing first. Can also be set per-bot in server config.
+          </Text>
+        </View>
+        <Switch
+          value={config.audioNative}
+          onValueChange={(v) => updateField("audioNative", v)}
+          trackColor={{ true: "#1d4ed8", false: "#374151" }}
+          thumbColor={config.audioNative ? "#60a5fa" : "#9ca3af"}
         />
       </View>
 

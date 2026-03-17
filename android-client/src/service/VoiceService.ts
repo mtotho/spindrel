@@ -1,7 +1,7 @@
 import { AppState, type AppStateStatus } from "react-native";
-import { chat, stripSilent, transcribe, type VoiceState } from "../agent";
+import { chatStream, getCachedBot, stripSilent, transcribe, type AudioInput, type VoiceState } from "../agent";
 import { speak, stopSpeaking } from "../voice/tts";
-import { startRecording, stopRecording, readAudioFile, type RecordingStatusCallback } from "../voice/recorder";
+import { startRecording, stopRecording, readAudioFile, readAudioFileBase64, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
 import { updateForegroundNotification, moveToBackground } from "../native/VoiceServiceBridge";
 import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
@@ -9,6 +9,8 @@ import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasO
 
 type StateListener = (state: VoiceState, detail?: string) => void;
 type MessageListener = (userText: string, assistantText: string) => void;
+type TranscriptListener = (transcript: string) => void;
+type ResponseListener = (response: string) => void;
 
 const NOTIFICATION_TEXT: Record<VoiceState, string> = {
   idle: "Listening for wake word...",
@@ -29,6 +31,8 @@ export class VoiceService {
   private state: VoiceState = "idle";
   private listeners: Set<StateListener> = new Set();
   private messageListeners: Set<MessageListener> = new Set();
+  private transcriptListeners: Set<TranscriptListener> = new Set();
+  private responseListeners: Set<ResponseListener> = new Set();
   private wakeWordActive = false;
   private overlayPermissionGranted: boolean | null = null;
   private badgeActive = false;
@@ -111,8 +115,9 @@ export class VoiceService {
 
     let lastTranscript = "";
     let didMoveToBackground = false;
+    const STATUS_DETAILS = new Set(["Transcribing...", "Sending audio..."]);
     const unsub = this.addListener((state, detail) => {
-      if (state === "processing" && detail && detail !== "Transcribing...") {
+      if (state === "processing" && detail && !STATUS_DETAILS.has(detail) && !detail.startsWith("Using ")) {
         lastTranscript = detail;
       }
     });
@@ -163,6 +168,28 @@ export class VoiceService {
   private emitMessage(userText: string, assistantText: string): void {
     for (const listener of this.messageListeners) {
       listener(userText, assistantText);
+    }
+  }
+
+  addTranscriptListener(listener: TranscriptListener): () => void {
+    this.transcriptListeners.add(listener);
+    return () => this.transcriptListeners.delete(listener);
+  }
+
+  private emitTranscript(transcript: string): void {
+    for (const listener of this.transcriptListeners) {
+      listener(transcript);
+    }
+  }
+
+  addResponseListener(listener: ResponseListener): () => void {
+    this.responseListeners.add(listener);
+    return () => this.responseListeners.delete(listener);
+  }
+
+  private emitResponse(response: string): void {
+    for (const listener of this.responseListeners) {
+      listener(response);
     }
   }
 
@@ -247,8 +274,9 @@ export class VoiceService {
     await stopWakeWordDetection();
 
     let lastTranscript = "";
+    const STATUS_DETAILS_WW = new Set(["Transcribing...", "Sending audio..."]);
     const unsub = this.addListener((state, detail) => {
-      if (state === "processing" && detail && detail !== "Transcribing...") {
+      if (state === "processing" && detail && !STATUS_DETAILS_WW.has(detail) && !detail.startsWith("Using ")) {
         lastTranscript = detail;
       }
     });
@@ -272,7 +300,12 @@ export class VoiceService {
   }
 
   /**
-   * Full voice pipeline: record audio → server transcription → chat → TTS.
+   * Full voice pipeline: record audio → chat (with transcription or native audio) → TTS.
+   *
+   * When audioNative is enabled in config, audio is sent directly to the model
+   * which interprets it and returns a transcript. Otherwise, audio is transcribed
+   * via the server's /transcribe endpoint first.
+   *
    * Returns the assistant's display text, or empty string if cancelled.
    */
   async processVoice(onMeter?: (metering: number) => void): Promise<string> {
@@ -300,6 +333,15 @@ export class VoiceService {
       return "";
     }
 
+    const config = await loadConfig();
+    const bot = getCachedBot(config.botId);
+    const useNative = config.audioNative || bot?.audio_input === "native";
+
+    if (useNative) {
+      return this.processNativeAudio(uri);
+    }
+
+    // Traditional path: transcribe first, then chat
     this.setState("processing", "Transcribing...");
 
     let transcript: string;
@@ -321,11 +363,69 @@ export class VoiceService {
   }
 
   /**
-   * Uses the non-streaming POST /chat endpoint. React Native's XHR
-   * doesn't keep SSE connections alive during server-side tool execution,
-   * causing the server to detect a disconnection and abort. The non-streaming
-   * endpoint runs the exact same agent loop (tools execute fine) and returns
-   * the final response as JSON.
+   * Native audio path: send raw audio directly to the model via chatStream.
+   * The model interprets the audio and returns a transcript in the response.
+   */
+  private async processNativeAudio(uri: string): Promise<string> {
+    this.setState("processing", "Sending audio...");
+
+    let audioFile: { base64: string; format: string };
+    try {
+      audioFile = await readAudioFileBase64(uri);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to read audio";
+      this.setState("idle", msg);
+      throw error;
+    }
+
+    const audio: AudioInput = {
+      audioData: audioFile.base64,
+      audioFormat: audioFile.format,
+      audioNative: true,
+    };
+
+    let lastTranscript = "";
+
+    try {
+      const result = await chatStream("", {
+        onTranscript: (text) => {
+          lastTranscript = text;
+          this.setState("processing", text);
+          this.emitTranscript(text);
+        },
+        onToolStatus: (tool) => {
+          this.setState("processing", `Using ${tool}...`);
+        },
+      }, audio);
+
+      if (result.transcript && !lastTranscript) {
+        lastTranscript = result.transcript;
+        this.emitTranscript(lastTranscript);
+      }
+
+      const { display, speakable } = stripSilent(result.response);
+      this.emitResponse(display);
+
+      const config = await loadConfig();
+      if (config.ttsEnabled && speakable) {
+        this.setState("responding", display);
+        await speak(speakable);
+      } else {
+        this.setState("responding", display);
+      }
+
+      this.setState("idle");
+      return display;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      this.setState("idle", msg);
+      throw error;
+    }
+  }
+
+  /**
+   * Send a text message via the streaming chat endpoint.
+   * Server sends SSE keepalive comments to prevent connection drops.
    */
   async processTranscript(transcript: string): Promise<string> {
     if (!transcript.trim()) return "";
@@ -333,8 +433,13 @@ export class VoiceService {
     this.setState("processing", transcript);
 
     try {
-      const result = await chat(transcript);
+      const result = await chatStream(transcript, {
+        onToolStatus: (tool) => {
+          this.setState("processing", `Using ${tool}...`);
+        },
+      });
       const { display, speakable } = stripSilent(result.response);
+      this.emitResponse(display);
 
       const config = await loadConfig();
       if (config.ttsEnabled && speakable) {

@@ -24,8 +24,9 @@ client_tools:
 skills:
   - arch_linux
   - home_assistant
+audio_input: native
 context_compaction: true
-compaction_interval: 15
+compaction_interval: 10
 compaction_keep_turns: 4
 memory:
   enabled: true
