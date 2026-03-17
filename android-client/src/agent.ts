@@ -79,6 +79,75 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
+/**
+ * Detailed connection test that returns success/failure with a human-readable
+ * error message. Used by the settings screen for troubleshooting.
+ */
+export async function testConnection(): Promise<{ ok: boolean; message: string }> {
+  const config = await loadConfig();
+  const url = config.agentUrl;
+
+  if (!url) {
+    return { ok: false, message: "Server URL is empty" };
+  }
+
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    return { ok: false, message: "URL must start with http:// or https://" };
+  }
+
+  // Step 1: health check (no auth required)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(`${url}/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      return { ok: false, message: `Server responded with status ${resp.status}` };
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { ok: false, message: `Connection timed out — is ${url} reachable from this device?` };
+    }
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("Network request failed") || msg.includes("Failed to connect")) {
+      return { ok: false, message: `Cannot reach ${url} — check the IP address and that the server is running` };
+    }
+    return { ok: false, message: `Connection failed: ${msg}` };
+  }
+
+  // Step 2: authenticated endpoint (tests API key)
+  if (!config.apiKey) {
+    return { ok: true, message: "Server reachable, but no API key configured" };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(`${url}/bots`, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (resp.status === 401) {
+      return { ok: false, message: "Server reachable, but API key is invalid" };
+    }
+    if (!resp.ok) {
+      return { ok: false, message: `Auth test failed with status ${resp.status}` };
+    }
+
+    const bots = await resp.json();
+    const count = Array.isArray(bots) ? bots.length : 0;
+    return { ok: true, message: `Connected — ${count} bot${count !== 1 ? "s" : ""} available` };
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { ok: false, message: "Server reachable but /bots timed out" };
+    }
+    return { ok: false, message: `Auth test failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
 export async function listBots(): Promise<Array<{ id: string; name: string; model: string }>> {
   const resp = await apiFetch("/bots");
   return resp.json();
@@ -264,13 +333,14 @@ function handleStreamEvent(event: StreamEvent, callbacks?: AgentCallbacks): void
 }
 
 /**
- * Send raw float32 audio to the server for transcription.
- * The server runs Whisper and returns {"text": "..."}.
+ * Send an audio file to the server for transcription.
+ * The server decodes the file (via ffmpeg) and runs Whisper.
  *
- * @param audioData - Float32Array of audio samples at 16kHz mono
+ * @param audioData - Raw file bytes (M4A, WAV, OGG, etc.)
+ * @param mimeType - MIME type of the audio file
  * @returns The transcribed text, or empty string if nothing was recognized
  */
-export async function transcribe(audioData: Float32Array): Promise<string> {
+export async function transcribe(audioData: ArrayBuffer, mimeType: string): Promise<string> {
   const config = await loadConfig();
   if (!config.apiKey) {
     throw new Error("API key not configured");
@@ -280,9 +350,9 @@ export async function transcribe(audioData: Float32Array): Promise<string> {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/octet-stream",
+      "Content-Type": mimeType,
     },
-    body: audioData.buffer,
+    body: audioData,
   });
 
   if (!resp.ok) {

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BUILD_API_KEY, BUILD_AGENT_URL, BUILD_PICOVOICE_KEY } from "./env.generated";
 
 export interface AppConfig {
   agentUrl: string;
@@ -35,13 +36,13 @@ export const BUILT_IN_WAKE_WORDS = [
 const STORAGE_KEY = "agent_config";
 
 const DEFAULTS: AppConfig = {
-  agentUrl: "http://10.0.2.2:8000",
-  apiKey: "",
+  agentUrl: BUILD_AGENT_URL || "http://10.0.2.2:8000",
+  apiKey: BUILD_API_KEY || "",
   botId: "default",
   clientId: "android-tablet",
   wakeWord: "jarvis",
   wakeWordEnabled: false,
-  picovoiceAccessKey: "",
+  picovoiceAccessKey: BUILD_PICOVOICE_KEY || "",
   ttsEnabled: true,
   ttsVoice: "",
   ttsSpeed: 1.0,
@@ -53,7 +54,21 @@ export async function loadConfig(): Promise<AppConfig> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...DEFAULTS, ...JSON.parse(raw) };
+      const saved = JSON.parse(raw);
+      // Don't let empty saved values override build-time defaults.
+      // If the user never set a value, the saved "" shouldn't clobber
+      // a key that was baked in from .env at build time.
+      const merged = { ...DEFAULTS };
+      for (const key of Object.keys(saved) as Array<keyof AppConfig>) {
+        const val = saved[key];
+        if (val !== undefined && val !== null) {
+          if (typeof val === "string" && val === "" && DEFAULTS[key] !== "") {
+            continue;
+          }
+          (merged as any)[key] = val;
+        }
+      }
+      return merged;
     }
   } catch {}
   return { ...DEFAULTS };

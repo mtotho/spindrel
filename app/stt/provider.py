@@ -12,8 +12,8 @@ _provider: "SttProvider | None" = None
 
 class SttProvider(ABC):
     @abstractmethod
-    def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe float32 16kHz mono audio and return text."""
+    def transcribe(self, audio: "np.ndarray | str") -> str:
+        """Transcribe audio. Accepts float32 numpy array or file path (decoded by ffmpeg)."""
 
     def warm_up(self) -> None:
         """Optional: pre-load models so first request is fast."""
@@ -44,7 +44,7 @@ class LocalWhisperProvider(SttProvider):
                 raise
         logger.info("Whisper model loaded.")
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: "np.ndarray | str") -> str:
         self._load_model()
         segments, info = self._model.transcribe(
             audio,
@@ -77,7 +77,7 @@ def get_provider() -> SttProvider:
     return _provider
 
 
-def transcribe(audio: np.ndarray) -> str:
+def transcribe(audio: "np.ndarray | str") -> str:
     return get_provider().transcribe(audio)
 
 

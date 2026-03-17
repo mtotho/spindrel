@@ -1,6 +1,6 @@
 import { chat, stripSilent, transcribe, type VoiceState } from "../agent";
 import { speak, stopSpeaking } from "../voice/tts";
-import { startRecording, stopRecording, wavFileToFloat32, type RecordingStatusCallback } from "../voice/recorder";
+import { startRecording, stopRecording, readAudioFile, type RecordingStatusCallback } from "../voice/recorder";
 import { loadConfig } from "../config";
 import { updateForegroundNotification } from "../native/VoiceServiceBridge";
 import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
@@ -148,8 +148,8 @@ export class VoiceService {
 
     let transcript: string;
     try {
-      const audioData = await wavFileToFloat32(uri);
-      transcript = await transcribe(audioData);
+      const audioFile = await readAudioFile(uri);
+      transcript = await transcribe(audioFile.data, audioFile.mimeType);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Transcription failed";
       this.setState("idle", msg);

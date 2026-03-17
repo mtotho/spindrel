@@ -61,6 +61,7 @@ export default function HomeScreen() {
   const [stateDetail, setStateDetail] = useState<string>();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [transcript, setTranscript] = useState<string>();
+  const transcriptRef = useRef<string>();
   const [sessionId, setSessionId] = useState<string>("");
   const [botId, setBotId] = useState<string>("default");
   const lastLoadedSession = useRef<string>("");
@@ -109,6 +110,7 @@ export default function HomeScreen() {
       setStateDetail(detail);
       if (state === "processing" && detail && !detail.startsWith("Using ") && detail !== "Transcribing...") {
         setTranscript(detail);
+        transcriptRef.current = detail;
       }
       if (state === "idle") {
         setTranscript(undefined);
@@ -205,10 +207,15 @@ export default function HomeScreen() {
     }
     if (voiceState !== "idle") return;
 
+    transcriptRef.current = undefined;
+
     try {
       const response = await voiceService.processVoice();
-      if (transcript) {
-        addMessage({ role: "user", text: transcript, timestamp: Date.now() });
+      const spokenText = transcriptRef.current;
+      transcriptRef.current = undefined;
+
+      if (spokenText) {
+        addMessage({ role: "user", text: spokenText, timestamp: Date.now() });
       }
       if (response) {
         addMessage({ role: "assistant", text: response, timestamp: Date.now() });

@@ -1,6 +1,6 @@
 # Agent Server
 
-Self-hosted FastAPI agent server. Text-in, text-out chat with configurable LLM backend via LiteLLM, persistent sessions, a tool system (local Python + MCP), web search, and a voice-enabled CLI client with wake word detection.
+Self-hosted FastAPI agent server. Text-in, text-out chat with configurable LLM backend via LiteLLM, persistent sessions, a tool system (local Python + MCP), web search, and voice-enabled clients (Python CLI + Android) with wake word detection.
 
 ## Quick Start
 
@@ -429,6 +429,57 @@ MEMORY_SIMILARITY_THRESHOLD=0.75  # minimum cosine similarity (0-1)
 
 **Manual trigger:** `POST /sessions/{id}/summarize` forces a compaction and memory write regardless of turn count. Useful for explicitly capturing a conversation before switching context.
 
+## Using the Android Client
+
+A React Native (Expo bare workflow) voice assistant app for Android tablets. Supports voice input, TTS, wake word detection, and runs as a foreground service so it stays alive behind a kiosk app like Home Assistant.
+
+### Prerequisites
+
+- Android SDK installed locally (Android Studio or standalone)
+- `ANDROID_HOME` set, or `android-client/android/local.properties` with `sdk.dir=...`
+- Java 17+, Node.js 18+
+
+### Quick start
+
+```bash
+cd android-client
+npm install
+npx expo prebuild                     # generates android/ directory
+ANDROID_HOME=/path/to/sdk npx expo run:android   # build + run on emulator/device
+```
+
+### Preloading config from .env
+
+The Android client reads your server's `.env` at build time so you don't have to type keys on the device. Add to your `.env`:
+
+```
+ANDROID_AGENT_URL=http://192.168.1.100:8000   # your machine's LAN IP
+PICOVOICE_ACCESS_KEY=your-key-here             # free from console.picovoice.ai
+```
+
+These become the defaults in the app. You can still override them in the in-app settings screen. `API_KEY` is also read automatically.
+
+### Wake word detection
+
+Uses [Picovoice Porcupine](https://picovoice.ai/platform/porcupine/) for on-device wake word detection. Free tier supports 14 built-in keywords (Jarvis, Alexa, Computer, etc.). Get a free access key at [console.picovoice.ai](https://console.picovoice.ai) — no credit card required.
+
+Configure in the app's Settings tab under "Wake Word", or preload via `PICOVOICE_ACCESS_KEY` in `.env`.
+
+### Foreground service
+
+The app runs an Android foreground service with a persistent notification so the voice pipeline stays alive when the app is backgrounded. The notification shows the current state (listening for wake word, hearing you, thinking, speaking). Requires `RECORD_AUDIO` permission which is requested at launch.
+
+### Sideloading to a Fire tablet
+
+1. Enable developer mode: Settings > Device Options > tap Serial Number 7 times
+2. Enable ADB: Settings > Developer Options > Enable ADB
+3. `adb connect <tablet-ip>:5555`
+4. `adb install android-client/android/app/build/outputs/apk/debug/app-debug.apk`
+
+### More details
+
+See [ANDROID_CLIENT_PLAN.MD](ANDROID_CLIENT_PLAN.MD) for the full architecture, build phases, and implementation status.
+
 ## API
 
 | Endpoint | Method | Description |
@@ -471,7 +522,9 @@ data: {"type": "response", "text": "Here's what I found...", "client_actions": [
 
 ### POST /transcribe
 
-Send raw audio for server-side transcription.
+Send audio for server-side transcription. Accepts two formats:
+
+**Raw float32 PCM** (used by the Python CLI client):
 
 ```
 POST /transcribe
@@ -481,13 +534,21 @@ Authorization: Bearer <API_KEY>
 Body: raw 16kHz mono float32 PCM audio bytes
 ```
 
-Returns:
+**Audio file** (used by the Android client — M4A, WAV, OGG, MP3, etc.):
+
+```
+POST /transcribe
+Content-Type: audio/mp4
+Authorization: Bearer <API_KEY>
+
+Body: raw audio file bytes
+```
+
+The server detects the format from `Content-Type`. Audio files are decoded via ffmpeg (bundled with faster-whisper). Returns:
 
 ```json
 {"text": "hello world"}
 ```
-
-Audio must be between 0.1s and 60s. The server runs faster-whisper (or whichever `STT_PROVIDER` is configured) and returns the transcribed text.
 
 ## Local Development Setup (manual)
 
@@ -561,7 +622,14 @@ skills/           Skill knowledge files (*.md)
 mcp.yaml          MCP server connection config
 client/           CLI client (separate installable package)
   agent_client/   Client source (cli, http client, audio, config, state)
-android-client/   React Native Android client
+android-client/   React Native (Expo bare workflow) Android client
+  app/            Expo Router screens (chat, sessions, settings)
+  src/agent.ts    Server API client (chat, transcribe, SSE)
+  src/config.ts   AsyncStorage config with build-time .env defaults
+  src/service/    VoiceService state machine (idle → listen → process → respond)
+  src/voice/      Wake word (Porcupine), recorder (expo-av), TTS (expo-speech)
+  src/native/     TypeScript bridge to native foreground service module
+  android/        Native Android project (foreground service, native modules)
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
 ```

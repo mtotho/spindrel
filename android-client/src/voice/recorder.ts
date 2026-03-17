@@ -1,14 +1,16 @@
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system";
 
+// Android MediaRecorder cannot produce WAV/PCM — use AAC in MP4 container
+// which is universally supported. iOS can do real PCM/WAV.
 const RECORDING_OPTIONS: Audio.RecordingOptions = {
   android: {
-    extension: ".wav",
-    outputFormat: Audio.AndroidOutputFormat.DEFAULT,
-    audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+    extension: ".m4a",
+    outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+    audioEncoder: Audio.AndroidAudioEncoder.AAC,
     sampleRate: 16000,
     numberOfChannels: 1,
-    bitRate: 256000,
+    bitRate: 64000,
   },
   ios: {
     extension: ".wav",
@@ -22,8 +24,8 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
     linearPCMIsFloat: false,
   },
   web: {
-    mimeType: "audio/wav",
-    bitsPerSecond: 256000,
+    mimeType: "audio/webm",
+    bitsPerSecond: 64000,
   },
 };
 
@@ -156,11 +158,16 @@ function cleanup() {
   }
 }
 
+export interface AudioFile {
+  data: ArrayBuffer;
+  mimeType: string;
+}
+
 /**
- * Read a WAV file and extract the raw PCM samples as a Float32Array.
- * The server expects float32 at 16kHz mono.
+ * Read a recorded audio file and return its raw bytes + MIME type.
+ * The server handles decoding (ffmpeg) — no client-side format parsing needed.
  */
-export async function wavFileToFloat32(uri: string): Promise<Float32Array> {
+export async function readAudioFile(uri: string): Promise<AudioFile> {
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -171,35 +178,22 @@ export async function wavFileToFloat32(uri: string): Promise<Float32Array> {
     bytes[i] = binaryStr.charCodeAt(i);
   }
 
-  const view = new DataView(bytes.buffer);
-
-  // Parse WAV header to find data chunk
-  let offset = 12; // skip RIFF header
-  while (offset < bytes.length - 8) {
-    const chunkId = String.fromCharCode(
-      bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]
-    );
-    const chunkSize = view.getUint32(offset + 4, true);
-
-    if (chunkId === "data") {
-      const dataStart = offset + 8;
-      const dataEnd = Math.min(dataStart + chunkSize, bytes.length);
-      const pcmBytes = bytes.slice(dataStart, dataEnd);
-
-      // 16-bit PCM → float32
-      const pcmView = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
-      const numSamples = Math.floor(pcmBytes.length / 2);
-      const float32 = new Float32Array(numSamples);
-      for (let i = 0; i < numSamples; i++) {
-        const sample = pcmView.getInt16(i * 2, true);
-        float32[i] = sample / 32768.0;
-      }
-      return float32;
-    }
-
-    offset += 8 + chunkSize;
-    if (chunkSize % 2 !== 0) offset++; // WAV chunks are word-aligned
+  if (bytes.length < 100) {
+    throw new Error("Audio file is too small — recording may have failed");
   }
 
-  throw new Error("No data chunk found in WAV file");
+  // Detect format from file header
+  const mimeType = detectMimeType(bytes);
+  return { data: bytes.buffer, mimeType };
+}
+
+function detectMimeType(bytes: Uint8Array): string {
+  const header = String.fromCharCode(...bytes.slice(0, 12));
+  if (header.startsWith("RIFF") && header.slice(8, 12) === "WAVE") return "audio/wav";
+  if (header.slice(4, 8) === "ftyp") return "audio/mp4";
+  if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) return "audio/webm";
+  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return "audio/mpeg";
+  if (header.startsWith("OggS")) return "audio/ogg";
+  // Default for Android's various container formats
+  return "audio/mp4";
 }

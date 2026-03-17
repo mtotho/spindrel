@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
+    "env": "node scripts/generate-env.js",
+    "prestart": "npm run env",
+    "preandroid": "npm run env",
     "start": "expo start",
     "android": "expo run:android",
     "prebuild": "expo prebuild",
@@ -12,6 +15,7 @@
   },
   "dependencies": {
     "@picovoice/porcupine-react-native": "^4.0.0",
+    "@picovoice/react-native-voice-processor": "^1.2.3",
     "@react-native-async-storage/async-storage": "^2.1.0",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",

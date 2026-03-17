@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -11,12 +12,15 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { loadConfig, saveConfig, BUILT_IN_WAKE_WORDS, type AppConfig } from "../../src/config";
-import { healthCheck, listBots } from "../../src/agent";
+import { listBots, testConnection } from "../../src/agent";
 import { voiceService } from "../../src/service/VoiceService";
+
+type ConnectionState = "untested" | "testing" | "connected" | "partial" | "failed";
 
 export default function SettingsScreen() {
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [connected, setConnected] = useState<boolean | null>(null);
+  const [connState, setConnState] = useState<ConnectionState>("untested");
+  const [connMessage, setConnMessage] = useState<string>("");
   const [bots, setBots] = useState<Array<{ id: string; name: string; model: string }>>([]);
   const [dirty, setDirty] = useState(false);
 
@@ -24,23 +28,9 @@ export default function SettingsScreen() {
     useCallback(() => {
       loadConfig().then((c) => {
         setConfig(c);
-        fetchBots();
       });
     }, [])
   );
-
-  const fetchBots = async () => {
-    try {
-      const ok = await healthCheck();
-      setConnected(ok);
-      if (ok) {
-        const b = await listBots();
-        setBots(b);
-      }
-    } catch {
-      setConnected(false);
-    }
-  };
 
   const updateField = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
     if (!config) return;
@@ -60,14 +50,54 @@ export default function SettingsScreen() {
   };
 
   const handleTestConnection = async () => {
-    if (dirty && config) {
-      await saveConfig(config);
-      setDirty(false);
+    if (!config) return;
+
+    // Always save current values before testing
+    await saveConfig(config);
+    setDirty(false);
+
+    setConnState("testing");
+    setConnMessage(`Testing ${config.agentUrl}...`);
+    setBots([]);
+
+    const result = await testConnection();
+
+    if (result.ok) {
+      setConnState(result.message.includes("but") ? "partial" : "connected");
+      setConnMessage(result.message);
+
+      // Fetch bots if fully connected
+      if (!result.message.includes("but")) {
+        try {
+          const b = await listBots();
+          setBots(b);
+        } catch {
+          // bots list failed but connection is ok
+        }
+      }
+    } else {
+      setConnState("failed");
+      setConnMessage(result.message);
     }
-    await fetchBots();
   };
 
   if (!config) return null;
+
+  const connColor: Record<ConnectionState, string> = {
+    untested: "#4b5563",
+    testing: "#facc15",
+    connected: "#4ade80",
+    partial: "#fb923c",
+    failed: "#ef4444",
+  };
+
+  const connLabel: Record<ConnectionState, string> = {
+    untested: "Not tested",
+    testing: "Testing...",
+    connected: "Connected",
+    partial: "Partial",
+    failed: "Failed",
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -98,23 +128,34 @@ export default function SettingsScreen() {
         secureTextEntry
       />
 
-      <View style={styles.connectionRow}>
-        <Pressable style={styles.testButton} onPress={handleTestConnection}>
-          <Text style={styles.testButtonText}>Test</Text>
-        </Pressable>
-        <View
-          style={[
-            styles.connectionIndicator,
-            {
-              backgroundColor:
-                connected === true ? "#4ade80" : connected === false ? "#ef4444" : "#4b5563",
-            },
-          ]}
-        />
-        <Text style={styles.connectionLabel}>
-          {connected === true ? "Connected" : connected === false ? "Disconnected" : "Unknown"}
-        </Text>
-      </View>
+      <Pressable
+        style={[styles.testButton, connState === "testing" && styles.testButtonDisabled]}
+        onPress={handleTestConnection}
+        disabled={connState === "testing"}
+      >
+        {connState === "testing" ? (
+          <View style={styles.testButtonInner}>
+            <ActivityIndicator size="small" color="#60a5fa" />
+            <Text style={styles.testButtonText}>Testing...</Text>
+          </View>
+        ) : (
+          <Text style={styles.testButtonText}>Test Connection</Text>
+        )}
+      </Pressable>
+
+      {connState !== "untested" && (
+        <View style={styles.connResultBox}>
+          <View style={styles.connResultHeader}>
+            <View style={[styles.connectionIndicator, { backgroundColor: connColor[connState] }]} />
+            <Text style={[styles.connResultLabel, { color: connColor[connState] }]}>
+              {connLabel[connState]}
+            </Text>
+          </View>
+          {connMessage ? (
+            <Text style={styles.connResultMessage}>{connMessage}</Text>
+          ) : null}
+        </View>
+      )}
 
       {/* Bot */}
       <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Bot</Text>
@@ -147,8 +188,8 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          {connected === false && (
-            <Text style={styles.hintText}>Connect to server to see available bots</Text>
+          {connState !== "connected" && (
+            <Text style={styles.hintText}>Test connection to see available bots</Text>
           )}
         </View>
       )}
@@ -279,31 +320,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#2a2a4e",
   },
-  connectionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    gap: 10,
-  },
   testButton: {
     backgroundColor: "#0f3460",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 14,
+    alignItems: "center",
+  },
+  testButtonDisabled: {
+    opacity: 0.7,
+  },
+  testButtonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   testButtonText: {
     color: "#60a5fa",
     fontWeight: "600",
-    fontSize: 14,
+    fontSize: 15,
+  },
+  connResultBox: {
+    marginTop: 10,
+    backgroundColor: "#1a1a2e",
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#2a2a4e",
+  },
+  connResultHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   connectionIndicator: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-  connectionLabel: {
+  connResultLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  connResultMessage: {
     color: "#9ca3af",
     fontSize: 13,
+    marginTop: 6,
+    lineHeight: 18,
   },
   botGrid: {
     gap: 8,

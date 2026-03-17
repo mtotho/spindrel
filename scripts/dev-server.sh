@@ -28,4 +28,4 @@ until docker compose exec postgres pg_isready -U agent -d agentdb -q 2>/dev/null
 done
 
 echo "Starting server with --reload..."
-uvicorn app.main:app --reload --reload-include '*.py' --reload-include '*.yaml' --reload-exclude '.venv'
+uvicorn app.main:app --host 0.0.0.0 --reload --reload-include '*.py' --reload-include '*.yaml' --reload-exclude '.venv'
