@@ -50,7 +50,7 @@ const DEFAULTS: AppConfig = {
   wakeWordGain: 1.0,
   picovoiceAccessKey: BUILD_PICOVOICE_KEY || "",
   ttsEnabled: true,
-  ttsVoice: "",
+  ttsVoice: "en-US-language",
   ttsSpeed: 1.0,
   listenSound: "chime",
   overlayEnabled: true,

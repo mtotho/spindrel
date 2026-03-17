@@ -473,11 +473,13 @@ export class VoiceService {
       this.setState("responding", display);
       this.emitResponse(display);
       if (config.ttsEnabled && speakable) {
-        await yieldToMain();
-        await speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed });
+        speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed })
+          .then(() => this.setState("idle"))
+          .catch(() => this.setState("idle"));
+      } else {
+        this.setState("idle");
       }
 
-      this.setState("idle");
       return display;
     } catch (error) {
       if (this.isCancelled()) return "";
@@ -511,11 +513,13 @@ export class VoiceService {
       this.setState("responding", display);
       this.emitResponse(display);
       if (config.ttsEnabled && speakable) {
-        await yieldToMain();
-        await speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed });
+        speak(speakable, { voice: config.ttsVoice || undefined, speed: config.ttsSpeed })
+          .then(() => this.setState("idle"))
+          .catch(() => this.setState("idle"));
+      } else {
+        this.setState("idle");
       }
 
-      this.setState("idle");
       return display;
     } catch (error) {
       if (this.isCancelled()) return "";
@@ -546,10 +550,6 @@ export class VoiceService {
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function yieldToMain(): Promise<void> {
-  return new Promise((r) => setTimeout(r, 0));
 }
 
 export const voiceService = new VoiceService();

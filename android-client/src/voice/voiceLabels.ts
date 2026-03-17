@@ -86,9 +86,17 @@ const VARIANT_LABELS: Record<string, string> = {
 };
 
 /**
+ * True if the voice runs on-device (starts instantly).
+ * -local = local; -network = cloud (adds delay).
+ */
+export function isLocalVoice(identifier: string): boolean {
+  return identifier.endsWith("-local") || !identifier.endsWith("-network");
+}
+
+/**
  * Turn a voice identifier into a short display name.
  * Examples:
- *   "en-us-x-sfb-local" -> "English (US)"
+ *   "en-us-x-iol-local" -> "English (US)"
  *   "ur-pk-language" -> "Urdu (Pakistan)"
  *   "es-us-x-sfb-local" -> "Spanish (US)"
  */
@@ -96,32 +104,6 @@ export function voiceDisplayName(identifier: string, fallbackName?: string): str
   if (!identifier.trim()) return fallbackName ?? "Default";
 
   let id = identifier.toLowerCase();
-  if (id === "default" || id === "system") return fallbackName ?? "Default";
 
-  const colon = id.indexOf(":");
-  if (colon >= 0) id = id.slice(colon + 1);
-  const parts = id.split(/[-_]/).filter(Boolean);
-  if (parts.length === 0) return fallbackName ?? identifier;
-
-  const lang = parts[0];
-  const langLabel = LANGUAGE_NAMES[lang] ?? (lang.length === 2 ? lang.toUpperCase() : null);
-  const region = parts.length > 1 && parts[1].length === 2 ? parts[1].toUpperCase() : null;
-  const regionLabel = region ? (REGION_NAMES[region] ?? region) : null;
-
-  let out = "";
-  if (langLabel) {
-    out = langLabel;
-    if (regionLabel) out += ` (${regionLabel})`;
-  } else if (regionLabel) {
-    out = regionLabel;
-  }
-
-  const variant = parts.find((p) => VARIANT_LABELS[p.toLowerCase()]);
-  if (variant && out) {
-    const vLabel = VARIANT_LABELS[variant.toLowerCase()];
-    if (vLabel && vLabel !== "Local" && vLabel !== "Network") out += ` · ${vLabel}`;
-  }
-
-  if (out) return out;
-  return fallbackName ?? identifier;
+  return id;
 }

@@ -17,7 +17,8 @@ import { voiceService } from "../../src/service/VoiceService";
 import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
 import * as Speech from "expo-speech";
 import { LISTEN_SOUND_PRESETS, playListenTone, type ListenSoundPreset } from "../../src/voice/tone";
-import { voiceDisplayName } from "../../src/voice/voiceLabels";
+import { voiceDisplayName, isLocalVoice } from "../../src/voice/voiceLabels";
+import { useMemo } from "react";
 
 type ConnectionState = "untested" | "testing" | "connected" | "partial" | "failed";
 
@@ -28,7 +29,9 @@ export default function SettingsScreen() {
   const [bots, setBots] = useState<Array<{ id: string; name: string; model: string }>>([]);
   const [dirty, setDirty] = useState(false);
   const [overlayPermission, setOverlayPermission] = useState<boolean | null>(null);
-  const [ttsVoices, setTtsVoices] = useState<Array<{ identifier: string; name: string; language: string }>>([]);
+  const [ttsVoices, setTtsVoices] = useState<Array<{ identifier: string; name: string; language: string; quality: string }>>([]);
+  const [showNetworkVoices, setShowNetworkVoices] = useState(false);
+  const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<string>("en-US");
 
   useFocusEffect(
     useCallback(() => {
@@ -40,7 +43,14 @@ export default function SettingsScreen() {
       const loadVoices = async () => {
         const voices = await Speech.getAvailableVoicesAsync();
         if (voices.length > 0) {
-          setTtsVoices(voices.map((v) => ({ identifier: v.identifier, name: v.name, language: v.language })));
+          setTtsVoices(
+            voices.map((v) => ({
+              identifier: v.identifier,
+              name: v.name,
+              language: v.language,
+              quality: (v as { quality?: string }).quality ?? "Default",
+            }))
+          );
         } else {
           setTimeout(loadVoices, 1000);
         }
@@ -49,6 +59,39 @@ export default function SettingsScreen() {
       setTimeout(() => void loadVoices(), 300);
     }, [])
   );
+
+  // Yes, filteredVoices should be in a useMemo if you want it to update in response to filter changes!
+  const filteredVoices = useMemo(() => {
+    let list = ttsVoices;
+    if (!showNetworkVoices) {
+      list = list.filter((v) => isLocalVoice(v.identifier));
+    }
+    if (voiceLanguageFilter !== "all") {
+      list = list.filter((v) => v.language.toLowerCase() === voiceLanguageFilter.toLowerCase());
+    }
+    const sorted = list.sort((a, b) => {
+      const aLocal = isLocalVoice(a.identifier) ? 0 : 1;
+      const bLocal = isLocalVoice(b.identifier) ? 0 : 1;
+      if (aLocal !== bLocal) return aLocal - bLocal;
+      return voiceDisplayName(a.identifier).localeCompare(voiceDisplayName(b.identifier));
+    });
+    const selectedId = config?.ttsVoice;
+    const selectedVoice = selectedId && ttsVoices.find((v) => v.identifier === selectedId);
+
+    // Optional: Remove in production
+
+    if (selectedVoice && !sorted.some((v) => v.identifier === selectedId)) {
+      return [selectedVoice, ...sorted];
+    }
+    return sorted;
+  }, [ttsVoices, showNetworkVoices, voiceLanguageFilter, config?.ttsVoice]);
+
+  const voiceLanguages = useMemo(() => (
+    Array.from(
+      new Set(ttsVoices.map((v) => v.language).filter(Boolean))
+    ).sort()
+  ), [ttsVoices]);
+
 
   const updateField = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
     if (!config) return;
@@ -245,15 +288,54 @@ export default function SettingsScreen() {
       </View>
 
       <Text style={styles.label}>TTS Voice</Text>
+      <View style={[styles.switchRow, { marginTop: 6 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.switchLabel}>Local voices only</Text>
+          <Text style={[styles.hintText, { marginTop: 4 }]}>
+            Local voices start instantly. Network voices can add several seconds delay.
+          </Text>
+        </View>
+        <Switch
+          value={!showNetworkVoices}
+          onValueChange={(v) => setShowNetworkVoices(!v)}
+          trackColor={{ true: "#1d4ed8", false: "#374151" }}
+          thumbColor={!showNetworkVoices ? "#60a5fa" : "#9ca3af"}
+        />
+      </View>
+      {voiceLanguages.length > 1 && (
+        <>
+          <Text style={[styles.label, { marginTop: 8 }]}>Language</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }} contentContainerStyle={{ gap: 8, flexDirection: "row", paddingVertical: 4 }}>
+            <Pressable
+              style={[styles.wakeWordChip, voiceLanguageFilter === "all" && styles.wakeWordChipActive]}
+              onPress={() => setVoiceLanguageFilter("all")}
+            >
+              <Text style={[styles.wakeWordText, voiceLanguageFilter === "all" && styles.wakeWordTextActive]}>All</Text>
+            </Pressable>
+            {voiceLanguages.map((lang) => {
+              const isActive = voiceLanguageFilter === lang;
+              return (
+                <Pressable
+                  key={lang}
+                  style={[styles.wakeWordChip, isActive && styles.wakeWordChipActive]}
+                  onPress={() => setVoiceLanguageFilter(lang)}
+                >
+                  <Text style={[styles.wakeWordText, isActive && styles.wakeWordTextActive]}>{lang}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </>
+      )}
       {ttsVoices.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }} contentContainerStyle={{ gap: 8, flexDirection: "row", paddingVertical: 4 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 8, flexDirection: "row", paddingVertical: 4, flexWrap: "wrap" }}>
           <Pressable
             style={[styles.wakeWordChip, !config.ttsVoice && styles.wakeWordChipActive]}
             onPress={() => updateField("ttsVoice", "")}
           >
             <Text style={[styles.wakeWordText, !config.ttsVoice && styles.wakeWordTextActive]}>Default</Text>
           </Pressable>
-          {ttsVoices.map((v) => {
+          {filteredVoices.map((v) => {
             const isActive = config.ttsVoice === v.identifier;
             const label = voiceDisplayName(v.identifier, v.name && v.name !== v.identifier ? v.name : undefined);
             return (
@@ -270,9 +352,11 @@ export default function SettingsScreen() {
           })}
         </ScrollView>
       ) : (
-        <Text style={[styles.hintText, { marginTop: 4 }]}>Loading voices…</Text>
+        <Text style={[styles.hintText, { marginTop: 8 }]}>Loading voices…</Text>
       )}
-      <Text style={styles.hintText}>Device TTS voices. Default uses system default.</Text>
+      <Text style={styles.hintText}>
+        {showNetworkVoices ? "Showing all voices. Network voices may have delay." : "Local voices only — start instantly."}
+      </Text>
 
       <Text style={styles.label}>TTS Speed</Text>
       <TextInput
