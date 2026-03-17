@@ -60,3 +60,9 @@ export function onBadgeTap(callback: () => void): () => void {
   const subscription = overlayEmitter.addListener("onBadgeTap", callback);
   return () => subscription.remove();
 }
+
+export function onOverlayTap(callback: () => void): () => void {
+  if (!overlayEmitter) return () => {};
+  const subscription = overlayEmitter.addListener("onOverlayTap", callback);
+  return () => subscription.remove();
+}

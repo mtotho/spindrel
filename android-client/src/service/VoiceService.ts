@@ -5,7 +5,7 @@ import { startRecording, stopRecording, readAudioFile, readAudioFileBase64, type
 import { loadConfig } from "../config";
 import { updateForegroundNotification, moveToBackground } from "../native/VoiceServiceBridge";
 import { setWakeWordCallback, startWakeWordDetection, stopWakeWordDetection } from "../voice/wakeword";
-import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasOverlayPermission, showBadge, updateBadge, hideBadge, onBadgeTap } from "../native/OverlayBridge";
+import { showOverlay, updateOverlay, hideOverlay, dismissOverlayAfterDelay, hasOverlayPermission, showBadge, updateBadge, hideBadge, onBadgeTap, onOverlayTap } from "../native/OverlayBridge";
 
 type StateListener = (state: VoiceState, detail?: string) => void;
 type MessageListener = (userText: string, assistantText: string) => void;
@@ -23,12 +23,19 @@ const NOTIFICATION_TEXT: Record<VoiceState, string> = {
  * Orchestrates the full voice pipeline:
  *   IDLE → LISTENING → PROCESSING → RESPONDING → IDLE
  *
- * Supports two modes:
- *   - processTranscript(text): skip recording, go straight to chat
- *   - processVoice(): record → transcribe → chat → TTS
+ * Two trigger modes:
+ *   - In-app: user taps mic button, no overlay, stays in foreground
+ *   - Background: wake word or badge tap — overlay shown, app stays in
+ *     foreground during the entire pipeline (recording + transcription +
+ *     chat + TTS), then moves to background when finished.
+ *
+ * The app MUST stay foregrounded during the pipeline because React Native's
+ * JS bridge and network layer are throttled on Fire OS when backgrounded,
+ * even with a foreground service running.
  */
 export class VoiceService {
   private state: VoiceState = "idle";
+  private previousState: VoiceState = "idle";
   private listeners: Set<StateListener> = new Set();
   private messageListeners: Set<MessageListener> = new Set();
   private transcriptListeners: Set<TranscriptListener> = new Set();
@@ -37,25 +44,41 @@ export class VoiceService {
   private overlayPermissionGranted: boolean | null = null;
   private badgeActive = false;
   private badgeTapUnsub: (() => void) | null = null;
+  private overlayTapUnsub: (() => void) | null = null;
   private appState: AppStateStatus = AppState.currentState;
   private badgeEnabled = false;
+  /** True while a wake-word or badge-tap pipeline is running */
+  private backgroundTriggered = false;
+  /** Prevents concurrent pipeline executions from overlapping wake word / badge events */
+  private pipelineActive = false;
 
   constructor() {
     setWakeWordCallback(() => this.onWakeWordDetected());
+
+    this.overlayTapUnsub = onOverlayTap(() => {
+      if (this.state !== "idle") {
+        this.stop();
+      }
+    });
+
     AppState.addEventListener("change", (next) => {
       const wasForeground = this.appState === "active";
       this.appState = next;
       const isForeground = next === "active";
 
-      if (wasForeground && !isForeground && this.badgeEnabled) {
-        showBadge(this.state).catch(() => {});
-        this.badgeActive = true;
-      } else if (!wasForeground && isForeground && this.badgeEnabled) {
-        // Don't hide the badge during an active voice interaction —
-        // the user needs it to cancel. Only hide when idle.
-        if (this.state === "idle") {
-          hideBadge().catch(() => {});
-          this.badgeActive = false;
+      if (wasForeground && !isForeground) {
+        // App went to background — show badge unless a pipeline is active
+        if (this.badgeEnabled && !this.backgroundTriggered) {
+          showBadge(this.state).catch(() => {});
+          this.badgeActive = true;
+        }
+      } else if (!wasForeground && isForeground) {
+        // App came to foreground — clean up only when idle and not mid-pipeline
+        if (this.state === "idle" && !this.backgroundTriggered) {
+          if (this.badgeActive) {
+            hideBadge().catch(() => {});
+            this.badgeActive = false;
+          }
           hideOverlay().catch(() => {});
         }
       }
@@ -84,7 +107,6 @@ export class VoiceService {
       this.badgeTapUnsub = onBadgeTap(() => this.onBadgeTapped());
     }
 
-    // Only show the badge if the app is currently backgrounded
     if (!this.isAppInForeground()) {
       await showBadge(this.state).catch(() => {});
       this.badgeActive = true;
@@ -101,20 +123,30 @@ export class VoiceService {
     }
   }
 
+  // ─── Background-triggered pipeline (badge tap) ────────────────────
+
   private async onBadgeTapped(): Promise<void> {
-    if (this.state === "listening") {
+    // Allow cancelling from any active state
+    if (this.state !== "idle") {
       this.stop();
       return;
     }
-    if (this.state !== "idle") return;
+    if (this.pipelineActive) return;
 
-    // Pause wake word if active — mic can't be shared
+    this.pipelineActive = true;
+    this.backgroundTriggered = true;
+
     if (this.wakeWordActive) {
       await stopWakeWordDetection();
     }
 
+    // Hide badge — the overlay pill takes over
+    if (this.badgeActive) {
+      await hideBadge().catch(() => {});
+      this.badgeActive = false;
+    }
+
     let lastTranscript = "";
-    let didMoveToBackground = false;
     const STATUS_DETAILS = new Set(["Transcribing...", "Sending audio..."]);
     const unsub = this.addListener((state, detail) => {
       if (state === "processing" && detail && !STATUS_DETAILS.has(detail) && !detail.startsWith("Using ")) {
@@ -123,21 +155,11 @@ export class VoiceService {
     });
 
     try {
-      // processVoice calls startRecording which uses expo-av.
-      // expo-av brings the Activity to foreground when accessing the mic.
-      // We schedule moveToBackground after a delay to push it back once
-      // expo-av has finished bringing it forward.
-      const moveBackTimer = setTimeout(() => {
-        didMoveToBackground = true;
-        moveToBackground().catch(() => {});
-      }, 600);
-
+      // The app will stay foregrounded during recording (expo-av brings it
+      // forward) and during network calls (required for XHR to work on
+      // Fire OS). The overlay is drawn on top via SYSTEM_ALERT_WINDOW.
+      // We only moveToBackground AFTER the full pipeline completes.
       const response = await this.processVoice();
-
-      clearTimeout(moveBackTimer);
-      if (!didMoveToBackground) {
-        await moveToBackground().catch(() => {});
-      }
 
       if (lastTranscript && response) {
         this.emitMessage(lastTranscript, response);
@@ -146,14 +168,81 @@ export class VoiceService {
       console.error("Badge tap voice pipeline error:", error);
     } finally {
       unsub();
+      this.backgroundTriggered = false;
+      this.pipelineActive = false;
+
+      // Pipeline done — return to kiosk browser and re-show badge
+      await moveToBackground().catch(() => {});
+
+      if (this.badgeEnabled) {
+        // Brief delay so AppState catches up with moveToBackground
+        await delay(200);
+        await showBadge(this.state).catch(() => {});
+        this.badgeActive = true;
+      }
     }
 
-    // Resume wake word if it was active
-    if (this.wakeWordActive) {
+    await this.restartWakeWord();
+  }
+
+  // ─── Background-triggered pipeline (wake word) ────────────────────
+
+  private async onWakeWordDetected(): Promise<void> {
+    if (this.state !== "idle" || this.pipelineActive) return;
+
+    this.pipelineActive = true;
+    this.backgroundTriggered = true;
+
+    await stopWakeWordDetection();
+
+    if (this.badgeActive) {
+      await hideBadge().catch(() => {});
+      this.badgeActive = false;
+    }
+
+    let lastTranscript = "";
+    const STATUS_DETAILS_WW = new Set(["Transcribing...", "Sending audio..."]);
+    const unsub = this.addListener((state, detail) => {
+      if (state === "processing" && detail && !STATUS_DETAILS_WW.has(detail) && !detail.startsWith("Using ")) {
+        lastTranscript = detail;
+      }
+    });
+
+    try {
+      const response = await this.processVoice();
+      if (lastTranscript && response) {
+        this.emitMessage(lastTranscript, response);
+      }
+    } catch (error) {
+      console.error("Wake word voice pipeline error:", error);
+    } finally {
+      unsub();
+      this.backgroundTriggered = false;
+      this.pipelineActive = false;
+
+      await moveToBackground().catch(() => {});
+
+      if (this.badgeEnabled) {
+        await delay(200);
+        await showBadge(this.state).catch(() => {});
+        this.badgeActive = true;
+      }
+    }
+
+    await this.restartWakeWord();
+  }
+
+  private async restartWakeWord(): Promise<void> {
+    if (!this.wakeWordActive) return;
+    try {
       const config = await loadConfig();
       await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
+    } catch (e) {
+      console.error("Failed to restart wake word:", e);
     }
   }
+
+  // ─── Listeners ────────────────────────────────────────────────────
 
   addListener(listener: StateListener): () => void {
     this.listeners.add(listener);
@@ -193,11 +282,14 @@ export class VoiceService {
     }
   }
 
+  // ─── State management ─────────────────────────────────────────────
+
   getState(): VoiceState {
     return this.state;
   }
 
   private setState(state: VoiceState, detail?: string): void {
+    this.previousState = this.state;
     this.state = state;
     for (const listener of this.listeners) {
       listener(state, detail);
@@ -209,6 +301,11 @@ export class VoiceService {
     this.updateOverlayForState(state, detail);
   }
 
+  /** Returns true if stop() was called and the pipeline should bail out */
+  private isCancelled(): boolean {
+    return this.state === "idle";
+  }
+
   private async updateOverlayForState(state: VoiceState, detail?: string): Promise<void> {
     const config = await loadConfig();
     if (!config.overlayEnabled) return;
@@ -218,18 +315,22 @@ export class VoiceService {
     if (!this.overlayPermissionGranted) return;
 
     const inForeground = this.isAppInForeground();
+    // Show overlay when backgrounded OR during a background-triggered pipeline
+    // (the overlay draws over our own app via SYSTEM_ALERT_WINDOW)
+    const shouldShowOverlay = !inForeground || this.backgroundTriggered;
 
     try {
-      // Badge color updates only when badge is visible (app backgrounded)
       if (this.badgeActive && !inForeground) {
         await updateBadge(state);
       }
 
-      // Always allow hiding/dismissing the overlay (cleanup).
-      // Only show/update the overlay when the app is NOT in the foreground.
       if (state === "idle") {
-        await hideOverlay();
-      } else if (!inForeground) {
+        if (this.previousState === "responding") {
+          dismissOverlayAfterDelay(3000).catch(() => {});
+        } else {
+          await hideOverlay();
+        }
+      } else if (shouldShowOverlay) {
         switch (state) {
           case "listening":
             await showOverlay("listening", "");
@@ -247,10 +348,8 @@ export class VoiceService {
     }
   }
 
-  /**
-   * Enable or disable continuous wake word detection.
-   * When enabled, the wake word triggers the full voice pipeline automatically.
-   */
+  // ─── Wake word ────────────────────────────────────────────────────
+
   async setWakeWordEnabled(enabled: boolean): Promise<void> {
     if (enabled && !this.wakeWordActive) {
       const config = await loadConfig();
@@ -266,46 +365,10 @@ export class VoiceService {
     }
   }
 
-  private async onWakeWordDetected(): Promise<void> {
-    if (this.state !== "idle") return;
-
-    // Pause wake word listening while we handle the voice interaction.
-    // Porcupine and expo-av both capture from the mic — they can't run simultaneously.
-    await stopWakeWordDetection();
-
-    let lastTranscript = "";
-    const STATUS_DETAILS_WW = new Set(["Transcribing...", "Sending audio..."]);
-    const unsub = this.addListener((state, detail) => {
-      if (state === "processing" && detail && !STATUS_DETAILS_WW.has(detail) && !detail.startsWith("Using ")) {
-        lastTranscript = detail;
-      }
-    });
-
-    try {
-      const response = await this.processVoice();
-      if (lastTranscript && response) {
-        this.emitMessage(lastTranscript, response);
-      }
-    } catch (error) {
-      console.error("Wake word voice pipeline error:", error);
-    } finally {
-      unsub();
-    }
-
-    // Resume wake word listening if still enabled
-    if (this.wakeWordActive) {
-      const config = await loadConfig();
-      await startWakeWordDetection(config.wakeWord, config.picovoiceAccessKey);
-    }
-  }
+  // ─── Voice pipeline ───────────────────────────────────────────────
 
   /**
    * Full voice pipeline: record audio → chat (with transcription or native audio) → TTS.
-   *
-   * When audioNative is enabled in config, audio is sent directly to the model
-   * which interprets it and returns a transcript. Otherwise, audio is transcribed
-   * via the server's /transcribe endpoint first.
-   *
    * Returns the assistant's display text, or empty string if cancelled.
    */
   async processVoice(onMeter?: (metering: number) => void): Promise<string> {
@@ -328,8 +391,9 @@ export class VoiceService {
       throw error;
     }
 
-    if (!uri) {
-      this.setState("idle");
+    // Bail if cancelled via stop() during recording
+    if (!uri || this.isCancelled()) {
+      if (!this.isCancelled()) this.setState("idle");
       return "";
     }
 
@@ -341,7 +405,6 @@ export class VoiceService {
       return this.processNativeAudio(uri);
     }
 
-    // Traditional path: transcribe first, then chat
     this.setState("processing", "Transcribing...");
 
     let transcript: string;
@@ -354,6 +417,8 @@ export class VoiceService {
       throw error;
     }
 
+    if (this.isCancelled()) return "";
+
     if (!transcript.trim()) {
       this.setState("idle", "No speech detected");
       return "";
@@ -364,7 +429,6 @@ export class VoiceService {
 
   /**
    * Native audio path: send raw audio directly to the model via chatStream.
-   * The model interprets the audio and returns a transcript in the response.
    */
   private async processNativeAudio(uri: string): Promise<string> {
     this.setState("processing", "Sending audio...");
@@ -377,6 +441,8 @@ export class VoiceService {
       this.setState("idle", msg);
       throw error;
     }
+
+    if (this.isCancelled()) return "";
 
     const audio: AudioInput = {
       audioData: audioFile.base64,
@@ -398,6 +464,8 @@ export class VoiceService {
         },
       }, audio);
 
+      if (this.isCancelled()) return "";
+
       if (result.transcript && !lastTranscript) {
         lastTranscript = result.transcript;
         this.emitTranscript(lastTranscript);
@@ -417,6 +485,7 @@ export class VoiceService {
       this.setState("idle");
       return display;
     } catch (error) {
+      if (this.isCancelled()) return "";
       const msg = error instanceof Error ? error.message : "Unknown error";
       this.setState("idle", msg);
       throw error;
@@ -425,7 +494,6 @@ export class VoiceService {
 
   /**
    * Send a text message via the streaming chat endpoint.
-   * Server sends SSE keepalive comments to prevent connection drops.
    */
   async processTranscript(transcript: string): Promise<string> {
     if (!transcript.trim()) return "";
@@ -438,6 +506,9 @@ export class VoiceService {
           this.setState("processing", `Using ${tool}...`);
         },
       });
+
+      if (this.isCancelled()) return "";
+
       const { display, speakable } = stripSilent(result.response);
       this.emitResponse(display);
 
@@ -452,11 +523,14 @@ export class VoiceService {
       this.setState("idle");
       return display;
     } catch (error) {
+      if (this.isCancelled()) return "";
       const msg = error instanceof Error ? error.message : "Unknown error";
       this.setState("idle", msg);
       throw error;
     }
   }
+
+  // ─── Stop / cleanup ───────────────────────────────────────────────
 
   stop(): void {
     stopSpeaking();
@@ -473,6 +547,10 @@ export class VoiceService {
       this.wakeWordActive = false;
     }
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export const voiceService = new VoiceService();

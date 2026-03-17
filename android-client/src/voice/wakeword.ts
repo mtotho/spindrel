@@ -5,6 +5,7 @@ export type WakeWordCallback = () => void;
 let manager: PorcupineManager | null = null;
 let callback: WakeWordCallback | null = null;
 let isRunning = false;
+let transitioning = false;
 
 const KEYWORD_MAP: Record<string, BuiltInKeywords> = {
   alexa: BuiltInKeywords.ALEXA,
@@ -31,7 +32,7 @@ export async function startWakeWordDetection(
   keyword: string,
   accessKey: string
 ): Promise<void> {
-  if (isRunning) return;
+  if (isRunning || transitioning) return;
   if (!accessKey) {
     console.warn("Picovoice access key not configured — wake word disabled");
     return;
@@ -43,6 +44,7 @@ export async function startWakeWordDetection(
     return;
   }
 
+  transitioning = true;
   try {
     manager = await PorcupineManager.fromBuiltInKeywords(
       accessKey,
@@ -61,21 +63,29 @@ export async function startWakeWordDetection(
     const msg = error instanceof Error ? error.message : String(error);
     console.error("Failed to start Porcupine:", msg);
     manager = null;
+  } finally {
+    transitioning = false;
   }
 }
 
 export async function stopWakeWordDetection(): Promise<void> {
-  if (!isRunning || !manager) return;
+  if (!isRunning || !manager || transitioning) return;
 
-  try {
-    await manager.stop();
-    manager.delete();
-  } catch (error) {
-    console.error("Error stopping Porcupine:", error);
-  }
-
+  // Capture to local and null out immediately to prevent concurrent
+  // calls from operating on the same manager instance
+  transitioning = true;
+  const mgr = manager;
   manager = null;
   isRunning = false;
+
+  try {
+    await mgr.stop();
+    mgr.delete();
+  } catch (error) {
+    console.error("Error stopping Porcupine:", error);
+  } finally {
+    transitioning = false;
+  }
 }
 
 export function isWakeWordActive(): boolean {
