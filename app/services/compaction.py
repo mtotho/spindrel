@@ -53,6 +53,12 @@ def _get_compaction_interval(bot: BotConfig) -> int:
     return settings.COMPACTION_INTERVAL
 
 
+def _get_compaction_keep_turns(bot: BotConfig) -> int:
+    if bot.compaction_keep_turns is not None:
+        return bot.compaction_keep_turns
+    return settings.COMPACTION_KEEP_TURNS
+
+
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
     """Build the message list to send to the summarization LLM."""
     filtered = []
@@ -165,16 +171,33 @@ async def _run_compaction(
                 return
             existing_summary = session.summary
 
+        interval = _get_compaction_interval(bot)
+        keep_turns = _get_compaction_keep_turns(bot)
+        turns_to_summarize = interval - keep_turns  # only summarize older turns
+
         conversation = _messages_for_summary(messages)
         if not conversation:
             logger.debug("No conversation content to compact for %s", session_id)
             return
 
-        title, summary = await _generate_summary(
-            conversation, model, existing_summary,
-        )
+        # Include only the first (interval - keep_turns) turns in the summary;
+        # the last keep_turns turns stay in context verbatim.
+        user_count = 0
+        to_summarize: list[dict] = []
+        for m in conversation:
+            if m.get("role") == "user":
+                user_count += 1
+                if user_count > turns_to_summarize:
+                    break
+            to_summarize.append(m)
 
-        keep_turns = settings.COMPACTION_KEEP_TURNS
+        if not to_summarize:
+            logger.debug("No turns to summarize for %s", session_id)
+            return
+
+        title, summary = await _generate_summary(
+            to_summarize, model, existing_summary,
+        )
 
         async with async_session() as db:
             recent_user_msgs = await db.execute(

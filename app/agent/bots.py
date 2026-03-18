@@ -39,6 +39,7 @@ class BotConfig:
     persona: bool = False
     context_compaction: bool = True
     compaction_interval: int | None = None
+    compaction_keep_turns: int | None = None
     compaction_model: str | None = None
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
@@ -75,8 +76,9 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             rag=data.get("rag", False),
             persona=data.get("persona", False),
             context_compaction=data.get("context_compaction", True),
-            compaction_interval=data.get("compaction_interval"),
-            compaction_model=data.get("compaction_model"),
+            compaction_interval=data.get("compaction_interval", settings.COMPACTION_INTERVAL),
+            compaction_keep_turns=data.get("compaction_keep_turns", settings.COMPACTION_KEEP_TURNS),
+            compaction_model=data.get("compaction_model", settings.COMPACTION_MODEL),
             audio_input=data.get("audio_input", "transcribe"),
             memory=memory_cfg,
         )

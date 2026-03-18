@@ -387,8 +387,8 @@ This runs as a background task — it doesn't slow down your chat response. Conf
 
 ```
 COMPACTION_MODEL=gemini/gemini-2.5-flash   # cheap/fast model for summaries
-COMPACTION_INTERVAL=10                      # user turns between compactions
-COMPACTION_KEEP_TURNS=2                     # recent turns kept verbatim alongside summary
+COMPACTION_INTERVAL=30                      # Every time there gets to be COMPACTION_INTERVAL turns in the session (minus the compaction message), the compaction will run.
+COMPACTION_KEEP_TURNS=10                     # The last COMPACTION_KEEP_TURNS turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
 ```
 
 Or per-bot in YAML:

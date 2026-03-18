@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     BENNIE_LOGGINS_API_KEY: str = ""
 
     # Context compaction
-    COMPACTION_MODEL: str = ""
-    COMPACTION_INTERVAL: int = 10
-    COMPACTION_KEEP_TURNS: int = 2
+    COMPACTION_MODEL: str = "gemini/gemini-2.5-flash"
+    COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns, the compaction will run.
+    COMPACTION_KEEP_TURNS: int = 10 # The last M turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
 
     # STT / Transcription
     STT_PROVIDER: str = "local"  # "local" (faster-whisper) or future: "groq", "openai"

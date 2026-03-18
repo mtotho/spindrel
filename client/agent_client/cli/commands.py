@@ -95,7 +95,7 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
                 ctx["session_id"] = new_session_id()
                 print(f"Deleted current session. Created new session: {ctx['session_id']}")
                 save_session_id(ctx["session_id"])
-                
+
 
         except Exception as e:
             print(f"Error deleting session: {e}")
@@ -319,10 +319,7 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             if len(summary) > 200:
                 summary = summary[:200] + "..."
             print(f"  Summary: {summary}")
-            if result.get("memory_written"):
-                print("  Memory written to KB.")
-            else:
-                print("  No memory written (disabled or filtered out).")
+         
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 print("Session not found on server (send a message first).")
