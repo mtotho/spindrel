@@ -151,6 +151,7 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `web_search` | Search the web via SearXNG. Returns top N results as JSON |
 | `fetch_url` | Fetch and read a webpage via Playwright (falls back to httpx) |
 | `client_action` | Perform actions on the client device (new session, switch bot, toggle TTS, etc.) |
+| `update_persona` | Overwrite the bot's persona layer (see "Personas" below). Requires `persona: true` on the bot. |
 
 **`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
 
@@ -430,6 +431,32 @@ MEMORY_SIMILARITY_THRESHOLD=0.75  # minimum cosine similarity (0-1)
 ```
 
 **Manual trigger:** `POST /sessions/{id}/summarize` forces a compaction and memory write regardless of turn count. Useful for explicitly capturing a conversation before switching context.
+
+### Personas
+
+When `persona: true` is set on a bot, the bot gets a persistent **persona layer** — a short, first-person document of self-knowledge it maintains across all conversations for that bot. The layer is stored in the `bot_personas` table (one row per bot) and injected into context on every session load.
+
+**How it works:**
+
+1. **Enable on a bot** — In the bot YAML set `persona: true` and add `update_persona` to `local_tools`.
+2. **Session context** — When a session is loaded (new or existing), if the bot has persona enabled and a stored layer exists, the server injects it as a system message: `[PERSONA]\n{content}`. So the LLM always sees the current persona alongside the main system prompt.
+3. **Updates** — The bot can call the `update_persona` tool whenever it wants to revise the layer (e.g. when it notices a consistent preference or communication style worth keeping). The tool overwrites the entire layer; there is no append or patch.
+
+**Intended use:** The persona is meant to stay small (under ~300 tokens), written in first person as self-knowledge — e.g. "I tend to be concise" or "I remember the user prefers dark mode" — not as instructions or rules. It lets the bot accumulate a stable identity across sessions without bloating the system prompt.
+
+**Example bot config:**
+
+```yaml
+# bots/brief_bot.yaml
+id: brief_bot
+name: "Brief Bot"
+persona: true
+local_tools:
+  - update_persona
+  # ... other tools
+```
+
+The persona layer starts empty. Once the bot calls `update_persona` with content, that content is stored and used for all future turns and sessions for that bot.
 
 ## Using the Android Client
 

@@ -67,7 +67,7 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             for i, s in enumerate(sessions):
                 title = (s.get("title") or "(untitled)")[:30]
                 last = format_last_active(s.get("last_active", ""))
-                print(f"  {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}")
+                print(f"  {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  client={s['client_id']} {last}")
 
             # If user gave a number, use it; else request one.
             delete_num = None
@@ -88,6 +88,15 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
             session_id = sessions[index]["id"]
             client.delete_session(uuid.UUID(session_id))
             print(f"Session {session_id[:8]} deleted.")
+
+            # If we just deleted the current session: create and switch to a new one
+            current_id_str = str(ctx["session_id"])
+            if session_id == current_id_str or session_id == str(current_id_str):
+                ctx["session_id"] = new_session_id()
+                print(f"Deleted current session. Created new session: {ctx['session_id']}")
+                save_session_id(ctx["session_id"])
+                
+
         except Exception as e:
             print(f"Error deleting session: {e}")
         return True
@@ -141,10 +150,11 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
                     arrow = "[*]" if selected else ""
                     title = (s.get("title") or "(untitled)")[:30]
                     last = format_last_active(s.get("last_active", ""))
+                   
                     if selected:
-                        print(f"  {arrow} {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}")
+                        print(f"  {arrow} {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  client={s['client_id']} {last}")
                     else:
-                        print(f"      {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}")
+                        print(f"      {i+1}. {s['id'][:8]}  {title}  bot={s['bot_id']}  client={s['client_id']} {last}")
                 print("  ")
                 print("  Select a session by typing /session <partial id or title or number>")
         except httpx.HTTPError as e:
