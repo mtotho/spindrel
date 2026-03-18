@@ -33,6 +33,20 @@ def resolve_bot(channel: str, user: str) -> str:
     return user_map.get(user) or channel_map.get(channel) or default_bot
 
 
+def format_response_for_slack(response: str) -> str:
+    """Replace [silent]...[/silent] with italicized muted indicator so it's visible but distinct."""
+    if not response or not response.strip():
+        return "_(no response)_"
+    # Replace each [silent]...[/silent] with _🔇 inner_
+    formatted = re.sub(
+        r"\[silent\](.*?)\[/silent\]",
+        lambda m: f"_🔇 {m.group(1).strip()}_",
+        response,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    return formatted.strip()
+
+
 async def dispatch(channel: str, user: str, text: str, say):
     text = (text or "").strip()
     if not text:
@@ -52,7 +66,7 @@ async def dispatch(channel: str, user: str, text: str, say):
         r.raise_for_status()
         body = r.json()
         reply = (body.get("response") or "").strip()
-        await say(reply if reply else "_No response._")
+        await say(format_response_for_slack(reply))
     except Exception as e:
         await say(f"Error: {str(e)[:500]}")
         return
