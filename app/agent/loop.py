@@ -18,6 +18,7 @@ from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
 from app.tools.local.memory import call_memory_tool
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
+from app.tools.local.persona import call_persona_tool
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ async def run_stream(
     """
     native_audio = audio_data is not None
     turn_start = len(messages)
+
 
     skill_ids = bot.skills if bot.skills else None
     if bot.skills or bot.rag:
@@ -254,6 +256,8 @@ async def run_stream(
                     result = await call_memory_tool(
                         name, args or "{}", session_id, client_id, bot.memory
                     )
+                elif name == "update_persona":
+                    result = await call_persona_tool(name, args or "{}", bot.id)
                 else:
                     result = await call_local_tool(name, args)
             elif is_mcp_tool(name):

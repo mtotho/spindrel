@@ -34,6 +34,7 @@ class BotConfig:
     client_tools: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     rag: bool = False
+    persona: bool = False
     context_compaction: bool = True
     compaction_interval: int | None = None
     compaction_model: str | None = None
@@ -68,6 +69,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             client_tools=data.get("client_tools", []),
             skills=data.get("skills", []),
             rag=data.get("rag", False),
+            persona=data.get("persona", False),
             context_compaction=data.get("context_compaction", True),
             compaction_interval=data.get("compaction_interval"),
             compaction_model=data.get("compaction_model"),

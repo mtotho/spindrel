@@ -6,8 +6,10 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig, get_bot
+from app.agent.persona import get_persona
 from app.db.models import Message, Session
 from app.services.compaction import maybe_compact
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +50,30 @@ async def load_or_create(
     db.add(system_msg)
     await db.commit()
 
-    return session_id, [{"role": "system", "content": system_content}]
+    # Build initial message list with persona if enabled
+    messages = [{"role": "system", "content": system_content}]
+    if bot.persona:
+        persona_layer = await get_persona(bot.id)
+        if persona_layer:
+            messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
+
+    return session_id, messages
+
 
 
 async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     """Load messages for a session, using compacted summary when available."""
     bot = get_bot(session.bot_id)
+
+    persona_layer = None
+    if bot.persona:
+        persona_layer = await get_persona(bot.id)
+
+    def _base_messages() -> list[dict]:
+        msgs = [{"role": "system", "content": _effective_system_prompt(bot)}]
+        if persona_layer:
+            msgs.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
+        return msgs
 
     if session.summary and session.summary_message_id and bot.context_compaction:
         watermark_msg = await db.get(Message, session.summary_message_id)
@@ -65,16 +85,8 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .order_by(Message.created_at)
             )
             recent = [_message_to_dict(m) for m in recent_result.scalars().all()]
-
-            messages = [
-                {"role": "system", "content": _effective_system_prompt(bot)},
-                {
-                    "role": "system",
-                    "content": (
-                        f"Summary of the conversation so far:\n\n{session.summary}"
-                    ),
-                },
-            ]
+            messages = _base_messages()
+            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             messages.extend(recent)
             return _sanitize_tool_messages(messages)
 
@@ -83,10 +95,9 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
         .where(Message.session_id == session.id)
         .order_by(Message.created_at)
     )
-    return _sanitize_tool_messages(
-        [_message_to_dict(m) for m in result.scalars().all()]
-    )
-
+    all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
+    non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
+    return _sanitize_tool_messages(_base_messages() + non_system_msgs)
 
 async def persist_turn(
     db: AsyncSession,

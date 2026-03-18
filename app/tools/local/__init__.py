@@ -1,1 +1,1 @@
-from app.tools.local import bennie_loggins_health, client_action, example, memory, web_search  # noqa: F401
+from app.tools.local import bennie_loggins_health, client_action, example, memory, persona, web_search  # noqa: F401

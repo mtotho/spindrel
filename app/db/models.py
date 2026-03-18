@@ -103,3 +103,15 @@ class Memory(Base):
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
     )
+
+
+
+class BotPersona(Base):
+    __tablename__ = "bot_personas"
+
+    bot_id: Mapped[str] = mapped_column(primary_key=True)
+    persona_layer: Mapped[str] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=text("now()"),
+    )
