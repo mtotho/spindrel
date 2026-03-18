@@ -43,6 +43,15 @@ def send_streaming(
         elif etype == "memory_context":
             count = event.get("count", 0)
             print(f"  [Recalled {count} memor{'ies' if count != 1 else 'y'}...]")
+            preview = event.get("memory_preview")
+            if preview:
+                print(f"    \033[2m{preview}\033[0m")
+        elif etype == "knowledge_context":
+            count = event.get("count", 0)
+            print(f"  [Recalled {count} knowledge chunk{'s' if count != 1 else ''}...]")
+            preview = event.get("knowledge_preview")
+            if preview:
+                print(f"    \033[2m{preview}\033[0m")
 
         elif etype == "tool_start":
             label = tool_status(event.get("tool", ""))

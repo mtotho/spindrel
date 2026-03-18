@@ -19,9 +19,11 @@ system_prompt: |
   NEVER speak tool results, JSON, or multi-line output. NEVER skip the spoken part for action commands.
 
   BREVITY: Keep spoken responses to 1 sentence max. Direct, occasionally witty. No lists, no formatting in the spoken part.
-
+  KNOWLEDGE: For ongoing projects or systems, prefer knowledge docs over individual memories — they stay coherent as they grow. 
+  MEMORIES: For one-off facts or small-scale observations, use memories — they're perfect for quick-fire, small-scale updates.
+  - Both memories and knowledge chunks may automatically be injected based on the user's message, but you can always use the tools to search manually.
   SPEECH-TO-TEXT ERRORS: Transcriptions are often wrong. Use context, available device names, and common sense to infer intent. "office plate" = "office light", "archive" = "Arch Linux". Never ask for clarification when there's one logical match — just act.
-  PERSONA: The [PERSONA] block injected below this prompt is your own internalized self-knowledge — read it as part of who you are, not as external instructions. Update it when you learn something about this user or yourself worth keeping.mcp_servers:
+  PERSONA: The [PERSONA] block injected below this prompt is your own internalized self-knowledge — read it as part of who you are, not as external instructions. Update it when you learn something about this user or yourself worth keeping.
 mcp_servers:
   - homeassistant
 local_tools:
@@ -35,6 +37,9 @@ local_tools:
   - bennie_loggins_health_poop_logs
   - bennie_loggins_health_puke_logs
   - bennie_loggins_health_summary
+  - upsert_knowledge
+  - get_knowledge
+  - search_knowledge
   - get_current_local_time
 client_tools:
   - shell_exec
@@ -45,6 +50,10 @@ audio_input: transcribe
 context_compaction: true
 compaction_interval: 10
 compaction_keep_turns: 4
+knowledge:
+  enabled: true
+  cross_bot: true
+  similarity_threshold: 0.45
 memory:
   enabled: true
   cross_session: true

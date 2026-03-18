@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.agent.memory import retrieve_memories
+from app.agent.knowledge import retrieve_knowledge
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
 from app.config import settings
@@ -20,6 +21,7 @@ from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
 from app.tools.local.memory import call_memory_tool
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
 from app.tools.local.persona import call_persona_tool
+from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +147,8 @@ async def run_stream(
             similarity_threshold=bot.memory.similarity_threshold,
         )
         if memories:
-            yield {"type": "memory_context", "count": len(memories)}
+            memory_preview = memories[0][:100] + "..." if len(memories[0]) > 100 else memories[0]
+            yield {"type": "memory_context", "count": len(memories), "memory_preview": memory_preview}
             messages.append({
                 "role": "system",
                 "content": (
@@ -154,6 +157,21 @@ async def run_stream(
                     + "\n\n---\n\n".join(memories)
                 ),
             })
+
+
+    if bot.knowledge.enabled and session_id and client_id:
+        chunks = await retrieve_knowledge(
+            query=user_message,
+            bot_id=bot.id,
+            client_id=client_id,
+            cross_bot=bot.knowledge.cross_bot,
+            similarity_threshold=bot.knowledge.similarity_threshold,
+        )
+        if chunks:
+            knowledge_preview = chunks[0][:100] + "..." if len(chunks[0]) > 100 else chunks[0]
+            yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview}
+            messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
+    
 
     if native_audio:
         messages.append({
@@ -269,6 +287,11 @@ async def run_stream(
                     )
                 elif name == "update_persona":
                     result = await call_persona_tool(name, args or "{}", bot.id)
+                elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge") and client_id:
+                    result = await call_knowledge_tool(
+                        name, args or "{}", bot.id, client_id,
+                        bot.knowledge.cross_bot, bot.knowledge.similarity_threshold,
+                    )
                 else:
                     result = await call_local_tool(name, args)
             elif is_mcp_tool(name):

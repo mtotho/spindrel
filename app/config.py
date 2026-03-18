@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Context compaction
     COMPACTION_MODEL: str = "gemini/gemini-2.5-flash"
-    COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns, the compaction will run.
+    COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
     COMPACTION_KEEP_TURNS: int = 10 # The last M turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
 
     # STT / Transcription
@@ -38,9 +38,10 @@ class Settings(BaseSettings):
     WHISPER_BEAM_SIZE: int = 1
     WHISPER_LANGUAGE: str = "en"
 
-    # RAG (stubbed)
+    # RAG / embeddings (skills, memory, knowledge). If you change EMBEDDING_MODEL, dimension
+    # may change — you must re-embed (wipe documents/memories/bot_knowledge or run a migration).
     EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIM: int = 1536
+    EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
 

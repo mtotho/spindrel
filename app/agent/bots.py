@@ -24,6 +24,12 @@ class MemoryConfig:
     similarity_threshold: float = 0.45
     wipe_on_session_delete: bool = False
 
+@dataclass
+class KnowledgeConfig:
+    enabled: bool = False
+    cross_bot: bool = False
+    similarity_threshold: float = 0.45
+
 
 @dataclass
 class BotConfig:
@@ -43,7 +49,7 @@ class BotConfig:
     compaction_model: str | None = None
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-
+    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
 
 def load_bots(bots_dir: Path = BOTS_DIR) -> None:
     _registry.clear()
@@ -63,6 +69,12 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             similarity_threshold=mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
             wipe_on_session_delete=mem_data.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
         )
+        know_data = data.get("knowledge", {})
+        knowledge_cfg = KnowledgeConfig(
+            enabled=know_data.get("enabled", False),
+            cross_bot=know_data.get("cross_bot", False),
+            similarity_threshold=know_data.get("similarity_threshold", 0.45),
+        )
 
         bot = BotConfig(
             id=data["id"],
@@ -81,6 +93,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             compaction_model=data.get("compaction_model", settings.COMPACTION_MODEL),
             audio_input=data.get("audio_input", "transcribe"),
             memory=memory_cfg,
+            knowledge=knowledge_cfg,
         )
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)

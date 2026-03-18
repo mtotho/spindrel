@@ -136,12 +136,12 @@ Skill IDs are filenames without the `.md` extension. Only the listed skills are 
 
 ```
 EMBEDDING_MODEL=text-embedding-3-small   # model name via LiteLLM
-EMBEDDING_DIM=1536                       # must match the model's output dimension
+EMBEDDING_DIMENSIONS=1536                # must match the model's output dimension
 RAG_TOP_K=5                              # max chunks to retrieve per query
 RAG_SIMILARITY_THRESHOLD=0.3             # minimum cosine similarity (0-1)
 ```
 
-The embedding model is called through your LiteLLM proxy, so any model LiteLLM supports works here.
+The embedding model is called through your LiteLLM proxy, so any model LiteLLM supports works here. **If you change `EMBEDDING_MODEL` or `EMBEDDING_DIMENSIONS`**, existing vectors (documents, memories, bot_knowledge) are incompatible — you must re-embed everything: either wipe those tables and re-run your skill loader (and accept that memories/knowledge are lost), or add a migration that drops/recreates the vector columns with the new dimension.
 
 ### Available local tools
 
@@ -152,6 +152,9 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `fetch_url` | Fetch and read a webpage via Playwright (falls back to httpx) |
 | `client_action` | Perform actions on the client device (new session, switch bot, toggle TTS, etc.) |
 | `update_persona` | Overwrite the bot's persona layer (see "Personas" below). Requires `persona: true` on the bot. |
+| `upsert_knowledge` | Create or update a knowledge document by name. Requires `knowledge.enabled` on the bot. |
+| `get_knowledge` | Retrieve a knowledge document by exact name. Requires `knowledge.enabled` on the bot. |
+| `search_knowledge` | Search knowledge documents by semantic similarity. Requires `knowledge.enabled` on the bot. |
 
 **`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
 
@@ -431,6 +434,33 @@ MEMORY_SIMILARITY_THRESHOLD=0.75  # minimum cosine similarity (0-1)
 ```
 
 **Manual trigger:** `POST /sessions/{id}/summarize` forces a compaction and memory write regardless of turn count. Useful for explicitly capturing a conversation before switching context.
+
+### Knowledge
+
+When `knowledge.enabled` is set on a bot, the bot gets tools to create and query **knowledge documents** — named, updatable docs (e.g. project notes, system layouts, runbooks) stored with vector embeddings. Unlike memories (many small facts), knowledge docs are single documents you overwrite as understanding grows; they are retrieved by semantic search or by exact name.
+
+On each turn, the user's message is embedded and matched against knowledge docs via pgvector cosine similarity. Matching chunks (up to 3, above the similarity threshold) are injected as a system message so the model has relevant context without being told to call a tool.
+
+**Bot config:**
+
+```yaml
+knowledge:
+  enabled: true           # enable retrieval injection + knowledge tools
+  cross_bot: false        # false: only this bot's docs + shared; true: all docs for this client
+  similarity_threshold: 0.45   # minimum cosine similarity (0–1) for retrieval
+local_tools:
+  - upsert_knowledge
+  - get_knowledge
+  - search_knowledge
+```
+
+**Behaviour:**
+
+- **upsert_knowledge** — Create or update a document by `name` (e.g. `project_xyz`, `home_network`). Use `shared: true` to make it visible to all bots for this client (stored with `bot_id` NULL).
+- **get_knowledge** — Return the full content of a document by exact name.
+- **search_knowledge** — Semantic search over knowledge docs; returns formatted chunks above the threshold.
+
+Knowledge uses the same embedding model as skills and memory (`EMBEDDING_MODEL` in `.env`). The `bot_knowledge` table stores name, content, embedding, and scope (`bot_id`, `client_id`); a migration is required if not already applied.
 
 ### Personas
 

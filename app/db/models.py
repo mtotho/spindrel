@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Text, text
+from sqlalchemy import ForeignKey, Text, text, UniqueConstraint
+
+from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -67,7 +69,7 @@ class Document(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(1536))
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
     source: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -92,7 +94,7 @@ class Memory(Base):
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
     bot_id: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(1536))
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
     message_range_start: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -115,4 +117,21 @@ class BotPersona(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
+    )
+
+
+class BotKnowledge(Base):
+    __tablename__ = "bot_knowledge"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False)        # "project_xyz", "home_network"
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)    # NULL = cross-bot
+    client_id: Mapped[str | None] = mapped_column(Text, nullable=True) # NULL = cross-client
+    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("name", "bot_id", "client_id", name="uq_knowledge_name_scope"),
     )
