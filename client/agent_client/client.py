@@ -88,6 +88,10 @@ class AgentClient:
         resp.raise_for_status()
         return resp.json()
 
+    def delete_session(self, session_id: uuid.UUID) -> None:
+        resp = self._http.delete(f"/sessions/{session_id}")
+        resp.raise_for_status()
+
     def transcribe(self, audio_bytes: bytes) -> str | None:
         """Send raw float32 PCM audio to the server for transcription.
 
