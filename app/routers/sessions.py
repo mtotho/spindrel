@@ -8,7 +8,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot
-from app.db.models import Message, Session
+from app.config import settings
+from app.db.models import Memory, Message, Session
 from app.dependencies import get_db, verify_auth
 from app.services.compaction import _generate_summary, _get_compaction_model, _messages_for_summary
 
@@ -82,6 +83,15 @@ async def delete_session(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    # If bot (or global) is configured to wipe memory on session delete, delete memories first.
+    # Otherwise the FK uses ON DELETE SET NULL and memories are kept with session_id=NULL.
+    try:
+        bot = get_bot(session.bot_id)
+        wipe = bot.memory.wipe_on_session_delete
+    except HTTPException:
+        wipe = settings.WIPE_MEMORY_ON_SESSION_DELETE
+    if wipe:
+        await db.execute(delete(Memory).where(Memory.session_id == session_id))
     await db.execute(delete(Session).where(Session.id == session_id))
     await db.commit()
 

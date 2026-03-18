@@ -19,8 +19,10 @@ class MemoryConfig:
     enabled: bool = False
     cross_session: bool = False
     cross_client: bool = False
+    cross_bot: bool = False
     prompt: str | None = None
     similarity_threshold: float = 0.45
+    wipe_on_session_delete: bool = False
 
 
 @dataclass
@@ -55,8 +57,10 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             enabled=mem_data.get("enabled", False),
             cross_session=mem_data.get("cross_session", False),
             cross_client=mem_data.get("cross_client", False),
+            cross_bot=mem_data.get("cross_bot", False),
             prompt=mem_data.get("prompt"),
             similarity_threshold=mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
+            wipe_on_session_delete=mem_data.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
         )
 
         bot = BotConfig(

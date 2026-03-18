@@ -84,12 +84,13 @@ class Memory(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    session_id: Mapped[uuid.UUID] = mapped_column(
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("sessions.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
     )
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding = mapped_column(Vector(1536))
     message_range_start: Mapped[datetime | None] = mapped_column(

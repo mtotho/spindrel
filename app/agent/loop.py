@@ -10,6 +10,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
+from app.agent.context import set_agent_context
 from app.agent.memory import retrieve_memories
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
@@ -109,9 +110,17 @@ async def run_stream(
       {"type": "transcript", "text": "..."}
       {"type": "response", "text": "...", "client_actions": [...]}
     """
+    set_agent_context(
+        session_id=session_id,
+        client_id=client_id,
+        bot_id=bot.id,
+        memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
+        memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
+        memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
+        memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+    )
     native_audio = audio_data is not None
     turn_start = len(messages)
-
 
     skill_ids = bot.skills if bot.skills else None
     if bot.skills or bot.rag:
@@ -129,8 +138,10 @@ async def run_stream(
             query=user_message,
             session_id=session_id,
             client_id=client_id,
+            bot_id=bot.id,
             cross_session=bot.memory.cross_session,
             cross_client=bot.memory.cross_client,
+            cross_bot=bot.memory.cross_bot,
             similarity_threshold=bot.memory.similarity_threshold,
         )
         if memories:
@@ -254,7 +265,7 @@ async def run_stream(
                 # Memory tools get session_id, client_id, and config from the loop (no context vars).
                 if name in ("search_memories", "save_memory") and session_id and client_id:
                     result = await call_memory_tool(
-                        name, args or "{}", session_id, client_id, bot.memory
+                        name, args or "{}", session_id, client_id, bot.id, bot.memory
                     )
                 elif name == "update_persona":
                     result = await call_persona_tool(name, args or "{}", bot.id)

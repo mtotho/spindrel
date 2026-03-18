@@ -49,6 +49,8 @@ memory:
   enabled: true
   cross_session: true
   cross_client: true
+  cross_bot: true
+  wipe_on_session_delete: false
   similarity_threshold: 0.45
   prompt: |
     Store any information that reveals helpful information about this user for future reference. Like which devices are available, what the user's preferences are, what type of projects

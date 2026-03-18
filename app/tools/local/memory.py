@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 
 from app.agent.context import (
     current_client_id,
+    current_bot_id,
     current_memory_cross_client,
+    current_memory_cross_bot,
     current_memory_cross_session,
     current_memory_similarity_threshold,
     current_session_id,
@@ -58,6 +60,7 @@ async def search_memories(query: str) -> str:
     """Search memories; uses session_id, client_id and memory config from agent context."""
     session_id = current_session_id.get()
     client_id = current_client_id.get()
+    bot_id = current_bot_id.get()
     if not session_id or not client_id:
         return "Memory search is not available for this conversation (no session context)."
     query = (query or "").strip()
@@ -69,15 +72,23 @@ async def search_memories(query: str) -> str:
     cross_client = current_memory_cross_client.get()
     if cross_client is None:
         cross_client = False
+    cross_bot = current_memory_cross_bot.get()
+    if cross_bot is None:
+        cross_bot = False
     threshold = current_memory_similarity_threshold.get()
     if threshold is None:
         threshold = settings.MEMORY_SIMILARITY_THRESHOLD
+
+
+
     chunks = await retrieve_memories(
         query=query,
         session_id=session_id,
         client_id=client_id,
+        bot_id=bot_id,
         cross_session=cross_session,
         cross_client=cross_client,
+        cross_bot=cross_bot,
         similarity_threshold=threshold,
     )
     if not chunks:
@@ -106,7 +117,8 @@ async def save_memory(content: str) -> str:
     """Save a memory; uses session_id and client_id from agent context."""
     session_id = current_session_id.get()
     client_id = current_client_id.get()
-    if not session_id or not client_id:
+    bot_id = current_bot_id.get()
+    if not session_id or not client_id or not bot_id:
         return "Memory is not available for this conversation (no session context)."
     content = (content or "").strip()
     if not content:
@@ -115,6 +127,7 @@ async def save_memory(content: str) -> str:
         summary_text=content,
         client_id=client_id,
         session_id=session_id,
+        bot_id=bot_id,
         message_range_start=None,
         message_range_end=None,
         message_count=None,
@@ -131,9 +144,11 @@ async def search_memories_impl(
     query: str,
     session_id: uuid.UUID,
     client_id: str,
+    bot_id: str,
     *,
     cross_session: bool = True,
     cross_client: bool = False,
+    cross_bot: bool = True,
     similarity_threshold: float | None = None,
 ) -> str:
     """Search memories; caller passes session_id, client_id, and scope."""
@@ -145,8 +160,10 @@ async def search_memories_impl(
         query=query,
         session_id=session_id,
         client_id=client_id,
+        bot_id=bot_id,
         cross_session=cross_session,
         cross_client=cross_client,
+        cross_bot=cross_bot,
         similarity_threshold=threshold,
     )
     if not chunks:
@@ -158,6 +175,7 @@ async def save_memory_impl(
     content: str,
     session_id: uuid.UUID,
     client_id: str,
+    bot_id: str,
 ) -> str:
     """Save a memory; caller passes session_id and client_id."""
     content = (content or "").strip()
@@ -167,6 +185,7 @@ async def save_memory_impl(
         summary_text=content,
         client_id=client_id,
         session_id=session_id,
+        bot_id=bot_id,
         message_range_start=None,
         message_range_end=None,
         message_count=None,
@@ -181,6 +200,7 @@ async def call_memory_tool(
     arguments_json: str,
     session_id: uuid.UUID,
     client_id: str,
+    bot_id: str,
     memory_config: "MemoryConfig",
 ) -> str:
     """Run a memory tool with session_id, client_id, and config injected by the loop. No context vars."""
@@ -193,12 +213,14 @@ async def call_memory_tool(
             args.get("query", ""),
             session_id,
             client_id,
+            bot_id,
             cross_session=memory_config.cross_session,
             cross_client=memory_config.cross_client,
+            cross_bot=memory_config.cross_bot,
             similarity_threshold=memory_config.similarity_threshold,
         )
     if name == "save_memory":
-        return await save_memory_impl(args.get("content", ""), session_id, client_id)
+        return await save_memory_impl(args.get("content", ""), session_id, client_id, bot_id)
     return json.dumps({"error": f"Unknown memory tool: {name}"})
 
 

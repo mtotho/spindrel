@@ -48,6 +48,7 @@ async def write_memory(
     summary_text: str,
     client_id: str,
     session_id: uuid.UUID,
+    bot_id: str,
     message_range_start=None,
     message_range_end=None,
     message_count: int | None = None,
@@ -67,6 +68,7 @@ async def write_memory(
     memory = Memory(
         session_id=session_id,
         client_id=client_id,
+        bot_id=bot_id,
         content=summary_text,
         embedding=embedding,
         message_range_start=message_range_start,
@@ -92,8 +94,10 @@ async def retrieve_memories(
     query: str,
     session_id: uuid.UUID,
     client_id: str,
+    bot_id: str,
     cross_session: bool = False,
     cross_client: bool = False,
+    cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
 
 ) -> list[str]:
@@ -119,13 +123,29 @@ async def retrieve_memories(
         select(Memory.content, Memory.created_at, distance_expr.label("distance"))
         .order_by(distance_expr)
         .limit(settings.MEMORY_RETRIEVAL_LIMIT)
-    ) 
+    )
 
-    if cross_session and not cross_client:
+    # Determine filter conditions for memory retrieval
+    if not cross_session and not cross_client and not cross_bot:
+        # Only this session
+        stmt = stmt.where(Memory.session_id == session_id)
+    elif cross_session and not cross_client and not cross_bot:
+        # All sessions for this client (same bot)
+        stmt = stmt.where(
+            (Memory.client_id == client_id) &
+            (Memory.bot_id == bot_id)
+        )
+    elif cross_session and cross_client and not cross_bot:
+        # All sessions for all clients (same bot)
+        stmt = stmt.where(Memory.bot_id == bot_id)
+    elif cross_session and not cross_client and cross_bot:
+        # All sessions for this client, all bots
         stmt = stmt.where(Memory.client_id == client_id)
-    elif cross_session and cross_client:
-        stmt = stmt #all memories
+    elif cross_session and cross_client and cross_bot:
+        # All memories (no restrictions)
+        pass
     else:
+        # Fallback to session only if conditions are not met
         stmt = stmt.where(Memory.session_id == session_id)
 
     try:

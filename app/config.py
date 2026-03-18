@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # Memory
     MEMORY_RETRIEVAL_LIMIT: int = 5
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75
+    WIPE_MEMORY_ON_SESSION_DELETE: bool = False
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
