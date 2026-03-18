@@ -135,8 +135,11 @@ async def run_stream(
             yield {"type": "memory_context", "count": len(memories)}
             messages.append({
                 "role": "system",
-                "content": "Relevant memories from past conversations:\n\n"
-                + "\n\n---\n\n".join(memories),
+                "content": (
+                    "Relevant memories from past conversations (automatically recalled "
+                    "based on the user's message; you can use these directly):\n\n"
+                    + "\n\n---\n\n".join(memories)
+                ),
             })
 
     if native_audio:

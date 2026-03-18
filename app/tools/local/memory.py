@@ -22,10 +22,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SEARCH_MEMORIES_DESCRIPTION = (
-    "Search long-term memory by semantic similarity. Memories relevant to the current "
-    "user message are already injected into your context automatically; use this tool "
-    "to manually search or check existing memories (e.g. before saving a new one, or "
-    "to look up something the user is asking about)."
+    "Search long-term memory by semantic similarity. Memories relevant to the user's "
+    "message are already injected into your context (see 'Relevant memories from past "
+    "conversations' above); you can use those directly when they answer the question. "
+    "Only call this tool when you need to search for something else, look up more detail, "
+    "or check before saving a new memory."
 )
 
 BASE_DESCRIPTION = (
