@@ -25,7 +25,7 @@ _SUMMARIZE_PROMPT = """\
 You are a conversation summarizer. You will receive the message history of a \
 conversation between a user and an AI assistant.
 
-Produce a JSON object with exactly two fields:
+Produce a JSON object with the following fields:
 - "title": A concise title for this conversation (3-8 words, like a chat tab name).
 - "summary": A detailed summary of everything discussed so far. Include key facts, \
 decisions, code snippets or file paths mentioned, user preferences expressed, and \

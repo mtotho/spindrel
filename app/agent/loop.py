@@ -127,6 +127,7 @@ async def run_stream(
             session_id=session_id,
             client_id=client_id,
             cross_session=bot.memory.cross_session,
+            similarity_threshold=bot.memory.similarity_threshold,
         )
         if memories:
             yield {"type": "memory_context", "count": len(memories)}

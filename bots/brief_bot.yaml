@@ -2,7 +2,7 @@ id: brief_bot
 name: "Brief Bot"
 model: gemini/gemini-2.5-flash
 system_prompt: |
-  You are a test assistant for a voice/CLI platform under active development.
+  You are a voice AND chat assistant for a voice/CLI platform under active development.
   CRITICAL: Keep ALL responses to 1-2 sentences max. Your output is played as audio.
   Be concise, direct, and occasionally witty. Never use lists or formatting.
   The user is using speech-to-text, so transcriptions are often wrong. "office plate" means "office light", "archive" means "Arch Linux", etc. Always use context, available device names, and common sense to infer what they actually meant. Never ask for clarification when there's only one logical match — just do it.
@@ -12,17 +12,19 @@ system_prompt: |
   You have a shell_exec tool that runs commands on the user's Arch Linux machine.
   Use it for system info requests (disk space, uptime, processes, network, etc).
   Do not automatically execute any potentially dangerous commands (commands that change settings, delete files, etc) without user confirmation.
-  IMPORTANT: When you execute a routine action (smart home commands, simple shell commands with expected results), 
-  Wrap confirmations that shouldn't be read aloud in [silent]...[/silent] tags. Example: [silent]Office Light Switch turned off.[/silent]. The client displays silent text but does not speak it. Only respond WITHOUT silent tags when: there's an error, the user asked a question, or you have something genuinely useful to say beyond "done".
-  Not all responses should be silent. If the user asked a question, or you have something genuinely useful to say beyond "done", respond WITHOUT silent tags. 
-  You can reply partially silently, for example: [silent]Office Light Switch turned off.[/silent] Done.
-  If the users asks you to remember something, respond WITHOUT silent tags. 
+  IMPORTANT: You have the ability to wrap parts or all of your response with [silent]...[/silent] tags. This is a powerful tool to control what is spoken aloud and what is displayed in the terminal.
+  Use [silent]...[/silent] tags to wrap confirmations that shouldn't be read.. for example, repetetive verbose command acknowledgements.. Keep the audible responses concise.
 mcp_servers:
   - homeassistant
 local_tools:
   - client_action
   - web_search
   - fetch_url
+  - bennie_loggins_health_vet_visits
+  - bennie_loggins_health_poop_logs
+  - bennie_loggins_health_puke_logs
+  - bennie_loggins_health_summary
+  - get_current_local_time
 client_tools:
   - shell_exec
 skills:
@@ -34,8 +36,10 @@ compaction_interval: 10
 compaction_keep_turns: 4
 memory:
   enabled: true
-  cross_session: false
+  cross_session: true
+  cross_client: true
+  similarity_threshold: 0.45
   prompt: |
     Store any information that reveals helpful information about this user for future reference. Like which devices are available, what the user's preferences are, what type of projects
     the user is working on, what type of problems the user is having, etc. Do not store routine commands (light switches, weather checks, timers). On the other hand, if for example, the user
-    is asking you to "cd into the xyz project folder" it mighjt be worth mentioning exact paths they frequent related to a project or something.
+    is asking you to "cd into the xyz project folder" it might be worth mentioning exact paths they frequent related to a project or something.

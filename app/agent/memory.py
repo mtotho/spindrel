@@ -80,11 +80,18 @@ async def retrieve_memories(
     session_id: uuid.UUID,
     client_id: str,
     cross_session: bool = False,
+    cross_client: bool = False,
+    similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
+
 ) -> list[str]:
     """Search the memories table for relevant past summaries.
 
-    By default, scoped to the current session. If cross_session is True,
-    widens to all sessions for this client_id.
+    By default, scoped to the current session. 
+    If cross_session is True, widens to all sessions for this client_id.
+
+    Note: setting MEMORY_SIMILARITY_THRESHOLD higher will make memory retrieval stricter 
+    (only highly similar memories will be returned), while setting it lower will recall more loosely-related memories.
+
     """
     try:
         query_embedding = await _embed(query)
@@ -92,17 +99,19 @@ async def retrieve_memories(
         logger.exception("Failed to embed query for memory retrieval")
         return []
 
-    max_distance = 1.0 - settings.MEMORY_SIMILARITY_THRESHOLD
+    max_distance = 1.0 - similarity_threshold
     distance_expr = Memory.embedding.cosine_distance(query_embedding)
 
     stmt = (
         select(Memory.content, distance_expr.label("distance"))
         .order_by(distance_expr)
         .limit(settings.MEMORY_RETRIEVAL_LIMIT)
-    )
+    ) 
 
-    if cross_session:
+    if cross_session and not cross_client:
         stmt = stmt.where(Memory.client_id == client_id)
+    elif cross_session and cross_client:
+        stmt = stmt #all memories
     else:
         stmt = stmt.where(Memory.session_id == session_id)
 
@@ -120,13 +129,13 @@ async def retrieve_memories(
     best_similarity = 1.0 - rows[0][1]
     logger.info(
         "Memory retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
-        best_similarity, settings.MEMORY_SIMILARITY_THRESHOLD, query[:60],
+        best_similarity, similarity_threshold, query[:60],
     )
 
     chunks = []
     for content, distance in rows:
         similarity = 1.0 - distance
-        if similarity >= settings.MEMORY_SIMILARITY_THRESHOLD:
+        if similarity >= similarity_threshold:
             chunks.append(content)
         else:
             break

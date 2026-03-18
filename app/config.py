@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    TIMEZONE: str = "America/New_York"
     # Auth
     API_KEY: str
 
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
     # Web tools
     SEARXNG_URL: str = "http://searxng:8080"
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
+
+    # Bennie Loggins (pet health API)
+    BENNIE_LOGGINS_BASE_URL: str = "https://bennieloggins.com"
+    BENNIE_LOGGINS_API_KEY: str = ""
 
     # Context compaction
     COMPACTION_MODEL: str = ""

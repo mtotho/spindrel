@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 from fastapi import HTTPException
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 BOTS_DIR = Path("bots")
@@ -16,7 +18,9 @@ _registry: dict[str, "BotConfig"] = {}
 class MemoryConfig:
     enabled: bool = False
     cross_session: bool = False
+    cross_client: bool = False
     prompt: str | None = None
+    similarity_threshold: float = 0.45
 
 
 @dataclass
@@ -49,7 +53,9 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
         memory_cfg = MemoryConfig(
             enabled=mem_data.get("enabled", False),
             cross_session=mem_data.get("cross_session", False),
+            cross_client=mem_data.get("cross_client", False),
             prompt=mem_data.get("prompt"),
+            similarity_threshold=mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
         )
 
         bot = BotConfig(
