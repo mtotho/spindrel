@@ -94,6 +94,198 @@ def _extract_client_actions(messages: list[dict], from_index: int) -> list[dict]
     return actions
 
 
+def _event_with_compaction_tag(event: dict[str, Any], compaction: bool) -> dict[str, Any]:
+    if compaction:
+        return {**event, "compaction": True}
+    return event
+
+
+async def run_agent_tool_loop(
+    messages: list[dict],
+    bot: BotConfig,
+    session_id: uuid.UUID | None = None,
+    client_id: str | None = None,
+    *,
+    model_override: str | None = None,
+    turn_start: int = 0,
+    native_audio: bool = False,
+    user_msg_index: int | None = None,
+    compaction: bool = False,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
+    When compaction=True, every yielded event gets "compaction": True.
+    """
+    model = model_override or bot.model
+    local_schemas = get_local_tool_schemas(bot.local_tools)
+    mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
+    client_schemas = get_client_tool_schemas(bot.client_tools)
+    all_tools = local_schemas + mcp_schemas + client_schemas
+    tools_param = all_tools if all_tools else None
+    tool_choice = "auto" if tools_param else None
+
+    logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
+
+    transcript_emitted = False
+
+    for iteration in range(settings.AGENT_MAX_ITERATIONS):
+        logger.debug("--- Iteration %d ---", iteration + 1)
+        logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
+
+        response = await _client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools_param,
+            tool_choice=tool_choice,
+        )
+        msg = response.choices[0].message
+        msg_dict = msg.model_dump(exclude_none=True)
+        messages.append(msg_dict)
+
+        if response.usage:
+            logger.debug(
+                "Token usage: prompt=%d completion=%d total=%d",
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+            )
+
+        if not msg.tool_calls:
+            text = msg.content or ""
+
+            if native_audio and user_msg_index is not None and not transcript_emitted:
+                transcript, text = _extract_transcript(text)
+                messages[-1]["content"] = text
+                yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
+                if transcript:
+                    logger.info("Audio transcript: %r", transcript[:100])
+                    messages[user_msg_index] = {"role": "user", "content": transcript}
+                else:
+                    logger.warning("Native audio response contained no transcript tags")
+                    messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+                transcript_emitted = True
+
+            logger.info("Final response (%d chars): %r", len(text), text[:120])
+            yield _event_with_compaction_tag({
+                "type": "response",
+                "text": text,
+                "client_actions": _extract_client_actions(messages, turn_start),
+            }, compaction)
+            return
+
+        if native_audio and user_msg_index is not None and not transcript_emitted and msg.content:
+            transcript, _ = _extract_transcript(msg.content)
+            if transcript:
+                logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
+                yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
+                messages[user_msg_index] = {"role": "user", "content": transcript}
+                transcript_emitted = True
+
+        logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
+
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            args = tc.function.arguments
+            logger.info("Tool call: %s(%s)", name, args)
+
+            yield _event_with_compaction_tag({"type": "tool_start", "tool": name}, compaction)
+
+            if is_client_tool(name):
+                request_id = str(uuid.uuid4())
+                try:
+                    tool_args = json.loads(args) if args else {}
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                yield _event_with_compaction_tag({
+                    "type": "tool_request",
+                    "request_id": request_id,
+                    "tool": name,
+                    "arguments": tool_args,
+                }, compaction)
+                future = create_pending(request_id)
+                try:
+                    result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
+                except asyncio.TimeoutError:
+                    logger.warning("Client tool %s timed out (request %s)", name, request_id)
+                    result = json.dumps({"error": "Client did not respond in time"})
+            elif is_local_tool(name):
+                if name in ("search_memories", "save_memory") and session_id and client_id:
+                    result = await call_memory_tool(
+                        name, args or "{}", session_id, client_id, bot.id, bot.memory
+                    )
+                elif name == "update_persona":
+                    result = await call_persona_tool(name, args or "{}", bot.id)
+                elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge") and client_id:
+                    result = await call_knowledge_tool(
+                        name, args or "{}", bot.id, client_id,
+                        bot.knowledge.cross_bot, bot.knowledge.similarity_threshold,
+                    )
+                else:
+                    result = await call_local_tool(name, args)
+            elif is_mcp_tool(name):
+                result = await call_mcp_tool(name, args)
+            else:
+                result = json.dumps({"error": f"Unknown tool: {name}"})
+
+            result_preview = result[:200] + "..." if len(result) > 200 else result
+            logger.debug("Tool result [%s]: %s", name, result_preview)
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+
+            tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict) and "error" in parsed:
+                    logger.warning("Tool %s returned error: %s", name, parsed["error"])
+                    tool_event["error"] = parsed["error"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+            if name == "search_memories":
+                if result == "No relevant memories found." or result == "No search query provided.":
+                    tool_event["memory_count"] = 0
+                elif result.startswith("Relevant memories:\n\n"):
+                    body = result[len("Relevant memories:\n\n") :]
+                    tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
+                    if tool_event["memory_count"] > 0:
+                        first = body.split("\n\n---\n\n")[0].strip()
+                        tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
+            elif name == "save_memory" and result == "Memory saved.":
+                tool_event["saved"] = True
+            yield _event_with_compaction_tag(tool_event, compaction)
+
+    logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
+    messages.append({
+        "role": "system",
+        "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
+    })
+    response = await _client.chat.completions.create(
+        model=model,
+        messages=messages,
+    )
+    msg = response.choices[0].message
+    messages.append(msg.model_dump(exclude_none=True))
+
+    text = msg.content or ""
+    if native_audio and user_msg_index is not None and not transcript_emitted:
+        transcript, text = _extract_transcript(text)
+        messages[-1]["content"] = text
+        yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
+        if transcript:
+            messages[user_msg_index] = {"role": "user", "content": transcript}
+        else:
+            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+        transcript_emitted = True
+
+    yield _event_with_compaction_tag({
+        "type": "response",
+        "text": text,
+        "client_actions": _extract_client_actions(messages, turn_start),
+    }, compaction)
+
+
 async def run_stream(
     messages: list[dict],
     bot: BotConfig,
@@ -158,7 +350,6 @@ async def run_stream(
                 ),
             })
 
-
     if bot.knowledge.enabled and session_id and client_id:
         chunks = await retrieve_knowledge(
             query=user_message,
@@ -171,7 +362,6 @@ async def run_stream(
             knowledge_preview = chunks[0][:100] + "..." if len(chunks[0]) > 100 else chunks[0]
             yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview}
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
-    
 
     if native_audio:
         messages.append({
@@ -185,178 +375,16 @@ async def run_stream(
         messages.append({"role": "user", "content": user_message})
         user_msg_index = len(messages) - 1
 
-    local_schemas = get_local_tool_schemas(bot.local_tools)
-    mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
-    client_schemas = get_client_tool_schemas(bot.client_tools)
-    all_tools = local_schemas + mcp_schemas + client_schemas
-    tools_param = all_tools if all_tools else None
-    tool_choice = "auto" if tools_param else None
-
-    logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
-
-    transcript_emitted = False
-
-    for iteration in range(settings.AGENT_MAX_ITERATIONS):
-        logger.debug("--- Iteration %d ---", iteration + 1)
-        logger.debug("Calling LLM (%s) with %d messages", bot.model, len(messages))
-
-        response = await _client.chat.completions.create(
-            model=bot.model,
-            messages=messages,
-            tools=tools_param,
-            tool_choice=tool_choice,
-        )
-        msg = response.choices[0].message
-        msg_dict = msg.model_dump(exclude_none=True)
-        messages.append(msg_dict)
-
-        if response.usage:
-            logger.debug(
-                "Token usage: prompt=%d completion=%d total=%d",
-                response.usage.prompt_tokens,
-                response.usage.completion_tokens,
-                response.usage.total_tokens,
-            )
-
-        if not msg.tool_calls:
-            text = msg.content or ""
-
-            if native_audio and not transcript_emitted:
-                transcript, text = _extract_transcript(text)
-                # Update the stored assistant message to strip transcript tags
-                messages[-1]["content"] = text
-                yield {"type": "transcript", "text": transcript}
-                if transcript:
-                    logger.info("Audio transcript: %r", transcript[:100])
-                    messages[user_msg_index] = {"role": "user", "content": transcript}
-                else:
-                    logger.warning("Native audio response contained no transcript tags")
-                    messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-                transcript_emitted = True
-
-            logger.info("Final response (%d chars): %r", len(text), text[:120])
-            yield {
-                "type": "response",
-                "text": text,
-                "client_actions": _extract_client_actions(messages, turn_start),
-            }
-            return
-
-        # If native audio and first iteration with tool calls, try to extract
-        # transcript from any content the model returned alongside tool calls
-        if native_audio and not transcript_emitted and msg.content:
-            transcript, remaining = _extract_transcript(msg.content)
-            if transcript:
-                logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
-                yield {"type": "transcript", "text": transcript}
-                messages[user_msg_index] = {"role": "user", "content": transcript}
-                transcript_emitted = True
-
-        logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
-
-        for tc in msg.tool_calls:
-            name = tc.function.name
-            args = tc.function.arguments
-            logger.info("Tool call: %s(%s)", name, args)
-
-            yield {"type": "tool_start", "tool": name}
-
-            if is_client_tool(name):
-                request_id = str(uuid.uuid4())
-                try:
-                    tool_args = json.loads(args) if args else {}
-                except (json.JSONDecodeError, TypeError):
-                    tool_args = {}
-                yield {
-                    "type": "tool_request",
-                    "request_id": request_id,
-                    "tool": name,
-                    "arguments": tool_args,
-                }
-                future = create_pending(request_id)
-                try:
-                    result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
-                except asyncio.TimeoutError:
-                    logger.warning("Client tool %s timed out (request %s)", name, request_id)
-                    result = json.dumps({"error": "Client did not respond in time"})
-            elif is_local_tool(name):
-                # Memory tools get session_id, client_id, and config from the loop (no context vars).
-                if name in ("search_memories", "save_memory") and session_id and client_id:
-                    result = await call_memory_tool(
-                        name, args or "{}", session_id, client_id, bot.id, bot.memory
-                    )
-                elif name == "update_persona":
-                    result = await call_persona_tool(name, args or "{}", bot.id)
-                elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge") and client_id:
-                    result = await call_knowledge_tool(
-                        name, args or "{}", bot.id, client_id,
-                        bot.knowledge.cross_bot, bot.knowledge.similarity_threshold,
-                    )
-                else:
-                    result = await call_local_tool(name, args)
-            elif is_mcp_tool(name):
-                result = await call_mcp_tool(name, args)
-            else:
-                result = json.dumps({"error": f"Unknown tool: {name}"})
-
-            result_preview = result[:200] + "..." if len(result) > 200 else result
-            logger.debug("Tool result [%s]: %s", name, result_preview)
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
-
-            tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
-            try:
-                parsed = json.loads(result)
-                if isinstance(parsed, dict) and "error" in parsed:
-                    logger.warning("Tool %s returned error: %s", name, parsed["error"])
-                    tool_event["error"] = parsed["error"]
-            except (json.JSONDecodeError, TypeError):
-                pass
-            # Extra fields for CLI when using memory tools
-            if name == "search_memories":
-                if result == "No relevant memories found." or result == "No search query provided.":
-                    tool_event["memory_count"] = 0
-                elif result.startswith("Relevant memories:\n\n"):
-                    body = result[len("Relevant memories:\n\n") :]
-                    tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
-                    if tool_event["memory_count"] > 0:
-                        first = body.split("\n\n---\n\n")[0].strip()
-                        tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
-            elif name == "save_memory" and result == "Memory saved.":
-                tool_event["saved"] = True
-            yield tool_event
-
-    logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
-    messages.append({
-        "role": "system",
-        "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
-    })
-    response = await _client.chat.completions.create(
-        model=bot.model,
-        messages=messages,
-    )
-    msg = response.choices[0].message
-    messages.append(msg.model_dump(exclude_none=True))
-
-    text = msg.content or ""
-    if native_audio and not transcript_emitted:
-        transcript, text = _extract_transcript(text)
-        messages[-1]["content"] = text
-        yield {"type": "transcript", "text": transcript}
-        if transcript:
-            messages[user_msg_index] = {"role": "user", "content": transcript}
-        else:
-            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-
-    yield {
-        "type": "response",
-        "text": text,
-        "client_actions": _extract_client_actions(messages, turn_start),
-    }
+    async for event in run_agent_tool_loop(
+        messages,
+        bot,
+        session_id=session_id,
+        client_id=client_id,
+        turn_start=turn_start,
+        native_audio=native_audio,
+        user_msg_index=user_msg_index,
+    ):
+        yield event
 
 
 async def run(

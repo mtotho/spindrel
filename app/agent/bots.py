@@ -47,6 +47,7 @@ class BotConfig:
     compaction_interval: int | None = None
     compaction_keep_turns: int | None = None
     compaction_model: str | None = None
+    memory_knowledge_compaction_prompt: str | None = None # Optional prompt. Before compaction, the agent will be given this prompt to determine what memories or knowledge chunks to include.
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -91,6 +92,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             compaction_interval=data.get("compaction_interval", settings.COMPACTION_INTERVAL),
             compaction_keep_turns=data.get("compaction_keep_turns", settings.COMPACTION_KEEP_TURNS),
             compaction_model=data.get("compaction_model", settings.COMPACTION_MODEL),
+            memory_knowledge_compaction_prompt=data.get("memory_knowledge_compaction_prompt", settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT),
             audio_input=data.get("audio_input", "transcribe"),
             memory=memory_cfg,
             knowledge=knowledge_cfg,

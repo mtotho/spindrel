@@ -2,12 +2,16 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from openai import AsyncOpenAI
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig
+from app.agent.context import set_agent_context
+from app.agent.loop import run_agent_tool_loop
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Message, Session
@@ -19,24 +23,6 @@ _client = AsyncOpenAI(
     api_key=settings.LITELLM_API_KEY,
     timeout=60.0,
 )
-
-_SUMMARIZE_PROMPT = """\
-You are a conversation summarizer. You will receive the message history of a \
-conversation between a user and an AI assistant.
-
-Produce a JSON object with the following fields:
-- "title": A concise title for this conversation (3-8 words, like a chat tab name).
-- "summary": A detailed summary of everything discussed so far. Include key facts, \
-decisions, code snippets or file paths mentioned, user preferences expressed, and \
-any ongoing tasks. This summary will replace the full history, so capture everything \
-the assistant would need to continue the conversation seamlessly.
-
-IMPORTANT: Include human-readable time references in the summary text itself \
-(e.g. "On March 5, 2025: ..." or "During the week of March 1-7: ..."). \
-These summaries may be stored as long-term memories and retrieved weeks later, \
-so temporal context is essential for the model to reason about when things happened.
-
-Respond ONLY with the JSON object, no markdown fences or extra text."""
 
 
 def _get_compaction_model(bot: BotConfig) -> str:
@@ -59,6 +45,69 @@ def _get_compaction_keep_turns(bot: BotConfig) -> int:
     return settings.COMPACTION_KEEP_TURNS
 
 
+def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
+    """Build message list for memory phase: user, assistant, and tool (content truncated to 500 chars).
+    Lets the model see tool results when deciding what to store, without blowing context on huge payloads.
+    """
+    filtered = []
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content")
+        if content is None:
+            continue
+        if role in ("user", "assistant"):
+            filtered.append({"role": role, "content": content})
+        elif role == "tool":
+            truncated = content[:500] + "..." if len(content) > 500 else content
+            filtered.append({"role": "tool", "content": truncated})
+    return filtered
+
+
+async def _run_compaction_memory_phase(
+    session_id: uuid.UUID,
+    client_id: str,
+    bot: BotConfig,
+    memory_phase_messages: list[dict],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Run the shared agent tool loop with the 'last chance to save' prompt only.
+    Model decides what to store in memory/knowledge/persona and uses tools; _generate_summary does the actual summary separately.
+    Yields events with compaction=True.
+    """
+    system_content = (
+        (bot.memory_knowledge_compaction_prompt or settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT).strip()
+    )
+    transcript = "\n".join(
+        f"[{m['role'].upper()}]: {m['content']}" for m in memory_phase_messages
+    )
+    user_content = f"Conversation so far (about to be summarized):\n\n{transcript}"
+
+    set_agent_context(
+        session_id=session_id,
+        client_id=client_id,
+        bot_id=bot.id,
+        memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
+        memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
+        memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
+        memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+    )
+
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+    model = _get_compaction_model(bot)
+    async for event in run_agent_tool_loop(
+        messages,
+        bot,
+        session_id=session_id,
+        client_id=client_id,
+        model_override=model,
+        compaction=True,
+    ):
+        yield event
+
+
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
     """Build the message list to send to the summarization LLM."""
     filtered = []
@@ -76,7 +125,7 @@ async def _generate_summary(
     existing_summary: str | None,
 ) -> tuple[str, str]:
     """Call the LLM to produce a title and summary."""
-    prompt_messages: list[dict] = [{"role": "system", "content": _SUMMARIZE_PROMPT}]
+    prompt_messages: list[dict] = [{"role": "system", "content": settings.BASE_COMPACTION_PROMPT}]
 
     if existing_summary:
         prompt_messages.append({
@@ -115,15 +164,17 @@ async def _generate_summary(
     return (title, summary)
 
 
-async def maybe_compact(
+async def run_compaction_stream(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
-) -> None:
-    """Check if compaction is due and run it as a background task if so."""
+) -> AsyncGenerator[dict[str, Any], None]:
+    """If compaction is due, run memory/knowledge phase (yielding tool events) then summarize.
+    Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
+    If compaction is not due, yields nothing.
+    """
     if not bot.context_compaction:
         return
 
     interval = _get_compaction_interval(bot)
-
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
@@ -138,7 +189,6 @@ async def maybe_compact(
             if session.summary_message_id
             else True
         )
-
         user_count_result = await db.execute(
             select(func.count())
             .where(Message.session_id == session_id)
@@ -147,57 +197,61 @@ async def maybe_compact(
         )
         user_msg_count = user_count_result.scalar() or 0
 
-        if user_msg_count < interval:
-            logger.debug(
-                "Compaction not needed for %s (%d/%d turns)",
-                session_id, user_msg_count, interval,
-            )
-            return
-
-    asyncio.create_task(_run_compaction(session_id, bot, messages))
-
-
-async def _run_compaction(
-    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
-) -> None:
-    """Perform the actual compaction: summarize and update the session."""
-    try:
-        logger.info("Starting compaction for session %s", session_id)
-        model = _get_compaction_model(bot)
-
-        async with async_session() as db:
-            session = await db.get(Session, session_id)
-            if session is None:
-                return
-            existing_summary = session.summary
-
-        interval = _get_compaction_interval(bot)
-        keep_turns = _get_compaction_keep_turns(bot)
-        turns_to_summarize = interval - keep_turns  # only summarize older turns
-
-        conversation = _messages_for_summary(messages)
-        if not conversation:
-            logger.debug("No conversation content to compact for %s", session_id)
-            return
-
-        # Include only the first (interval - keep_turns) turns in the summary;
-        # the last keep_turns turns stay in context verbatim.
-        user_count = 0
-        to_summarize: list[dict] = []
-        for m in conversation:
-            if m.get("role") == "user":
-                user_count += 1
-                if user_count > turns_to_summarize:
-                    break
-            to_summarize.append(m)
-
-        if not to_summarize:
-            logger.debug("No turns to summarize for %s", session_id)
-            return
-
-        title, summary = await _generate_summary(
-            to_summarize, model, existing_summary,
+    if user_msg_count < interval:
+        logger.debug(
+            "Compaction not needed for %s (%d/%d turns)",
+            session_id, user_msg_count, interval,
         )
+        return
+
+    logger.info("Starting compaction for session %s", session_id)
+
+    client_id: str
+    existing_summary: str | None
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return
+        client_id = session.client_id
+        existing_summary = session.summary
+
+    keep_turns = _get_compaction_keep_turns(bot)
+    turns_to_summarize = interval - keep_turns
+    conversation = _messages_for_summary(messages)
+    user_count = 0
+    to_summarize: list[dict] = []
+    for m in conversation:
+        if m.get("role") == "user":
+            user_count += 1
+            if user_count > turns_to_summarize:
+                break
+        to_summarize.append(m)
+
+    if not to_summarize:
+        logger.debug("No turns to summarize for %s", session_id)
+        return
+
+    run_memory_phase = (
+        bot.memory.enabled or bot.knowledge.enabled or bot.persona
+    )
+
+    if run_memory_phase:
+        memory_conversation = _messages_for_memory_phase(messages)
+        user_count_m = 0
+        memory_phase_messages: list[dict] = []
+        for m in memory_conversation:
+            if m.get("role") == "user":
+                user_count_m += 1
+                if user_count_m > turns_to_summarize:
+                    break
+            memory_phase_messages.append(m)
+        yield {"type": "compaction_start", "phase": "memory"}
+        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages):
+            yield event
+
+    try:
+        model = _get_compaction_model(bot)
+        title, summary = await _generate_summary(to_summarize, model, existing_summary)
 
         async with async_session() as db:
             recent_user_msgs = await db.execute(
@@ -209,22 +263,22 @@ async def _run_compaction(
             )
             user_msg_ids = recent_user_msgs.scalars().all()
 
-            if user_msg_ids:
-                oldest_kept_id = user_msg_ids[-1]
-                oldest_kept = await db.get(Message, oldest_kept_id)
-                preceding = await db.execute(
-                    select(Message.id)
-                    .where(Message.session_id == session_id)
-                    .where(Message.created_at < oldest_kept.created_at)
-                    .order_by(Message.created_at.desc())
-                    .limit(1)
-                )
-                watermark_id = preceding.scalar()
-                if watermark_id is None:
-                    logger.debug("All messages within keep window for %s, skipping", session_id)
-                    return
-            else:
+            if not user_msg_ids:
                 logger.debug("No user messages to compact for %s", session_id)
+                return
+
+            oldest_kept_id = user_msg_ids[-1]
+            oldest_kept = await db.get(Message, oldest_kept_id)
+            preceding = await db.execute(
+                select(Message.id)
+                .where(Message.session_id == session_id)
+                .where(Message.created_at < oldest_kept.created_at)
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )
+            watermark_id = preceding.scalar()
+            if watermark_id is None:
+                logger.debug("All messages within keep window for %s, skipping", session_id)
                 return
 
             await db.execute(
@@ -242,5 +296,90 @@ async def _run_compaction(
             "Compaction complete for %s: title=%r, summary_len=%d",
             session_id, title, len(summary),
         )
+        yield {"type": "compaction_done", "title": title}
     except Exception:
         logger.exception("Compaction failed for session %s", session_id)
+
+
+async def _drain_compaction(
+    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
+) -> None:
+    """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
+    try:
+        async for _ in run_compaction_stream(session_id, bot, messages):
+            pass
+    except Exception:
+        logger.exception("Background compaction failed for session %s", session_id)
+
+
+def maybe_compact(
+    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
+) -> None:
+    """If compaction is due, run it in the background (memory phase + summary). Non-blocking."""
+    asyncio.create_task(_drain_compaction(session_id, bot, messages))
+
+
+async def run_compaction_forced(
+    session_id: uuid.UUID, bot: BotConfig, db: AsyncSession
+) -> tuple[str, str]:
+    """Run full compaction (memory phase if enabled + summary) on the entire session.
+    Used by POST /sessions/{id}/summarize. Returns (title, summary). Caller must commit db.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError("Session not found")
+
+    client_id = session.client_id
+    existing_summary = session.summary
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.session_id == session_id)
+        .order_by(Message.created_at)
+    )
+    all_msgs = result.scalars().all()
+
+    def _msg_to_dict(m: Message) -> dict:
+        d: dict = {"role": m.role}
+        if m.content is not None:
+            d["content"] = m.content
+        if m.tool_calls is not None:
+            d["tool_calls"] = m.tool_calls
+        if m.tool_call_id is not None:
+            d["tool_call_id"] = m.tool_call_id
+        return d
+
+    messages = [_msg_to_dict(m) for m in all_msgs]
+    messages = [m for m in messages if m.get("role") != "system"]
+
+    conversation = _messages_for_summary(messages)
+    if not conversation:
+        raise ValueError("No conversation content to summarize")
+
+    run_memory_phase = bot.memory.enabled or bot.knowledge.enabled or bot.persona
+    if run_memory_phase:
+        memory_phase_messages = _messages_for_memory_phase(messages)
+        async for _ in _run_compaction_memory_phase(
+            session_id, client_id, bot, memory_phase_messages
+        ):
+            pass
+
+    model = _get_compaction_model(bot)
+    title, summary = await _generate_summary(conversation, model, existing_summary)
+
+    last_msg_result = await db.execute(
+        select(Message.id)
+        .where(Message.session_id == session_id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    last_msg_id = last_msg_result.scalar_one_or_none()
+    if last_msg_id is None:
+        raise ValueError("No messages in session")
+
+    await db.execute(
+        update(Session)
+        .where(Session.id == session_id)
+        .values(title=title, summary=summary, summary_message_id=last_msg_id)
+    )
+    return (title, summary)

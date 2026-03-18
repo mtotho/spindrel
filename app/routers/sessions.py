@@ -11,7 +11,7 @@ from app.agent.bots import get_bot
 from app.config import settings
 from app.db.models import Memory, Message, Session
 from app.dependencies import get_db, verify_auth
-from app.services.compaction import _generate_summary, _get_compaction_model, _messages_for_summary
+from app.services.compaction import run_compaction_forced
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -107,37 +107,20 @@ async def summarize_session(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth),
 ):
-    """Force summarization of a session (title + summary only; memory is via save_memory tool)."""
-    session = await db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    bot = get_bot(session.bot_id)
-    model = _get_compaction_model(bot)
-
-    result = await db.execute(
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at)
-    )
-    all_messages = [
-        {"role": m.role, "content": m.content}
-        for m in result.scalars().all()
-    ]
-
-    conversation = _messages_for_summary(all_messages)
-    if not conversation:
-        raise HTTPException(status_code=400, detail="No conversation content to summarize")
-
-    title, summary = await _generate_summary(
-        conversation, model, session.summary,
-    )
-
-    await db.execute(
-        update(Session)
-        .where(Session.id == session_id)
-        .values(title=title, summary=summary)
-    )
-    await db.commit()
-
-    return SummarizeResponse(title=title, summary=summary)
+    """Force full compaction: memory phase (if bot has memory/persona/knowledge) then summary. Sets watermark so the summary is used on next load."""
+    try:
+        session = await db.get(Session, session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        bot = get_bot(session.bot_id)
+        title, summary = await run_compaction_forced(session_id, bot, db)
+        await db.commit()
+        return SummarizeResponse(title=title, summary=summary)
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail="Session not found")
+        if "no conversation" in str(e).lower():
+            raise HTTPException(status_code=400, detail="No conversation content to summarize")
+        if "no messages" in str(e).lower():
+            raise HTTPException(status_code=400, detail="No messages in session")
+        raise HTTPException(status_code=400, detail=str(e))

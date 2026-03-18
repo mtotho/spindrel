@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import BotConfig, get_bot
 from app.agent.persona import get_persona
 from app.db.models import Message, Session
-from app.services.compaction import maybe_compact
 
 
 logger = logging.getLogger(__name__)
@@ -125,8 +124,6 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
-
-    await maybe_compact(session_id, bot, messages)
 
 
 def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:

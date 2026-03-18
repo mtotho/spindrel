@@ -36,7 +36,17 @@ def send_streaming(
     ):
         etype = event.get("type")
 
-        if etype == "skill_context":
+        if etype == "compaction_start":
+            print(f"  [Compaction: saving memories/knowledge...]")
+
+        elif etype == "compaction_done":
+            title = event.get("title", "")
+            if title:
+                print(f"  [Compaction done: {title!r}]")
+            else:
+                print(f"  [Compaction done]")
+
+        elif etype == "skill_context":
             count = event.get("count", 0)
             print(f"  [Using {count} skill chunk{'s' if count != 1 else ''}...]")
 
@@ -56,7 +66,8 @@ def send_streaming(
         elif etype == "tool_start":
             label = tool_status(event.get("tool", ""))
             if label:
-                print(f"  [{label}...]")
+                prefix = "Compaction: " if event.get("compaction") else ""
+                print(f"  [{prefix}{label}...]")
 
         elif etype == "tool_request":
             tool_name = event.get("tool", "")
@@ -73,24 +84,30 @@ def send_streaming(
                 print(f"  [error: {event['error']}]")
             else:
                 tool_name = event.get("tool", "")
+                prefix = "  [Compaction: " if event.get("compaction") else "  ["
+                suffix = "]"
                 if tool_name == "search_memories":
                     count = event.get("memory_count")
                     if count is not None:
                         if count == 0:
-                            print(f"  [No memories found]")
+                            print(f"{prefix}No memories found{suffix}")
                         else:
-                            print(f"  [Found {count} memor{'y' if count == 1 else 'ies'}]")
+                            print(f"{prefix}Found {count} memor{'y' if count == 1 else 'ies'}{suffix}")
                             preview = event.get("memory_preview")
                             if preview:
                                 print(f"    \033[2m{preview}\033[0m")
                 elif tool_name == "save_memory" and event.get("saved"):
-                    print(f"  [Saved to memory]")
+                    print(f"{prefix}Saved to memory{suffix}")
+                elif event.get("compaction") and tool_name:
+                    print(f"{prefix}{tool_status(tool_name) or tool_name}{suffix}")
 
         elif etype == "transcript":
             transcript_text = event.get("text", "")
             print(f"  [heard: {transcript_text}]")
 
         elif etype == "response":
+            if event.get("compaction"):
+                continue
             response_text = event.get("text", "")
             client_actions = event.get("client_actions", [])
 

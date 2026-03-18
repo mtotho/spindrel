@@ -379,19 +379,24 @@ The client generates a session UUID on first run and saves it to `~/.config/agen
 
 ### Context Compaction
 
-Long conversations are automatically summarized to keep context windows manageable. After a configurable number of user turns (default 10), the server asks an LLM to produce:
+Long conversations are automatically summarized to keep context windows manageable. After a configurable number of user turns, the server runs compaction **after** the turn is persisted. On the **streaming** path, compaction runs in the same request and events (including memory-phase tool use) are streamed to the client. On the **non-streaming** path, compaction runs in the background so the HTTP response is not blocked.
 
-- A **title** for the session (shown in `/sessions` listings instead of bare UUIDs)
-- A **detailed summary** capturing key facts, decisions, code references, and ongoing tasks
+**Behavior:**
 
-On the next message, instead of replaying the entire history, the session loads: system prompt + summary + the last few turns verbatim (default 2, configurable via `COMPACTION_KEEP_TURNS`). This means the LLM always has exact recall of the most recent exchanges while older context comes from the summary. Old messages are preserved in the database and still visible via `/history`.
+1. **Normal chat (RAG/agent loop)** — Unchanged. Each turn still does: set agent context, optional skills/RAG retrieval, optional memory retrieval, optional knowledge retrieval, append user message, then the agent tool loop (LLM + tools until final response).
 
-This runs as a background task — it doesn't slow down your chat response. Configure it globally in `.env`:
+2. **Compaction when the bot has no memory, persona, or knowledge** — When the turn count since the last compaction reaches `COMPACTION_INTERVAL`, the server runs a single LLM call with the base compaction prompt to produce a **title** and **detailed summary**, then updates the session watermark. On the next load, the session is system prompt + summary + the last N turns verbatim.
+
+3. **Compaction when the bot has memory, persona, or knowledge enabled** — Before summarizing, the server runs a **memory phase**: the model gets only the memory/knowledge compaction prompt (e.g. “this conversation is about to be summarized; decide what to store in memory, knowledge, or persona and use tools”) and a transcript of the conversation (including truncated tool results so it can see what was retrieved). That is run through the **same agent tool loop** as normal chat (so the model can call `save_memory`, `upsert_knowledge`, `update_persona`, etc.). The memory phase does **not** produce the summary. When the model is done with tools, the server runs a **separate** one-off LLM call (`_generate_summary`) to produce the title and summary, then updates the watermark.
+
+So: summary + last N turns in context (configurable via `COMPACTION_KEEP_TURNS`, default 10). Old messages stay in the database and are visible via `/history`.
+
+Configure compaction globally in `.env`:
 
 ```
 COMPACTION_MODEL=gemini/gemini-2.5-flash   # cheap/fast model for summaries
-COMPACTION_INTERVAL=30                      # Every time there gets to be COMPACTION_INTERVAL turns in the session (minus the compaction message), the compaction will run.
-COMPACTION_KEEP_TURNS=10                     # The last COMPACTION_KEEP_TURNS turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
+COMPACTION_INTERVAL=30                      # Run compaction when this many user turns exist since last compaction.
+COMPACTION_KEEP_TURNS=10                    # Last N turns kept verbatim; only older turns are summarized.
 ```
 
 Or per-bot in YAML:
@@ -399,7 +404,8 @@ Or per-bot in YAML:
 ```yaml
 context_compaction: true       # default true; set false to disable
 compaction_interval: 5         # override for this bot
-compaction_model: gpt-4o-mini  # override model for this bot
+compaction_model: gpt-4o-mini # override model for this bot
+# memory_knowledge_compaction_prompt: |     # optional; override the "last chance to save" prompt (default from MEMORY_KNOWLEDGE_COMPACTION_PROMPT)
 ```
 
 ### Long-Term Memory

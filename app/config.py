@@ -49,6 +49,30 @@ class Settings(BaseSettings):
     MEMORY_RETRIEVAL_LIMIT: int = 5
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
+    BASE_COMPACTION_PROMPT: str ="""\
+        You are a conversation summarizer. You will receive the message history of a \
+        conversation between a user and an AI assistant.
+
+        Produce a JSON object with the following fields:
+        - "title": A concise title for this conversation (3-8 words, like a chat tab name).
+        - "summary": A detailed summary of everything discussed so far. Include key facts, \
+        decisions, code snippets or file paths mentioned, user preferences expressed, and \
+        any ongoing tasks. This summary will replace the full history, so capture everything \
+        the assistant would need to continue the conversation seamlessly.
+
+        IMPORTANT: Include human-readable time references in the summary text itself \
+        (e.g. "On March 5, 2025: ..." or "During the week of March 1-7: ..."). \
+        These summaries may be stored as long-term memories and retrieved weeks later, \
+        so temporal context is essential for the model to reason about when things happened.
+
+        Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+
+    # Memory knowledge compaction prompt
+    MEMORY_KNOWLEDGE_COMPACTION_PROMPT: str = """\
+        This conversation is about to be summarized. You will keep the last N turns in context, and the rest will be summarized. So please decide now if there is 
+        anything from this conversation so far that you want to store in memory, knowledge or update your persona with. Use available tools.
+        """
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

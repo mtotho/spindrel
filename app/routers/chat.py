@@ -14,6 +14,7 @@ from app.agent.bots import get_bot, list_bots
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.dependencies import get_db, verify_auth
+from app.services.compaction import maybe_compact, run_compaction_stream
 from app.services.sessions import load_or_create, persist_turn
 from app.stt import transcribe as stt_transcribe
 
@@ -130,6 +131,7 @@ async def chat(
         logger.info("Client actions: %s", result.client_actions)
 
     await persist_turn(db, session_id, bot, messages, from_index)
+    maybe_compact(session_id, bot, messages)
 
     return ChatResponse(
         session_id=session_id,
@@ -197,11 +199,18 @@ async def chat_stream(
                     continue
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
+
+            await persist_turn(db, session_id, bot, messages, from_index)
+
+            compaction_stream = run_compaction_stream(session_id, bot, messages)
+            async for event in compaction_stream:
+                if await request.is_disconnected():
+                    break
+                event_with_session = {**event, "session_id": str(session_id)}
+                yield f"data: {json.dumps(event_with_session)}\n\n"
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
-        finally:
-            await persist_turn(db, session_id, bot, messages, from_index)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

@@ -8,6 +8,10 @@ _TOOL_DISPLAY_NAMES = {
     "get_current_time": "Checking the time",
     "search_memories": "Searching memories",
     "save_memory": "Saving to memory",
+    "upsert_knowledge": "Updating knowledge",
+    "get_knowledge": "Getting knowledge",
+    "search_knowledge": "Searching knowledge",
+    "update_persona": "Updating persona",
     "client_action": None,
     "shell_exec": None,  # handled specially via tool_request
 }

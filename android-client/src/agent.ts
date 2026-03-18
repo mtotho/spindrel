@@ -2,7 +2,18 @@ import { loadConfig } from "./config";
 import { getSessionId, newSessionId, setSessionId, setActiveBotId } from "./session";
 
 export interface StreamEvent {
-  type: "skill_context" | "tool_start" | "tool_request" | "tool_result" | "response" | "transcript" | "error";
+  type:
+    | "skill_context"
+    | "memory_context"
+    | "knowledge_context"
+    | "tool_start"
+    | "tool_request"
+    | "tool_result"
+    | "response"
+    | "transcript"
+    | "error"
+    | "compaction_start"
+    | "compaction_done";
   session_id?: string;
   count?: number;
   tool?: string;
@@ -12,6 +23,14 @@ export interface StreamEvent {
   client_actions?: ClientAction[];
   detail?: string;
   error?: string;
+  /** True when this event is from the compaction memory phase (post-response). */
+  compaction?: boolean;
+  /** compaction_done only: session title from the summary. */
+  title?: string;
+  memory_preview?: string;
+  knowledge_preview?: string;
+  memory_count?: number;
+  saved?: boolean;
 }
 
 export interface ClientAction {
@@ -309,7 +328,7 @@ export async function chatStream(
             transcriptText = event.text || "";
           }
 
-          if (event.type === "response") {
+          if (event.type === "response" && !event.compaction) {
             responseText = event.text || "";
             clientActions = event.client_actions || [];
             if (event.session_id) resultSessionId = event.session_id;
@@ -371,17 +390,54 @@ export async function chatStream(
   });
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  web_search: "Searching the web",
+  fetch_url: "Reading webpage",
+  search_memories: "Searching memories",
+  save_memory: "Saving to memory",
+  upsert_knowledge: "Updating knowledge",
+  get_knowledge: "Getting knowledge",
+  search_knowledge: "Searching knowledge",
+  update_persona: "Updating persona",
+};
+
 function handleStreamEvent(event: StreamEvent, callbacks?: AgentCallbacks): void {
+  const status = (msg: string) => {
+    callbacks?.onStateChange?.("processing", msg);
+    callbacks?.onToolStatus?.(msg);
+  };
+
   switch (event.type) {
     case "skill_context":
-      callbacks?.onStateChange?.("processing", `Using ${event.count} skill chunks`);
+      status(`Using ${event.count ?? 0} skill chunks`);
       break;
-    case "tool_start":
-      callbacks?.onToolStatus?.(event.tool || "tool");
+    case "memory_context":
+      status(`Recalled ${event.count ?? 0} memor${event.count === 1 ? "y" : "ies"}`);
       break;
+    case "knowledge_context":
+      status(`Recalled ${event.count ?? 0} knowledge chunks`);
+      break;
+    case "compaction_start":
+      status("Compaction: saving memories/knowledge");
+      break;
+    case "compaction_done":
+      status(event.title ? `Compaction: ${event.title}` : "Compaction done");
+      break;
+    case "tool_start": {
+      const tool = event.tool || "tool";
+      const label = TOOL_LABELS[tool] || tool;
+      status(event.compaction ? `Compaction: ${label}` : label);
+      break;
+    }
     case "tool_result":
       if (event.error) {
         callbacks?.onError?.(`Tool error: ${event.error}`);
+      } else if (event.compaction && event.tool) {
+        const label =
+          event.tool === "save_memory" && event.saved
+            ? "Saved to memory"
+            : TOOL_LABELS[event.tool] || event.tool;
+        status(`Compaction: ${label}`);
       }
       break;
     case "transcript":
