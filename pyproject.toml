@@ -18,6 +18,8 @@ dependencies = [
     "playwright",
     "faster-whisper",
     "numpy",
+    "slack-bolt",
+    "aiohttp",
 ]
 
 [project.optional-dependencies]

@@ -17,6 +17,10 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+set -a
+source .env
+set +a
+
 pip install -q -e ".[dev]"
 
 echo "Starting services (postgres, searxng, playwright)..."
@@ -26,6 +30,18 @@ echo "Waiting for postgres..."
 until docker compose exec postgres pg_isready -U agent -d agentdb -q 2>/dev/null; do
     sleep 1
 done
+
+SLACK_PID=""
+cleanup() {
+    [ -n "$SLACK_PID" ] && kill "$SLACK_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+if [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_APP_TOKEN:-}" ]; then
+    echo "Starting Slack bot..."
+    python slack_bot.py &
+    SLACK_PID=$!
+fi
 
 echo "Starting server with --reload..."
 uvicorn app.main:app --host 0.0.0.0 --reload --reload-include '*.py' --reload-include '*.yaml' --reload-exclude '.venv'

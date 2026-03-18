@@ -554,6 +554,16 @@ The app runs an Android foreground service with a persistent notification so the
 
 See [ANDROID_CLIENT_PLAN.MD](ANDROID_CLIENT_PLAN.MD) for the full architecture, build phases, and implementation status.
 
+## Slack
+
+A Slack Socket Mode bot routes DMs and channel messages to the same `POST /chat` endpoint used by the CLI and Android clients. It runs as a **separate process** (no inbound ports; Slack pushes events over an outbound WebSocket).
+
+**Setup:** Add to `.env`: `SLACK_BOT_TOKEN` (xoxb-...), `SLACK_APP_TOKEN` (xapp-...), and `AGENT_API_KEY` (same value as `API_KEY`). Optionally set `AGENT_BASE_URL` (default `http://localhost:8000`). Edit `slack_config.yaml` to set `default_bot` (a bot id from `bots/*.yaml`), `session_scope` (user or channel), and optional `channels` / `users` mappings.
+
+When both Slack tokens are set, `./scripts/dev-server.sh` starts the Slack bot automatically in the background and stops it on exit. To run the bot alone: `python slack_bot.py`.
+
+See [SLACK_INTEGRATION.MD](SLACK_INTEGRATION.MD) for Slack app configuration (api.slack.com), required scopes, and event subscriptions.
+
 ## API
 
 | Endpoint | Method | Description |

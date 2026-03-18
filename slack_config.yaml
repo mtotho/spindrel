@@ -1,0 +1,11 @@
+default_bot: brief_bot   # use a bot id from bots/*.yaml (e.g. default, brief_bot)
+session_scope: user    # "user" = per-user sessions, "channel" = shared session
+
+# Optional: map specific channels to a bot (fallback if user not mapped)
+# channels:
+#   C08ABC123: assistant
+
+# Per-user bot assignment (takes priority over channel)
+# users:
+#   U08ABC123: bennie
+#   U08DEF456: coding-helper
