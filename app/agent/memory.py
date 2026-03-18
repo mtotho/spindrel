@@ -36,6 +36,14 @@ def _date_prefix(range_start, range_end) -> str:
     return f"[{start_str} – {end_str}] "
 
 
+def _format_memory_for_context(content: str, created_at) -> str:
+    """Prefix memory content with created_at when serving to the model."""
+    if created_at is None:
+        return content
+    date_str = created_at.strftime("%B %-d, %Y")
+    return f"[{date_str}] {content}"
+
+
 async def write_memory(
     summary_text: str,
     client_id: str,
@@ -108,7 +116,7 @@ async def retrieve_memories(
     distance_expr = Memory.embedding.cosine_distance(query_embedding)
 
     stmt = (
-        select(Memory.content, distance_expr.label("distance"))
+        select(Memory.content, Memory.created_at, distance_expr.label("distance"))
         .order_by(distance_expr)
         .limit(settings.MEMORY_RETRIEVAL_LIMIT)
     ) 
@@ -131,17 +139,17 @@ async def retrieve_memories(
     if not rows:
         return []
 
-    best_similarity = 1.0 - rows[0][1]
+    best_similarity = 1.0 - rows[0][2]
     logger.info(
         "Memory retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
         best_similarity, similarity_threshold, query[:60],
     )
 
     chunks = []
-    for content, distance in rows:
+    for content, created_at, distance in rows:
         similarity = 1.0 - distance
         if similarity >= similarity_threshold:
-            chunks.append(content)
+            chunks.append(_format_memory_for_context(content, created_at))
         else:
             break
 

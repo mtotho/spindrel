@@ -23,6 +23,8 @@ _TOOL_DISPLAY_NAMES = {
     "web_search": "Searching the web",
     "fetch_url": "Reading webpage",
     "get_current_time": "Checking the time",
+    "search_memories": "Searching memories",
+    "save_memory": "Saving to memory",
     "client_action": None,
     "shell_exec": None,  # handled specially via tool_request
 }
@@ -156,6 +158,20 @@ def _send_streaming(
         elif etype == "tool_result":
             if "error" in event:
                 print(f"  [error: {event['error']}]")
+            else:
+                tool_name = event.get("tool", "")
+                if tool_name == "search_memories":
+                    count = event.get("memory_count")
+                    if count is not None:
+                        if count == 0:
+                            print(f"  [No memories found]")
+                        else:
+                            print(f"  [Found {count} memor{'y' if count == 1 else 'ies'}]")
+                            preview = event.get("memory_preview")
+                            if preview:
+                                print(f"    \033[2m{preview}\033[0m")
+                elif tool_name == "save_memory" and event.get("saved"):
+                    print(f"  [Saved to memory]")
 
         elif etype == "transcript":
             transcript_text = event.get("text", "")

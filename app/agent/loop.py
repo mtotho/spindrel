@@ -275,6 +275,18 @@ async def run_stream(
                     tool_event["error"] = parsed["error"]
             except (json.JSONDecodeError, TypeError):
                 pass
+            # Extra fields for CLI when using memory tools
+            if name == "search_memories":
+                if result == "No relevant memories found." or result == "No search query provided.":
+                    tool_event["memory_count"] = 0
+                elif result.startswith("Relevant memories:\n\n"):
+                    body = result[len("Relevant memories:\n\n") :]
+                    tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
+                    if tool_event["memory_count"] > 0:
+                        first = body.split("\n\n---\n\n")[0].strip()
+                        tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
+            elif name == "save_memory" and result == "Memory saved.":
+                tool_event["saved"] = True
             yield tool_event
 
     logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
