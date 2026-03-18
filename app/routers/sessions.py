@@ -4,11 +4,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot
-from app.agent.memory import write_memory
 from app.db.models import Message, Session
 from app.dependencies import get_db, verify_auth
 from app.services.compaction import _generate_summary, _get_compaction_model, _messages_for_summary
@@ -90,7 +89,6 @@ async def delete_session(
 class SummarizeResponse(BaseModel):
     title: str
     summary: str
-    memory_written: bool = False
 
 
 @router.post("/{session_id}/summarize", response_model=SummarizeResponse)
@@ -99,7 +97,7 @@ async def summarize_session(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth),
 ):
-    """Force summarization of a session, writing to memory KB if enabled."""
+    """Force summarization of a session (title + summary only; memory is via save_memory tool)."""
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -121,24 +119,9 @@ async def summarize_session(
     if not conversation:
         raise HTTPException(status_code=400, detail="No conversation content to summarize")
 
-    memory_prompt = bot.memory.prompt if bot.memory.enabled else None
-    title, summary, memory_content = await _generate_summary(
-        conversation, model, session.summary, memory_prompt=memory_prompt,
+    title, summary = await _generate_summary(
+        conversation, model, session.summary,
     )
-
-    time_range = await db.execute(
-        select(func.min(Message.created_at), func.max(Message.created_at))
-        .where(Message.session_id == session_id)
-        .where(Message.role.in_(["user", "assistant"]))
-    )
-    range_start, range_end = time_range.one()
-
-    msg_count_result = await db.execute(
-        select(func.count())
-        .where(Message.session_id == session_id)
-        .where(Message.role.in_(["user", "assistant"]))
-    )
-    msg_count = msg_count_result.scalar() or 0
 
     await db.execute(
         update(Session)
@@ -147,22 +130,4 @@ async def summarize_session(
     )
     await db.commit()
 
-    memory_written = False
-    if bot.memory.enabled:
-        content_to_store = memory_content if memory_prompt else summary
-        if content_to_store:
-            await write_memory(
-                summary_text=content_to_store,
-                client_id=session.client_id,
-                session_id=session_id,
-                message_range_start=range_start,
-                message_range_end=range_end,
-                message_count=msg_count,
-            )
-            memory_written = True
-
-    return SummarizeResponse(
-        title=title,
-        summary=summary,
-        memory_written=memory_written,
-    )
+    return SummarizeResponse(title=title, summary=summary)

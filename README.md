@@ -400,7 +400,7 @@ compaction_model: gpt-4o-mini  # override model for this bot
 
 ### Long-Term Memory
 
-When `memory.enabled` is set on a bot, compaction summaries are additionally written to a dedicated `memories` table with vector embeddings. These entries accumulate over time — each compaction appends a new memory rather than overwriting the previous one.
+When `memory.enabled` is set on a bot, the bot is given a memory tool which it can choose to write memories a dedicated `memories` table with vector embeddings. These entries accumulate over time — each tool invoke appends a new memory rather than overwriting the previous one.
 
 On each turn, the user's message is embedded and searched against stored memories via pgvector cosine similarity. Only memories above the similarity threshold (default 0.75) are injected, so irrelevant turns add nothing to context. When relevant memories are found, the client shows `[Recalled N memories...]`.
 

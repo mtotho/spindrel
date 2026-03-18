@@ -12,6 +12,14 @@ from app.services.compaction import maybe_compact
 logger = logging.getLogger(__name__)
 
 
+def _effective_system_prompt(bot: BotConfig) -> str:
+    """System prompt plus optional memory guidelines when memory is enabled."""
+    out = bot.system_prompt.rstrip()
+    if bot.memory.enabled and bot.memory.prompt:
+        out += "\n\n" + bot.memory.prompt.strip()
+    return out
+
+
 async def load_or_create(
     db: AsyncSession,
     session_id: uuid.UUID | None,
@@ -31,15 +39,16 @@ async def load_or_create(
     session = Session(id=session_id, client_id=client_id, bot_id=bot_id)
     db.add(session)
 
+    system_content = _effective_system_prompt(bot)
     system_msg = Message(
         session_id=session_id,
         role="system",
-        content=bot.system_prompt,
+        content=system_content,
     )
     db.add(system_msg)
     await db.commit()
 
-    return session_id, [{"role": "system", "content": bot.system_prompt}]
+    return session_id, [{"role": "system", "content": system_content}]
 
 
 async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
@@ -58,7 +67,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             recent = [_message_to_dict(m) for m in recent_result.scalars().all()]
 
             messages = [
-                {"role": "system", "content": bot.system_prompt},
+                {"role": "system", "content": _effective_system_prompt(bot)},
                 {
                     "role": "system",
                     "content": (

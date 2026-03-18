@@ -16,6 +16,7 @@ from app.agent.rag import retrieve_context
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
+from app.tools.local.memory import call_memory_tool
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,7 @@ async def run_stream(
             session_id=session_id,
             client_id=client_id,
             cross_session=bot.memory.cross_session,
+            cross_client=bot.memory.cross_client,
             similarity_threshold=bot.memory.similarity_threshold,
         )
         if memories:
@@ -156,8 +158,7 @@ async def run_stream(
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
-    tool_names = [t["function"]["name"] for t in all_tools] if all_tools else []
-    logger.debug("Tools available: %s", tool_names or "(none)")
+    logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
     transcript_emitted = False
 
@@ -245,7 +246,13 @@ async def run_stream(
                     logger.warning("Client tool %s timed out (request %s)", name, request_id)
                     result = json.dumps({"error": "Client did not respond in time"})
             elif is_local_tool(name):
-                result = await call_local_tool(name, args)
+                # Memory tools get session_id, client_id, and config from the loop (no context vars).
+                if name in ("search_memories", "save_memory") and session_id and client_id:
+                    result = await call_memory_tool(
+                        name, args or "{}", session_id, client_id, bot.memory
+                    )
+                else:
+                    result = await call_local_tool(name, args)
             elif is_mcp_tool(name):
                 result = await call_mcp_tool(name, args)
             else:

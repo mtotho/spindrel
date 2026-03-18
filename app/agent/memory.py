@@ -43,15 +43,18 @@ async def write_memory(
     message_range_start=None,
     message_range_end=None,
     message_count: int | None = None,
-) -> None:
-    """Embed content and write it to the memories table."""
+) -> tuple[bool, str | None]:
+    """Embed content and write it to the memories table.
+
+    Returns (success, error_message). error_message is set only when success is False.
+    """
     summary_text = _date_prefix(message_range_start, message_range_end) + summary_text
 
     try:
         embedding = await _embed(summary_text)
-    except Exception:
+    except Exception as e:
         logger.exception("Failed to embed memory for session %s", session_id)
-        return
+        return (False, str(e))
 
     memory = Memory(
         session_id=session_id,
@@ -71,8 +74,10 @@ async def write_memory(
             "Wrote memory for session %s (%d chars)",
             session_id, len(summary_text),
         )
-    except Exception:
+        return (True, None)
+    except Exception as e:
         logger.exception("Failed to write memory for session %s", session_id)
+        return (False, str(e))
 
 
 async def retrieve_memories(
