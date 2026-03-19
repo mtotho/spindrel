@@ -39,7 +39,7 @@ trap cleanup EXIT INT TERM
 
 if [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_APP_TOKEN:-}" ]; then
     echo "Starting Slack bot..."
-    python slack_bot.py &
+    python slack-integration/slack_bot.py &
     SLACK_PID=$!
 fi
 
