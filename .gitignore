@@ -44,5 +44,8 @@ migrations/versions/__pycache__/
 *.pem
 *.key
 
+# Slack bot (per-user state, survives restarts)
+slack_state.json
+
 node_modules/
 android-client/node_modules/

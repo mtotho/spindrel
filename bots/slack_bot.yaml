@@ -1,5 +1,5 @@
-id: default
-name: "Default Bot"
+id: slack_bot
+name: "Slack Bot"
 model: gemini/gemini-2.5-flash
 persona: true
 system_prompt: |
@@ -29,7 +29,6 @@ mcp_servers:
 local_tools:
   - search_memories
   - save_memory
-  - client_action
   - update_persona
   - web_search
   - fetch_url
@@ -41,8 +40,6 @@ local_tools:
   - get_knowledge
   - search_knowledge
   - get_current_local_time
-client_tools:
-  - shell_exec
 skills:
   - arch_linux
   - home_assistant

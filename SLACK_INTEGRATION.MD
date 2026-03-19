@@ -130,7 +130,8 @@ httpx
 1. Create a new app (or use existing) → **Socket Mode** → Enable → generates `xapp-` App-Level Token with `connections:write` scope
 2. **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `im:history`, `channels:history`, `groups:history`
 3. **Event Subscriptions** → Subscribe to bot events: `message.channels`, `message.im`, `app_mention`
-4. Install app to workspace → copy `xoxb-` Bot Token
+4. **Slash Commands** (optional) → Create commands: `/bot`, `/session`, `/sessions`, `/bots` (no description required; the bot responds with usage)
+5. Install app to workspace → copy `xoxb-` Bot Token
 
 ---
 
@@ -141,6 +142,7 @@ httpx
 - Slack pushes message events over the socket
 - `dispatch()` calls `POST /chat` on the agent server — same endpoint used by all other clients
 - `session_scope: user` means each Slack user gets their own persistent session per bot (isolated from mobile/web sessions via `slack:` prefix on `client_id`)
+- **Slash commands**: `/bot` (show or switch bot), `/session` (show / new / switch by number, UUID, or fuzzy title), `/sessions` (list sessions for this client; select with `/session <n>` or id or title), `/bots` (list bots; `*` = current). Per-user state resets session on bot switch; `/session new` starts a new conversation.
 - Restart `slack_bot.py` to pick up config changes
 
 ---
