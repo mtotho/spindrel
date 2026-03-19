@@ -112,8 +112,8 @@ async def chat(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
-    logger.info("Session %s loaded, %d existing messages, system_prompt=%r",
-                session_id, len(messages), messages[0]["content"][:60] if messages else "none")
+    logger.info("Session %s loaded, %d messages", session_id, len(messages))
+    logger.debug("System prompt: %s...", (messages[0]["content"][:80] + "…") if messages else "none")
 
     from_index = len(messages)
 
@@ -128,7 +128,8 @@ async def chat(
 
     logger.info("Response (%d chars): %r", len(result.response), result.response[:100])
     if result.client_actions:
-        logger.info("Client actions: %s", result.client_actions)
+        logger.info("Client actions: %d", len(result.client_actions))
+        logger.debug("Client actions: %s", result.client_actions)
 
     await persist_turn(db, session_id, bot, messages, from_index)
     maybe_compact(session_id, bot, messages)

@@ -25,6 +25,12 @@ from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
 
+
+def _trace(msg: str, *args: Any) -> None:
+    """Log a single-line agent trace when AGENT_TRACE is enabled (no JSON)."""
+    if settings.AGENT_TRACE:
+        logger.info("[agent] " + msg, *args)
+
 _client = AsyncOpenAI(
     base_url=settings.LITELLM_BASE_URL,
     api_key=settings.LITELLM_API_KEY,
@@ -151,6 +157,20 @@ async def run_agent_tool_loop(
 
         if not msg.tool_calls:
             text = msg.content or ""
+            _trace("✓ response (%d chars)", len(text))
+
+            if not text.strip():
+                logger.warning("LLM response was empty. Forcing a response...")
+                messages.append({
+                    "role": "system",
+                    "content": "You must respond to the user. Write a response now."
+                })
+                retry = await _client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                )
+                text = retry.choices[0].message.content or ""
+                messages.append(retry.choices[0].message.model_dump(exclude_none=True))
 
             if native_audio and user_msg_index is not None and not transcript_emitted:
                 transcript, text = _extract_transcript(text)
@@ -185,8 +205,10 @@ async def run_agent_tool_loop(
         for tc in msg.tool_calls:
             name = tc.function.name
             args = tc.function.arguments
-            logger.info("Tool call: %s(%s)", name, args)
+            logger.info("Tool call: %s", name)
+            logger.debug("Tool call %s args: %s", name, args)
 
+            _trace("→ %s", name)
             yield _event_with_compaction_tag({"type": "tool_start", "tool": name}, compaction)
 
             if is_client_tool(name):
@@ -214,10 +236,10 @@ async def run_agent_tool_loop(
                     )
                 elif name == "update_persona":
                     result = await call_persona_tool(name, args or "{}", bot.id)
-                elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge") and client_id:
+                elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge", "list_knowledge_bases") and client_id:
                     result = await call_knowledge_tool(
                         name, args or "{}", bot.id, client_id,
-                        bot.knowledge.cross_bot, bot.knowledge.similarity_threshold,
+                        bot.knowledge.cross_bot, bot.knowledge.cross_client, bot.knowledge.similarity_threshold,
                     )
                 else:
                     result = await call_local_tool(name, args)
@@ -239,10 +261,14 @@ async def run_agent_tool_loop(
             try:
                 parsed = json.loads(result)
                 if isinstance(parsed, dict) and "error" in parsed:
-                    logger.warning("Tool %s returned error: %s", name, parsed["error"])
-                    tool_event["error"] = parsed["error"]
+                    err = parsed["error"]
+                    logger.warning("Tool %s returned error: %s", name, err)
+                    tool_event["error"] = err
+                    _trace("← %s error: %s", name, str(err)[:80])
+                else:
+                    _trace("← %s (%d chars)", name, len(result))
             except (json.JSONDecodeError, TypeError):
-                pass
+                _trace("← %s (%d chars)", name, len(result))
             if name == "search_memories":
                 if result == "No relevant memories found." or result == "No search query provided.":
                     tool_event["memory_count"] = 0
@@ -279,6 +305,7 @@ async def run_agent_tool_loop(
             messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
         transcript_emitted = True
 
+    _trace("✓ response (%d chars)", len(text))
     yield _event_with_compaction_tag({
         "type": "response",
         "text": text,
@@ -356,6 +383,7 @@ async def run_stream(
             bot_id=bot.id,
             client_id=client_id,
             cross_bot=bot.knowledge.cross_bot,
+            cross_client=bot.knowledge.cross_client,
             similarity_threshold=bot.knowledge.similarity_threshold,
         )
         if chunks:

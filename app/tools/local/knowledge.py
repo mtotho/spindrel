@@ -1,7 +1,7 @@
 import json
 import logging
 
-from app.agent.knowledge import get_knowledge_by_name, retrieve_knowledge, upsert_knowledge
+from app.agent.knowledge import get_knowledge_by_name, retrieve_knowledge, upsert_knowledge, list_knowledge_bases
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,10 @@ SEARCH_KNOWLEDGE_DESCRIPTION = (
     "relevant project or system documentation without knowing the exact name."
 )
 
+
+LIST_KNOWLEDGE_BASES_DESCRIPTION = (
+    "List all knowledge bases. Use when you want to see all the knowledge bases available to you."
+)
 
 @register({
     "type": "function",
@@ -79,6 +83,23 @@ async def get_knowledge_tool(name: str) -> str:
 @register({
     "type": "function",
     "function": {
+        "name": "list_knowledge_bases",
+        "description": LIST_KNOWLEDGE_BASES_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+            },
+            "required": [],
+        },
+    },
+})
+async def list_knowledge_bases_tool() -> str:
+    raise NotImplementedError("list_knowledge_bases must be called via call_knowledge_tool")
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "search_knowledge",
         "description": SEARCH_KNOWLEDGE_DESCRIPTION,
         "parameters": {
@@ -103,6 +124,7 @@ async def call_knowledge_tool(
     bot_id: str,
     client_id: str,
     cross_bot: bool = False,
+    cross_client: bool = False,
     similarity_threshold: float = 0.45,
 ) -> str:
     try:
@@ -133,8 +155,16 @@ async def call_knowledge_tool(
         doc_name = (args.get("name") or "").strip()
         if not doc_name:
             return "No name provided."
-        result = await get_knowledge_by_name(doc_name, bot_id, client_id)
+        result = await get_knowledge_by_name(doc_name, bot_id, client_id,
+         is_cross_client=cross_client, is_cross_bot=cross_bot)
         return result if result else f"No knowledge document found with name '{doc_name}'."
+
+    if name == "list_knowledge_bases":
+        result = await list_knowledge_bases(bot_id, client_id,
+            is_cross_client=cross_client, is_cross_bot=cross_bot)
+        if not result:
+            return "No knowledge bases found."
+        return "\n".join(result)
 
     if name == "search_knowledge":
         query = (args.get("query") or "").strip()
@@ -145,6 +175,7 @@ async def call_knowledge_tool(
             bot_id=bot_id,
             client_id=client_id,
             cross_bot=cross_bot,
+            cross_client=cross_client,
             similarity_threshold=similarity_threshold,
         )
         if not chunks:

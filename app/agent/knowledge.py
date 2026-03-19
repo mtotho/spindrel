@@ -55,11 +55,15 @@ async def upsert_knowledge(
     return (True, None)
 
 
+    
+
+
 async def retrieve_knowledge(
     query: str,
     bot_id: str,
     client_id: str,
     cross_bot: bool = False,
+    cross_client: bool = False,
     similarity_threshold: float = 0.45,
 ) -> list[str]:
     embedding = await _embed(query)
@@ -69,12 +73,24 @@ async def retrieve_knowledge(
         .order_by(distance_expr)
         .limit(3)
     )
-    if cross_bot:
-        stmt = stmt.where(BotKnowledge.client_id == client_id)
-    else:
+    if cross_bot and cross_client:
+        # No restriction on bot_id or client_id
+        pass
+    elif cross_bot and not cross_client:
+        # All bots for this client
         stmt = stmt.where(
-            BotKnowledge.client_id == client_id,
+            (BotKnowledge.client_id == client_id) | (BotKnowledge.client_id.is_(None)),
+        )
+    elif not cross_bot and cross_client:
+        # This bot for any client
+        stmt = stmt.where(
             (BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None)),
+        )
+    else:
+        # Only this bot and client (or shared)
+        stmt = stmt.where(
+            ((BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None))) &
+            ((BotKnowledge.client_id == client_id) | (BotKnowledge.client_id.is_(None))),
         )
     async with async_session() as db:
         rows = (await db.execute(stmt)).all()
@@ -85,18 +101,52 @@ async def retrieve_knowledge(
     ]
 
 
-async def get_knowledge_by_name(name: str, bot_id: str, client_id: str) -> str | None:
+async def get_knowledge_by_name(
+    name: str,
+    bot_id: str,
+    client_id: str,
+    is_cross_client: bool = False,
+    is_cross_bot: bool = False
+) -> str | None:
     async with async_session() as db:
-        stmt = (
-            select(BotKnowledge)
-            .where(
-                BotKnowledge.name == name,
-                BotKnowledge.client_id == client_id,
+        stmt = select(BotKnowledge).where(BotKnowledge.name == name)
+        # If either flag is set, allow scope-wide (any client_id/bot_id)
+        if not (is_cross_client or is_cross_bot):
+            # Restrict to specific bot/client (and their "shared"/None scoping)
+            stmt = stmt.where(
                 (BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None)),
+                (BotKnowledge.client_id == client_id) | (BotKnowledge.client_id.is_(None)),
             )
-            .order_by(BotKnowledge.bot_id.asc().nulls_last())  # prefer bot-scoped over shared
-            .limit(1)
-        )
+        # Prefer bot-specific > client-specific > fully shared
+        stmt = stmt.order_by(
+            BotKnowledge.bot_id.asc().nulls_last(),
+            BotKnowledge.client_id.asc().nulls_last()
+        ).limit(1)
         result = await db.execute(stmt)
         row = result.scalar_one_or_none()
         return f"[Knowledge: {row.name}]\n\n{row.content}" if row else None
+
+
+async def list_knowledge_bases(
+    bot_id: str,
+    client_id: str,
+    is_cross_client: bool = False,
+    is_cross_bot: bool = False
+) -> list[str]:
+    async with async_session() as db:
+        stmt = select(BotKnowledge.name)
+        # If either flag is set, allow scope-wide (any client_id/bot_id)
+        if not (is_cross_client or is_cross_bot):
+            # Restrict to specific bot/client (and their "shared"/None scoping)
+            stmt = stmt.where(
+                (BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None)),
+                (BotKnowledge.client_id == client_id) | (BotKnowledge.client_id.is_(None)),
+            )
+        # Prefer bot-specific > client-specific > fully shared
+        stmt = stmt.order_by(
+            BotKnowledge.bot_id.asc().nulls_last(),
+            BotKnowledge.client_id.asc().nulls_last()
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+        return [row.name for row in rows]

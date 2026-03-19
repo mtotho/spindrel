@@ -15,7 +15,8 @@ class Settings(BaseSettings):
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
+    AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
 
     # Web tools
     SEARXNG_URL: str = "http://searxng:8080"

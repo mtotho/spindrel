@@ -40,6 +40,7 @@ local_tools:
   - upsert_knowledge
   - get_knowledge
   - search_knowledge
+  - list_knowledge_bases
   - get_current_local_time
 client_tools:
   - shell_exec
@@ -56,6 +57,7 @@ memory_knowledge_compaction_prompt: |
 knowledge:
   enabled: true
   cross_bot: true
+  cross_client: true
   similarity_threshold: 0.45
 memory:
   enabled: true

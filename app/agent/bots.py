@@ -28,6 +28,7 @@ class MemoryConfig:
 class KnowledgeConfig:
     enabled: bool = False
     cross_bot: bool = False
+    cross_client: bool = False #in slack, this is per channel or cross channel
     similarity_threshold: float = 0.45
 
 
@@ -74,6 +75,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
         knowledge_cfg = KnowledgeConfig(
             enabled=know_data.get("enabled", False),
             cross_bot=know_data.get("cross_bot", False),
+            cross_client=know_data.get("cross_client", False),
             similarity_threshold=know_data.get("similarity_threshold", 0.45),
         )
 
