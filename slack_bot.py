@@ -161,8 +161,8 @@ async def dispatch(channel: str, user: str, text: str, say):
     else:
         session_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}"))
 
-    message = f"[Slack user_id: {user}] {text}"
-
+    message = f"[Slack channel:{channel} user:{user}] {text}"
+    
     try:
         r = await http.post(
             f"{AGENT_BASE_URL}/chat",
