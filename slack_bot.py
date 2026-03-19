@@ -23,9 +23,7 @@ with open(_config_path) as f:
     cfg = yaml.safe_load(f) or {}
 
 channel_map: dict[str, str] = cfg.get("channels", {})
-user_map: dict[str, str] = cfg.get("users", {})
 default_bot: str = cfg.get("default_bot", "default")
-session_scope: str = cfg.get("session_scope", "user")
 
 app = AsyncApp(token=BOT_TOKEN)
 http = httpx.AsyncClient()
@@ -33,25 +31,25 @@ http = httpx.AsyncClient()
 # Per-user state for slash commands: bot_id override, session_id override (None = use deterministic)
 # Persisted to JSON so it survives restarts.
 _STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "slack_state.json")
-_user_state: dict[str, dict] = {}
+_channel_state: dict[str, dict] = {}  # channel_id → {bot_id, session_id}
 _OMIT = object()
 
 
 def _load_state() -> None:
-    global _user_state
+    global _channel_state
     if os.path.isfile(_STATE_PATH):
         try:
             with open(_STATE_PATH) as f:
                 data = json.load(f)
-            _user_state = {k: v for k, v in data.items() if isinstance(v, dict)}
+            _channel_state = {k: v for k, v in data.items() if isinstance(v, dict)}
         except (json.JSONDecodeError, OSError):
-            _user_state = {}
+            _channel_state = {}
 
 
 def _save_state() -> None:
     try:
         with open(_STATE_PATH, "w") as f:
-            json.dump(_user_state, f, indent=2)
+            json.dump(_channel_state, f, indent=2)
     except OSError:
         pass
 
@@ -59,34 +57,26 @@ def _save_state() -> None:
 _load_state()
 
 
-def resolve_bot(channel: str, user: str) -> str:
-    # priority: user config → channel config → default
-    return user_map.get(user) or channel_map.get(channel) or default_bot
+def resolve_bot(channel: str) -> str:
+    return channel_map.get(channel) or default_bot
+
+def get_channel_state(channel: str) -> dict:
+    if channel in _channel_state:
+        return _channel_state[channel].copy()
+    return {"bot_id": resolve_bot(channel), "session_id": None}
 
 
-def get_user_state(user_id: str, channel: str | None = None) -> dict:
-    """Current bot_id and session_id override. channel used for default bot when no state."""
-    if user_id in _user_state:
-        return _user_state[user_id].copy()
-    bot_id = resolve_bot(channel or "", user_id) if channel else default_bot
-    return {"bot_id": bot_id, "session_id": None}
-
-
-def set_user_state(user_id: str, *, bot_id=None, session_id=_OMIT) -> None:
-    """Update user state. Pass session_id=None to clear session override."""
-    if user_id not in _user_state:
-        _user_state[user_id] = {"bot_id": resolve_bot("", user_id), "session_id": None}
+def set_channel_state(channel: str, *, bot_id=None, session_id=_OMIT) -> None:
+    if channel not in _channel_state:
+        _channel_state[channel] = {"bot_id": resolve_bot(channel), "session_id": None}
     if bot_id is not None:
-        _user_state[user_id]["bot_id"] = bot_id
+        _channel_state[channel]["bot_id"] = bot_id
     if session_id is not _OMIT:
-        _user_state[user_id]["session_id"] = session_id
+        _channel_state[channel]["session_id"] = session_id
     _save_state()
 
-
-def _slack_client_id(user_id: str, channel_id: str) -> str:
-    """Same client_id as used in dispatch (for listing sessions)."""
-    return f"slack:{user_id if session_scope == 'user' else channel_id}"
-
+def _slack_client_id(channel_id: str) -> str:
+    return f"slack:{channel_id}"
 
 def _format_last_active(raw: str) -> str:
     """Turn an ISO timestamp into a short relative time for Slack."""
@@ -113,9 +103,9 @@ def _format_last_active(raw: str) -> str:
         return (raw or "")[:16]
 
 
-async def _fetch_sessions(user_id: str, channel_id: str) -> list[dict]:
+async def _fetch_sessions(channel_id: str) -> list[dict]:
     """GET /sessions?client_id=... for this Slack user/channel."""
-    client_id = _slack_client_id(user_id, channel_id)
+    client_id = _slack_client_id( channel_id)
     r = await http.get(
         f"{AGENT_BASE_URL}/sessions",
         params={"client_id": client_id},
@@ -161,21 +151,23 @@ async def dispatch(channel: str, user: str, text: str, say):
         await say("_No message to process._")
         return
 
-    state = get_user_state(user, channel)
+    state = get_channel_state(channel)
     bot_id = state["bot_id"]
-    client_id = f"slack:{user if session_scope == 'user' else channel}"
+    client_id = _slack_client_id(channel)
     # Use override from /session, or deterministic session for this client+bot
     session_id_override = state.get("session_id")
     if session_id_override is not None:
         session_id = session_id_override
     else:
-        session_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"slack:{client_id}:{bot_id}"))
+        session_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}"))
+
+    message = f"[Slack user_id: {user}] {text}"
 
     try:
         r = await http.post(
             f"{AGENT_BASE_URL}/chat",
             json={
-                "message": text,
+                "message": message,
                 "bot_id": bot_id,
                 "client_id": client_id,
                 "session_id": session_id,
@@ -225,7 +217,7 @@ async def cmd_bot(ack, command, respond):
     arg = (command.get("text") or "").strip()
 
     if not arg:
-        state = get_user_state(user, channel)
+        state = get_channel_state(channel)
         await respond(f"Current bot: `{state['bot_id']}`")
         return
 
@@ -237,7 +229,7 @@ async def cmd_bot(ack, command, respond):
         await respond(f"Unknown bot. Available: {', '.join(sorted(valid))}")
         return
 
-    set_user_state(user, bot_id=arg, session_id=None)  # reset to deterministic session for new bot
+    set_channel_state(channel, bot_id=arg, session_id=None)  # reset to deterministic session for new bot
     await respond(f"Switched to `{arg}`. New session for this bot.")
 
 
@@ -246,13 +238,16 @@ async def cmd_sessions(ack, command, respond):
     await ack()
     user = command["user_id"]
     channel = command.get("channel_id") or ""
-    state = get_user_state(user, channel)
+    state = get_channel_state(channel)
+    client_id = _slack_client_id(channel)
+    bot_id = state["bot_id"]
+
     current_sid = (state.get("session_id") or str(
-        uuid.uuid5(uuid.NAMESPACE_DNS, f"slack:{_slack_client_id(user, channel)}:{state['bot_id']}")
+     uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}")
     )).lower()
 
     try:
-        sessions = await _fetch_sessions(user, channel)
+        sessions = await _fetch_sessions(channel)
     except Exception as e:
         await respond(f"Error listing sessions: {e}")
         return
@@ -284,9 +279,9 @@ async def cmd_session(ack, command, respond):
     channel = command.get("channel_id") or ""
     arg = (command.get("text") or "").strip()
 
-    state = get_user_state(user, channel)
-    client_id = _slack_client_id(user, channel)
-    default_sid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"slack:{client_id}:{state['bot_id']}"))
+    state = get_channel_state(channel)
+    client_id = _slack_client_id(channel)
+    default_sid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{state['bot_id']}"))
 
     if not arg:
         sid = state.get("session_id") or default_sid
@@ -294,12 +289,12 @@ async def cmd_session(ack, command, respond):
         return
 
     if arg.lower() == "new":
-        set_user_state(user, session_id=str(uuid.uuid4()))
+        set_channel_state(channel, session_id=str(uuid.uuid4()))
         await respond("Started a new session.")
         return
 
     try:
-        sessions = await _fetch_sessions(user, channel)
+        sessions = await _fetch_sessions(channel)
     except Exception as e:
         await respond(f"Error: {e}")
         return
@@ -309,7 +304,7 @@ async def cmd_session(ack, command, respond):
         index = int(arg) - 1
         if 0 <= index < len(sessions):
             sid = sessions[index]["id"]
-            set_user_state(user, session_id=sid)
+            set_channel_state(channel, session_id=sid)
             title = sessions[index].get("title") or "(untitled)"
             await respond(f"✓ Switched to session `{sid[:8]}...` {title}")
         else:
@@ -321,7 +316,7 @@ async def cmd_session(ack, command, respond):
         sid_parsed = str(uuid.UUID(arg))
         found = any((s.get("id") or "").lower() == sid_parsed.lower() for s in sessions)
         if found:
-            set_user_state(user, session_id=sid_parsed)
+            set_channel_state(channel, session_id=sid_parsed)
             await respond(f"Switched to session `{sid_parsed[:8]}...`")
         else:
             await respond("Session with that UUID not found for this client.")
@@ -333,7 +328,7 @@ async def cmd_session(ack, command, respond):
     found = _fuzzy_find_session(sessions, arg)
     if found:
         sid = found["id"]
-        set_user_state(user, session_id=sid)
+        set_channel_state(channel, session_id=sid)
         title = found.get("title") or "(untitled)"
         await respond(f"Switched to session `{sid[:8]}...` ({title})")
     else:
@@ -348,7 +343,7 @@ async def cmd_bots(ack, command, respond):
     r = await http.get(f"{AGENT_BASE_URL}/bots", headers={"Authorization": f"Bearer {API_KEY}"})
     r.raise_for_status()
     bots_list = r.json()
-    current = get_user_state(user, channel)["bot_id"]
+    current = get_channel_state(channel)["bot_id"]
     lines = [
         f"{'*' if b['id'] == current else ' '} `{b['id']}` — {b['name']} ({b['model']})"
         for b in bots_list
