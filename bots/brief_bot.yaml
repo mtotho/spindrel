@@ -49,8 +49,8 @@ skills:
   - home_assistant
 audio_input: transcribe
 context_compaction: true
-compaction_interval: 10
-compaction_keep_turns: 4
+compaction_interval: 30
+compaction_keep_turns: 10
 memory_knowledge_compaction_prompt: |
   This conversation is about to be summarized. You will keep the last N turns in context, and the rest will be summarized. So please decide now if there is 
   anything from this conversation so far that you want to store in memory, knowledge or update your persona with. Use available tools.

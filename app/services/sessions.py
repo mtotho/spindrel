@@ -1,5 +1,7 @@
+import json
 import logging
 import uuid
+from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
@@ -11,6 +13,46 @@ from app.db.models import Message, Session
 
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_stored_content(content: str | None) -> str | list[Any] | None:
+    """DB stores JSON-encoded multimodal user turns; reload as a list for the LLM."""
+    if content is None:
+        return None
+    if isinstance(content, str) and content.startswith("["):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    return content
+
+
+def _redact_images_for_db(content: list[Any]) -> list[Any]:
+    """Avoid multi‑MB rows: replace data-URL image parts with a text placeholder before persisting."""
+    out: list[Any] = []
+    for part in content:
+        if not isinstance(part, dict):
+            out.append(part)
+            continue
+        if part.get("type") != "image_url":
+            out.append(part)
+            continue
+        url = (part.get("image_url") or {}).get("url", "")
+        if isinstance(url, str) and url.startswith("data:"):
+            # Text marker — never reload a fake image part (invalid media types break Claude, etc.)
+            out.append({"type": "text", "text": "[image — not available in this session]"})
+        else:
+            out.append(part)
+    return out
+
+
+def _content_for_db(msg: dict) -> str | dict | list | None:
+    raw = msg.get("content")
+    if isinstance(raw, list):
+        return json.dumps(_redact_images_for_db(raw))
+    return raw
 
 
 def _effective_system_prompt(bot: BotConfig) -> str:
@@ -88,6 +130,20 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             messages.extend(recent)
             return _sanitize_tool_messages(messages)
+        else:
+            # watermark gone but summary exists — inject summary + all non-system messages
+            logger.warning("Watermark message missing for session %s, falling back to summary + full history", session.id)
+            result = await db.execute(
+                select(Message)
+                .where(Message.session_id == session.id)
+                .order_by(Message.created_at)
+            )
+            all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
+            non_system = [m for m in all_msgs if m["role"] != "system"]
+            messages = _base_messages()
+            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+            messages.extend(non_system)
+            return _sanitize_tool_messages(messages)
 
     result = await db.execute(
         select(Message)
@@ -111,7 +167,7 @@ async def persist_turn(
         record = Message(
             session_id=session_id,
             role=msg["role"],
-            content=msg.get("content"),
+            content=_content_for_db(msg),
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
             created_at=now + timedelta(microseconds=i),
@@ -214,7 +270,7 @@ def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
 def _message_to_dict(msg: Message) -> dict:
     d: dict = {"role": msg.role}
     if msg.content is not None:
-        d["content"] = msg.content
+        d["content"] = normalize_stored_content(msg.content)
     if msg.tool_calls is not None:
         d["tool_calls"] = msg.tool_calls
     if msg.tool_call_id is not None:

@@ -1,17 +1,92 @@
 """Slack message and app_mention → agent /chat."""
+import base64
 import uuid
 
-from agent_client import post_chat
+from agent_client import http, post_chat
 from formatting import format_response_for_slack
 from session_helpers import slack_client_id
+from slack_settings import BOT_TOKEN
 from state import get_channel_state
 
+TEXT_MIMES = {
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "text/html",
+    "application/json",
+    "application/xml",
+    "text/x-python",
+    "application/x-yaml",
+}
+MAX_TEXT_FILE_BYTES = 32_000  # ~8k tokens
 
-async def dispatch(channel: str, user: str, text: str, say):
+
+async def _download_slack_file(url: str) -> bytes:
+    r = await http.get(url, headers={"Authorization": f"Bearer {BOT_TOKEN}"})
+    r.raise_for_status()
+    return r.content
+
+
+async def _process_slack_files(files: list[dict]) -> tuple[str, list[dict]]:
+    """Download Slack shares: append text file bodies to the message; collect images for the API."""
+    text_parts: list[str] = []
+    attachments: list[dict] = []
+    for f in files or []:
+        mime = f.get("mimetype") or ""
+        name = f.get("name") or "attachment"
+        url = f.get("url_private_download") or f.get("url_private")
+        if not url:
+            continue
+        try:
+            data = await _download_slack_file(url)
+        except Exception as e:
+            text_parts.append(f"\n[Could not fetch {name}: {e}]")
+            continue
+        if mime in TEXT_MIMES or mime.startswith("text/"):
+            raw = data[:MAX_TEXT_FILE_BYTES]
+            content = raw.decode("utf-8", errors="replace")
+            truncated = len(data) > MAX_TEXT_FILE_BYTES
+            suffix = "\n[...truncated]" if truncated else ""
+            text_parts.append(f"\n\n[Attached file: {name}]\n```\n{content}{suffix}\n```")
+        elif mime.startswith("image/"):
+            attachments.append({
+                "type": "image",
+                "content": base64.b64encode(data).decode("ascii"),
+                "mime_type": mime,
+                "name": name,
+            })
+    return "".join(text_parts), attachments
+
+
+async def _handle_client_actions(client, channel: str, actions: list) -> None:
+    for action in actions or []:
+        if action.get("type") != "upload_image":
+            continue
+        raw = action.get("data")
+        if not raw:
+            continue
+        try:
+            img_bytes = base64.b64decode(raw)
+        except Exception:
+            continue
+        caption = action.get("caption") or None
+        await client.files_upload_v2(
+            channel=channel,
+            content=img_bytes,
+            filename=action.get("filename") or "generated.png",
+            initial_comment=caption,
+        )
+
+
+async def dispatch(
+    channel: str,
+    user: str,
+    text: str,
+    say,
+    client,
+    files: list | None = None,
+):
     text = (text or "").strip()
-    if not text:
-        await say("_No message to process._")
-        return
 
     state = get_channel_state(channel)
     bot_id = state["bot_id"]
@@ -22,7 +97,15 @@ async def dispatch(channel: str, user: str, text: str, say):
     else:
         session_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}"))
 
-    message = f"[Slack channel:{channel} user:{user}] {text}"
+    appended, attachments = await _process_slack_files(files or [])
+
+    if not text and not appended and not attachments:
+        await say("_No message to process._")
+        return
+    if not text and attachments and not appended:
+        text = "(see attached image(s))"
+
+    message = f"[Slack channel:{channel} user:{user}] {text}{appended}"
 
     try:
         body = await post_chat(
@@ -30,30 +113,48 @@ async def dispatch(channel: str, user: str, text: str, say):
             bot_id=bot_id,
             client_id=client_id,
             session_id=session_id,
+            attachments=attachments if attachments else None,
         )
         reply = (body.get("response") or "").strip()
         await say(format_response_for_slack(reply))
+        await _handle_client_actions(client, channel, body.get("client_actions"))
     except Exception as e:
         await say(f"Error: {str(e)[:500]}")
 
 
 def register_message_handlers(app):
     @app.event("message")
-    async def on_message(event, say):
-        if event.get("subtype"):
+    async def on_message(event, say, client):
+        # Most subtypes (bot_message, channel_join, …) are noise; file uploads often use file_share.
+        st = event.get("subtype")
+        if st and st != "file_share":
             return
         if event.get("bot_id"):
             return
         if (event.get("text") or "").strip().startswith("<@"):
             return
-        await dispatch(event["channel"], event["user"], event.get("text", ""), say)
+        await dispatch(
+            event["channel"],
+            event["user"],
+            event.get("text", ""),
+            say,
+            client,
+            event.get("files"),
+        )
 
     @app.event("app_mention")
-    async def on_mention(event, say):
+    async def on_mention(event, say, client):
         if event.get("bot_id"):
             return
         text = (event.get("text") or "").split(">", 1)[-1].strip()
-        if not text:
-            await say("_Say something after the mention._")
+        if not text and not event.get("files"):
+            await say("_Say something after the mention, or attach a file._")
             return
-        await dispatch(event["channel"], event["user"], text, say)
+        await dispatch(
+            event["channel"],
+            event["user"],
+            text,
+            say,
+            client,
+            event.get("files"),
+        )

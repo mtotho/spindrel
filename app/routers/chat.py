@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class Attachment(BaseModel):
+    """Multimedia attachment (vision). Slack sends type=image with base64 content."""
+    type: str = "image"
+    content: str  # base64-encoded bytes
+    mime_type: str = "image/jpeg"
+    name: str = ""
+
+
 class ChatRequest(BaseModel):
     message: str = ""
     session_id: Optional[uuid.UUID] = None
@@ -31,6 +39,7 @@ class ChatRequest(BaseModel):
     audio_data: Optional[str] = None  # base64-encoded audio
     audio_format: Optional[str] = None  # e.g. "m4a", "wav", "webm"
     audio_native: Optional[bool] = None  # True/False overrides bot default; None = use bot setting
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
@@ -100,8 +109,13 @@ async def chat(
             if not message.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
 
-    if not message:
-        raise HTTPException(status_code=400, detail="No message or audio provided")
+    if not message and not req.attachments:
+        raise HTTPException(status_code=400, detail="No message, audio, or attachments provided")
+
+    if not message.strip() and req.attachments:
+        message = "[User sent attachment(s)]"
+
+    att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     logger.info("POST /chat  bot=%s  session=%s  message=%r", req.bot_id, req.session_id, message[:80])
 
@@ -122,6 +136,7 @@ async def chat(
             messages, bot, message,
             session_id=session_id, client_id=req.client_id,
             audio_data=audio_data, audio_format=audio_format,
+            attachments=att_payload,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -171,8 +186,13 @@ async def chat_stream(
             if not message.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
 
-    if not message:
-        raise HTTPException(status_code=400, detail="No message or audio provided")
+    if not message and not req.attachments:
+        raise HTTPException(status_code=400, detail="No message, audio, or attachments provided")
+
+    if not message.strip() and req.attachments:
+        message = "[User sent attachment(s)]"
+
+    att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     logger.info("POST /chat/stream  bot=%s  session=%s  message=%r", req.bot_id, req.session_id, message[:80])
 
@@ -191,6 +211,7 @@ async def chat_stream(
                 messages, bot, message,
                 session_id=session_id, client_id=req.client_id,
                 audio_data=audio_data, audio_format=audio_format,
+                attachments=att_payload,
             )
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():

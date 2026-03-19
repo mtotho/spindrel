@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     # LiteLLM
     LITELLM_BASE_URL: str = "http://litellm:4000/v1"
     LITELLM_API_KEY: str = ""
+    # Image generation (OpenAI-compatible `images/generations` via LiteLLM)
+    IMAGE_GENERATION_MODEL: str = "gemini/gemini-2.5-flash-image"
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15

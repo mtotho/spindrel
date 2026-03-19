@@ -33,15 +33,19 @@ async def post_chat(
     bot_id: str,
     client_id: str,
     session_id: str,
+    attachments: list[dict] | None = None,
 ) -> dict:
+    payload: dict = {
+        "message": message,
+        "bot_id": bot_id,
+        "client_id": client_id,
+        "session_id": session_id,
+    }
+    if attachments:
+        payload["attachments"] = attachments
     r = await http.post(
         f"{AGENT_BASE_URL}/chat",
-        json={
-            "message": message,
-            "bot_id": bot_id,
-            "client_id": client_id,
-            "session_id": session_id,
-        },
+        json=payload,
         headers={"Authorization": f"Bearer {API_KEY}"},
         timeout=120,
     )

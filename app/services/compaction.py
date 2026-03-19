@@ -15,8 +15,33 @@ from app.agent.loop import run_agent_tool_loop
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Message, Session
+from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
+
+
+def _stringify_message_content(content: Any) -> str:
+    """Compaction prompts must be plain text; multimodal turns become short summaries."""
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for p in content:
+            if isinstance(p, dict) and p.get("type") == "text":
+                parts.append(str(p.get("text", "")))
+            elif isinstance(p, dict) and p.get("type") == "image_url":
+                parts.append("[image]")
+            elif isinstance(p, dict) and p.get("type") == "input_audio":
+                parts.append("[audio]")
+            elif isinstance(p, dict):
+                parts.append(str(p)[:120])
+        return " ".join(parts).strip() or "[multimodal message]"
+    if isinstance(content, str):
+        normalized = normalize_stored_content(content)
+        if normalized is not content and isinstance(normalized, list):
+            return _stringify_message_content(normalized)
+        return content
+    return str(content)
 
 _client = AsyncOpenAI(
     base_url=settings.LITELLM_BASE_URL,
@@ -56,9 +81,10 @@ def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
         if content is None:
             continue
         if role in ("user", "assistant"):
-            filtered.append({"role": role, "content": content})
+            filtered.append({"role": role, "content": _stringify_message_content(content)})
         elif role == "tool":
-            truncated = content[:500] + "..." if len(content) > 500 else content
+            text = _stringify_message_content(content)
+            truncated = text[:500] + "..." if len(text) > 500 else text
             filtered.append({"role": "tool", "content": truncated})
     return filtered
 
@@ -115,7 +141,7 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
         role = m.get("role")
         content = m.get("content")
         if role in ("user", "assistant") and content:
-            filtered.append({"role": role, "content": content})
+            filtered.append({"role": role, "content": _stringify_message_content(content)})
     return filtered
 
 
@@ -198,7 +224,7 @@ async def run_compaction_stream(
         user_msg_count = user_count_result.scalar() or 0
 
     if user_msg_count < interval:
-        logger.debug(
+        logger.info(
             "Compaction not needed for %s (%d/%d turns)",
             session_id, user_msg_count, interval,
         )
@@ -342,7 +368,7 @@ async def run_compaction_forced(
     def _msg_to_dict(m: Message) -> dict:
         d: dict = {"role": m.role}
         if m.content is not None:
-            d["content"] = m.content
+            d["content"] = normalize_stored_content(m.content)
         if m.tool_calls is not None:
             d["tool_calls"] = m.tool_calls
         if m.tool_call_id is not None:
@@ -367,15 +393,27 @@ async def run_compaction_forced(
     model = _get_compaction_model(bot)
     title, summary = await _generate_summary(conversation, model, existing_summary)
 
-    last_msg_result = await db.execute(
+
+    keep_turns = _get_compaction_keep_turns(bot)
+    recent_user_msgs = await db.execute(
         select(Message.id)
         .where(Message.session_id == session_id)
+        .where(Message.role == "user")
+        .order_by(Message.created_at.desc())
+        .limit(keep_turns)
+    )
+    user_msg_ids = recent_user_msgs.scalars().all()
+    oldest_kept = await db.get(Message, user_msg_ids[-1])
+    preceding = await db.execute(
+        select(Message.id)
+        .where(Message.session_id == session_id)
+        .where(Message.created_at < oldest_kept.created_at)
         .order_by(Message.created_at.desc())
         .limit(1)
     )
-    last_msg_id = last_msg_result.scalar_one_or_none()
+    last_msg_id = preceding.scalar()
     if last_msg_id is None:
-        raise ValueError("No messages in session")
+        raise ValueError("All messages within keep window, nothing to compact")
 
     await db.execute(
         update(Session)

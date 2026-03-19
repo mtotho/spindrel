@@ -562,7 +562,7 @@ A Slack Socket Mode bot routes DMs and channel messages to the same `POST /chat`
 
 When both Slack tokens are set, `./scripts/dev-server.sh` starts the Slack bot automatically in the background and stops it on exit. To run the bot alone: `python slack_bot.py`.
 
-See [SLACK_INTEGRATION.MD](SLACK_INTEGRATION.MD) for Slack app configuration (api.slack.com), required scopes, and event subscriptions.
+**Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read` (and DM scopes if needed), plus **`files:read`** to download shared attachments and **`files:write`** so `generate_image` can post images back. Configure the app at [api.slack.com/apps](https://api.slack.com/apps) (Socket Mode, event subscriptions `message.channels`, `app_mention`). See [SLACK_FILE_AND_IMAGE_INTEGRATION.MD](SLACK_FILE_AND_IMAGE_INTEGRATION.MD) for file/vision/image tool behavior.
 
 ## API
 
@@ -577,7 +577,6 @@ See [SLACK_INTEGRATION.MD](SLACK_INTEGRATION.MD) for Slack app configuration (ap
 | `/sessions/{id}` | DELETE | Delete a session |
 | `/sessions/{id}/summarize` | POST | Force summarization + memory write |
 | `/bots` | GET | List available bots (includes per-bot `voice` config) |
-
 All endpoints except `/health` require `Authorization: Bearer <API_KEY>`.
 
 ### POST /chat

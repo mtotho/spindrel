@@ -48,6 +48,25 @@ _AUDIO_TRANSCRIPT_INSTRUCTION = (
 )
 
 
+def _build_user_message_content(text: str, attachments: list[dict] | None) -> str | list[dict]:
+    """OpenAI-style multimodal user content for LiteLLM. `attachments` items: type image, content (base64), mime_type."""
+    if not attachments:
+        return text
+    parts: list[dict] = [{"type": "text", "text": text or "(no text)"}]
+    for att in attachments:
+        if att.get("type") != "image":
+            continue
+        mime = att.get("mime_type") or "image/jpeg"
+        b64 = att.get("content") or ""
+        if not b64:
+            continue
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        })
+    return parts
+
+
 def _build_audio_user_message(audio_data: str, audio_format: str | None) -> dict:
     """Construct a multimodal user message with an audio content part."""
     fmt = audio_format or "m4a"
@@ -132,6 +151,7 @@ async def run_agent_tool_loop(
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
     transcript_emitted = False
+    embedded_client_actions: list[dict] = []
 
     for iteration in range(settings.AGENT_MAX_ITERATIONS):
         logger.debug("--- Iteration %d ---", iteration + 1)
@@ -188,7 +208,9 @@ async def run_agent_tool_loop(
             yield _event_with_compaction_tag({
                 "type": "response",
                 "text": text,
-                "client_actions": _extract_client_actions(messages, turn_start),
+                "client_actions": (
+                    _extract_client_actions(messages, turn_start) + embedded_client_actions
+                ),
             }, compaction)
             return
 
@@ -248,13 +270,22 @@ async def run_agent_tool_loop(
             else:
                 result = json.dumps({"error": f"Unknown tool: {name}"})
 
-            result_preview = result[:200] + "..." if len(result) > 200 else result
+            result_for_llm = result
+            try:
+                parsed_tool = json.loads(result_for_llm)
+                if isinstance(parsed_tool, dict) and "client_action" in parsed_tool:
+                    embedded_client_actions.append(parsed_tool["client_action"])
+                    result_for_llm = parsed_tool.get("message", "Done.")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
             logger.debug("Tool result [%s]: %s", name, result_preview)
 
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
-                "content": result,
+                "content": result_for_llm,
             })
 
             tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
@@ -266,9 +297,9 @@ async def run_agent_tool_loop(
                     tool_event["error"] = err
                     _trace("← %s error: %s", name, str(err)[:80])
                 else:
-                    _trace("← %s (%d chars)", name, len(result))
+                    _trace("← %s (%d chars)", name, len(result_for_llm))
             except (json.JSONDecodeError, TypeError):
-                _trace("← %s (%d chars)", name, len(result))
+                _trace("← %s (%d chars)", name, len(result_for_llm))
             if name == "search_memories":
                 if result == "No relevant memories found." or result == "No search query provided.":
                     tool_event["memory_count"] = 0
@@ -309,7 +340,9 @@ async def run_agent_tool_loop(
     yield _event_with_compaction_tag({
         "type": "response",
         "text": text,
-        "client_actions": _extract_client_actions(messages, turn_start),
+        "client_actions": (
+            _extract_client_actions(messages, turn_start) + embedded_client_actions
+        ),
     }, compaction)
 
 
@@ -321,6 +354,7 @@ async def run_stream(
     client_id: str | None = None,
     audio_data: str | None = None,
     audio_format: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -400,7 +434,8 @@ async def run_stream(
         messages.append(user_msg)
         user_msg_index = len(messages) - 1
     else:
-        messages.append({"role": "user", "content": user_message})
+        user_content = _build_user_message_content(user_message, attachments)
+        messages.append({"role": "user", "content": user_content})
         user_msg_index = len(messages) - 1
 
     async for event in run_agent_tool_loop(
@@ -423,6 +458,7 @@ async def run(
     client_id: str | None = None,
     audio_data: str | None = None,
     audio_format: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -430,6 +466,7 @@ async def run(
         messages, bot, user_message,
         session_id=session_id, client_id=client_id,
         audio_data=audio_data, audio_format=audio_format,
+        attachments=attachments,
     ):
         if event["type"] == "response":
             result.response = event["text"]

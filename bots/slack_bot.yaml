@@ -66,13 +66,14 @@ local_tools:
   - search_knowledge
   - list_knowledge_bases
   - get_current_local_time
+  - generate_image
 skills:
   - arch_linux
   - home_assistant
 audio_input: transcribe
 context_compaction: true
-compaction_interval: 10
-compaction_keep_turns: 4
+compaction_interval: 30
+compaction_keep_turns: 10
 memory_knowledge_compaction_prompt: |
   This conversation is about to be summarized. You will keep the last N turns in context, and the rest will be summarized. So please decide now if there is 
   anything from this conversation so far that you want to store in memory, knowledge or update your persona with. Use available tools.
@@ -92,3 +93,6 @@ memory:
     Store any information that reveals helpful information about this user for future reference. Like which devices are available, what the user's preferences are, what type of projects
     the user is working on, what type of problems the user is having, etc. Do not store routine commands (light switches, weather checks, timers). On the other hand, if for example, the user
     is asking you to "cd into the xyz project folder" it might be worth mentioning exact paths they frequent related to a project or something. You might also want to check memory before writing a new memory to avoid duplicates.
+    IMPORTANT: When a user shares an image, ALWAYS call save_memory immediately 
+    with a description of what the image contains before responding. Do not wait. 
+    The image will not be available in future turns.
