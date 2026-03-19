@@ -15,6 +15,7 @@ from app.agent.memory import retrieve_memories
 from app.agent.knowledge import retrieve_knowledge
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
+from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
@@ -125,6 +126,31 @@ def _event_with_compaction_tag(event: dict[str, Any], compaction: bool) -> dict[
     return event
 
 
+def _merge_tool_schemas(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for group in groups:
+        for t in group:
+            fn = t.get("function") or {}
+            name = fn.get("name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            out.append(t)
+    return out
+
+
+async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]:
+    by_name: dict[str, dict[str, Any]] = {}
+    for t in get_local_tool_schemas(bot.local_tools):
+        by_name[t["function"]["name"]] = t
+    for t in await fetch_mcp_tools(bot.mcp_servers):
+        by_name[t["function"]["name"]] = t
+    for t in get_client_tool_schemas(bot.client_tools):
+        by_name[t["function"]["name"]] = t
+    return by_name
+
+
 async def run_agent_tool_loop(
     messages: list[dict],
     bot: BotConfig,
@@ -136,15 +162,19 @@ async def run_agent_tool_loop(
     native_audio: bool = False,
     user_msg_index: int | None = None,
     compaction: bool = False,
+    pre_selected_tools: list[dict[str, Any]] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
     model = model_override or bot.model
-    local_schemas = get_local_tool_schemas(bot.local_tools)
-    mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
-    client_schemas = get_client_tool_schemas(bot.client_tools)
-    all_tools = local_schemas + mcp_schemas + client_schemas
+    if pre_selected_tools is not None:
+        all_tools = list(pre_selected_tools)
+    else:
+        local_schemas = get_local_tool_schemas(bot.local_tools)
+        mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
+        client_schemas = get_client_tool_schemas(bot.client_tools)
+        all_tools = local_schemas + mcp_schemas + client_schemas
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
@@ -425,6 +455,29 @@ async def run_stream(
             yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview}
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
 
+    pre_selected_tools: list[dict[str, Any]] | None = None
+    if bot.tool_retrieval and (bot.local_tools or bot.mcp_servers or bot.client_tools):
+        by_name = await _all_tool_schemas_by_name(bot)
+        if by_name:
+            th = (
+                bot.tool_similarity_threshold
+                if bot.tool_similarity_threshold is not None
+                else settings.TOOL_RETRIEVAL_THRESHOLD
+            )
+            retrieved = await retrieve_tools(
+                user_message,
+                bot.local_tools,
+                bot.mcp_servers,
+                threshold=th,
+            )
+            pinned_list = [by_name[n] for n in (bot.pinned_tools or []) if n in by_name]
+            client_only = get_client_tool_schemas(bot.client_tools)
+            merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
+            if not merged:
+                pre_selected_tools = list(by_name.values())
+            else:
+                pre_selected_tools = merged
+
     if native_audio:
         messages.append({
             "role": "system",
@@ -446,6 +499,7 @@ async def run_stream(
         turn_start=turn_start,
         native_audio=native_audio,
         user_msg_index=user_msg_index,
+        pre_selected_tools=pre_selected_tools,
     ):
         yield event
 

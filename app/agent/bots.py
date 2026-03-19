@@ -40,6 +40,9 @@ class BotConfig:
     system_prompt: str
     mcp_servers: list[str] = field(default_factory=list)
     local_tools: list[str] = field(default_factory=list)
+    pinned_tools: list[str] = field(default_factory=list)
+    tool_retrieval: bool = True
+    tool_similarity_threshold: float | None = None
     client_tools: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     rag: bool = False
@@ -86,6 +89,9 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             system_prompt=data.get("system_prompt", "You are a helpful assistant."),
             mcp_servers=data.get("mcp_servers", []),
             local_tools=data.get("local_tools", []),
+            pinned_tools=data.get("pinned_tools", []),
+            tool_retrieval=data.get("tool_retrieval", True),
+            tool_similarity_threshold=data.get("tool_similarity_threshold"),
             client_tools=data.get("client_tools", []),
             skills=data.get("skills", []),
             rag=data.get("rag", False),

@@ -170,6 +170,18 @@ mcp_servers:
   - github
 ```
 
+**Dynamic tool retrieval** — With `tool_retrieval: true` (the default), the server embeds each allowed local and MCP tool schema and each turn passes only the top similar tools to the LLM, plus any `pinned_tools` (always included). Tools in `client_tools` are always included. Routing (`call_local_tool`, `call_mcp_tool`, etc.) still uses the full registry and MCP cache. Set `tool_retrieval: false` to pass every allowed tool every turn. Global defaults: `TOOL_RETRIEVAL_THRESHOLD` and `TOOL_RETRIEVAL_TOP_K` in `.env`; per-bot override with `tool_similarity_threshold`. Details: [TOOL_RAG_PLAN.md](TOOL_RAG_PLAN.md).
+
+```yaml
+pinned_tools:
+  - get_current_time
+  - client_action
+tool_retrieval: true
+tool_similarity_threshold: 0.35
+```
+
+**Extra tool directories** — Drop-in Python tools can live in `./tools/` or paths in `TOOL_DIRS` (colon-separated in `.env`). See [tools/README.md](tools/README.md).
+
 ### MCP Servers (mcp.yaml)
 
 MCP server connections are defined in `mcp.yaml` at the project root. Each entry maps a name (referenced by bots) to a URL and optional API key:
@@ -184,7 +196,7 @@ github:
   api_key: ${GITHUB_MCP_KEY}
 ```
 
-Values support `${ENV_VAR}` substitution so you can keep secrets in `.env`. The URL should be the full MCP endpoint — this works with any MCP-compatible server, not just LiteLLM. Tool schemas are cached for 60 seconds.
+Values support `${ENV_VAR}` substitution so you can keep secrets in `.env`. The URL should be the full MCP endpoint — this works with any MCP-compatible server, not just LiteLLM. Tool schemas are cached for 60 seconds; when the cache refreshes, tool embeddings are updated in the background. At startup, the server waits until each MCP server referenced by a bot has been fetched and indexed before finishing readiness.
 
 ## Using the CLI Client
 

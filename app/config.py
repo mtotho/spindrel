@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
 
+    # Extra tool directories (colon-separated paths) scanned at startup in addition to ./tools/
+    TOOL_DIRS: str = ""
+
+    # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
+    TOOL_RETRIEVAL_THRESHOLD: float = 0.35
+    TOOL_RETRIEVAL_TOP_K: int = 10
+
     # Memory
     MEMORY_RETRIEVAL_LIMIT: int = 5
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75

@@ -52,6 +52,7 @@ system_prompt: |
 mcp_servers:
   - homeassistant
 local_tools:
+  - get_weather
   - search_memories
   - save_memory
   - update_persona
@@ -67,6 +68,8 @@ local_tools:
   - list_knowledge_bases
   - get_current_local_time
   - generate_image
+tool_retrieval: true
+tool_similarity_threshold: 0.35
 skills:
   - arch_linux
   - home_assistant

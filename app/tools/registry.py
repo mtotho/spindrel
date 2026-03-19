@@ -8,17 +8,29 @@ logger = logging.getLogger(__name__)
 
 _tools: dict[str, dict[str, Any]] = {}
 
+# Set by loader.py before importing each external tool file so @register picks up the source dir.
+_current_load_source_dir: str | None = None
 
-def register(schema: dict):
+
+def register(schema: dict, *, source_dir: str | None = None):
     """Decorator that registers a local tool function with its OpenAI function schema."""
 
     def decorator(func: Callable):
         name = schema["function"]["name"]
-        _tools[name] = {"function": func, "schema": schema}
+        effective_source_dir = source_dir or _current_load_source_dir
+        _tools[name] = {"function": func, "schema": schema, "source_dir": effective_source_dir}
         logger.info("Registered local tool: %s", name)
         return func
 
     return decorator
+
+
+def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None]]:
+    """(tool_name, openai_tool_schema_dict, source_dir_or_none) for indexing."""
+    out: list[tuple[str, dict[str, Any], str | None]] = []
+    for name, entry in _tools.items():
+        out.append((name, entry["schema"], entry.get("source_dir")))
+    return out
 
 
 def get_local_tool_schemas(allowed_names: list[str] | None = None) -> list[dict]:

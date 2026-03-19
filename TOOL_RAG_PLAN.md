@@ -45,23 +45,37 @@ Tool routing (`call_mcp_tool`, `call_local_tool`) is unaffected — it uses the 
 
 ## Storage
 
-Reuse the existing `documents` table. Tool embeddings stored with a `tool:` source prefix so skill retrieval queries (which filter `source LIKE 'skill:%'`) are unaffected.
+A dedicated `tool_embeddings` table. The `documents` table is for retrievable prose (skill chunks, knowledge content) that gets injected into the system prompt. Tool schemas are structured JSON retrieved for the `tools` API parameter — fundamentally different enough to warrant their own table.
 
-### Source naming convention
+### Schema
 
-| Tool type       | Source key                               |
-|-----------------|------------------------------------------|
-| Local tool      | `tool:local:web_search`                  |
-| MCP tool        | `tool:mcp:homeassistant:HassTurnOn`      |
-| Future external | `tool:external:<namespace>:<name>`       |
+```sql
+CREATE TABLE tool_embeddings (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tool_name    TEXT NOT NULL,      -- e.g. "web_search", "HassTurnOn"
+    server_name  TEXT,               -- NULL for local/dir tools, "homeassistant" for MCP
+    source_dir   TEXT,               -- filesystem path that loaded this tool (NULL for built-ins)
+    schema       JSONB NOT NULL,     -- full OpenAI tool schema
+    embed_text   TEXT NOT NULL,      -- text that was embedded (useful for debugging/inspection)
+    content_hash TEXT NOT NULL,      -- SHA-256 of embed_text; skip re-embed if unchanged
+    embedding    vector({settings.EMBEDDING_DIMENSIONS}),  -- tied to config, same as documents/memories
+    indexed_at   TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
 
-### What gets stored
+CREATE INDEX ON tool_embeddings (tool_name);
+CREATE INDEX ON tool_embeddings (server_name);
+CREATE INDEX ON tool_embeddings (content_hash);
+```
 
-- **`content`**: the text embedded for similarity search — name + description + parameter summary (see below)
-- **`metadata_`**: `{"schema": {...full OpenAI tool schema...}, "content_hash": "sha256..."}`
-- **`embedding`**: vector from the embedding model
+SQLAlchemy model goes in `app/db/models.py` alongside the existing models.
 
-No new table or migration required (beyond ensuring the `documents` table exists, which it already does).
+### Why not reuse `documents`?
+
+- `documents` is for prose; tools are structured schemas — wrong semantic bucket
+- Typed columns (`tool_name`, `server_name`, `source_dir`) vs. stuffing everything into `metadata_` JSONB
+- External tool dir cleanup: `DELETE FROM tool_embeddings WHERE source_dir = '/path'` vs. fragile string-prefix matching
+- Skill retrieval guards with `WHERE source LIKE 'skill:%'`; adding tools would require yet another filter discipline on every query
+- Clean admin visibility — `SELECT * FROM tool_embeddings` vs. parsing `documents.source` prefixes
 
 ### Embed text format
 
@@ -116,14 +130,15 @@ MCP tools won't be in the index on the very first request after a cold start, bu
 ```python
 async def retrieve_tools(
     query: str,
-    allowed_sources: list[str],   # e.g. ["tool:local:*", "tool:mcp:homeassistant:*"]
+    allowed_tool_names: list[str],   # e.g. ["web_search", "HassTurnOn", "HassLightSet"]
+    allowed_servers: list[str],      # e.g. ["homeassistant"] — MCP servers the bot can use
     top_k: int = settings.TOOL_RETRIEVAL_TOP_K,
     threshold: float = settings.TOOL_RETRIEVAL_THRESHOLD,
 ) -> list[dict]:
     """Embed query → cosine search → return top-K tool schemas above threshold."""
 ```
 
-Filtering by `allowed_sources` uses a SQL `source = ANY(...)` or pattern match so retrieval is scoped to what the bot is allowed to use. Returns the full OpenAI tool schema (stored in `metadata_["schema"]`), not the embed text.
+Filtering uses `WHERE tool_name = ANY(:names) OR server_name = ANY(:servers)` — clean typed column comparisons, no string prefix hackery. Returns the `schema` JSONB column directly (the full OpenAI tool schema), not the embed text.
 
 ### Where it's called
 
@@ -173,7 +188,7 @@ tool_retrieval: true             # default true; set false to use all tools (cur
 tool_similarity_threshold: 0.35  # optional per-bot override
 ```
 
-**`pinned_tools`** must be a subset of `local_tools` + tools available via `mcp_servers`. They bypass vector search and are always included.
+**`pinned_tools`** can reference any tool the bot has access to — local tools, directory-loaded tools, or MCP tools by their tool name (e.g. `HassTurnOn`). They bypass vector search and are always included. For a dedicated HA voice bot you'd pin all or most HA tools so the model always has full tool context regardless of the query.
 
 **`tool_retrieval: false`** gives you the current behavior exactly — useful for bots with only 2-3 tools where filtering is pointless overhead.
 
@@ -193,35 +208,53 @@ Threshold rationale: skills use 0.30 (broad recall), memory uses 0.45–0.75 (hi
 
 ## Implementation Phases
 
+### Phase 0 — Simplified registration & discovery
+
+1. `app/tools/tool.py` — new file
+   - `@tool` decorator: infers schema from type hints + docstring, calls `register()` internally
+   - `_infer_schema(func) -> dict` — parses signature and docstring into OpenAI schema
+   - Support for `Annotated[T, "description"]` and Google-style docstring args sections
+
+2. `app/tools/loader.py` — new file
+   - `discover_and_load_tools(dirs: list[Path]) -> None` — glob + importlib import
+   - `_import_tool_file(path: Path) -> None` — safe import with error logging per file (one bad file doesn't block the rest)
+
+3. `app/config.py`
+   - Add `TOOL_DIRS: str = ""` — colon-separated extra paths to scan
+
+4. `app/main.py` — in lifespan startup, call `discover_and_load_tools([...])` before anything else
+
+5. Create `tools/` dir at project root with a `README.md` explaining how to drop in tools
+
 ### Phase 1 — Indexing pipeline
 
-1. `app/agent/tools.py` — new file
+6. `app/agent/tools.py` — new file
    - `_build_embed_text(schema: dict, server_name: str | None) -> str` — formats tool for embedding
    - `_content_hash(text: str) -> str`
    - `index_tool(schema, source_key)` — upsert into `documents` table; skip if hash matches
    - `index_local_tools()` — iterate `_tools` from registry, index each
    - `index_mcp_tools(server_name, schemas)` — index all tools from a server, delete removed ones
 
-2. `app/tools/mcp.py` — in `_fetch_server_tools()`, after populating `_cache`, schedule `index_mcp_tools()` as a background task if the tool list changed
+7. `app/tools/mcp.py` — in `_fetch_server_tools()`, after populating `_cache`, schedule `index_mcp_tools()` as a background task if the tool list changed
 
-3. `app/main.py` — in the lifespan startup, call `await index_local_tools()`
+8. `app/main.py` — in lifespan startup, after discovery, call `await index_local_tools()`
 
 ### Phase 2 — Retrieval + loop integration
 
-4. `app/agent/tools.py` — add `retrieve_tools()` function
+9. `app/agent/tools.py` — add `retrieve_tools()` function
 
-5. `app/agent/bots.py`
-   - Add `pinned_tools: list[str]` to `BotConfig`
-   - Add `tool_retrieval: bool = True`
-   - Add `tool_similarity_threshold: float | None = None`
+10. `app/agent/bots.py`
+    - Add `pinned_tools: list[str]` to `BotConfig`
+    - Add `tool_retrieval: bool = True`
+    - Add `tool_similarity_threshold: float | None = None`
 
-6. `app/config.py`
-   - Add `TOOL_RETRIEVAL_THRESHOLD: float = 0.35`
-   - Add `TOOL_RETRIEVAL_TOP_K: int = 10`
+11. `app/config.py`
+    - Add `TOOL_RETRIEVAL_THRESHOLD: float = 0.35`
+    - Add `TOOL_RETRIEVAL_TOP_K: int = 10`
 
-7. `app/agent/loop.py`
-   - `run_agent_tool_loop()` — add `pre_selected_tools: list[dict] | None = None`; if provided, use it instead of computing from bot config
-   - `run_stream()` — call `retrieve_tools()`, build pinned+retrieved set, pass to loop
+12. `app/agent/loop.py`
+    - `run_agent_tool_loop()` — add `pre_selected_tools: list[dict] | None = None`; if provided, use it instead of computing from bot config
+    - `run_stream()` — call `retrieve_tools()`, build pinned+retrieved set, pass to loop
 
 ### Phase 3 — Threshold calibration
 
@@ -229,23 +262,131 @@ Run a few real conversations with `AGENT_TRACE=true` and log which tools are ret
 
 ---
 
-## Future-Proofing: External Tool Directories
+## Simplified Tool Registration & Discovery
 
-When external tool drop-in support is added (e.g. `~/agent-tools/*.py` or a plugin dir), the indexing pipeline is unchanged:
+The current `@register` decorator requires writing a full OpenAI JSON schema dict inline — verbose and unfriendly for anyone dropping in a quick tool. This section covers:
 
-1. Load and register external tools via the same `@register` decorator (or a compatible loader)
-2. Source key: `tool:external:<namespace>:<name>`
-3. Call `index_tool(schema, source_key)` — identical to how local tools are indexed
+1. A simpler `@tool` decorator that infers schema from type hints and docstring
+2. Configurable multi-directory scanning so tools don't have to live inside `app/`
 
-Bot YAML refers to them the same way:
-```yaml
-local_tools:
-  - my_custom_tool
-pinned_tools:
-  - my_custom_tool
+### New `@tool` Decorator
+
+```python
+# tools/my_tools.py  ← lives in project root tools/, not in app/
+
+from app.tools.tool import tool
+
+@tool
+async def get_weather(city: str, units: str = "imperial") -> str:
+    """Get the current weather for a city.
+
+    Use when the user asks about weather, temperature, or forecast.
+    """
+    ...
 ```
 
-The retrieval and loop code doesn't care where a tool came from — it just sees a schema and a source key.
+That's it. No JSON. The schema is inferred automatically:
+
+| Python                        | OpenAI schema                         |
+|-------------------------------|----------------------------------------|
+| Function name                 | `"name"`                               |
+| First line of docstring       | `"description"` (rest is ignored)     |
+| `param: str`                  | `{"type": "string"}`                  |
+| `param: int`                  | `{"type": "integer"}`                 |
+| `param: bool`                 | `{"type": "boolean"}`                 |
+| `param: list`                 | `{"type": "array"}`                   |
+| No default → required         | added to `"required"` list            |
+| `Annotated[str, "desc"]`      | adds `"description"` to that param    |
+
+For per-parameter descriptions without `Annotated`, use a Google/NumPy-style docstring:
+
+```python
+@tool
+async def get_weather(city: str, units: str = "imperial") -> str:
+    """Get the current weather for a city.
+
+    Args:
+        city: The city name to look up (e.g. 'New York').
+        units: 'imperial' (°F) or 'metric' (°C).
+    """
+```
+
+Override name or description explicitly when needed:
+
+```python
+@tool(name="weather_lookup", description="Check current weather conditions.")
+async def get_weather(city: str) -> str:
+    ...
+```
+
+`@tool` calls `register()` internally — the function ends up in the same `_tools` dict, is routed the same way by `call_local_tool`, and is indexed the same way. The decorator is just a schema-generation shortcut.
+
+The old verbose `@register({...})` on existing internal tools stays exactly as-is — no migration, full backward compat.
+
+### Configurable Tool Directories
+
+Two directories are scanned at startup:
+
+1. **`app/tools/local/`** — built-in tools, always loaded (current behavior)
+2. **`tools/`** in the project root — user tools, always scanned if it exists
+
+Additional directories are added via config:
+
+```
+# .env
+TOOL_DIRS=./tools:/home/user/my-agent-tools:/srv/shared-tools
+```
+
+All entries in `TOOL_DIRS` are scanned in addition to the two defaults. Paths can be absolute or relative to cwd.
+
+### Auto-Discovery Loader
+
+A new `app/tools/loader.py` handles scanning:
+
+```python
+async def discover_and_load_tools(dirs: list[Path]) -> None:
+    """Import all .py files in given directories.
+    Any @tool or @register decorated functions are automatically registered."""
+    for dir_path in dirs:
+        if not dir_path.exists():
+            continue
+        for py_file in dir_path.glob("*.py"):
+            if py_file.name.startswith("_"):
+                continue
+            _import_tool_file(py_file)
+```
+
+`_import_tool_file` uses `importlib.util.spec_from_file_location` to import the file. The act of importing is enough — `@tool` and `@register` decorators run at import time and self-register. No manual wiring needed.
+
+This runs at startup, before `index_local_tools()`.
+
+### Source Keys for Directory-Loaded Tools
+
+Tools discovered from external directories get a namespaced source key based on directory:
+
+| Directory              | Source key                           |
+|------------------------|--------------------------------------|
+| `app/tools/local/`     | `tool:local:web_search`              |
+| `./tools/`             | `tool:local:my_custom_tool`          |
+| `/home/user/mytools/`  | `tool:local:my_custom_tool`          |
+
+Since all non-MCP tools end up in the same `_tools` dict and are routed via `call_local_tool`, they're all `tool:local:*` from the retrieval perspective. The directory they came from doesn't matter at runtime — the registry is the authority.
+
+### Bot YAML — No Change Required
+
+Tools loaded from external dirs are referenced exactly like built-in tools:
+
+```yaml
+local_tools:
+  - web_search       # built-in, in app/tools/local/
+  - get_weather      # from tools/ at project root
+  - my_custom_tool   # from TOOL_DIRS
+
+pinned_tools:
+  - get_weather
+```
+
+Bot YAML still defines the allowed set. Discovery just makes more tools available to put in that list.
 
 ---
 
@@ -260,10 +401,12 @@ The retrieval and loop code doesn't care where a tool came from — it just sees
 
 ## Key Decisions to Confirm
 
-1. **Reuse `documents` table vs. new `tool_schemas` table** — plan uses `documents` for zero migration cost. A dedicated table would be cleaner if you want to query/inspect tool embeddings independently. Either works.
+1. ~~Reuse `documents` vs. new table~~ — **resolved: new `tool_embeddings` table** (see Storage section)
 
-2. **Embed text augmentation for generic MCP tool names** — plan proposes expanding camelCase names (`HassTurnOn` → "turn on, switch on"). Alternatively, require MCP tool authors to write good descriptions. The augmentation is optional and can be skipped initially.
+2. ~~Embed text augmentation for generic MCP tool names~~ — **resolved: skip for v1.** Parameter names and descriptions (e.g. `brightness`, `color_temp`, `rgb_color` on `HassLightSet`) already give the embedder enough surface to work with. Add camelCase expansion only if retrieval quality proves poor in practice.
 
-3. **Cold-start for MCP tools** — on first request after restart, MCP tool embeddings may not exist yet. Options: (a) fall back to all-tools behavior for that turn, (b) warm MCP tools eagerly at startup by fetching them before serving requests. Option (b) is cleaner but adds startup latency.
+3. ~~Cold-start for MCP tools~~ — **resolved: option B, eager fetch at startup.** Block the server from accepting requests until all MCP tool lists are fetched and indexed. Same principle as skills — no point serving requests before the index is ready. Slight startup latency is acceptable.
 
-4. **`pinned_tools` must be subset of `local_tools`** — should the YAML validator enforce this, or just silently skip unknown tool names? Suggest: log a warning and skip.
+4. **`pinned_tools` validation** — `pinned_tools` can reference any tool the bot has access to: local tools, directory-loaded tools, or MCP tools (by tool name). This is intentional — a dedicated HA voice bot should be able to pin all HA tools so they're always in context. Validation: if a pinned tool name isn't found in the registry or MCP cache at startup, log a warning and skip (don't crash).
+
+5. **Migrate existing built-in tools to `@tool`** — the internal tools (`web_search`, `knowledge.py`, etc.) can stay as-is with `@register`. Only new/external tools need `@tool`. Or: migrate them all at once for consistency. Recommend doing it gradually — `@tool` for anything new, leave existing ones alone.

@@ -152,6 +152,16 @@ async def _fetch_server_tools(server: MCPServerConfig) -> list[dict]:
                 tool_names = [t["function"]["name"] for t in openai_tools]
                 logger.info("Fetched %d MCP tools from '%s': %s",
                              len(openai_tools), server.name, tool_names)
+
+                async def _bg_index() -> None:
+                    from app.agent.tools import index_mcp_tools
+
+                    try:
+                        await index_mcp_tools(server.name, openai_tools)
+                    except Exception:
+                        logger.exception("Background MCP tool index failed for %s", server.name)
+
+                asyncio.create_task(_bg_index())
                 return openai_tools
         except Exception:
             logger.exception("Failed to fetch MCP tools from %s", server.url)

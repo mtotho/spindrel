@@ -1,12 +1,19 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
 from app.agent.bots import load_bots
 from app.agent.skills import load_skills
+from app.agent.tools import (
+    index_local_tools,
+    validate_pinned_tools,
+    warm_mcp_tool_index_for_all_bots,
+)
 from app.config import settings
 from app.db.engine import run_migrations
+from app.tools.loader import discover_and_load_tools
 from app.tools.mcp import load_mcp_config
 
 logger = logging.getLogger(__name__)
@@ -25,8 +32,17 @@ async def lifespan(app: FastAPI):
     load_bots()
     logger.info("Loading MCP server config...")
     load_mcp_config()
+    extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]
+    logger.info("Discovering extra tool directories...")
+    discover_and_load_tools(extra_tool_dirs)
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
+
+    logger.info("Indexing local tool schemas for retrieval...")
+    await index_local_tools()
+    logger.info("Fetching and indexing MCP tool schemas...")
+    await warm_mcp_tool_index_for_all_bots()
+    await validate_pinned_tools()
 
     logger.info("Loading skills...")
     await load_skills()

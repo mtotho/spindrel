@@ -120,6 +120,26 @@ class BotPersona(Base):
     )
 
 
+class ToolEmbedding(Base):
+    __tablename__ = "tool_embeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tool_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    server_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schema_: Mapped[dict] = mapped_column("schema", JSONB, nullable=False)
+    embed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
+    indexed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=text("now()"),
+    )
+
+
 class BotKnowledge(Base):
     __tablename__ = "bot_knowledge"
 
