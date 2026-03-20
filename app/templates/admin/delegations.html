@@ -24,12 +24,70 @@
   {% endif %}
 </form>
 
+<!-- External CLI harness (delegate_to_harness deferred) — not agent delegation trees -->
+<div class="mb-8">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-lg font-semibold text-gray-200">External harness tasks</h2>
+    <a href="/admin/tasks?dispatch_type=harness" class="text-xs text-indigo-400 hover:text-indigo-300">All in Tasks →</a>
+  </div>
+  <p class="text-xs text-gray-500 mb-3">
+    These are <code class="bg-gray-700 px-1 rounded">Task</code> rows with <code class="bg-gray-700 px-1 rounded">dispatch_type=harness</code>.
+    When a run finishes, a <code class="bg-gray-700 px-1 rounded">harness_complete:*</code> row is written to Logs and, if the task captured the parent turn’s correlation id, the same entry appears on that request’s trace.
+  </p>
+  {% if harness_tasks %}
+  <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
+          <th class="px-3 py-2 text-left">Created</th>
+          <th class="px-3 py-2 text-left">Bot</th>
+          <th class="px-3 py-2 text-left">Harness</th>
+          <th class="px-3 py-2 text-left">Status</th>
+          <th class="px-3 py-2 text-left">Session / trace</th>
+          <th class="px-3 py-2 text-left"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-700">
+        {% for ht in harness_tasks %}
+        {% set hcfg = ht.dispatch_config or {} %}
+        {% set scorr = hcfg.get('source_correlation_id') %}
+        <tr class="hover:bg-gray-750">
+          <td class="px-3 py-2 text-gray-400 text-xs whitespace-nowrap">{{ ht.created_at | fmt_dt }}</td>
+          <td class="px-3 py-2 font-mono text-xs">{{ ht.bot_id }}</td>
+          <td class="px-3 py-2 text-gray-300">{{ hcfg.get('harness_name', '—') }}</td>
+          <td class="px-3 py-2"><span class="text-xs px-1.5 py-0.5 rounded bg-gray-700">{{ ht.status }}</span></td>
+          <td class="px-3 py-2 text-xs font-mono">
+            {% if ht.session_id %}
+            <a href="/admin/sessions/{{ ht.session_id }}/correlations" class="text-indigo-400 hover:text-indigo-300">session</a>
+            {% else %}—{% endif %}
+            {% if scorr %}
+            · <a href="/admin/trace/{{ scorr }}" class="text-indigo-400 hover:text-indigo-300" title="{{ scorr }}">trace</a>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2 text-right"><a href="/admin/tasks/{{ ht.id }}" class="text-xs text-gray-400 hover:text-gray-200">task →</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-sm text-gray-500 bg-gray-800/50 rounded-lg border border-gray-700/50 px-4 py-3">No harness tasks yet.</div>
+  {% endif %}
+</div>
+
 {% if not trees %}
 <div class="bg-gray-800 rounded-xl border border-gray-700 p-10 text-center">
   <div class="text-gray-500 mb-2">No delegation chains found.</div>
-  <div class="text-xs text-gray-600">
-    Chains appear when a bot uses <code class="bg-gray-700 px-1 rounded">delegate_to_agent</code>
-    to spawn a child agent session.
+  <div class="text-xs text-gray-600 max-w-lg mx-auto space-y-1">
+    <p>
+      Chains appear when a bot uses <code class="bg-gray-700 px-1 rounded">delegate_to_agent</code>
+      (immediate or deferred) so the server creates a child <code class="bg-gray-700 px-1 rounded">sessions</code> row
+      linked via <code class="bg-gray-700 px-1 rounded">parent_session_id</code> / <code class="bg-gray-700 px-1 rounded">root_session_id</code>.
+    </p>
+    <p class="text-gray-500">
+      <code class="bg-gray-700 px-1 rounded">delegate_to_harness</code> does not create a child session — see <strong>External harness tasks</strong> above and <a href="/admin/tasks?dispatch_type=harness" class="text-indigo-400 hover:text-indigo-300">Tasks</a>.
+      When the worker finishes, output is logged under the <strong>parent</strong> session and linked to the same correlation as the <code class="bg-gray-700 px-1 rounded">delegate_to_harness</code> tool call (for tasks created after this change).
+    </p>
   </div>
 </div>
 {% else %}

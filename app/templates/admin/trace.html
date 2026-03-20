@@ -52,6 +52,8 @@
     {% set is_tokens = item.kind == 'trace_event' and obj.event_type == 'token_usage' %}
     {% set is_context_breakdown = item.kind == 'trace_event' and obj.event_type == 'context_breakdown' %}
     {% set is_tool = item.kind == 'tool_call' %}
+    {% set is_harness_tool = is_tool and obj.tool_type == 'harness' %}
+    {% set is_harness_te = item.kind == 'trace_event' and obj.event_type == 'harness' %}
     {% set is_msg = item.kind == 'message' %}
 
     <div class="relative pl-14 group" x-data="{ open: false }" data-event-index="{{ loop.index0 }}">
@@ -62,6 +64,7 @@
         {% elif is_tool_rag %}border-yellow-400 bg-yellow-900
         {% elif is_context_breakdown %}border-cyan-500 bg-cyan-950
         {% elif is_tokens %}border-gray-500 bg-gray-800
+        {% elif is_harness_tool or is_harness_te %}border-amber-400 bg-amber-950
         {% elif is_tool %}border-indigo-400 bg-indigo-900
         {% elif is_msg and obj.role == 'user' %}border-green-400 bg-green-900
         {% elif is_msg %}border-gray-400 bg-gray-700
@@ -96,7 +99,9 @@
         <div class="flex items-start justify-between gap-3">
           <div class="flex items-center gap-2 flex-wrap min-w-0">
             <!-- Type badge -->
-            {% if is_tool %}
+            {% if is_harness_tool %}
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-200 shrink-0">harness</span>
+            {% elif is_tool %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-indigo-900/50 text-indigo-300 shrink-0">tool_call</span>
             {% elif obj.event_type == 'memory_injection' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-300 shrink-0">memory</span>
@@ -116,6 +121,8 @@
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-400 shrink-0">tokens</span>
             {% elif obj.event_type == 'error' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-300 shrink-0">error</span>
+            {% elif obj.event_type == 'harness' %}
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-200 shrink-0">harness</span>
             {% else %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-300 shrink-0">{{ obj.event_type }}</span>
             {% endif %}

@@ -1,11 +1,13 @@
 """Agent tools for bot-to-bot delegation and external harness execution."""
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.agent.context import (
     current_bot_id,
     current_client_id,
+    current_correlation_id,
     current_dispatch_config,
     current_dispatch_type,
     current_ephemeral_delegates,
@@ -153,16 +155,27 @@ async def delegate_to_agent(
         return json.dumps({"error": str(exc)})
 
 
+def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return uuid.UUID(str(raw).strip())
+    except (ValueError, TypeError):
+        return None
+
+
 @register({
     "type": "function",
     "function": {
         "name": "delegate_to_harness",
         "description": (
-            "Run an external CLI harness (e.g. claude-code, cursor) as a subprocess with a prompt. "
+            "Run an external CLI harness (e.g. claude-code, cursor) with a prompt. "
+            "By default the CLI runs on the agent-server host. "
+            "Pass sandbox_instance_id (from ensure_sandbox) to run the same harness command inside that "
+            "Docker container via docker exec — use a container path for working_directory (e.g. /workspace). "
             "Use mode=sync (default) to wait for the result. "
-            "Use mode=deferred to run in the background — the result is posted back to the channel when done; "
-            "the tool returns a task_id immediately. "
-            "Harness must be configured in harnesses.yaml and the bot must have harness_access for it."
+            "Use mode=deferred for background execution; result posts to the channel when done. "
+            "Harness must be in harnesses.yaml and the bot must have harness_access."
         ),
         "parameters": {
             "type": "object",
@@ -177,7 +190,18 @@ async def delegate_to_agent(
                 },
                 "working_directory": {
                     "type": "string",
-                    "description": "Working directory for the harness process. Must be in server allowlist if set.",
+                    "description": (
+                        "Working directory: on the host, must be in HARNESS_WORKING_DIR_ALLOWLIST when set. "
+                        "With sandbox_instance_id, this is a path inside the container (e.g. /workspace/project)."
+                    ),
+                },
+                "sandbox_instance_id": {
+                    "type": "string",
+                    "description": (
+                        "If set, run the harness inside this sandbox (UUID from ensure_sandbox). "
+                        "Requires DOCKER_SANDBOX_ENABLED and a profile image that includes the harness CLI "
+                        "(e.g. agent-python with claude). Omit to run on the agent-server host."
+                    ),
                 },
                 "mode": {
                     "type": "string",
@@ -200,6 +224,7 @@ async def delegate_to_harness(
     prompt: str,
     working_directory: str | None = None,
     mode: str = "sync",
+    sandbox_instance_id: str | None = None,
 ) -> str:
     from app.agent.bots import get_bot
     from app.services.harness import harness_service, HarnessError
@@ -221,6 +246,18 @@ async def delegate_to_harness(
         dispatch_config = dict(current_dispatch_config.get() or {})
         session_id = current_session_id.get()
         client_id = current_client_id.get()
+        src_corr = current_correlation_id.get()
+        harness_cfg: dict = {
+            "harness_name": harness,
+            "working_directory": working_directory,
+            "output_dispatch_type": dispatch_type or "none",
+            "output_dispatch_config": dispatch_config,
+        }
+        sbx = _parse_uuid_opt(sandbox_instance_id)
+        if sbx is not None:
+            harness_cfg["sandbox_instance_id"] = str(sbx)
+        if src_corr is not None:
+            harness_cfg["source_correlation_id"] = str(src_corr)
         task = Task(
             bot_id=parent_bot_id,
             client_id=client_id,
@@ -228,12 +265,7 @@ async def delegate_to_harness(
             prompt=prompt,
             status="pending",
             dispatch_type="harness",
-            dispatch_config={
-                "harness_name": harness,
-                "working_directory": working_directory,
-                "output_dispatch_type": dispatch_type or "none",
-                "output_dispatch_config": dispatch_config,
-            },
+            dispatch_config=harness_cfg,
         )
         async with async_session() as db:
             db.add(task)
@@ -244,11 +276,13 @@ async def delegate_to_harness(
 
     # sync mode
     try:
+        sbx = _parse_uuid_opt(sandbox_instance_id)
         result = await harness_service.run(
             harness_name=harness,
             prompt=prompt,
             working_directory=working_directory,
             bot=bot,
+            sandbox_instance_id=sbx,
         )
         output = {
             "exit_code": result.exit_code,

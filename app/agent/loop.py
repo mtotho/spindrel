@@ -53,6 +53,7 @@ _SYS_MSG_PREFIXES: list[tuple[str, str]] = [
     ("Relevant knowledge:\n", "sys:knowledge"),
     ("Relevant code/files", "sys:fs_context"),
     ("Available tools (not yet loaded", "sys:tool_index"),
+    ("Active plans for this session:", "sys:plans"),
     ("You must respond to the user", "sys:forced_response"),
     ("You have used too many tool calls", "sys:max_iterations"),
     ("[TRANSCRIPT_INSTRUCTION]", "sys:audio"),
@@ -823,6 +824,39 @@ async def run_stream(
                     data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4), "chars": _know_chars},
                 ))
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
+
+    # Inject active plans for the current session (always, no bot config flag)
+    if session_id:
+        from app.db.models import Plan as _Plan, PlanItem as _PlanItem
+        from app.db.engine import async_session as _async_session_plans
+        from sqlalchemy import select as _sa_select_plans
+        async with _async_session_plans() as _pdb:
+            _plan_rows = (await _pdb.execute(
+                _sa_select_plans(_Plan)
+                .where(_Plan.session_id == session_id, _Plan.status == "active")
+                .order_by(_Plan.created_at)
+            )).scalars().all()
+        if _plan_rows:
+            _plan_lines: list[str] = []
+            for _p in _plan_rows:
+                async with _async_session_plans() as _idb:
+                    _items = (await _idb.execute(
+                        _sa_select_plans(_PlanItem)
+                        .where(_PlanItem.plan_id == _p.id)
+                        .order_by(_PlanItem.position)
+                    )).scalars().all()
+                _plan_lines.append(
+                    f"## {_p.title}\n" + "\n".join(
+                        f"{i.position}. [{i.status}] {i.content}"
+                        + (f"\n   notes: {i.notes}" if i.notes else "")
+                        for i in _items
+                    )
+                )
+            messages.append({
+                "role": "system",
+                "content": "Active plans for this session:\n\n" + "\n\n".join(_plan_lines),
+            })
+            yield {"type": "plans_context", "count": len(_plan_rows)}
 
     if bot.filesystem_indexes:
         from app.agent.fs_indexer import retrieve_filesystem_context

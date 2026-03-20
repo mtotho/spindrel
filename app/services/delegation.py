@@ -1,4 +1,5 @@
 """Bot-to-bot delegation service — run child agents immediately or as deferred tasks."""
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -48,7 +49,11 @@ class DelegationService:
         """Run a child agent immediately and return its final response."""
         from app.agent.bots import get_bot
         from app.agent.loop import run_stream
-        from app.agent.context import set_agent_context
+        from app.agent.context import (
+            restore_agent_context,
+            set_agent_context,
+            snapshot_agent_context,
+        )
         from app.services.sessions import load_or_create, persist_turn
 
         # Global flag OR bot has explicit delegate_bots config enables delegation
@@ -107,45 +112,51 @@ class DelegationService:
                 child_messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
 
         correlation_id = uuid.uuid4()
-
-        # Set child context vars
-        set_agent_context(
-            session_id=child_session_id,
-            client_id=client_id,
-            bot_id=delegate_bot_id,
-            correlation_id=correlation_id,
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
-            session_depth=child_depth,
-            root_session_id=child_root_id,
-        )
-
         final_response = ""
-        turn_start = len(child_messages)
 
-        async for event in run_stream(
-            child_messages,
-            delegate_bot,
-            prompt,
-            session_id=child_session_id,
-            client_id=client_id,
-            correlation_id=correlation_id,
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
-        ):
-            if event.get("type") == "response":
-                final_response = event.get("text", "")
-
-        # Persist child turn
-        async with async_session() as db:
-            await persist_turn(
-                db,
-                child_session_id,
-                delegate_bot,
-                child_messages,
-                turn_start,
+        parent_ctx = snapshot_agent_context()
+        try:
+            # Child run_stream overwrites ContextVars; restore parent after so the outer
+            # agent loop, trace tools, and fire-and-forget record_* tasks see correct ids.
+            set_agent_context(
+                session_id=child_session_id,
+                client_id=client_id,
+                bot_id=delegate_bot_id,
                 correlation_id=correlation_id,
+                dispatch_type=dispatch_type,
+                dispatch_config=dispatch_config,
+                session_depth=child_depth,
+                root_session_id=child_root_id,
             )
+
+            turn_start = len(child_messages)
+
+            async for event in run_stream(
+                child_messages,
+                delegate_bot,
+                prompt,
+                session_id=child_session_id,
+                client_id=client_id,
+                correlation_id=correlation_id,
+                dispatch_type=dispatch_type,
+                dispatch_config=dispatch_config,
+            ):
+                if event.get("type") == "response":
+                    final_response = event.get("text", "")
+
+            # Persist child turn
+            async with async_session() as db:
+                await persist_turn(
+                    db,
+                    child_session_id,
+                    delegate_bot,
+                    child_messages,
+                    turn_start,
+                    correlation_id=correlation_id,
+                )
+        finally:
+            await asyncio.sleep(0)
+            restore_agent_context(parent_ctx)
 
         # Post to Slack (attributed to child bot) if dispatch_type is slack
         if dispatch_type == "slack" and dispatch_config and final_response:

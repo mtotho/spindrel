@@ -1,6 +1,7 @@
 """Request-scoped context for the agent loop (e.g. session_id, client_id for tools)."""
 import uuid
 from contextvars import ContextVar
+from dataclasses import dataclass
 
 current_session_id: ContextVar[uuid.UUID | None] = ContextVar(
     "current_session_id", default=None
@@ -76,4 +77,56 @@ def set_agent_context(
 def set_ephemeral_delegates(bot_ids: list[str]) -> None:
     """Set ephemeral @-tagged bot IDs that bypass delegation allowlist for this request."""
     current_ephemeral_delegates.set(list(bot_ids))
- 
+
+
+@dataclass
+class AgentContextSnapshot:
+    """Full copy of agent ContextVars for save/restore around nested runs (e.g. delegation)."""
+
+    session_id: uuid.UUID | None
+    correlation_id: uuid.UUID | None
+    client_id: str | None
+    bot_id: str | None
+    memory_cross_session: bool | None
+    memory_cross_client: bool | None
+    memory_similarity_threshold: float | None
+    memory_cross_bot: bool | None
+    dispatch_type: str | None
+    dispatch_config: dict | None
+    session_depth: int
+    root_session_id: uuid.UUID | None
+    ephemeral_delegates: list
+
+
+def snapshot_agent_context() -> AgentContextSnapshot:
+    return AgentContextSnapshot(
+        session_id=current_session_id.get(),
+        correlation_id=current_correlation_id.get(),
+        client_id=current_client_id.get(),
+        bot_id=current_bot_id.get(),
+        memory_cross_session=current_memory_cross_session.get(),
+        memory_cross_client=current_memory_cross_client.get(),
+        memory_similarity_threshold=current_memory_similarity_threshold.get(),
+        memory_cross_bot=current_memory_cross_bot.get(),
+        dispatch_type=current_dispatch_type.get(),
+        dispatch_config=current_dispatch_config.get(),
+        session_depth=current_session_depth.get(),
+        root_session_id=current_root_session_id.get(),
+        ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
+    )
+
+
+def restore_agent_context(snap: AgentContextSnapshot) -> None:
+    current_session_id.set(snap.session_id)
+    current_correlation_id.set(snap.correlation_id)
+    current_client_id.set(snap.client_id)
+    current_bot_id.set(snap.bot_id)
+    current_memory_cross_session.set(snap.memory_cross_session)
+    current_memory_cross_client.set(snap.memory_cross_client)
+    current_memory_similarity_threshold.set(snap.memory_similarity_threshold)
+    current_memory_cross_bot.set(snap.memory_cross_bot)
+    current_dispatch_type.set(snap.dispatch_type)
+    current_dispatch_config.set(snap.dispatch_config)
+    current_session_depth.set(snap.session_depth)
+    current_root_session_id.set(snap.root_session_id)
+    current_ephemeral_delegates.set(list(snap.ephemeral_delegates))

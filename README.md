@@ -628,6 +628,36 @@ When both Slack tokens are set, `./scripts/dev-server.sh` starts the Slack bot a
 
 **Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read` (and DM scopes if needed), plus **`files:read`** to download shared attachments and **`files:write`** so `generate_image` can post images back. Configure the app at [api.slack.com/apps](https://api.slack.com/apps) (Socket Mode, event subscriptions `message.channels`, `app_mention`). See [SLACK_FILE_AND_IMAGE_INTEGRATION.MD](SLACK_FILE_AND_IMAGE_INTEGRATION.MD) for file/vision/image tool behavior.
 
+### Slash commands
+
+Register the following slash commands in your Slack app at **api.slack.com/apps → Slash Commands**. Set each command's Request URL to anything (it's ignored in Socket Mode — Slack sends slash command payloads over the same WebSocket). Enable the `commands` scope on the Bot token.
+
+| Command | Description |
+|---|---|
+| `/bot [id]` | Show or switch the current bot for this channel |
+| `/bots` | List all available bots |
+| `/session [new\|id\|title\|#]` | Show or switch the current session |
+| `/sessions` | List recent sessions for this channel |
+| `/context` | Show the latest context window breakdown (chars per role) |
+| `/compact` | Force session compaction (summarize + memory write) now |
+| `/plan [subcommand]` | View and manage agent plans (see below) |
+
+**`/plan` subcommands:**
+
+```
+/plan                          List active plans
+/plan list all                 List all plans including completed/abandoned
+/plan <id>                     Show plan detail with item statuses
+/plan done <id> <n>            Mark item n done
+/plan skip <id> <n>            Mark item n skipped
+/plan pending <id> <n>         Reset item n to pending
+/plan progress <id> <n>        Mark item n in-progress
+/plan complete <id>            Mark plan complete
+/plan abandon <id>             Abandon a plan
+```
+
+`<id>` is a plan UUID prefix (first 8 chars is usually enough). Item numbers are 1-based.
+
 ## Task Scheduling
 
 The task system lets the agent schedule deferred work and deliver results back to wherever the request came from — a Slack thread, a webhook, or just the DB for polling. A background worker polls for due tasks every 5 seconds.

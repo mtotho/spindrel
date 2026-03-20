@@ -156,11 +156,12 @@ def _parse_instance_id(raw: str) -> uuid.UUID | None:
         "description": (
             "Run a shell command inside an existing sandbox. "
             "Requires instance_id from ensure_sandbox. "
+            "To run Claude Code / a configured harness CLI inside this container with the same argv as "
+            "harnesses.yaml, use delegate_to_harness(..., sandbox_instance_id=<this id>, working_directory="
+            "'/path/inside/container'). "
             "If the container was stopped, it is started automatically. "
             "Output is capped at 64 KB. "
-            "For commands with verbose output (package managers, compilers, build tools), "
-            "use quiet flags to avoid filling context: apt-get install -qq -y, pip install -q, "
-            "npm install --silent, make -s, cargo build -q, etc."
+            "For verbose commands, use quiet flags (apt-get -qq, pip -q, npm --silent, etc.)."
         ),
         "parameters": {
             "type": "object",

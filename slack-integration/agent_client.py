@@ -62,6 +62,55 @@ async def post_chat(
     return r.json()
 
 
+async def fetch_session_context(session_id: str) -> dict:
+    r = await http.get(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/context",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def fetch_session_plans(session_id: str, status: str = "active") -> list[dict]:
+    r = await http.get(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/plans",
+        params={"status": status},
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def compact_session(session_id: str) -> dict:
+    r = await http.post(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/summarize",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        timeout=120,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def update_plan_status(session_id: str, plan_id: str, status: str) -> None:
+    r = await http.post(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/plans/{plan_id}/status",
+        json={"status": status},
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+
+
+async def update_plan_item_status(
+    session_id: str, plan_id: str, item_position: int, status: str
+) -> None:
+    r = await http.post(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/plans/{plan_id}/items/{item_position}/status",
+        json={"status": status},
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+
+
 async def stream_chat(
     *,
     message: str,

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,7 +16,21 @@ from app.agent.knowledge import upsert_knowledge, update_knowledge_entry
 from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite, Memory, Message, SandboxInstance, Session, ToolCall, ToolEmbedding, TraceEvent
+from app.db.models import (
+    BotKnowledge,
+    KnowledgePin,
+    KnowledgeWrite,
+    Memory,
+    Message,
+    Plan,
+    PlanItem,
+    SandboxInstance,
+    Session,
+    Task,
+    ToolCall,
+    ToolEmbedding,
+    TraceEvent,
+)
 from app.routers.admin_template_filters import install_admin_template_filters
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -231,6 +246,15 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
                 .limit(page_size)
             )
         ).scalars().all()
+        plans = (await db.execute(
+            select(Plan).where(Plan.session_id == session_id).order_by(Plan.created_at)
+        )).scalars().all()
+        plan_items_map: dict[str, list] = {}
+        for _p in plans:
+            _items = (await db.execute(
+                select(PlanItem).where(PlanItem.plan_id == _p.id).order_by(PlanItem.position)
+            )).scalars().all()
+            plan_items_map[str(_p.id)] = list(_items)
     return templates.TemplateResponse(
         "admin/session_detail.html",
         {
@@ -240,6 +264,8 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
             "page": page,
             "page_size": page_size,
             "total": total,
+            "plans": plans,
+            "plan_items": plan_items_map,
         },
     )
 
@@ -287,6 +313,42 @@ async def admin_delete_session(session_id: uuid.UUID):
 # Delegation Trees
 # ---------------------------------------------------------------------------
 
+async def _delegation_walk_root_and_latest(
+    db, start_id: uuid.UUID
+) -> tuple[uuid.UUID | None, datetime | None]:
+    """Follow parent_session_id links to the chain root; return (root_id, max last_active on path)."""
+    seen: set[uuid.UUID] = set()
+    cur: uuid.UUID | None = start_id
+    best: datetime | None = None
+    while cur is not None:
+        if cur in seen:
+            return None, None
+        seen.add(cur)
+        row = await db.get(Session, cur)
+        if row is None:
+            return None, None
+        if best is None or row.last_active > best:
+            best = row.last_active
+        if row.parent_session_id is None:
+            return cur, best
+        cur = row.parent_session_id
+    return None, None
+
+
+async def _delegation_expand_subtree_ids(db, root_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
+    """All session ids reachable downward via parent_session_id from any root (BFS fixpoint)."""
+    ids = set(root_ids)
+    while True:
+        child_ids = (
+            await db.execute(select(Session.id).where(Session.parent_session_id.in_(ids)))
+        ).scalars().all()
+        new = set(child_ids) - ids
+        if not new:
+            break
+        ids |= new
+    return ids
+
+
 @router.get("/delegations", response_class=HTMLResponse)
 async def admin_delegations(
     request: Request,
@@ -295,39 +357,56 @@ async def admin_delegations(
 ):
     page_size = 15
     async with async_session() as db:
-        # Find distinct root sessions for delegation chains, ordered by most recent activity
+        # Chains from rows that record root_session_id (normal delegate_to_agent / cross-bot tasks)
         root_q = (
             select(Session.root_session_id, func.max(Session.last_active).label("latest"))
             .where(Session.root_session_id.is_not(None))
             .group_by(Session.root_session_id)
-            .order_by(func.max(Session.last_active).desc())
         )
-        all_chain_roots = (await db.execute(root_q)).all()
+        sql_roots = (await db.execute(root_q)).all()
+        root_latest: dict[uuid.UUID, datetime] = {r.root_session_id: r.latest for r in sql_roots}
 
-        # Optionally filter to chains where the root session uses the given bot_id
-        if bot_id and all_chain_roots:
-            root_ids_raw = [r.root_session_id for r in all_chain_roots]
-            matching_roots = (await db.execute(
-                select(Session.id)
-                .where(Session.id.in_(root_ids_raw))
-                .where(Session.bot_id == bot_id)
-            )).scalars().all()
-            matching_set = set(matching_roots)
-            all_chain_roots = [r for r in all_chain_roots if r.root_session_id in matching_set]
+        # Legacy / inconsistent rows: parent set but root_session_id NULL — infer root by walking up
+        stray_ids = (
+            await db.execute(
+                select(Session.id).where(
+                    Session.parent_session_id.is_not(None),
+                    Session.root_session_id.is_(None),
+                )
+            )
+        ).scalars().all()
+        for sid in stray_ids:
+            r_id, latest = await _delegation_walk_root_and_latest(db, sid)
+            if r_id is None or latest is None:
+                continue
+            prev = root_latest.get(r_id)
+            root_latest[r_id] = latest if prev is None or latest > prev else prev
 
-        total = len(all_chain_roots)
-        paged_root_ids = [r.root_session_id for r in all_chain_roots[(page - 1) * page_size: page * page_size]]
+        sorted_roots = sorted(root_latest.keys(), key=lambda rid: root_latest[rid], reverse=True)
+
+        if bot_id and sorted_roots:
+            matching = (
+                await db.execute(
+                    select(Session.id).where(Session.id.in_(sorted_roots), Session.bot_id == bot_id)
+                )
+            ).scalars().all()
+            match_set = set(matching)
+            sorted_roots = [rid for rid in sorted_roots if rid in match_set]
+
+        total = len(sorted_roots)
+        paged_root_ids = sorted_roots[(page - 1) * page_size : page * page_size]
 
         trees_data = []
         if paged_root_ids:
-            all_tree_sessions = (await db.execute(
-                select(Session)
-                .where(or_(
-                    Session.id.in_(paged_root_ids),
-                    Session.root_session_id.in_(paged_root_ids),
-                ))
-                .order_by(Session.created_at)
-            )).scalars().all()
+            load_ids = await _delegation_expand_subtree_ids(db, paged_root_ids)
+            tagged = (
+                await db.execute(select(Session.id).where(Session.root_session_id.in_(paged_root_ids)))
+            ).scalars().all()
+            load_ids |= set(tagged)
+
+            all_tree_sessions = (
+                await db.execute(select(Session).where(Session.id.in_(load_ids)).order_by(Session.created_at))
+            ).scalars().all()
 
             session_map = {s.id: s for s in all_tree_sessions}
             children_map: dict = {}
@@ -359,19 +438,36 @@ async def admin_delegations(
                     rows.extend(_flatten(child, prefix + [not child_is_last], child_is_last))
                 return rows
 
+            def _subtree_size(rid: uuid.UUID) -> int:
+                stack = [rid]
+                seen: set[uuid.UUID] = set()
+                while stack:
+                    i = stack.pop()
+                    if i in seen:
+                        continue
+                    seen.add(i)
+                    for ch in children_map.get(i, []):
+                        stack.append(ch.id)
+                return len(seen)
+
             for root_id in paged_root_ids:
                 root = session_map.get(root_id)
                 if root:
                     tree_node = _build_node(root)
-                    tree_size = sum(
-                        1 for s in all_tree_sessions
-                        if s.root_session_id == root_id or s.id == root_id
-                    )
                     trees_data.append({
                         "root": root,
                         "rows": _flatten(tree_node),
-                        "size": tree_size,
+                        "size": _subtree_size(root_id),
                     })
+
+        harness_tasks = (
+            await db.execute(
+                select(Task)
+                .where(Task.dispatch_type == "harness")
+                .order_by(Task.created_at.desc())
+                .limit(25)
+            )
+        ).scalars().all()
 
     bots = list_bots()
     return templates.TemplateResponse(
@@ -384,6 +480,7 @@ async def admin_delegations(
             "page_size": page_size,
             "bots": bots,
             "bot_filter": bot_id or "",
+            "harness_tasks": harness_tasks,
         },
     )
 

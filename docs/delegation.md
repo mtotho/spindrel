@@ -152,7 +152,7 @@ harness_access:
 harnesses:
   claude-code:
     command: claude
-    args: ["--print", "--prompt", "{prompt}"]
+    args: ["--print", "{prompt}"]
     working_directory: "{working_directory}"
     timeout: 300
 

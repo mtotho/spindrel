@@ -2,9 +2,10 @@
 import asyncio
 import logging
 import os
+import shlex
 import time
+import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
@@ -77,14 +78,35 @@ class HarnessService:
     def list_harnesses(self) -> list[str]:
         return list(self._configs.keys())
 
+    def _substitute_harness_args(
+        self,
+        cfg: HarnessConfig,
+        prompt: str,
+        template_wd: str | None,
+    ) -> list[str]:
+        out: list[str] = []
+        for arg in cfg.args:
+            a = arg.replace("{prompt}", prompt)
+            if template_wd:
+                a = a.replace("{working_directory}", template_wd)
+            out.append(a)
+        return out
+
     async def run(
         self,
         harness_name: str,
         prompt: str,
         working_directory: str | None,
         bot: "BotConfig",
+        *,
+        sandbox_instance_id: uuid.UUID | None = None,
     ) -> HarnessResult:
-        """Execute a harness subprocess with permission checks."""
+        """Execute a harness on the host (subprocess) or inside a Docker sandbox (docker exec).
+
+        When *sandbox_instance_id* is set, the same argv as harnesses.yaml is run via
+        ``docker exec … sh -c 'cd … && command …'``. *working_directory* is then a path **inside
+        the container** (e.g. ``/workspace``); host HARNESS_WORKING_DIR_ALLOWLIST does not apply.
+        """
         if harness_name not in self._configs:
             raise HarnessNotFoundError(f"Harness {harness_name!r} not found in harnesses.yaml.")
 
@@ -96,21 +118,25 @@ class HarnessService:
         cfg = self._configs[harness_name]
         timeout = cfg.timeout
 
-        # Resolve and validate working directory
+        if sandbox_instance_id is not None:
+            return await self._run_in_sandbox(
+                harness_name=harness_name,
+                cfg=cfg,
+                prompt=prompt,
+                working_directory=working_directory,
+                bot=bot,
+                sandbox_instance_id=sandbox_instance_id,
+                timeout=timeout,
+            )
+
+        # Host subprocess
         wd: str | None = None
         if working_directory:
             wd = self._validate_working_dir(working_directory)
         elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
-            # Static working directory from config
             wd = self._validate_working_dir(cfg.working_directory)
 
-        # Template-substitute args
-        substituted_args: list[str] = []
-        for arg in cfg.args:
-            arg = arg.replace("{prompt}", prompt)
-            if wd:
-                arg = arg.replace("{working_directory}", wd)
-            substituted_args.append(arg)
+        substituted_args = self._substitute_harness_args(cfg, prompt, wd)
 
         logger.info("[harness] %s command=%r working_dir=%r", harness_name, cfg.command, wd)
 
@@ -150,6 +176,67 @@ class HarnessService:
             exit_code=proc.returncode or 0,
             truncated=truncated,
             duration_ms=duration_ms,
+        )
+
+    async def _run_in_sandbox(
+        self,
+        *,
+        harness_name: str,
+        cfg: HarnessConfig,
+        prompt: str,
+        working_directory: str | None,
+        bot: "BotConfig",
+        sandbox_instance_id: uuid.UUID,
+        timeout: int,
+    ) -> HarnessResult:
+        from app.services.sandbox import sandbox_service
+
+        if not settings.DOCKER_SANDBOX_ENABLED:
+            raise HarnessError(
+                "Cannot run harness in sandbox: DOCKER_SANDBOX_ENABLED is false."
+            )
+
+        allowed = bot.docker_sandbox_profiles or None
+        instance = await sandbox_service.get_instance_for_bot(
+            sandbox_instance_id, bot.id, allowed_profiles=allowed
+        )
+        if instance is None:
+            raise HarnessError(
+                "Sandbox instance not found, not owned by this bot, or not allowed by "
+                "docker_sandbox_profiles."
+            )
+
+        wd_container: str | None = None
+        if working_directory:
+            w = working_directory.strip()
+            if "\n" in w or "\x00" in w:
+                raise HarnessWorkingDirError("Invalid working directory (container path).")
+            wd_container = w
+        elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
+            wd_container = cfg.working_directory.strip() or None
+
+        substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
+
+        inner = shlex.join([cfg.command] + substituted_args)
+        if wd_container:
+            script = f"cd {shlex.quote(wd_container)} && {inner}"
+        else:
+            script = inner
+
+        logger.info(
+            "[harness] %s sandbox=%s profile_container=%r",
+            harness_name,
+            sandbox_instance_id,
+            instance.container_name,
+        )
+
+        exec_res = await sandbox_service.exec(instance, script, timeout=timeout)
+        return HarnessResult(
+            stdout=exec_res.stdout,
+            stderr=exec_res.stderr,
+            exit_code=exec_res.exit_code,
+            truncated=exec_res.truncated,
+            duration_ms=exec_res.duration_ms,
         )
 
     def _validate_working_dir(self, working_dir: str) -> str:

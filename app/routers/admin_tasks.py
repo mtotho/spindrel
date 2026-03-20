@@ -73,6 +73,7 @@ async def admin_tasks(
     request: Request,
     status: Optional[str] = None,
     bot_id: Optional[str] = None,
+    dispatch_type: Optional[str] = None,
     page: int = 1,
 ):
     page_size = 50
@@ -84,6 +85,8 @@ async def admin_tasks(
             stmt = stmt.where(Task.status == status)
         if bot_id:
             stmt = stmt.where(Task.bot_id == bot_id)
+        if dispatch_type:
+            stmt = stmt.where(Task.dispatch_type == dispatch_type)
         total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
         tasks = (await db.execute(stmt.offset(offset).limit(page_size))).scalars().all()
 
@@ -99,6 +102,7 @@ async def admin_tasks(
             "bot_ids": sorted(filter(None, bot_ids)),
             "status_filter": status or "",
             "bot_filter": bot_id or "",
+            "dispatch_type_filter": dispatch_type or "",
             "page": page,
             "page_size": page_size,
             "total": total,

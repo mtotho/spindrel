@@ -179,6 +179,8 @@ def register_message_handlers(app):
             return
         if (event.get("text") or "").strip().startswith("<@"):
             return
+        if (event.get("text") or "").strip().startswith("/"):
+            return
         thread_ts = event.get("thread_ts") or event.get("ts")
         await dispatch(
             event["channel"],

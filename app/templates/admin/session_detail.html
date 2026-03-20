@@ -64,4 +64,45 @@
     {% endif %}
   </div>
   {% endif %}
+
+  {% if plans %}
+  <div class="mt-4 border-t border-gray-800 pt-3">
+    <div class="text-xs text-gray-500 mb-2">Plans ({{ plans | length }})</div>
+    <div class="space-y-2">
+      {% for plan in plans %}
+      {% set items = plan_items.get(plan.id | string, []) %}
+      <div class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="font-medium text-gray-200">{{ plan.title }}</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono
+            {% if plan.status == 'active' %}bg-green-900/50 text-green-400
+            {% elif plan.status == 'complete' %}bg-blue-900/50 text-blue-400
+            {% else %}bg-gray-700 text-gray-400{% endif %}">{{ plan.status }}</span>
+        </div>
+        {% if plan.description %}
+        <div class="text-gray-500 mb-1">{{ plan.description }}</div>
+        {% endif %}
+        <ol class="space-y-0.5 ml-1">
+          {% for item in items %}
+          <li class="flex items-start gap-1.5 text-gray-400">
+            <span class="shrink-0 w-4 text-right text-gray-600">{{ item.position }}.</span>
+            <span class="{% if item.status == 'done' %}line-through text-gray-600{% elif item.status == 'in_progress' %}text-yellow-400{% elif item.status == 'skipped' %}text-gray-600{% endif %}">
+              {{ item.content }}
+            </span>
+            <span class="shrink-0 text-[10px] font-mono
+              {% if item.status == 'done' %}text-green-600
+              {% elif item.status == 'in_progress' %}text-yellow-600
+              {% elif item.status == 'skipped' %}text-gray-600
+              {% else %}text-gray-600{% endif %}">[{{ item.status }}]</span>
+            {% if item.notes %}
+            <span class="text-gray-500 italic">— {{ item.notes }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </td>

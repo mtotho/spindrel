@@ -21,6 +21,7 @@
     <option value="context_injection_summary" {% if event_type_filter == 'context_injection_summary' %}selected{% endif %}>Context Injection</option>
     <option value="compaction_start" {% if event_type_filter == 'compaction_start' %}selected{% endif %}>Compaction Start</option>
     <option value="compaction_done" {% if event_type_filter == 'compaction_done' %}selected{% endif %}>Compaction Done</option>
+    <option value="harness" {% if event_type_filter == 'harness' %}selected{% endif %}>Harness (external CLI)</option>
     <option value="error" {% if event_type_filter == 'error' %}selected{% endif %}>Error</option>
   </select>
   <select name="bot_id" onchange="this.form.submit()"
@@ -73,6 +74,8 @@
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-pink-900/50 text-pink-300">summarization</span>
           {% elif obj.event_type == 'context_injection_summary' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-cyan-900/50 text-cyan-300">ctx_inject</span>
+          {% elif obj.event_type == 'harness' %}
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-200">harness</span>
           {% elif obj.event_type == 'error' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-300">error</span>
           {% else %}
@@ -81,7 +84,7 @@
         </td>
         <td class="px-4 py-3 text-gray-200 font-mono text-xs max-w-xs truncate">
           {% if row.kind == 'tool_call' %}
-          {{ obj.tool_name }}
+          {{ obj.tool_name }}{% if obj.tool_type == 'harness' %} <span class="text-amber-500/90">(harness)</span>{% endif %}
           {% else %}
           {{ obj.event_name or obj.event_type }}
           {% if obj.count is not none %}<span class="text-gray-500 ml-1">({{ obj.count }})</span>{% endif %}

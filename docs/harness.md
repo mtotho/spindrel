@@ -110,7 +110,29 @@ docker compose build agent-server
 
 ## Sandbox Use
 
-`dockerfiles/agent-python` (used for Docker sandbox profiles) also has Node.js and claude installed. This lets the agent run `claude` inside sandbox containers via `exec_sandbox`:
+`dockerfiles/agent-python` (used for Docker sandbox profiles) also has Node.js and claude installed.
+
+### Option A — `delegate_to_harness` + `sandbox_instance_id` (recommended)
+
+Same `harnesses.yaml` argv as on the host, but executed **inside** the container:
+
+```
+bot: [ensure_sandbox(profile="agent-python")]  → instance_id
+bot: [delegate_to_harness(
+       harness="claude-code",
+       prompt="Refactor utils.py …",
+       working_directory="/workspace/myrepo",
+       sandbox_instance_id="<instance_id>"
+     )]
+```
+
+- `working_directory` is a **container path** (not checked against `HARNESS_WORKING_DIR_ALLOWLIST`).
+- Requires `DOCKER_SANDBOX_ENABLED`, bot access to the profile, and `harness_access` for that harness.
+- Deferred mode stores `sandbox_instance_id` on the task and the worker runs `docker exec` the same way.
+
+### Option B — raw `exec_sandbox`
+
+Manual invocation (no `harnesses.yaml`):
 
 ```
 bot: [calls ensure_sandbox(profile="agent-python")]
@@ -156,6 +178,14 @@ harnesses:
 | `{working_directory}` | The `working_directory` arg (only substituted if a valid, allowlisted path was provided) |
 
 If `working_directory` in the config contains `{working_directory}` and no runtime path is given, `cwd` defaults to the agent-server's working directory.
+
+---
+
+## Admin / observability
+
+- **Deferred** runs are `Task` rows (`dispatch_type=harness`). List them under **Admin → Tasks** (filter “harness”) or **Admin → Delegations → External harness tasks**.
+- When the worker finishes, the server writes a **`harness_complete:<name>`** `tool_calls` row and a **`harness`** `trace_events` row. If the task was created with a stored parent `source_correlation_id` (current `delegate_to_harness` behavior), those rows use **the same correlation id** as the Slack turn that queued the task — open **Admin → Logs** or **Admin → Trace** for that id to see the subprocess outcome after `delegate_to_harness`.
+- Harness runs are **not** a nested LLM session: there is no child row in **Delegation trees** (that page is only for `delegate_to_agent`).
 
 ---
 

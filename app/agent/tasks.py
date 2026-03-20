@@ -166,6 +166,26 @@ DISPATCHERS: dict[str, SlackDispatcher | WebhookDispatcher | InternalDispatcher 
 # Runner
 # ---------------------------------------------------------------------------
 
+def _harness_source_correlation(cfg: dict) -> uuid.UUID | None:
+    raw = cfg.get("source_correlation_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
+
+
+def _harness_sandbox_instance(cfg: dict) -> uuid.UUID | None:
+    raw = cfg.get("sandbox_instance_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
+
+
 async def run_harness_task(task: Task) -> None:
     """Execute a harness task: run the subprocess, store result, dispatch to output channel."""
     logger.info("Running harness task %s", task.id)
@@ -184,9 +204,12 @@ async def run_harness_task(task: Task) -> None:
     working_directory = cfg.get("working_directory")
     output_dispatch_type = cfg.get("output_dispatch_type", "none")
     output_dispatch_config = cfg.get("output_dispatch_config") or {}
+    source_correlation_id = _harness_source_correlation(cfg)
+    sandbox_instance_id = _harness_sandbox_instance(cfg)
 
     try:
         from app.agent.bots import get_bot
+        from app.agent.recording import schedule_harness_completion_record
         from app.services.harness import harness_service, HarnessError
         bot = get_bot(task.bot_id)
 
@@ -195,6 +218,7 @@ async def run_harness_task(task: Task) -> None:
             prompt=task.prompt,
             working_directory=working_directory,
             bot=bot,
+            sandbox_instance_id=sandbox_instance_id,
         )
 
         parts = []
@@ -215,6 +239,24 @@ async def run_harness_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
+        _h_err: str | None = None
+        if result.exit_code != 0:
+            _h_err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
+        schedule_harness_completion_record(
+            harness_name=harness_name or "unknown",
+            task_id=task.id,
+            session_id=task.session_id,
+            client_id=task.client_id,
+            bot_id=task.bot_id,
+            correlation_id=source_correlation_id,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            truncated=result.truncated,
+            result_text=result_text,
+            error=_h_err,
+        )
+        await asyncio.sleep(0)
+
         # Build a synthetic task for delivery with the output dispatch config
         output_task = Task(
             id=task.id,
@@ -234,6 +276,25 @@ async def run_harness_task(task: Task) -> None:
                 t.error = str(exc)[:4000]
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        try:
+            from app.agent.recording import schedule_harness_completion_record
+
+            schedule_harness_completion_record(
+                harness_name=harness_name or "unknown",
+                task_id=task.id,
+                session_id=task.session_id,
+                client_id=task.client_id,
+                bot_id=task.bot_id,
+                correlation_id=source_correlation_id,
+                exit_code=-1,
+                duration_ms=0,
+                truncated=False,
+                result_text="",
+                error=str(exc)[:4000],
+            )
+            await asyncio.sleep(0)
+        except Exception:
+            logger.exception("Failed to schedule harness failure record for task %s", task.id)
 
 
 async def run_task(task: Task) -> None:
