@@ -95,7 +95,6 @@ async def admin_bot_create(
     memory_cross_session: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
     knowledge_enabled: str = Form("false"),
-    knowledge_cross_client: str = Form("false"),
     knowledge_similarity_threshold: str = Form(""),
     slack_display_name: str = Form(""),
     slack_icon_emoji: str = Form(""),
@@ -175,7 +174,6 @@ async def admin_bot_create(
         },
         knowledge_config={
             "enabled": knowledge_enabled.lower() == "true",
-            "cross_client": knowledge_cross_client.lower() == "true",
             "similarity_threshold": know_sim,
         },
         filesystem_indexes=fs_indexes,
@@ -242,7 +240,6 @@ async def admin_bot_update(
     memory_cross_session: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
     knowledge_enabled: str = Form("false"),
-    knowledge_cross_client: str = Form("false"),
     knowledge_similarity_threshold: str = Form(""),
     slack_display_name: str = Form(""),
     slack_icon_emoji: str = Form(""),
@@ -323,7 +320,6 @@ async def admin_bot_update(
         }
         row.knowledge_config = {
             "enabled": knowledge_enabled.lower() == "true",
-            "cross_client": knowledge_cross_client.lower() == "true",
             "similarity_threshold": know_sim,
         }
         row.filesystem_indexes = fs_indexes

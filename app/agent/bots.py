@@ -32,8 +32,6 @@ class MemoryConfig:
 @dataclass
 class KnowledgeConfig:
     enabled: bool = False
-    cross_bot: bool = False
-    cross_client: bool = False #in slack, this is per channel or cross channel
     similarity_threshold: float = 0.45
 
 
@@ -121,8 +119,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
     know = row.knowledge_config or {}
     knowledge_cfg = KnowledgeConfig(
         enabled=know.get("enabled", False),
-        cross_bot=know.get("cross_bot", False),
-        cross_client=know.get("cross_client", False),
         similarity_threshold=know.get("similarity_threshold", 0.45),
     )
     fs_raw = row.filesystem_indexes or []
@@ -247,8 +243,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         },
         "knowledge_config": {
             "enabled": know_data.get("enabled", False),
-            "cross_bot": know_data.get("cross_bot", False),
-            "cross_client": know_data.get("cross_client", False),
             "similarity_threshold": know_data.get("similarity_threshold", 0.45),
         },
         "filesystem_indexes": data.get("filesystem_indexes", []),

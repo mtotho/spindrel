@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select, text
 
 from app.agent.bots import get_bot, list_bots
-from app.agent.knowledge import upsert_knowledge
+from app.agent.knowledge import upsert_knowledge, update_knowledge_entry
 from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
@@ -340,14 +340,11 @@ async def admin_knowledge_create(
     bot_id: str = Form(""),
     client_id: str = Form(""),
 ):
-    effective_bot = bot_id.strip() or "_admin"
-    effective_client = client_id.strip() or "_admin"
     await upsert_knowledge(
         name=name.strip(),
         content=content,
-        bot_id=effective_bot,
-        client_id=effective_client,
-        cross_bot=not bool(bot_id.strip()),
+        bot_id=bot_id.strip() or None,
+        client_id=client_id.strip() or None,
     )
     return RedirectResponse("/admin/knowledge", status_code=303)
 
@@ -398,9 +395,8 @@ async def admin_knowledge_update(
         await upsert_knowledge(
             name=entry.name,
             content=content,
-            bot_id=entry.bot_id or entry.created_by_bot,
-            client_id=entry.client_id or "",
-            cross_bot=entry.bot_id is None,
+            bot_id=entry.bot_id,
+            client_id=entry.client_id,
         )
         entry = await db.get(BotKnowledge, entry_id)
     return templates.TemplateResponse(
@@ -413,20 +409,19 @@ async def admin_knowledge_save_full(
     request: Request,
     entry_id: uuid.UUID,
     content: str = Form(...),
+    bot_id: str = Form(""),
+    client_id: str = Form(""),
 ):
     """Full-page save (browser form POST, redirects back to list)."""
-    async with async_session() as db:
-        entry = await db.get(BotKnowledge, entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail="Not found")
-        await upsert_knowledge(
-            name=entry.name,
-            content=content,
-            bot_id=entry.bot_id or entry.created_by_bot,
-            client_id=entry.client_id or "",
-            cross_bot=entry.bot_id is None,
-        )
-    return RedirectResponse("/admin/knowledge", status_code=303)
+    ok = await update_knowledge_entry(
+        entry_id=entry_id,
+        content=content,
+        bot_id=bot_id.strip() or None,
+        client_id=client_id.strip() or None,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Not found")
+    return RedirectResponse(f"/admin/knowledge/{entry_id}/edit-full?saved=1", status_code=303)
 
 
 @router.delete("/knowledge/{entry_id}", response_class=HTMLResponse)

@@ -44,11 +44,9 @@ async def _bot_knowledge_section_ctx(bot_id: str) -> dict:
     bot = get_bot(bot_id)
 
     async with async_session() as db:
-        stmt = select(BotKnowledge).order_by(BotKnowledge.name)
-        if not bot.knowledge.cross_bot:
-            stmt = stmt.where(
-                (BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None))
-            )
+        stmt = select(BotKnowledge).order_by(BotKnowledge.name).where(
+            (BotKnowledge.bot_id == bot_id) | (BotKnowledge.bot_id.is_(None))
+        )
         knowledge_docs = list((await db.execute(stmt)).scalars().all())
 
         all_bot_pins = list((await db.execute(

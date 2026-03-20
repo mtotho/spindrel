@@ -295,21 +295,20 @@
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Knowledge</h2>
     <div class="grid grid-cols-2 gap-4">
-      {% for field, label in [('knowledge_enabled','Enable Knowledge'),('knowledge_cross_client','Cross-Client')] %}
       <div class="flex items-center gap-3">
-        <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
+        <input type="checkbox" name="knowledge_enabled" id="knowledge_enabled" value="true"
           class="rounded text-indigo-500"
-          onchange="this.form.querySelector('[name={{ field }}][type=hidden]').value = this.checked ? 'true' : 'false'" />
-        <input type="hidden" name="{{ field }}" value="false" />
-        <label for="{{ field }}" class="text-sm text-gray-300">{{ label }}</label>
+          onchange="this.form.querySelector('[name=knowledge_enabled][type=hidden]').value = this.checked ? 'true' : 'false'" />
+        <input type="hidden" name="knowledge_enabled" value="false" />
+        <label for="knowledge_enabled" class="text-sm text-gray-300">Enable Knowledge</label>
       </div>
-      {% endfor %}
       <div>
         <label class="block text-xs text-gray-400 mb-1">Similarity Threshold</label>
         <input name="knowledge_similarity_threshold" type="number" step="0.01" placeholder="0.45"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>
     </div>
+    <p class="text-xs text-gray-500 mt-2">Sharing scope (global/bot/channel/private) is set per knowledge document, not per bot.</p>
   </section>
 
   <!-- Slack -->

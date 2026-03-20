@@ -3,12 +3,22 @@
     <div class="font-medium text-gray-200">{{ entry.name }}</div>
     <div class="text-xs text-gray-500 mt-0.5 truncate max-w-xs">{{ entry.content[:100] }}{% if entry.content|length > 100 %}…{% endif %}</div>
   </td>
-  <td class="px-4 py-3 text-xs">
-    {% if entry.bot_id %}
-    <a href="/admin/bots/{{ entry.bot_id }}" class="text-indigo-400 hover:text-indigo-200 font-mono">{{ entry.bot_id }}</a>
-    {% else %}<span class="text-gray-600">(shared)</span>{% endif %}
+  <td class="px-4 py-3 text-xs" colspan="2">
+    {% if not entry.bot_id and not entry.client_id %}
+      <span class="px-1.5 py-0.5 rounded text-xs bg-purple-900 text-purple-300 font-medium">global</span>
+    {% elif not entry.bot_id %}
+      <span class="px-1.5 py-0.5 rounded text-xs bg-blue-900 text-blue-300 font-medium">channel</span>
+      <span class="text-gray-500 font-mono ml-1">{{ entry.client_id }}</span>
+    {% elif not entry.client_id %}
+      <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300 font-medium">bot</span>
+      <a href="/admin/bots/{{ entry.bot_id }}" class="text-indigo-400 hover:text-indigo-200 font-mono ml-1">{{ entry.bot_id }}</a>
+    {% else %}
+      <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-300 font-medium">private</span>
+      <a href="/admin/bots/{{ entry.bot_id }}" class="text-indigo-400 hover:text-indigo-200 font-mono ml-1">{{ entry.bot_id }}</a>
+      <span class="text-gray-600 mx-1">·</span>
+      <span class="text-gray-500 font-mono">{{ entry.client_id }}</span>
+    {% endif %}
   </td>
-  <td class="px-4 py-3 text-gray-400 text-xs font-mono">{{ entry.client_id or '(shared)' }}</td>
   <td class="px-4 py-3 text-gray-400 text-xs">{{ entry.updated_at | fmt_dt }}</td>
   <td class="px-4 py-3">
     <div class="flex items-center gap-2">

@@ -36,8 +36,6 @@ async def resolve_tags(
     bot_client_tools: list[str],
     bot_id: str,
     client_id: str | None,
-    knowledge_cross_bot: bool = False,
-    knowledge_cross_client: bool = False,
 ) -> list[ResolvedTag]:
     """Parse @tags from a message and resolve each to skill/knowledge/tool.
 
@@ -89,8 +87,6 @@ async def resolve_tags(
             known_names = set(await list_knowledge_bases(
                 bot_id=bot_id,
                 client_id=client_id,
-                is_cross_client=knowledge_cross_client,
-                is_cross_bot=knowledge_cross_bot,
             ))
             for raw, name in knowledge_candidates:
                 if name in known_names:

@@ -7,7 +7,14 @@
 </div>
 <h1 class="text-2xl font-bold mb-6">New Knowledge Entry</h1>
 
-<form method="post" action="/admin/knowledge" class="space-y-5 max-w-4xl">
+<form method="post" action="/admin/knowledge" class="space-y-5 max-w-4xl"
+  x-data="{
+    scope: 'private',
+    botId: '',
+    clientId: '',
+    get effectiveBotId() { return (this.scope === 'channel' || this.scope === 'global') ? '' : this.botId; },
+    get effectiveClientId() { return (this.scope === 'bot' || this.scope === 'global') ? '' : this.clientId; },
+  }">
   <div class="grid grid-cols-3 gap-4">
     <div>
       <label class="text-xs text-gray-400 block mb-1.5">Name <span class="text-red-400">*</span></label>
@@ -15,22 +22,35 @@
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
     </div>
     <div>
-      <label class="text-xs text-gray-400 block mb-1.5">Bot ID <span class="text-gray-600">(blank = shared)</span></label>
-      <input type="text" name="bot_id"
+      <label class="text-xs text-gray-400 block mb-1.5">Scope</label>
+      <select x-model="scope" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+        <option value="private">private — bot + client</option>
+        <option value="bot">bot — this bot, all clients</option>
+        <option value="channel">channel — all bots, this client</option>
+        <option value="global">global — all bots, all clients</option>
+      </select>
+    </div>
+    <div x-show="scope === 'private' || scope === 'bot'">
+      <label class="text-xs text-gray-400 block mb-1.5">Bot ID <span class="text-gray-600">(blank = any)</span></label>
+      <input type="text" x-model="botId" placeholder="my_bot"
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
     </div>
-    <div>
-      <label class="text-xs text-gray-400 block mb-1.5">Client ID <span class="text-gray-600">(blank = shared)</span></label>
-      <input type="text" name="client_id"
+    <div x-show="scope === 'private' || scope === 'channel'" class="col-start-3">
+      <label class="text-xs text-gray-400 block mb-1.5">Client ID <span class="text-gray-600">(blank = any)</span></label>
+      <input type="text" x-model="clientId" placeholder="slack:C123456"
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
     </div>
   </div>
+
+  <!-- Hidden fields that carry the effective values -->
+  <input type="hidden" name="bot_id" :value="effectiveBotId" />
+  <input type="hidden" name="client_id" :value="effectiveClientId" />
 
   <div>
     <label class="text-xs text-gray-400 block mb-1.5">Content <span class="text-red-400">*</span></label>
     <textarea name="content" required
       class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
-      style="min-height: calc(100vh - 22rem);"
+      style="min-height: calc(100vh - 28rem);"
       placeholder="Write the knowledge content here…"></textarea>
   </div>
 

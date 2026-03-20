@@ -299,7 +299,7 @@ async def run_agent_tool_loop(
                     elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge", "list_knowledge_bases", "append_to_knowledge", "pin_knowledge", "unpin_knowledge") and client_id:
                         result = await call_knowledge_tool(
                             name, args or "{}", bot.id, client_id,
-                            bot.knowledge.cross_bot, bot.knowledge.cross_client, bot.knowledge.similarity_threshold,
+                            bot.knowledge.similarity_threshold,
                         )
                     else:
                         result = await call_local_tool(name, args)
@@ -521,8 +521,6 @@ async def run_stream(
         bot_client_tools=bot.client_tools,
         bot_id=bot.id,
         client_id=client_id,
-        knowledge_cross_bot=bot.knowledge.cross_bot if bot.knowledge.enabled else False,
-        knowledge_cross_client=bot.knowledge.cross_client if bot.knowledge.enabled else False,
     )
     _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
     _tagged_knowledge_names = [t.name for t in _tagged if t.tag_type == "knowledge"]
@@ -546,11 +544,7 @@ async def run_stream(
             from app.agent.knowledge import get_knowledge_by_name
             _tagged_know_chunks: list[str] = []
             for _kname in _tagged_knowledge_names:
-                _doc = await get_knowledge_by_name(
-                    _kname, bot.id, client_id,
-                    is_cross_client=bot.knowledge.cross_client if bot.knowledge.enabled else False,
-                    is_cross_bot=bot.knowledge.cross_bot if bot.knowledge.enabled else False,
-                )
+                _doc = await get_knowledge_by_name(_kname, bot.id, client_id)
                 if _doc:
                     _tagged_know_chunks.append(_doc)
                 else:
@@ -694,8 +688,6 @@ async def run_stream(
             query=user_message,
             bot_id=bot.id,
             client_id=client_id,
-            cross_bot=bot.knowledge.cross_bot,
-            cross_client=bot.knowledge.cross_client,
             similarity_threshold=bot.knowledge.similarity_threshold,
         )
         if chunks:

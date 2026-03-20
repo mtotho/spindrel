@@ -2,21 +2,90 @@
 {% block title %}Edit: {{ entry.name }}{% endblock %}
 
 {% block content %}
+
+{% if request.query_params.get('saved') %}
+<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
+  x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="opacity-0 translate-y-1"
+  x-transition:enter-end="opacity-100 translate-y-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="opacity-100"
+  x-transition:leave-end="opacity-0"
+  class="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-green-700 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg">
+  <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  Saved
+</div>
+{% endif %}
+
 <div class="flex items-center gap-3 mb-6">
   <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm">← Knowledge</a>
 </div>
-<h1 class="text-2xl font-bold mb-1">{{ entry.name }}</h1>
-<div class="text-xs text-gray-500 mb-6">
-  bot: {{ entry.bot_id or '(shared)' }} · client: {{ entry.client_id or '(shared)' }} · updated {{ entry.updated_at | fmt_dt }}
-</div>
+<h1 class="text-2xl font-bold mb-6">{{ entry.name }}</h1>
 
-<div class="flex gap-6">
+{% set cur_scope = 'global' if (not entry.bot_id and not entry.client_id)
+                   else ('bot' if (entry.bot_id and not entry.client_id)
+                   else ('channel' if (not entry.bot_id and entry.client_id)
+                   else 'private')) %}
+
+<div class="flex gap-6"
+  x-data="{
+    scope: '{{ cur_scope }}',
+    botId: '{{ entry.bot_id or '' }}',
+    clientId: '{{ entry.client_id or '' }}',
+    get effectiveBotId() { return (this.scope === 'channel' || this.scope === 'global') ? '' : this.botId; },
+    get effectiveClientId() { return (this.scope === 'bot' || this.scope === 'global') ? '' : this.clientId; },
+  }">
+
   <!-- Left: editor -->
   <div class="flex-1 min-w-0">
     <form method="post" action="/admin/knowledge/{{ entry.id }}/save" class="space-y-5">
+
+      <!-- Scope selector -->
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Scope — who can access this document</div>
+        <div class="grid grid-cols-4 gap-2">
+          {% for val, label, desc, color in [
+            ('channel', 'Channel', 'Any bot in this channel (recommended default)', 'indigo'),
+            ('global',  'Global',  'Any bot in any channel', 'purple'),
+            ('bot',     'Bot',     'This bot only, across all channels', 'green'),
+            ('private', 'Private', 'This bot in this channel only', 'gray'),
+          ] %}
+          <label class="flex flex-col gap-1 p-2 rounded-lg border cursor-pointer transition-colors"
+            :class="scope === '{{ val }}' ? 'border-{{ color }}-500 bg-{{ color }}-900/20' : 'border-gray-700 hover:border-gray-500'">
+            <input type="radio" name="_scope_radio" value="{{ val }}" x-model="scope" class="sr-only" />
+            <span class="text-xs font-semibold text-{{ color }}-400">{{ label }}</span>
+            <span class="text-xs text-gray-500">{{ desc }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="grid grid-cols-2 gap-3" x-show="scope === 'private' || scope === 'bot'">
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Bot ID</label>
+            <input type="text" x-model="botId" placeholder="my_bot"
+              class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3" x-show="scope === 'private' || scope === 'channel'">
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Client / Channel ID</label>
+            <input type="text" x-model="clientId" placeholder="slack:C123456"
+              class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono"
+              list="distinct-clients" />
+            <datalist id="distinct-clients">
+              {% for c in distinct_clients %}<option value="{{ c }}">{% endfor %}
+            </datalist>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hidden scope fields submitted with form -->
+      <input type="hidden" name="bot_id" :value="effectiveBotId" />
+      <input type="hidden" name="client_id" :value="effectiveClientId" />
+
       <textarea name="content" required
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
-        style="min-height: calc(100vh - 20rem);">{{ entry.content }}</textarea>
+        style="min-height: calc(100vh - 28rem);">{{ entry.content }}</textarea>
 
       <div class="flex items-center gap-3">
         <button type="submit"
@@ -28,17 +97,27 @@
     </form>
   </div>
 
-  <!-- Right: pins + write history -->
-  <div class="w-64 shrink-0 space-y-4">
-    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 sticky top-6">
-      <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pins</div>
+  <!-- Right sidebar -->
+  <div class="w-72 shrink-0 space-y-4">
+
+    <!-- Pins -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+      <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Always-On Pins</div>
+      <p class="text-xs text-gray-500 mb-3 leading-relaxed">
+        Normally, a document is only injected into context when semantically relevant to the user's message.
+        A <span class="text-yellow-400 font-medium">pin</span> overrides this — the document is
+        <em>always</em> injected for that bot/channel, regardless of relevance.
+        Use for things like formatting rules or always-needed reference docs.
+      </p>
       <div hx-get="/admin/knowledge/{{ entry.id }}/pins"
            hx-trigger="load"
            hx-swap="innerHTML">
         <div class="text-xs text-gray-600">Loading…</div>
       </div>
     </div>
-    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 sticky top-6"
+
+    <!-- Write history -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4"
          hx-get="/admin/knowledge/{{ entry.id }}/history"
          hx-trigger="load"
          hx-swap="innerHTML">

@@ -19,7 +19,8 @@ UPSERT_KNOWLEDGE_DESCRIPTION = (
     "Use for structured, multi-faceted information that will grow over time — "
     "e.g. 'project_xyz_architecture', 'home_network_layout', 'bayada_cicd_setup'. "
     "Unlike memories (single facts), knowledge docs are living documents you update "
-    "as understanding deepens. Set shared=true to make it available across all bots."
+    "as understanding deepens. Use scope to control sharing: 'channel' (default, any bot in this channel), "
+    "'global' (all bots everywhere), 'bot' (this bot across all channels), 'private' (this bot+channel only)."
 )
 
 GET_KNOWLEDGE_DESCRIPTION = (
@@ -57,17 +58,23 @@ APPEND_TO_KNOWLEDGE_DESCRIPTION = (
                     "type": "string",
                     "description": "Full document content. Replaces existing content entirely — include everything, not just the update.",
                 },
-                "shared": {
-                    "type": "boolean",
-                    "description": "If true, document is available to all bots. Defaults to false (bot-scoped).",
-                    "default": False,
+                "scope": {
+                    "type": "string",
+                    "enum": ["channel", "global", "bot", "private"],
+                    "description": (
+                        "'channel' (default) = any bot in this channel can access it. "
+                        "'global' = any bot in any channel. "
+                        "'bot' = this bot only, all channels. "
+                        "'private' = this bot in this channel only."
+                    ),
+                    "default": "channel",
                 },
             },
             "required": ["name", "content"],
         },
     },
 })
-async def upsert_knowledge_tool(name: str, content: str, shared: bool = False) -> str:
+async def upsert_knowledge_tool(name: str, content: str, scope: str = "channel") -> str:
     raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
 
 
@@ -218,8 +225,6 @@ async def call_knowledge_tool(
     arguments_json: str,
     bot_id: str,
     client_id: str,
-    cross_bot: bool = False,
-    cross_client: bool = False,
     similarity_threshold: float = 0.45,
 ) -> str:
     try:
@@ -230,33 +235,33 @@ async def call_knowledge_tool(
     if name == "upsert_knowledge":
         doc_name = (args.get("name") or "").strip()
         content = (args.get("content") or "").strip()
-        shared = bool(args.get("shared", False))
+        scope = (args.get("scope") or "private").strip()
         if not doc_name:
             return "No name provided; knowledge not saved."
         if not content:
             return "No content provided; knowledge not saved."
+        # Derive scoped bot_id/client_id from scope
+        scoped_bot_id = None if scope in ("channel", "global") else bot_id
+        scoped_client_id = None if scope in ("bot", "global") else client_id
         ok, err = await upsert_knowledge(
             name=doc_name,
             content=content,
-            bot_id=bot_id,
-            client_id=client_id,
-            cross_bot=shared,
+            bot_id=scoped_bot_id,
+            client_id=scoped_client_id,
         )
         if ok:
-            return f"Knowledge '{doc_name}' saved."
+            return f"Knowledge '{doc_name}' saved (scope={scope})."
         return f"Failed to save knowledge: {err}" if err else "Failed to save knowledge."
 
     if name == "get_knowledge":
         doc_name = (args.get("name") or "").strip()
         if not doc_name:
             return "No name provided."
-        result = await get_knowledge_by_name(doc_name, bot_id, client_id,
-         is_cross_client=cross_client, is_cross_bot=cross_bot)
+        result = await get_knowledge_by_name(doc_name, bot_id, client_id)
         return result if result else f"No knowledge document found with name '{doc_name}'."
 
     if name == "list_knowledge_bases":
-        result = await list_knowledge_bases(bot_id, client_id,
-            is_cross_client=cross_client, is_cross_bot=cross_bot)
+        result = await list_knowledge_bases(bot_id, client_id)
         if not result:
             return "No knowledge bases found."
         return "\n".join(result)
@@ -281,8 +286,6 @@ async def call_knowledge_tool(
             query=query,
             bot_id=bot_id,
             client_id=client_id,
-            cross_bot=cross_bot,
-            cross_client=cross_client,
             similarity_threshold=similarity_threshold,
         )
         if not chunks:

@@ -37,8 +37,7 @@
         <div class="flex gap-2">
           <dt class="text-gray-500 w-36 shrink-0">Knowledge</dt>
           <dd class="text-gray-300 text-sm">
-            {% if bot.knowledge.enabled %}enabled{% if bot.knowledge.cross_bot %}, cross-bot{% endif %}{% if bot.knowledge.cross_client %}, cross-client{% endif %}
-            {% else %}disabled{% endif %}
+            {% if bot.knowledge.enabled %}enabled{% else %}disabled{% endif %}
           </dd>
         </div>
         <div class="flex gap-2">
@@ -141,7 +140,6 @@
       {% else %}
       <div class="text-xs text-gray-500 mb-3">
         Click <span class="text-gray-400">pin</span> to always inject that doc regardless of similarity.
-        {% if bot.knowledge.cross_bot %}<span class="text-gray-600">Showing all docs (cross-bot).</span>{% endif %}
       </div>
       <div hx-get="/admin/bots/{{ bot.id }}/knowledge-section"
            hx-trigger="load"
