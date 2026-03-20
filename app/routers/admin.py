@@ -16,7 +16,7 @@ from app.agent.knowledge import upsert_knowledge
 from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite, Memory, Message, Session, ToolCall, ToolEmbedding, TraceEvent
+from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite, Memory, Message, SandboxInstance, Session, ToolCall, ToolEmbedding, TraceEvent
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -24,9 +24,11 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 from app.routers.admin_tasks import router as _tasks_router  # noqa: E402
 from app.routers.admin_fs import router as _fs_router  # noqa: E402
 from app.routers.admin_knowledge_pins import router as _pins_router  # noqa: E402
+from app.routers.admin_sandbox import router as _sandbox_router  # noqa: E402
 router.include_router(_tasks_router)
 router.include_router(_fs_router)
 router.include_router(_pins_router)
+router.include_router(_sandbox_router)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -57,6 +59,9 @@ async def admin_index(request: Request):
         knowledge_count = (await db.execute(select(func.count()).select_from(BotKnowledge))).scalar_one()
         tool_count = (await db.execute(select(func.count()).select_from(ToolEmbedding))).scalar_one()
         tool_call_count = (await db.execute(select(func.count()).select_from(ToolCall))).scalar_one()
+        sandbox_running = (await db.execute(
+            select(func.count()).select_from(SandboxInstance).where(SandboxInstance.status == "running")
+        )).scalar_one()
 
         recent_sessions = (
             await db.execute(select(Session).order_by(Session.last_active.desc()).limit(5))
@@ -74,6 +79,7 @@ async def admin_index(request: Request):
         {"label": "Knowledge", "count": knowledge_count, "href": "/admin/knowledge"},
         {"label": "Tools", "count": tool_count, "href": "/admin/tools"},
         {"label": "Logs", "count": tool_call_count, "href": "/admin/logs"},
+        {"label": "Sandboxes", "count": sandbox_running, "href": "/admin/sandboxes"},
     ]
     return templates.TemplateResponse(
         "admin/index.html",

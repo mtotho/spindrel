@@ -1,4 +1,9 @@
-from pydantic_settings import BaseSettings
+import ast
+import json
+from typing import Annotated
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -67,6 +72,18 @@ class Settings(BaseSettings):
     MEMORY_RETRIEVAL_LIMIT: int = 5
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
+
+    # Docker sandboxes
+    DOCKER_SANDBOX_ENABLED: bool = False
+    DOCKER_SOCKET_PATH: str = "/var/run/docker.sock"
+    DOCKER_SANDBOX_MAX_CONCURRENT: int = 10
+    DOCKER_SANDBOX_DEFAULT_TIMEOUT: int = 30
+    DOCKER_SANDBOX_MAX_OUTPUT_BYTES: int = 65536  # 64 KB
+    # NoDecode: env is always a string; pydantic-settings would json.loads(list[str]) first and
+    # fail on single quotes or comma-separated paths before our validator runs.
+    DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
+    DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
+
     BASE_COMPACTION_PROMPT: str ="""\
         You are a conversation summarizer. You will receive the message history of a \
         conversation between a user and an AI assistant.
@@ -91,6 +108,45 @@ class Settings(BaseSettings):
         This conversation is about to be summarized. You will keep the last N turns in context, and the rest will be summarized. So please decide now if there is 
         anything from this conversation so far that you want to store in memory, knowledge or update your persona with. Use available tools.
         """
+
+    @field_validator("DOCKER_SANDBOX_MOUNT_ALLOWLIST", mode="before")
+    @classmethod
+    def _parse_mount_allowlist(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return [str(p).strip() for p in v if str(p).strip()]
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            if v.startswith("["):
+                parsed: list | None = None
+                try:
+                    parsed = json.loads(v)
+                except json.JSONDecodeError:
+                    try:
+                        parsed = ast.literal_eval(v)
+                    except (ValueError, SyntaxError):
+                        parsed = None
+                if parsed is not None:
+                    if not isinstance(parsed, list):
+                        raise ValueError(
+                            "DOCKER_SANDBOX_MOUNT_ALLOWLIST: expected a JSON/Python list of paths."
+                        )
+                    return [str(p).strip() for p in parsed if str(p).strip()]
+                # Brackets but not valid JSON/Python, e.g. [/home/user/proj] (quotes omitted in .env)
+                if v.endswith("]") and len(v) > 2:
+                    inner = v[1:-1].strip()
+                    if not inner:
+                        return []
+                    parts = [p.strip() for p in inner.split(",") if p.strip()]
+                    if parts:
+                        return parts
+                raise ValueError(
+                    "DOCKER_SANDBOX_MOUNT_ALLOWLIST: invalid list. "
+                    "Use /a,/b or [\"/a\"] or [/a] (unquoted paths inside brackets)."
+                )
+            return [p.strip() for p in v.split(",") if p.strip()]
+        return v
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

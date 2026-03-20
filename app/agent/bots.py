@@ -65,6 +65,7 @@ class BotConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
+    docker_sandbox_profiles: list[str] = field(default_factory=list)
 
 def load_bots(bots_dir: Path = BOTS_DIR) -> None:
     _registry.clear()
@@ -127,6 +128,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             memory=memory_cfg,
             knowledge=knowledge_cfg,
             filesystem_indexes=filesystem_indexes,
+            docker_sandbox_profiles=data.get("docker_sandbox_profiles", []),
         )
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)

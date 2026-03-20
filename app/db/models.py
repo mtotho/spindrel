@@ -249,6 +249,65 @@ class FilesystemChunk(Base):
     )
 
 
+class SandboxProfile(Base):
+    __tablename__ = "sandbox_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_mode: Mapped[str] = mapped_column(Text, nullable=False, default="session")
+    network_mode: Mapped[str] = mapped_column(Text, nullable=False, default="none")
+    read_only_root: Mapped[bool] = mapped_column(nullable=False, default=False)
+    create_options: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    mount_specs: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    env: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    labels: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    idle_ttl_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    instances: Mapped[list["SandboxInstance"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
+    bot_access: Mapped[list["SandboxBotAccess"]] = relationship(back_populates="profile", cascade="all, delete-orphan")
+
+
+class SandboxBotAccess(Base):
+    __tablename__ = "sandbox_bot_access"
+
+    bot_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sandbox_profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    profile: Mapped["SandboxProfile"] = relationship(back_populates="bot_access")
+
+
+class SandboxInstance(Base):
+    __tablename__ = "sandbox_instances"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sandbox_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_key: Mapped[str] = mapped_column(Text, nullable=False)
+    container_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    container_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="unknown")
+    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
+    locked_operations: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    last_inspected_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    profile: Mapped["SandboxProfile"] = relationship(back_populates="instances")
+
+    __table_args__ = (
+        UniqueConstraint("profile_id", "scope_type", "scope_key", name="uq_sandbox_instance_scope"),
+    )
+
+
 class Task(Base):
     __tablename__ = "tasks"
 

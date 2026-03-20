@@ -107,8 +107,17 @@ memory:
 knowledge:
   enabled: true
 persona: true
+docker_sandbox_profiles: [python-scratch]  # subset of sandbox_bot_access rows; omit = all
 ```
 
-### Planned: Docker sandboxes
+### Docker Sandboxes
 
-Long-lived session-scoped containers + `docker exec` (OpenClaw-style) are **not** implemented yet. Design: [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md).
+Long-lived containers (OpenClaw-style) with `docker exec`. Scope modes: `session` (default), `client`, `agent`, `shared`. Enable with `DOCKER_SANDBOX_ENABLED=true`.
+
+- **Design**: [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md)
+- **Service**: `app/services/sandbox.py` — `SandboxService` (ensure, exec, stop, remove, lock enforcement)
+- **Tools**: `app/tools/local/sandbox.py` — `list_sandbox_profiles`, `ensure_sandbox`, `exec_sandbox`, `stop_sandbox`, `remove_sandbox`
+- **Tables**: `sandbox_profiles`, `sandbox_bot_access`, `sandbox_instances` (migration 014)
+- **Config**: `DOCKER_SANDBOX_ENABLED`, `DOCKER_SANDBOX_MOUNT_ALLOWLIST`, `DOCKER_SANDBOX_DEFAULT_TIMEOUT`, `DOCKER_SANDBOX_MAX_CONCURRENT`
+- **Bot access**: grant via `sandbox_bot_access` DB rows; bot YAML `docker_sandbox_profiles` can further restrict the subset
+- **Admin locking**: `locked_operations` JSONB on each instance — prevents bots from calling `stop`/`remove`/`ensure`/`exec` on that container

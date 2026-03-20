@@ -68,6 +68,11 @@ pinned_tools:
   - get_task
   - cancel_task
   - reschedule_task
+  - list_sandbox_profiles
+  - ensure_sandbox
+  - exec_sandbox
+  - stop_sandbox
+  - remove_sandbox
 local_tools:
   - get_weather
   - web_search
@@ -95,6 +100,13 @@ local_tools:
   - get_task
   - cancel_task
   - reschedule_task
+  - list_sandbox_profiles
+  - ensure_sandbox
+  - exec_sandbox
+  - stop_sandbox
+  - remove_sandbox
+docker_sandbox_profiles:
+  - python-scratch
 tool_retrieval: true
 tool_similarity_threshold: 0.35
 skills:

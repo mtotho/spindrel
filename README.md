@@ -35,7 +35,7 @@ PLAYWRIGHT_WS_URL=ws://playwright:3000
 
 `SEARXNG_URL` and `PLAYWRIGHT_WS_URL` point to the web tool services. Both are included in docker-compose and start automatically with `dev-server.sh`.
 
-**Planned:** session-aware Docker sandboxes (OpenClaw-style long-lived containers, shared across bots/sessions by config). See [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md).
+**Docker sandboxes** — Long-lived containers (OpenClaw-style) the agent can start and exec into. Enable with `DOCKER_SANDBOX_ENABLED=true`. See [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md).
 
 ### Bots (bots/*.yaml)
 
@@ -163,6 +163,11 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `cancel_task` | Cancel a pending task so it won't run. |
 | `reschedule_task` | Change when a pending task will run. |
 | `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
+| `list_sandbox_profiles` | List Docker sandbox environments this bot can use. |
+| `ensure_sandbox` | Create and start a sandbox container (idempotent). |
+| `exec_sandbox` | Run a shell command inside a sandbox container. |
+| `stop_sandbox` | Stop a running sandbox container (preserves state). |
+| `remove_sandbox` | Stop and permanently remove a sandbox container. |
 
 **`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
 
