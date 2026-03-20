@@ -34,7 +34,21 @@
     <div class="px-5 py-3 text-sm grid grid-cols-2 gap-2">
       <div>
         <span class="text-gray-500">Model</span>
-        <div class="text-gray-300 font-mono text-xs mt-0.5">{{ bot.model }}</div>
+        <div class="text-gray-300 font-mono text-xs mt-0.5">
+          <span>{{ bot.model }}</span>
+        </div>
+        <div class="flex items-center gap-2 mt-0.5">
+          <div hx-get="/admin/bots/{{ bot.id }}/context-estimate-badge"
+               hx-trigger="intersect once"
+               hx-swap="outerHTML">
+            <span class="text-gray-600 text-xs">…</span>
+          </div>
+          <div hx-get="/admin/bots/{{ bot.id }}/model-cost-badge"
+               hx-trigger="intersect once"
+               hx-swap="outerHTML">
+            <span class="text-gray-600 text-xs"></span>
+          </div>
+        </div>
       </div>
       <div>
         <span class="text-gray-500">Memory</span>

@@ -1,0 +1,392 @@
+"""Provider registry: manages LLM provider configs and returns per-provider AsyncOpenAI clients."""
+import json
+import logging
+import time
+from collections import deque
+from pathlib import Path
+
+from openai import AsyncOpenAI
+from sqlalchemy import select
+
+from app.config import settings
+from app.db.engine import async_session
+from app.db.models import ProviderConfig as ProviderConfigRow
+
+logger = logging.getLogger(__name__)
+
+_registry: dict[str, ProviderConfigRow] = {}
+_client_cache: dict[str | None, AsyncOpenAI] = {}
+# TPM windows: per provider_id, deque of (monotonic_timestamp, token_count)
+_tpm_windows: dict[str, deque] = {}
+# model info cache: provider_id (or None for .env) → {model_name: {max_tokens, input_cost_per_1m, output_cost_per_1m}}
+_model_info_cache: dict[str | None, dict[str, dict]] = {}
+
+
+def _load_anthropic_subscription_token(credentials_path: str) -> str:
+    """Read OAuth access token from ~/.claude/.credentials.json."""
+    path = Path(credentials_path).expanduser()
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        token = (
+            data.get("claudeAiOauth", {}).get("accessToken")
+            or data.get("access_token")
+            or data.get("token")
+        )
+        if not token:
+            raise ValueError(f"No access token found in {path}")
+        return token
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load Anthropic subscription credentials from {path}: {exc}"
+        ) from exc
+
+
+def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
+    ptype = provider.provider_type
+    if ptype == "litellm":
+        return AsyncOpenAI(
+            base_url=provider.base_url or settings.LITELLM_BASE_URL,
+            api_key=provider.api_key or settings.LITELLM_API_KEY or "dummy",
+            timeout=60.0,
+            max_retries=0,
+        )
+    elif ptype == "openai":
+        kw: dict = {"api_key": provider.api_key, "timeout": 60.0, "max_retries": 0}
+        if provider.base_url:
+            kw["base_url"] = provider.base_url
+        return AsyncOpenAI(**kw)
+    elif ptype == "anthropic":
+        return AsyncOpenAI(
+            base_url=provider.base_url or "https://api.anthropic.com/v1",
+            api_key=provider.api_key,
+            timeout=60.0,
+            max_retries=0,
+            default_headers={"anthropic-version": "2023-06-01"},
+        )
+    elif ptype == "anthropic-subscription":
+        creds_path = (provider.config or {}).get(
+            "credentials_path", "~/.claude/.credentials.json"
+        )
+        token = _load_anthropic_subscription_token(creds_path)
+        return AsyncOpenAI(
+            base_url=provider.base_url or "https://api.anthropic.com/v1",
+            api_key=token,
+            timeout=60.0,
+            max_retries=0,
+            default_headers={"anthropic-version": "2023-06-01"},
+        )
+    else:
+        raise ValueError(f"Unknown provider type: {ptype}")
+
+
+def _fallback_client() -> AsyncOpenAI:
+    """Create a client from .env settings (legacy / no-DB-provider fallback)."""
+    return AsyncOpenAI(
+        base_url=settings.LITELLM_BASE_URL,
+        api_key=settings.LITELLM_API_KEY or "dummy",
+        timeout=60.0,
+        max_retries=0,
+    )
+
+
+def _litellm_mgmt_key(provider: ProviderConfigRow | None) -> str:
+    """Return the management key for a LiteLLM provider (or .env fallback key)."""
+    if provider is not None:
+        mgmt = (provider.config or {}).get("management_key")
+        if mgmt:
+            return mgmt
+        return provider.api_key or settings.LITELLM_API_KEY or "dummy"
+    return settings.LITELLM_API_KEY or "dummy"
+
+
+async def _warm_model_info_cache() -> None:
+    """Fetch model info from all litellm providers (and .env fallback) into _model_info_cache."""
+    targets: list[tuple[str | None, str, str]] = []  # (provider_id, base_url, key)
+
+    # .env fallback
+    if settings.LITELLM_BASE_URL:
+        targets.append((None, settings.LITELLM_BASE_URL, _litellm_mgmt_key(None)))
+
+    # DB litellm providers
+    for row in _registry.values():
+        if row.provider_type == "litellm":
+            base = row.base_url or settings.LITELLM_BASE_URL
+            if base:
+                targets.append((row.id, base, _litellm_mgmt_key(row)))
+
+    for provider_id, base_url, key in targets:
+        info_map = await _fetch_litellm_model_info(base_url, key)
+        _model_info_cache[provider_id] = info_map
+        logger.info(
+            "Cached model info for provider %s: %d models", provider_id or ".env", len(info_map)
+        )
+
+
+async def load_providers() -> None:
+    """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
+    global _registry, _client_cache, _tpm_windows, _model_info_cache
+    _registry = {}
+    _client_cache = {}
+    _tpm_windows = {}
+    _model_info_cache = {}
+
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(ProviderConfigRow).where(ProviderConfigRow.is_enabled == True)  # noqa: E712
+            )
+        ).scalars().all()
+
+    for row in rows:
+        _registry[row.id] = row
+        logger.info("Loaded provider: %s (%s)", row.id, row.provider_type)
+
+    if not _registry:
+        logger.info("No DB providers configured — using .env LiteLLM fallback for all LLM calls")
+    else:
+        logger.info("Loaded %d provider(s) from DB", len(_registry))
+
+    # Pre-warm model info cache for all litellm providers + .env fallback
+    await _warm_model_info_cache()
+
+
+def get_provider(provider_id: str) -> ProviderConfigRow | None:
+    return _registry.get(provider_id)
+
+
+def list_providers() -> list[ProviderConfigRow]:
+    return list(_registry.values())
+
+
+def get_default_provider() -> ProviderConfigRow | None:
+    """First enabled litellm provider in registry, or None (use .env fallback)."""
+    for row in _registry.values():
+        if row.provider_type == "litellm":
+            return row
+    return None
+
+
+def get_llm_client(provider_id: str | None = None) -> AsyncOpenAI:
+    """Return a cached AsyncOpenAI-compatible client for the given provider_id.
+    Falls back to .env LiteLLM settings when provider_id is None or unknown.
+    """
+    cache_key = provider_id
+    if cache_key in _client_cache:
+        return _client_cache[cache_key]
+
+    if provider_id is None:
+        client = _fallback_client()
+    else:
+        provider = _registry.get(provider_id)
+        if provider is None:
+            logger.warning(
+                "Provider '%s' not found in registry, falling back to .env settings",
+                provider_id,
+            )
+            client = _fallback_client()
+        else:
+            client = _make_client(provider)
+
+    _client_cache[cache_key] = client
+    return client
+
+
+def check_rate_limit(provider_id: str | None, estimated_tokens: int) -> int | None:
+    """Check TPM limit for a provider. Returns seconds_to_wait if over budget, None if clear."""
+    if provider_id is None:
+        return None
+    provider = _registry.get(provider_id)
+    if provider is None or not provider.tpm_limit:
+        return None
+
+    now = time.monotonic()
+    window = _tpm_windows.setdefault(provider_id, deque())
+    # Evict entries older than 60s
+    while window and window[0][0] < now - 60:
+        window.popleft()
+
+    current_tokens = sum(t for _, t in window)
+    if current_tokens + estimated_tokens > provider.tpm_limit:
+        if window:
+            oldest_ts = window[0][0]
+            wait = max(1, int(oldest_ts + 60 - now) + 1)
+        else:
+            wait = 1
+        return wait
+    return None
+
+
+def record_usage(provider_id: str | None, total_tokens: int) -> None:
+    """Record token usage after a successful LLM call (for rolling TPM window)."""
+    if provider_id is None:
+        return
+    provider = _registry.get(provider_id)
+    if provider is None or not provider.tpm_limit:
+        return
+    now = time.monotonic()
+    _tpm_windows.setdefault(provider_id, deque()).append((now, total_tokens))
+
+
+# Hardcoded model lists for providers that don't expose an API models endpoint
+_ANTHROPIC_MODELS = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+]
+
+
+async def list_models_for_provider(provider_id: str) -> list[str]:
+    """Fetch available models for a specific provider."""
+    provider = _registry.get(provider_id)
+    if provider is None:
+        return []
+
+    ptype = provider.provider_type
+    if ptype in ("anthropic", "anthropic-subscription"):
+        return list(_ANTHROPIC_MODELS)
+
+    # litellm / openai: use the models API
+    try:
+        client = get_llm_client(provider_id)
+        models = await client.models.list()
+        return sorted(m.id for m in models.data)
+    except Exception as exc:
+        logger.warning("Failed to list models for provider %s: %s", provider_id, exc)
+        return []
+
+
+def _fmt_cost(per_token: float | None) -> str | None:
+    """Format per-token cost as a human-readable per-1M string, e.g. '$3.00'."""
+    if per_token is None:
+        return None
+    per_1m = per_token * 1_000_000
+    if per_1m >= 1:
+        return f"${per_1m:.2f}"
+    elif per_1m >= 0.01:
+        return f"${per_1m:.3f}"
+    else:
+        return f"${per_1m:.4f}"
+
+
+async def _fetch_litellm_model_info(base_url: str, api_key: str) -> dict[str, dict]:
+    """Fetch /model/info from a LiteLLM proxy.
+    Returns {model_name: {max_tokens, input_cost_per_1m, output_cost_per_1m, ...}}.
+    """
+    import httpx
+    info_url = base_url.rstrip("/") + "/model/info"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key and api_key != "dummy" else {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.get(info_url, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+        result: dict[str, dict] = {}
+        for entry in data.get("data", []):
+            name = entry.get("model_name") or entry.get("id", "")
+            info = entry.get("model_info") or {}
+            if name:
+                ctx = info.get("max_input_tokens") or info.get("max_tokens")
+                inp = _fmt_cost(info.get("input_cost_per_token"))
+                out = _fmt_cost(info.get("output_cost_per_token"))
+                result[name] = {
+                    "max_tokens": ctx,
+                    "input_cost_per_1m": inp,
+                    "output_cost_per_1m": out,
+                }
+        logger.debug("Fetched model info from %s: %d entries", info_url, len(result))
+        return result
+    except Exception as exc:
+        logger.warning("Failed to fetch model info from %s: %s", info_url, exc)
+        return {}
+
+
+def get_cached_model_info(model_id: str, provider_id: str | None = None) -> dict | None:
+    """Look up cached model info for a model. Checks provider_id cache first, then all caches."""
+    if provider_id in _model_info_cache:
+        info = _model_info_cache[provider_id].get(model_id)
+        if info:
+            return info
+    # Search across all provider caches
+    for cache in _model_info_cache.values():
+        if model_id in cache:
+            return cache[model_id]
+    return None
+
+
+async def get_available_models_grouped() -> list[dict]:
+    """Return all models from all providers, grouped by provider.
+    Each entry: {provider_id, provider_name, provider_type, models: [{id, display, max_tokens}]}
+    Always includes .env LiteLLM fallback (provider_id=None) so bots can be reset to use it.
+    """
+    groups = []
+
+    def _enrich(mid: str, info: dict) -> dict:
+        ctx = info.get("max_tokens")
+        inp = info.get("input_cost_per_1m")
+        out = info.get("output_cost_per_1m")
+        parts = []
+        if ctx:
+            parts.append(f"{ctx // 1000}k")
+        if inp or out:
+            parts.append(f"{inp or '?'}/{out or '?'}")
+        display = f"{mid} ({', '.join(parts)})" if parts else mid
+        return {"id": mid, "display": display, "max_tokens": ctx,
+                "input_cost_per_1m": inp, "output_cost_per_1m": out}
+
+    # Build .env fallback group
+    fallback_base_url = settings.LITELLM_BASE_URL
+    fallback_models: list[dict] = []
+    if fallback_base_url:
+        try:
+            client = _fallback_client()
+            model_list = await client.models.list()
+            raw_ids = sorted(m.id for m in model_list.data)
+            # Use cached info if available, otherwise fetch
+            if None not in _model_info_cache:
+                _model_info_cache[None] = await _fetch_litellm_model_info(
+                    fallback_base_url, _litellm_mgmt_key(None)
+                )
+            for mid in raw_ids:
+                fallback_models.append(_enrich(mid, _model_info_cache[None].get(mid, {})))
+        except Exception:
+            pass
+
+    fallback_group = {
+        "provider_id": None,
+        "provider_name": "LiteLLM (.env fallback)",
+        "provider_type": "litellm",
+        "models": fallback_models,
+    }
+
+    has_env_litellm = bool(fallback_base_url)
+    if not _registry:
+        groups.append(fallback_group)
+        return groups
+
+    for provider in _registry.values():
+        ptype = provider.provider_type
+        raw_models = await list_models_for_provider(provider.id)
+        model_info_map: dict[str, dict] = {}
+        if ptype == "litellm":
+            base = provider.base_url or settings.LITELLM_BASE_URL
+            key = provider.api_key or settings.LITELLM_API_KEY or "dummy"
+            if base:
+                model_info_map = await _fetch_litellm_model_info(base, key)
+                _model_info_cache[provider.id] = model_info_map  # cache for bots list badge
+        enriched: list[dict] = []
+        for mid in raw_models:
+            enriched.append(_enrich(mid, model_info_map.get(mid, {})))
+        groups.append({
+            "provider_id": provider.id,
+            "provider_name": provider.display_name,
+            "provider_type": provider.provider_type,
+            "models": enriched,
+        })
+
+    # Always show .env LiteLLM if the URL is configured, even alongside other DB providers.
+    if has_env_litellm:
+        groups.append(fallback_group)
+    return groups

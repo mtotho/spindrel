@@ -6,7 +6,6 @@ from collections.abc import AsyncGenerator
 from dataclasses import replace as _dc_replace
 from typing import Any
 
-from openai import AsyncOpenAI
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,13 +43,6 @@ def _stringify_message_content(content: Any) -> str:
             return _stringify_message_content(normalized)
         return content
     return str(content)
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=60.0,
-)
-
 
 def _get_compaction_model(bot: BotConfig) -> str:
     if bot.compaction_model:
@@ -177,6 +169,7 @@ async def _generate_summary(
     conversation: list[dict],
     model: str,
     existing_summary: str | None,
+    provider_id: str | None = None,
 ) -> tuple[str, str]:
     """Call the LLM to produce a title and summary."""
     prompt_messages: list[dict] = [{"role": "system", "content": settings.BASE_COMPACTION_PROMPT}]
@@ -195,7 +188,8 @@ async def _generate_summary(
         "content": f"Conversation to summarize:\n\n{transcript}",
     })
 
-    response = await _client.chat.completions.create(
+    from app.services.providers import get_llm_client
+    response = await get_llm_client(provider_id).chat.completions.create(
         model=model,
         messages=prompt_messages,
         temperature=0.3,
@@ -316,7 +310,7 @@ async def run_compaction_stream(
 
     try:
         model = _get_compaction_model(bot)
-        title, summary = await _generate_summary(to_summarize, model, existing_summary)
+        title, summary = await _generate_summary(to_summarize, model, existing_summary, provider_id=bot.model_provider_id)
 
         async with async_session() as db:
             recent_user_msgs = await db.execute(
@@ -450,7 +444,7 @@ async def run_compaction_forced(
             pass
 
     model = _get_compaction_model(bot)
-    title, summary = await _generate_summary(conversation, model, existing_summary)
+    title, summary = await _generate_summary(conversation, model, existing_summary, provider_id=bot.model_provider_id)
 
 
     keep_turns = _get_compaction_keep_turns(bot)

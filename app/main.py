@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
     logger.info("Running database migrations...")
     await run_migrations()
+    logger.info("Loading provider configs from DB...")
+    from app.services.providers import load_providers
+    await load_providers()
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")

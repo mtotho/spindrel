@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import openai
-from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context, set_ephemeral_delegates
@@ -72,31 +71,34 @@ def _trace(msg: str, *args: Any) -> None:
     if settings.AGENT_TRACE:
         logger.info("[agent] " + msg, *args)
 
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=60.0,
-    max_retries=0,  # we handle retries ourselves with proper backoff for rate limits
-)
-
-
-async def _llm_call(model: str, messages: list, tools_param: list | None, tool_choice: str | None):
+async def _llm_call(
+    model: str,
+    messages: list,
+    tools_param: list | None,
+    tool_choice: str | None,
+    provider_id: str | None = None,
+):
     """Call the LLM with exponential backoff on rate limit errors.
 
     Also retries on APITimeoutError: LiteLLM proxy may internally retry 429s for ~65s,
     causing the HTTP call to exceed the client timeout and surface as a timeout instead of
     a RateLimitError.
     """
+    from app.services.providers import get_llm_client, record_usage
+    client = get_llm_client(provider_id)
     max_retries = settings.LLM_RATE_LIMIT_RETRIES
     initial_wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT
     for attempt in range(max_retries + 1):
         try:
-            return await _client.chat.completions.create(
+            resp = await client.chat.completions.create(
                 model=model,
                 messages=messages,
                 tools=tools_param,
                 tool_choice=tool_choice,
             )
+            if resp.usage:
+                record_usage(provider_id, resp.usage.total_tokens)
+            return resp
         except (openai.RateLimitError, openai.APITimeoutError) as exc:
             if attempt >= max_retries:
                 raise
@@ -109,8 +111,11 @@ async def _llm_call(model: str, messages: list, tools_param: list | None, tool_c
             await asyncio.sleep(wait)
 
 
-async def _summarize_tool_result(tool_name: str, content: str, model: str, max_tokens: int) -> str:
+async def _summarize_tool_result(
+    tool_name: str, content: str, model: str, max_tokens: int, provider_id: str | None = None
+) -> str:
     """Summarize a large tool result to reduce context window usage. Falls back to original on error."""
+    from app.services.providers import get_llm_client
     cap = 12000
     input_content = content[:cap] + (f"\n[... {len(content) - cap:,} chars omitted]" if len(content) > cap else "")
     prompt = (
@@ -120,7 +125,8 @@ async def _summarize_tool_result(tool_name: str, content: str, model: str, max_t
         f"Tool: {tool_name}\n<output>\n{input_content}\n</output>"
     )
     try:
-        resp = await _client.chat.completions.create(
+        client = get_llm_client(provider_id)
+        resp = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
@@ -157,6 +163,7 @@ async def run_agent_tool_loop(
     When compaction=True, every yielded event gets "compaction": True.
     """
     model = model_override or bot.model
+    provider_id = bot.model_provider_id
 
     # Effective tool result summarization settings (bot-level overrides global)
     _trc = bot.tool_result_config or {}
@@ -221,7 +228,21 @@ async def run_agent_tool_loop(
                     },
                 ))
 
-            response = await _llm_call(model, messages, tools_param, tool_choice)
+            # TPM rate limit check: yield wait event and sleep if needed
+            from app.services.providers import check_rate_limit
+            _est_tokens = sum(
+                len(str(m.get("content") or "")) // 4 for m in messages
+            )
+            _wait = check_rate_limit(provider_id, _est_tokens)
+            if _wait:
+                logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)
+                yield _event_with_compaction_tag(
+                    {"type": "rate_limit_wait", "wait_seconds": _wait, "provider_id": provider_id or ""},
+                    compaction,
+                )
+                await asyncio.sleep(_wait)
+
+            response = await _llm_call(model, messages, tools_param, tool_choice, provider_id=provider_id)
             msg = response.choices[0].message
             msg_dict = msg.model_dump(exclude_none=True)
             messages.append(msg_dict)
@@ -266,7 +287,8 @@ async def run_agent_tool_loop(
                         if tools_param is not None:
                             retry_kw["tools"] = tools_param
                             retry_kw["tool_choice"] = "none"
-                        retry = await _client.chat.completions.create(**retry_kw)
+                        from app.services.providers import get_llm_client as _get_client
+                        retry = await _get_client(provider_id).chat.completions.create(**retry_kw)
                         text = retry.choices[0].message.content or ""
                         messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                     except Exception as exc:
@@ -433,6 +455,7 @@ async def run_agent_tool_loop(
                         content=result_for_llm,
                         model=_eff_summarize_model,
                         max_tokens=_eff_summarize_max_tokens,
+                        provider_id=provider_id,
                     )
                     if correlation_id is not None:
                         asyncio.create_task(_record_trace_event(
@@ -493,7 +516,8 @@ async def run_agent_tool_loop(
         if tools_param is not None:
             final_kw["tools"] = tools_param
             final_kw["tool_choice"] = "none"
-        response = await _client.chat.completions.create(**final_kw)
+        from app.services.providers import get_llm_client as _get_client
+        response = await _get_client(provider_id).chat.completions.create(**final_kw)
         msg = response.choices[0].message
         messages.append(msg.model_dump(exclude_none=True))
         if response.usage and correlation_id is not None:

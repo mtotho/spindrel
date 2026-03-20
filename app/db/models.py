@@ -319,6 +319,22 @@ class SandboxInstance(Base):
     profile: Mapped["SandboxProfile"] = relationship(back_populates="instances")
 
 
+class ProviderConfig(Base):
+    __tablename__ = "provider_configs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    provider_type: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    tpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class Bot(Base):
     __tablename__ = "bots"
 
@@ -353,6 +369,11 @@ class Bot(Base):
     knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    model_provider_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("provider_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

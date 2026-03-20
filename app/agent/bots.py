@@ -108,6 +108,8 @@ class BotConfig:
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
     harness_access: list[str] = field(default_factory=list)  # allowed harness names
+    # Provider
+    model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -197,6 +199,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
+        model_provider_id=row.model_provider_id,
     )
 
 

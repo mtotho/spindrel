@@ -26,11 +26,26 @@
       </div>
       <div class="col-span-2">
         <label class="block text-xs text-gray-400 mb-1">Model <span class="text-red-400">*</span></label>
-        <input name="model" required placeholder="gemini/gemini-2.5-flash" list="litellm-models"
+        {% if model_groups %}
+        <select id="model-picker"
+          onchange="var v=this.value; var opt=this.options[this.selectedIndex];
+                    if(v && v!=='__other__'){document.getElementById('model-input-new').value=v;}
+                    document.getElementById('model-provider-id-new').value=opt.dataset.providerId||'';"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 mb-2">
+          <option value="">— Pick from provider —</option>
+          {% for group in model_groups %}
+          <optgroup label="{{ group.provider_name }} ({{ group.provider_type }})">
+            {% for m in group.models %}
+            <option value="{{ m.id }}" data-provider-id="{{ group.provider_id or '' }}">{{ m.display }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+          <option value="__other__">Other (type below)…</option>
+        </select>
+        {% endif %}
+        <input name="model" id="model-input-new" required placeholder="gemini/gemini-2.5-flash"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-        <datalist id="litellm-models">
-          {% for m in litellm_models %}<option value="{{ m }}">{% endfor %}
-        </datalist>
+        <input type="hidden" name="model_provider_id" id="model-provider-id-new" value="" />
       </div>
     </div>
   </section>

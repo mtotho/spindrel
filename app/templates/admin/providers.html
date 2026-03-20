@@ -1,0 +1,103 @@
+{% extends "admin/_base.html" %}
+{% block title %}Providers{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Model Providers</h1>
+  <a href="/admin/providers/new"
+     class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium">
+    + Add Provider
+  </a>
+</div>
+
+<p class="text-sm text-gray-400 mb-6">
+  Configure LLM providers here. Bots with no provider set use the fallback below.
+</p>
+
+{% if not has_db_providers %}
+<!-- .env fallback entry (readonly) -->
+<div class="bg-gray-800 rounded-xl border border-gray-700 mb-4 p-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="flex items-center gap-2">
+        <span class="font-semibold text-gray-100">LiteLLM (.env fallback)</span>
+        <span class="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded">built-in</span>
+        <span class="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded">litellm</span>
+      </div>
+      <div class="text-xs text-gray-400 mt-1 font-mono">{{ env_base_url }}</div>
+    </div>
+    <span class="text-xs text-green-400">active (fallback)</span>
+  </div>
+</div>
+{% endif %}
+
+{% if not providers %}
+<div class="text-gray-500 text-sm mt-2 mb-4">No providers configured yet. Add one above.</div>
+{% endif %}
+
+{% for provider in providers %}
+<div class="bg-gray-800 rounded-xl border border-gray-700 mb-4 overflow-hidden">
+  <div class="px-5 py-4 flex items-center justify-between border-b border-gray-700">
+    <div>
+      <div class="flex items-center gap-2">
+        <span class="font-semibold text-gray-100">{{ provider.display_name }}</span>
+        <span class="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded">{{ provider.provider_type }}</span>
+        {% if not provider.is_enabled %}
+        <span class="text-xs bg-red-900 text-red-300 px-2 py-0.5 rounded">disabled</span>
+        {% else %}
+        <span class="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">enabled</span>
+        {% endif %}
+      </div>
+      <div class="text-xs text-gray-500 font-mono mt-0.5">id: {{ provider.id }}</div>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="test-result-{{ provider.id }}">
+        <button
+          hx-post="/admin/providers/{{ provider.id }}/test"
+          hx-target="#test-result-{{ provider.id }}"
+          hx-swap="innerHTML"
+          class="text-xs text-indigo-400 hover:text-indigo-300">
+          Test
+        </button>
+      </div>
+      <a href="/admin/providers/{{ provider.id }}/edit" class="text-xs text-gray-400 hover:text-gray-200">Edit</a>
+      <button
+        hx-delete="/admin/providers/{{ provider.id }}"
+        hx-confirm="Delete provider '{{ provider.display_name }}'?"
+        hx-target="closest div.bg-gray-800"
+        hx-swap="outerHTML"
+        class="text-xs text-red-500 hover:text-red-400">
+        Delete
+      </button>
+    </div>
+  </div>
+  <div class="px-5 py-3 text-sm grid grid-cols-3 gap-4">
+    {% if provider.base_url %}
+    <div>
+      <span class="text-gray-500 text-xs">Base URL</span>
+      <div class="text-gray-300 font-mono text-xs mt-0.5 truncate">{{ provider.base_url }}</div>
+    </div>
+    {% endif %}
+    {% if provider.tpm_limit %}
+    <div>
+      <span class="text-gray-500 text-xs">TPM Limit</span>
+      <div class="text-gray-300 text-xs mt-0.5">{{ "{:,}".format(provider.tpm_limit) }}</div>
+    </div>
+    {% endif %}
+    {% if provider.rpm_limit %}
+    <div>
+      <span class="text-gray-500 text-xs">RPM Limit</span>
+      <div class="text-gray-300 text-xs mt-0.5">{{ provider.rpm_limit }}</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% if providers %}
+<div class="mt-4 p-4 bg-gray-800 rounded-lg border border-gray-700 text-sm text-gray-400">
+  <strong class="text-gray-300">Fallback:</strong> Bots with no provider selected use the first enabled <code class="text-indigo-300">litellm</code> provider above, or the <code class="text-indigo-300">LITELLM_BASE_URL</code>/<code class="text-indigo-300">LITELLM_API_KEY</code> .env settings if none exist.
+</div>
+{% endif %}
+
+{% endblock %}

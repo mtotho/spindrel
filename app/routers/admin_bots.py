@@ -12,7 +12,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from app.agent.bots import reload_bots
 from app.agent.persona import get_persona, write_persona
-from app.config import settings
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, SandboxProfile, Skill as SkillRow, ToolEmbedding
@@ -23,18 +22,11 @@ _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
-async def _get_litellm_models() -> list[str]:
-    """Fetch available models from LiteLLM proxy. Returns empty list on failure."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(
-        base_url=settings.LITELLM_BASE_URL,
-        api_key=settings.LITELLM_API_KEY or "dummy",
-        max_retries=0,
-        timeout=5.0,
-    )
+async def _get_available_models() -> list[dict]:
+    """Return model groups from all configured providers (for select optgroups)."""
     try:
-        models = await client.models.list()
-        return sorted(m.id for m in models.data)
+        from app.services.providers import get_available_models_grouped
+        return await get_available_models_grouped()
     except Exception:
         return []
 
@@ -64,12 +56,12 @@ async def admin_bot_new(request: Request):
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
-    tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
+    tool_options, model_groups = await asyncio.gather(_get_tool_options(), _get_available_models())
     return templates.TemplateResponse("admin/bot_new.html", {
         "request": request,
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
-        "litellm_models": litellm_models,
+        "model_groups": model_groups,
         "all_bots": _list_bots(),
         "all_harnesses": harness_service.list_harnesses(),
         **tool_options,
@@ -114,6 +106,7 @@ async def admin_bot_create(
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
+    model_provider_id: str = Form(""),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -200,6 +193,7 @@ async def admin_bot_create(
         knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         delegation_config=delegation_config,
+        model_provider_id=model_provider_id.strip() or None,
         created_at=now,
         updated_at=now,
     )
@@ -213,6 +207,53 @@ async def admin_bot_create(
 
     await reload_bots()
     return RedirectResponse(f"/admin/bots/{bot_id}", status_code=303)
+
+
+@router.get("/bots/{bot_id}/model-cost-badge", response_class=HTMLResponse)
+async def admin_bot_model_cost_badge(bot_id: str):
+    """HTMX lazy-load: return a small badge with model cost info for the bots list."""
+    try:
+        async with async_session() as db:
+            row = await db.get(BotRow, bot_id)
+        if not row:
+            return HTMLResponse("<span class='text-xs text-gray-600'>—</span>")
+        from app.services.providers import get_cached_model_info
+        info = get_cached_model_info(row.model, row.model_provider_id)
+        if not info:
+            return HTMLResponse("<span class='text-xs text-gray-600'>—</span>")
+        parts = []
+        ctx = info.get("max_tokens")
+        if ctx:
+            parts.append(f"{ctx // 1000}k ctx")
+        inp = info.get("input_cost_per_1m")
+        out = info.get("output_cost_per_1m")
+        if inp or out:
+            parts.append(f"{inp or '?'}/{out or '?'} /1M")
+        if not parts:
+            return HTMLResponse("<span class='text-xs text-gray-600'>—</span>")
+        title = f"ctx: {ctx // 1000}k tokens · in: {inp}/1M · out: {out}/1M" if ctx and inp else ""
+        html = f"<span class='text-xs text-gray-500 font-mono' title='{title}'>{' · '.join(parts)}</span>"
+        return HTMLResponse(html)
+    except Exception:
+        return HTMLResponse("<span class='text-xs text-gray-600'>—</span>")
+
+
+@router.get("/bots/{bot_id}/context-estimate-badge", response_class=HTMLResponse)
+async def admin_bot_context_estimate_badge(bot_id: str):
+    """HTMX lazy-load: return a small badge with the estimated token count for this bot."""
+    try:
+        from app.services.context_estimate import estimate_bot_context
+        result = await estimate_bot_context(draft={}, bot_id=bot_id)
+        tokens = result.approx_tokens
+        if tokens >= 1000:
+            label = f"~{tokens // 1000}k ctx"
+        else:
+            label = f"~{tokens} ctx"
+        return HTMLResponse(
+            f"<span class='text-xs text-gray-500 font-mono' title='{result.total_chars:,} chars'>{label}</span>"
+        )
+    except Exception:
+        return HTMLResponse("<span class='text-xs text-gray-600'>—</span>")
 
 
 @router.post("/bots/{bot_id}/estimate-context")
@@ -264,15 +305,15 @@ async def admin_bot_edit(request: Request, bot_id: str):
             for k, v in sorted(packs.items())
         ]
     )
-    tool_options, litellm_models, persona_content = await asyncio.gather(
-        _get_tool_options(), _get_litellm_models(), get_persona(bot_id)
+    tool_options, model_groups, persona_content = await asyncio.gather(
+        _get_tool_options(), _get_available_models(), get_persona(bot_id)
     )
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": row,
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
-        "litellm_models": litellm_models,
+        "model_groups": model_groups,
         "all_bots": [b for b in _list_bots() if b.id != bot_id],
         "all_harnesses": harness_service.list_harnesses(),
         "persona_content": persona_content or "",
@@ -320,6 +361,7 @@ async def admin_bot_update(
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
+    model_provider_id: str = Form(""),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -407,6 +449,7 @@ async def admin_bot_update(
         row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.delegation_config = delegation_config
+        row.model_provider_id = model_provider_id.strip() or None
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
