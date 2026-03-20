@@ -93,7 +93,12 @@
         {% set profile = p.profile %}
         <tr class="hover:bg-gray-750 align-top">
           <td class="px-4 py-3">
-            <div class="font-mono text-indigo-300 text-sm">{{ profile.name }}</div>
+            <div class="flex items-center gap-2">
+              <div class="font-mono text-indigo-300 text-sm">{{ profile.name }}</div>
+              {% if not profile.enabled %}
+              <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">disabled</span>
+              {% endif %}
+            </div>
             {% if profile.description %}
             <div class="text-xs text-gray-500 mt-0.5">{{ profile.description }}</div>
             {% endif %}
@@ -168,6 +173,11 @@
             <div class="flex gap-3 justify-end">
               <a href="/admin/sandboxes/profiles/{{ profile.id }}/edit"
                 class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Edit</a>
+              <form method="post" action="/admin/sandboxes/profiles/{{ profile.id }}/toggle" class="inline">
+                <button type="submit" class="text-xs {% if profile.enabled %}text-yellow-400 hover:text-yellow-200{% else %}text-green-400 hover:text-green-200{% endif %} transition-colors">
+                  {{ 'Disable' if profile.enabled else 'Enable' }}
+                </button>
+              </form>
               <button
                 hx-delete="/admin/sandboxes/profiles/{{ profile.id }}"
                 hx-confirm="Delete profile '{{ profile.name }}'? This will also delete all instances."

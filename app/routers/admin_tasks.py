@@ -1,6 +1,7 @@
 """Admin routes for the task scheduling system."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from sqlalchemy import func, select
 
 from app.agent.bots import list_bots
 from app.db.engine import async_session
-from app.db.models import Task
+from app.db.models import Skill as SkillRow, Task, ToolEmbedding
 from app.routers.admin_template_filters import install_admin_template_filters
 
 router = APIRouter()
@@ -109,11 +110,21 @@ async def admin_tasks(
 async def admin_task_detail(request: Request, task_id: uuid.UUID):
     async with async_session() as db:
         task = await db.get(Task, task_id)
-    if not task:
-        return HTMLResponse("<div class='text-red-400 p-4'>Task not found.</div>", status_code=404)
+        if not task:
+            return HTMLResponse("<div class='text-red-400 p-4'>Task not found.</div>", status_code=404)
+        all_skills = list((await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all())
+        tool_names = list((await db.execute(
+            select(ToolEmbedding.tool_name).distinct().order_by(ToolEmbedding.tool_name)
+        )).scalars().all())
+
+    completions = (
+        [{"value": f"skill:{s.id}", "label": f"skill:{s.id} — {s.name}"} for s in all_skills]
+        + [{"value": f"tool:{t}", "label": f"tool:{t}"} for t in tool_names]
+    )
+
     return templates.TemplateResponse(
         "admin/task_detail.html",
-        {"request": request, "task": task},
+        {"request": request, "task": task, "completions_json": json.dumps(completions)},
     )
 
 

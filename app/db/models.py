@@ -265,6 +265,7 @@ class SandboxProfile(Base):
     labels: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     port_mappings: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     idle_ttl_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

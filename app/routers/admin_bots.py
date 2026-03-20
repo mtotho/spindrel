@@ -61,7 +61,7 @@ async def _get_tool_options() -> dict:
 async def admin_bot_new(request: Request):
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
-        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
+        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
     tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
     return templates.TemplateResponse("admin/bot_new.html", {
         "request": request,
@@ -209,7 +209,7 @@ async def admin_bot_edit(request: Request, bot_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Bot not found")
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
-        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
+        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
     tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,

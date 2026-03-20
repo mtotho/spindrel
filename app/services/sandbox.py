@@ -168,6 +168,7 @@ class SandboxService:
                 select(SandboxProfile)
                 .join(SandboxBotAccess, SandboxBotAccess.profile_id == SandboxProfile.id)
                 .where(SandboxBotAccess.bot_id == bot_id)
+                .where(SandboxProfile.enabled == True)  # noqa: E712
             )
             profiles = list((await db.execute(stmt)).scalars().all())
 
@@ -200,6 +201,8 @@ class SandboxService:
             profile = (await db.execute(stmt)).scalar_one_or_none()
             if profile is None:
                 raise SandboxNotFoundError(f"Sandbox profile '{profile_name}' not found.")
+            if not profile.enabled:
+                raise SandboxNotFoundError(f"Sandbox profile '{profile_name}' is disabled.")
 
             access_stmt = select(SandboxBotAccess).where(
                 SandboxBotAccess.bot_id == bot_id,

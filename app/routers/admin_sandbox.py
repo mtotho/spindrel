@@ -243,6 +243,17 @@ async def admin_sandbox_delete_profile(profile_id: uuid.UUID):
     return HTMLResponse("", status_code=200)
 
 
+@router.post("/sandboxes/profiles/{profile_id}/toggle", response_class=HTMLResponse)
+async def admin_sandbox_toggle_profile(profile_id: uuid.UUID):
+    async with async_session() as db:
+        profile = await db.get(SandboxProfile, profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        profile.enabled = not profile.enabled
+        await db.commit()
+    return RedirectResponse("/admin/sandboxes", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Bot access management
 # ---------------------------------------------------------------------------

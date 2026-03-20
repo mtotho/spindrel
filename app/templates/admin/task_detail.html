@@ -53,10 +53,27 @@
             placeholder="+1h or +1d or blank for one-shot"
             class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
         </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Prompt</label>
+        <div x-data="promptEditor()" class="relative">
+          <label class="block text-xs text-gray-400 mb-1">Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
           <textarea name="prompt" rows="6"
+            x-ref="ta"
+            @input="onInput"
+            @keydown="onKeydown"
+            @blur="setTimeout(() => show = false, 150)"
             class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500">{{ task.prompt }}</textarea>
+          <div x-show="show && filtered.length > 0" x-cloak
+            class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
+            style="max-height: 180px; top: 100%; margin-top: 2px;">
+            <template x-for="(item, i) in filtered" :key="item.value">
+              <div @mousedown.prevent="select(item)"
+                :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
+                @mouseenter="activeIdx = i"
+                class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
+                <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
+                <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
+              </div>
+            </template>
+          </div>
         </div>
         <div class="flex justify-end gap-3 pt-2">
           <button type="button" @click="open = false"
@@ -197,7 +214,7 @@
   <div class="space-y-4">
     <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
       <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Prompt</h2>
-      <pre class="text-sm text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ task.prompt }}</pre>
+      <div class="text-sm text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed">{{ task.prompt | highlight_tags }}</div>
     </div>
 
     {% if task.result %}
@@ -216,4 +233,49 @@
   </div>
 
 </div>
+
+<script>
+function promptEditor() {
+  const completions = {{ completions_json | safe }};
+  return {
+    show: false,
+    atStart: -1,
+    filtered: [],
+    activeIdx: 0,
+    onInput() {
+      const ta = this.$refs.ta;
+      const pos = ta.selectionStart;
+      const text = ta.value.substring(0, pos);
+      const atIdx = text.lastIndexOf('@');
+      if (atIdx === -1 || (atIdx > 0 && /\w/.test(text[atIdx - 1]))) {
+        this.show = false; return;
+      }
+      const q = text.substring(atIdx + 1);
+      if (/\s/.test(q)) { this.show = false; return; }
+      this.atStart = atIdx;
+      const ql = q.toLowerCase();
+      this.filtered = completions.filter(c => c.value.includes(ql)).slice(0, 10);
+      this.activeIdx = 0;
+      this.show = this.filtered.length > 0;
+    },
+    onKeydown(e) {
+      if (!this.show) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.activeIdx = Math.min(this.activeIdx + 1, this.filtered.length - 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.activeIdx = Math.max(this.activeIdx - 1, 0); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { if (this.filtered.length > 0) { e.preventDefault(); this.select(this.filtered[this.activeIdx]); } }
+      else if (e.key === 'Escape') { this.show = false; }
+    },
+    select(item) {
+      const ta = this.$refs.ta;
+      const before = ta.value.substring(0, this.atStart);
+      const after = ta.value.substring(ta.selectionStart);
+      ta.value = before + '@' + item.value + ' ' + after;
+      const cursor = this.atStart + 1 + item.value.length + 1;
+      ta.setSelectionRange(cursor, cursor);
+      ta.focus();
+      this.show = false;
+    },
+  };
+}
+</script>
 {% endblock %}
