@@ -111,6 +111,7 @@ def _build_docker_run_args(
     env: dict,
     labels: dict,
     mount_specs: list,
+    port_mappings: list,
 ) -> list[str]:
     args = ["docker", "run", "-d", "--name", container_name]
 
@@ -125,6 +126,15 @@ def _build_docker_run_args(
         args += ["--memory", str(create_options["memory"])]
     if "user" in create_options:
         args += ["--user", str(create_options["user"])]
+
+    for pm in (port_mappings or []):
+        host_port = pm.get("host_port", 0)
+        container_port = pm["container_port"]
+        proto = pm.get("protocol", "tcp")
+        mapping = f"{host_port}:{container_port}" if host_port else str(container_port)
+        if proto != "tcp":
+            mapping = f"{mapping}/{proto}"
+        args += ["-p", mapping]
 
     for env_var, env_val in (env or {}).items():
         args += ["-e", f"{env_var}={env_val}"]
@@ -169,6 +179,7 @@ class SandboxService:
                 "name": p.name,
                 "description": p.description,
                 "image": p.image,
+                "port_mappings": p.port_mappings or [],
             }
             for p in profiles
         ]
@@ -178,7 +189,8 @@ class SandboxService:
         profile_name: str,
         bot_id: str,
         allowed_profiles: list[str] | None = None,
-    ) -> SandboxInstance:
+        port_mappings: list | None = None,
+    ) -> tuple[SandboxInstance, list]:
         if not settings.DOCKER_SANDBOX_ENABLED:
             raise SandboxError("Docker sandboxes are disabled. Set DOCKER_SANDBOX_ENABLED=true.")
 
@@ -236,6 +248,8 @@ class SandboxService:
             p_env = dict(profile.env or {})
             p_labels = dict(profile.labels or {})
             p_mount_specs = list(profile.mount_specs or [])
+            # Merge profile defaults with caller-supplied mappings (caller additions appended)
+            p_port_mappings = list(profile.port_mappings or []) + list(port_mappings or [])
 
         if "ensure" in locked_ops:
             raise SandboxLockedError(
@@ -262,6 +276,7 @@ class SandboxService:
                 env=p_env,
                 labels=p_labels,
                 mount_specs=p_mount_specs,
+                port_mappings=p_port_mappings,
             )
             container_id, error = await self._docker_run(run_args)
             if error:
@@ -280,10 +295,11 @@ class SandboxService:
                 inst.container_id = container_id
                 inst.status = new_status
                 inst.error_message = None
+                inst.port_mappings = p_port_mappings
                 inst.last_inspected_at = datetime.now(timezone.utc)
                 await db.commit()
                 await db.refresh(inst)
-                return inst
+                return inst, inst.port_mappings
         raise SandboxError("Failed to persist sandbox instance.")
 
     async def exec(
@@ -388,6 +404,11 @@ class SandboxService:
             if inst:
                 await db.delete(inst)
                 await db.commit()
+
+    async def get_profile_description(self, profile_id: uuid.UUID) -> str | None:
+        async with async_session() as db:
+            profile = await db.get(SandboxProfile, profile_id)
+            return profile.description if profile else None
 
     async def get_instance_for_bot(
         self,

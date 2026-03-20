@@ -1,0 +1,352 @@
+{% extends "admin/_base.html" %}
+{% block title %}Edit: {{ profile.name }}{% endblock %}
+
+{% block content %}
+
+{% if request.query_params.get('saved') %}
+<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
+  x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="opacity-0 translate-y-1"
+  x-transition:enter-end="opacity-100 translate-y-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="opacity-100"
+  x-transition:leave-end="opacity-0"
+  class="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-green-700 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg">
+  <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  Saved
+</div>
+{% endif %}
+
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/sandboxes" class="text-gray-400 hover:text-gray-200 text-sm">← Sandboxes</a>
+</div>
+<h1 class="text-2xl font-bold mb-1">{{ profile.name }}</h1>
+{% if profile.description %}
+<pre class="text-sm text-gray-500 mb-6 whitespace-pre-wrap font-sans">{{ profile.description }}</pre>
+{% else %}
+<div class="text-sm text-gray-600 mb-6 italic">No description</div>
+{% endif %}
+
+<script>
+function sandboxProfileData() {
+  const initEnv   = {{ (profile.env or {}) | tojson }};
+  const initMounts = {{ (profile.mount_specs or []) | tojson }};
+  const initPorts  = {{ (profile.port_mappings or []) | tojson }};
+  const initOpts   = {{ (profile.create_options or {}) | tojson }};
+  return {
+    envVars:  Object.entries(initEnv).map(([k, v]) => ({key: k, val: String(v)})),
+    mounts:   initMounts,
+    ports:    initPorts,
+    newKey: '', newVal: '',
+    newHp: '', newCp: '', newMountMode: 'ro',
+    newHostPort: '', newContainerPort: '', newProto: 'tcp',
+
+    addEnv()   { if (this.newKey.trim()) { this.envVars.push({key: this.newKey.trim(), val: this.newVal}); this.newKey = ''; this.newVal = ''; } },
+    removeEnv(i) { this.envVars.splice(i, 1); },
+
+    addMount() { if (this.newHp.trim() && this.newCp.trim()) { this.mounts.push({host_path: this.newHp.trim(), container_path: this.newCp.trim(), mode: this.newMountMode}); this.newHp = ''; this.newCp = ''; this.newMountMode = 'ro'; } },
+    removeMount(i) { this.mounts.splice(i, 1); },
+
+    addPort() {
+      const cp = parseInt(this.newContainerPort);
+      if (!cp) return;
+      const hp = parseInt(this.newHostPort) || 0;
+      this.ports.push({host_port: hp, container_port: cp, protocol: this.newProto});
+      this.newHostPort = ''; this.newContainerPort = ''; this.newProto = 'tcp';
+    },
+    removePort(i) { this.ports.splice(i, 1); },
+
+    get hasPendingPort()  { return this.newContainerPort || this.newHostPort; },
+    get hasPendingEnv()   { return this.newKey.trim() || this.newVal.trim(); },
+    get hasPendingMount() { return this.newHp.trim() || this.newCp.trim(); },
+
+    handleSubmit(e) {
+      const warnings = [];
+
+      // Auto-add any valid pending rows
+      if (parseInt(this.newContainerPort)) {
+        this.addPort();
+      } else if (this.newHostPort) {
+        warnings.push('• Port mapping: container port is missing');
+      }
+
+      if (this.newKey.trim()) {
+        this.addEnv();
+      } else if (this.newVal.trim()) {
+        warnings.push('• Environment variable: name (key) is missing');
+      }
+
+      if (this.newHp.trim() && this.newCp.trim()) {
+        this.addMount();
+      } else if (this.newHp.trim() || this.newCp.trim()) {
+        warnings.push('• Volume mount: ' + (this.newHp.trim() ? 'container path' : 'host path') + ' is missing');
+      }
+
+      if (warnings.length > 0) {
+        if (!confirm('These rows are incomplete and will be discarded:\n\n' + warnings.join('\n') + '\n\nSave anyway?')) return;
+      }
+
+      e.target.submit();
+    },
+
+    get envJson()    { const o = {}; this.envVars.forEach(e => { o[e.key] = e.val; }); return JSON.stringify(o); },
+    get mountsJson() { return JSON.stringify(this.mounts); },
+    get portsJson()  { return JSON.stringify(this.ports); },
+  };
+}
+</script>
+
+<form method="post" action="/admin/sandboxes/profiles/{{ profile.id }}/edit"
+  class="max-w-3xl space-y-8" x-data="sandboxProfileData()" @submit.prevent="handleSubmit($event)">
+
+  <input type="hidden" name="env_json"          :value="envJson" />
+  <input type="hidden" name="mount_specs_json"  :value="mountsJson" />
+  <input type="hidden" name="port_mappings_json" :value="portsJson" />
+
+  <!-- Identity -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Identity</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Profile Name</label>
+        <input value="{{ profile.name }}" disabled
+          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-400 font-mono cursor-not-allowed" />
+        <p class="text-xs text-gray-600 mt-1">Used in container naming, cannot be changed.</p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Image</label>
+        <input name="image" value="{{ profile.image }}" required
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Description</label>
+        <p class="text-xs text-gray-600 mb-1.5">Shown to bots via <code class="bg-gray-700 px-1 rounded">list_sandbox_profiles</code>. Include quick-start commands and usage notes.</p>
+        <textarea name="description" rows="5" placeholder="What is this sandbox for? Include quick-start commands, e.g.:&#10;Run a script: exec_sandbox with 'python3 /scripts/run.py'&#10;Check environment: exec_sandbox with 'python3 --version &amp;&amp; pip list'"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y">{{ profile.description or '' }}</textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- Container Settings -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Container Settings</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Scope Mode</label>
+        <select name="scope_mode"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          {% for mode, desc in [("session","one per chat session"),("client","one per user"),("agent","one per bot"),("shared","one server-wide")] %}
+          <option value="{{ mode }}" {% if profile.scope_mode == mode %}selected{% endif %}>{{ mode }} — {{ desc }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
+        <select name="network_mode"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="none" {% if profile.network_mode == 'none' %}selected{% endif %}>none (no network)</option>
+          <option value="bridge" {% if profile.network_mode == 'bridge' %}selected{% endif %}>bridge (internet access)</option>
+          <option value="host" {% if profile.network_mode == 'host' %}selected{% endif %}>host (share host network)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Idle TTL (seconds)</label>
+        <input name="idle_ttl_seconds" type="number" value="{{ profile.idle_ttl_seconds or '' }}" placeholder="never"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div class="flex items-end pb-2">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" name="read_only_root" id="read_only_root" value="true"
+            {% if profile.read_only_root %}checked{% endif %}
+            class="rounded text-indigo-500"
+            onchange="this.form.querySelector('[name=read_only_root][type=hidden]').value = this.checked ? 'true' : 'false'" />
+          <input type="hidden" name="read_only_root" value="{{ 'true' if profile.read_only_root else 'false' }}" />
+          <span class="text-sm text-gray-300">Read-only root filesystem</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- Resource Limits -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Resource Limits</h2>
+    {% set opts = profile.create_options or {} %}
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">CPU Limit</label>
+        <input name="cpu_limit" type="number" step="0.1" min="0.1"
+          value="{{ opts.get('cpus', '') }}" placeholder="e.g. 1.5"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        <p class="text-xs text-gray-600 mt-1">Fractional CPUs (blank = no limit)</p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Memory Limit</label>
+        <input name="memory_limit" value="{{ opts.get('memory', '') }}" placeholder="e.g. 512m, 2g"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        <p class="text-xs text-gray-600 mt-1">Docker memory string (blank = no limit)</p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Run as User</label>
+        <input name="run_as_user" value="{{ opts.get('user', '') }}" placeholder="e.g. 1000 or nobody"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        <p class="text-xs text-gray-600 mt-1">UID or username (blank = image default)</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Port Mappings -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-2 pb-2 border-b border-gray-700">Port Mappings</h2>
+    <p class="text-xs text-gray-500 mb-4">
+      Expose container ports on the host. Requires <code class="bg-gray-700 px-1 rounded">network_mode: bridge</code> or <code class="bg-gray-700 px-1 rounded">host</code>.
+      Host port <code class="bg-gray-700 px-1 rounded">0</code> = auto-assign.
+    </p>
+
+    <div class="space-y-1.5 mb-3">
+      <template x-for="(p, i) in ports" :key="i">
+        <div class="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700 text-sm font-mono">
+          <span class="text-gray-400 text-xs w-20 shrink-0">host port</span>
+          <span class="text-indigo-300" x-text="p.host_port || '(auto)'"></span>
+          <span class="text-gray-600 mx-1">→</span>
+          <span class="text-gray-400 text-xs w-28 shrink-0">container port</span>
+          <span class="text-green-300" x-text="p.container_port"></span>
+          <span class="text-gray-600">/</span>
+          <span class="text-gray-400" x-text="p.protocol || 'tcp'"></span>
+          <button type="button" @click="removePort(i)" class="text-red-400 hover:text-red-300 ml-auto text-xs">Remove</button>
+        </div>
+      </template>
+      <div x-show="ports.length === 0" class="text-xs text-gray-600 italic px-1">No port mappings configured.</div>
+    </div>
+
+    <div class="rounded-lg p-2 -m-2 transition-colors" :class="hasPendingPort ? 'bg-amber-950/40 ring-1 ring-amber-600/50' : ''">
+      <div class="flex gap-2 items-end">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Host Port</label>
+          <input type="number" x-model.number="newHostPort" @keydown.enter.prevent="addPort()" placeholder="8080 (0=auto)"
+            class="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Container Port</label>
+          <input type="number" x-model.number="newContainerPort" @keydown.enter.prevent="addPort()" placeholder="80"
+            class="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Protocol</label>
+          <select x-model="newProto"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+          </select>
+        </div>
+        <button type="button" @click="addPort()"
+          class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-4 py-1.5 text-sm">
+          Add
+        </button>
+      </div>
+      <p x-show="hasPendingPort" x-cloak class="text-xs text-amber-400 mt-2">
+        ↑ Unsaved — click Add or press Enter, or it will be auto-added on Save if valid.
+      </p>
+    </div>
+  </section>
+
+  <!-- Environment Variables -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-2 pb-2 border-b border-gray-700">Environment Variables</h2>
+    <p class="text-xs text-gray-500 mb-4">Passed as <code class="bg-gray-700 px-1 rounded">-e KEY=VALUE</code> to <code class="bg-gray-700 px-1 rounded">docker run</code>. Good for <code class="bg-gray-700 px-1 rounded">GH_TOKEN</code>, <code class="bg-gray-700 px-1 rounded">GITHUB_TOKEN</code>, API keys, etc.</p>
+
+    <div class="space-y-1.5 mb-3">
+      <template x-for="(e, i) in envVars" :key="i">
+        <div class="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700 text-sm font-mono">
+          <span class="text-indigo-300 w-40 shrink-0 truncate" x-text="e.key"></span>
+          <span class="text-gray-600">=</span>
+          <span class="text-gray-300 flex-1 truncate" x-text="e.val"></span>
+          <button type="button" @click="removeEnv(i)" class="text-red-400 hover:text-red-300 shrink-0 text-xs">Remove</button>
+        </div>
+      </template>
+      <div x-show="envVars.length === 0" class="text-xs text-gray-600 italic px-1">No environment variables configured.</div>
+    </div>
+
+    <div class="rounded-lg p-2 -m-2 transition-colors" :class="hasPendingEnv ? 'bg-amber-950/40 ring-1 ring-amber-600/50' : ''">
+      <div class="flex gap-2">
+        <input type="text" x-model="newKey" @keydown.enter.prevent="addEnv()" placeholder="KEY"
+          class="w-44 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        <input type="text" x-model="newVal" @keydown.enter.prevent="addEnv()" placeholder="value"
+          class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        <button type="button" @click="addEnv()"
+          class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-4 py-1.5 text-sm">
+          Add
+        </button>
+      </div>
+      <p x-show="hasPendingEnv" x-cloak class="text-xs text-amber-400 mt-2">
+        ↑ Unsaved — click Add or press Enter, or it will be auto-added on Save if valid.
+      </p>
+    </div>
+  </section>
+
+  <!-- Volume Mounts -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-2 pb-2 border-b border-gray-700">Volume Mounts</h2>
+    <p class="text-xs text-gray-500 mb-4">Bind-mount host paths into the container. Common uses: <code class="bg-gray-700 px-1 rounded">~/.ssh</code> (SSH keys), <code class="bg-gray-700 px-1 rounded">~/.gitconfig</code>, <code class="bg-gray-700 px-1 rounded">~/.config/gh</code> (gh CLI auth), project directories.</p>
+
+    <div class="space-y-1.5 mb-3">
+      <template x-for="(m, i) in mounts" :key="i">
+        <div class="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700 text-sm font-mono">
+          <span class="text-gray-300 flex-1 truncate" x-text="m.host_path"></span>
+          <span class="text-gray-600 shrink-0">→</span>
+          <span class="text-indigo-300 flex-1 truncate" x-text="m.container_path"></span>
+          <span class="px-2 py-0.5 rounded text-xs shrink-0"
+            :class="m.mode === 'rw' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-400'"
+            x-text="m.mode"></span>
+          <button type="button" @click="removeMount(i)" class="text-red-400 hover:text-red-300 shrink-0 text-xs">Remove</button>
+        </div>
+      </template>
+      <div x-show="mounts.length === 0" class="text-xs text-gray-600 italic px-1">No volume mounts configured.</div>
+    </div>
+
+    <div class="rounded-lg p-2 -m-2 transition-colors" :class="hasPendingMount ? 'bg-amber-950/40 ring-1 ring-amber-600/50' : ''">
+      <div class="flex gap-2 items-end">
+        <div class="flex-1">
+          <label class="block text-xs text-gray-400 mb-1">Host Path</label>
+          <input type="text" x-model="newHp" @keydown.enter.prevent="addMount()" placeholder="/home/user/.ssh"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div class="flex-1">
+          <label class="block text-xs text-gray-400 mb-1">Container Path</label>
+          <input type="text" x-model="newCp" @keydown.enter.prevent="addMount()" placeholder="/root/.ssh"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Mode</label>
+          <select x-model="newMountMode"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="ro">ro (read-only)</option>
+            <option value="rw">rw (read-write)</option>
+          </select>
+        </div>
+        <button type="button" @click="addMount()"
+          class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-4 py-1.5 text-sm">
+          Add
+        </button>
+      </div>
+      <p x-show="hasPendingMount" x-cloak class="text-xs text-amber-400 mt-2">
+        ↑ Unsaved — click Add or press Enter, or it will be auto-added on Save if valid.
+      </p>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-4">
+    <button type="submit"
+      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
+      Save Changes
+    </button>
+    <a href="/admin/sandboxes" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+    <button type="button"
+      hx-delete="/admin/sandboxes/profiles/{{ profile.id }}"
+      hx-confirm="Delete profile '{{ profile.name }}'? This will also delete all instances."
+      hx-on::after-request="window.location='/admin/sandboxes'"
+      class="ml-auto text-sm text-red-400 hover:text-red-300">
+      Delete Profile
+    </button>
+  </div>
+</form>
+{% endblock %}

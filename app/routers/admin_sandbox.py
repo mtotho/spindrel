@@ -4,14 +4,14 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from app.agent.bots import list_bots
 from app.config import settings
@@ -155,7 +155,21 @@ async def admin_sandbox_create_profile(
         )
         db.add(profile)
         await db.commit()
-    return RedirectResponse("/admin/sandboxes", status_code=303)
+        await db.refresh(profile)
+        profile_id = profile.id
+    return RedirectResponse(f"/admin/sandboxes/profiles/{profile_id}/edit", status_code=303)
+
+
+@router.get("/sandboxes/profiles/{profile_id}/edit", response_class=HTMLResponse)
+async def admin_sandbox_edit_profile_page(request: Request, profile_id: uuid.UUID):
+    async with async_session() as db:
+        profile = await db.get(SandboxProfile, profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+    return templates.TemplateResponse("admin/sandbox_profile_edit.html", {
+        "request": request,
+        "profile": profile,
+    })
 
 
 @router.post("/sandboxes/profiles/{profile_id}/edit", response_class=HTMLResponse)
@@ -166,8 +180,39 @@ async def admin_sandbox_edit_profile(
     scope_mode: str = Form("session"),
     network_mode: str = Form("none"),
     idle_ttl_seconds: str = Form(""),
+    read_only_root: str = Form("false"),
+    cpu_limit: str = Form(""),
+    memory_limit: str = Form(""),
+    run_as_user: str = Form(""),
+    env_json: str = Form("{}"),
+    mount_specs_json: str = Form("[]"),
+    port_mappings_json: str = Form("[]"),
 ):
     ttl = int(idle_ttl_seconds) if idle_ttl_seconds.strip() else None
+    try:
+        env = json.loads(env_json or "{}")
+    except json.JSONDecodeError:
+        env = {}
+    try:
+        mount_specs = json.loads(mount_specs_json or "[]")
+    except json.JSONDecodeError:
+        mount_specs = []
+    try:
+        port_mappings = json.loads(port_mappings_json or "[]")
+    except json.JSONDecodeError:
+        port_mappings = []
+
+    create_options: dict = {}
+    if cpu_limit.strip():
+        try:
+            create_options["cpus"] = float(cpu_limit.strip())
+        except ValueError:
+            pass
+    if memory_limit.strip():
+        create_options["memory"] = memory_limit.strip()
+    if run_as_user.strip():
+        create_options["user"] = run_as_user.strip()
+
     async with async_session() as db:
         profile = await db.get(SandboxProfile, profile_id)
         if not profile:
@@ -177,8 +222,14 @@ async def admin_sandbox_edit_profile(
         profile.scope_mode = scope_mode
         profile.network_mode = network_mode
         profile.idle_ttl_seconds = ttl
+        profile.read_only_root = (read_only_root.lower() == "true")
+        profile.create_options = create_options
+        profile.env = env
+        profile.mount_specs = mount_specs
+        profile.port_mappings = port_mappings
+        profile.updated_at = datetime.now(timezone.utc)
         await db.commit()
-    return RedirectResponse("/admin/sandboxes", status_code=303)
+    return RedirectResponse(f"/admin/sandboxes/profiles/{profile_id}/edit?saved=1", status_code=303)
 
 
 @router.delete("/sandboxes/profiles/{profile_id}", response_class=HTMLResponse)
@@ -262,26 +313,41 @@ async def admin_sandbox_instance_detail(request: Request, instance_id: uuid.UUID
         profile = await db.get(SandboxProfile, inst.profile_id)
         profile_name = profile.name if profile else "?"
 
-        # Correlated tool calls — match on profile_name in arguments JSON + scope
+        # Correlated tool calls:
+        # - exec/stop/remove: matched precisely by instance_id in arguments
+        # - ensure_sandbox: matched by profile_name + bot + ±10s window around instance creation
+        #   (ensure_sandbox args only contain profile_name, not the resulting instance_id)
+        instance_id_str = str(inst.id)
+        created_window_start = (inst.created_at - timedelta(seconds=10)) if inst.created_at else None
+        created_window_end = (inst.created_at + timedelta(seconds=10)) if inst.created_at else None
+
+        ensure_filters = [
+            ToolCall.tool_name == "ensure_sandbox",
+            ToolCall.arguments["profile_name"].astext == profile_name,
+            ToolCall.bot_id == inst.created_by_bot,
+        ]
+        if created_window_start and created_window_end:
+            ensure_filters += [
+                ToolCall.created_at >= created_window_start,
+                ToolCall.created_at <= created_window_end,
+            ]
+
         stmt = (
             select(ToolCall)
-            .where(ToolCall.tool_name.in_(_SANDBOX_TOOL_NAMES))
-            .where(ToolCall.arguments["profile_name"].astext == profile_name)
+            .where(
+                or_(
+                    and_(
+                        ToolCall.tool_name.in_({"exec_sandbox", "stop_sandbox", "remove_sandbox"}),
+                        ToolCall.arguments["instance_id"].astext == instance_id_str,
+                    ),
+                    and_(*ensure_filters),
+                )
+            )
             .order_by(ToolCall.created_at.desc())
             .limit(100)
         )
-        # Narrow to scope if session-scoped
-        if inst.scope_type == "session":
-            try:
-                scope_session_id = uuid.UUID(inst.scope_key)
-                stmt = stmt.where(ToolCall.session_id == scope_session_id)
-            except ValueError:
-                pass
-        elif inst.scope_type == "bot":
-            stmt = stmt.where(ToolCall.bot_id == inst.scope_key)
 
         tool_calls_raw = list((await db.execute(stmt)).scalars().all())
-
     # Annotate tool calls with parsed result
     tool_calls = [
         {
@@ -346,6 +412,8 @@ async def admin_sandbox_stop(request: Request, instance_id: uuid.UUID):
             inst.last_inspected_at = datetime.now(timezone.utc)
             await db.commit()
 
+    if request.headers.get("X-Requested-With") == "fetch":
+        return HTMLResponse("", status_code=200)
     return RedirectResponse("/admin/sandboxes", status_code=303)
 
 
@@ -367,6 +435,8 @@ async def admin_sandbox_remove(request: Request, instance_id: uuid.UUID):
             await db.delete(inst)
             await db.commit()
 
+    if request.headers.get("X-Requested-With") == "fetch":
+        return HTMLResponse("", status_code=200)
     return RedirectResponse("/admin/sandboxes", status_code=303)
 
 

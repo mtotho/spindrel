@@ -47,6 +47,30 @@ class FilesystemIndexConfig:
 
 
 @dataclass
+class HostExecCommandEntry:
+    name: str                                         # binary name, or "*" for wildcard
+    subcommands: list[str] = field(default_factory=list)  # empty = all subcommands allowed
+
+
+@dataclass
+class HostExecConfig:
+    enabled: bool = False
+    dry_run: bool = False
+    working_dirs: list[str] = field(default_factory=list)
+    commands: list[HostExecCommandEntry] = field(default_factory=list)
+    blocked_patterns: list[str] = field(default_factory=list)
+    env_passthrough: list[str] = field(default_factory=list)
+    timeout: int | None = None            # None = use HOST_EXEC_DEFAULT_TIMEOUT
+    max_output_bytes: int | None = None   # None = use HOST_EXEC_MAX_OUTPUT_BYTES
+
+
+@dataclass
+class FilesystemAccessEntry:
+    path: str
+    mode: str = "read"                    # "read" | "write" | "readwrite"
+
+
+@dataclass
 class BotConfig:
     id: str
     name: str
@@ -71,6 +95,8 @@ class BotConfig:
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
     docker_sandbox_profiles: list[str] = field(default_factory=list)
+    host_exec: HostExecConfig = field(default_factory=HostExecConfig)
+    filesystem_access: list[FilesystemAccessEntry] = field(default_factory=list)
     slack_display_name: str | None = None
     slack_icon_emoji: str | None = None
     slack_icon_url: str | None = None
@@ -106,6 +132,31 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         )
         for entry in fs_raw
     ]
+    he_raw = row.host_exec_config or {}
+    host_exec_cfg = HostExecConfig(
+        enabled=he_raw.get("enabled", False),
+        dry_run=he_raw.get("dry_run", False),
+        working_dirs=he_raw.get("working_dirs", []),
+        commands=[
+            HostExecCommandEntry(
+                name=c["name"],
+                subcommands=c.get("subcommands", []),
+            )
+            for c in he_raw.get("commands", [])
+        ],
+        blocked_patterns=he_raw.get("blocked_patterns", []),
+        env_passthrough=he_raw.get("env_passthrough", []),
+        timeout=he_raw.get("timeout"),
+        max_output_bytes=he_raw.get("max_output_bytes"),
+    )
+    fs_access_raw = row.filesystem_access or []
+    filesystem_access = [
+        FilesystemAccessEntry(
+            path=e["path"],
+            mode=e.get("mode", "read"),
+        )
+        for e in fs_access_raw
+    ]
     return BotConfig(
         id=row.id,
         name=row.name,
@@ -130,10 +181,30 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         knowledge=knowledge_cfg,
         filesystem_indexes=filesystem_indexes,
         docker_sandbox_profiles=row.docker_sandbox_profiles or [],
+        host_exec=host_exec_cfg,
+        filesystem_access=filesystem_access,
         slack_display_name=row.slack_display_name,
         slack_icon_emoji=row.slack_icon_emoji,
         slack_icon_url=row.slack_icon_url,
     )
+
+
+def _parse_host_exec_yaml(he: dict) -> dict:
+    """Normalize host_exec YAML block into the JSONB dict stored in the DB."""
+    return {
+        "enabled": he.get("enabled", False),
+        "dry_run": he.get("dry_run", False),
+        "working_dirs": he.get("working_dirs", []),
+        "commands": [
+            {"name": c["name"], "subcommands": c.get("subcommands", [])}
+            if isinstance(c, dict) else {"name": c, "subcommands": []}
+            for c in he.get("commands", [])
+        ],
+        "blocked_patterns": he.get("blocked_patterns", []),
+        "env_passthrough": he.get("env_passthrough", []),
+        "timeout": he.get("timeout"),
+        "max_output_bytes": he.get("max_output_bytes"),
+    }
 
 
 def _yaml_data_to_row_dict(data: dict) -> dict:
@@ -176,6 +247,11 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
             "similarity_threshold": know_data.get("similarity_threshold", 0.45),
         },
         "filesystem_indexes": data.get("filesystem_indexes", []),
+        "host_exec_config": _parse_host_exec_yaml(data.get("host_exec", {})),
+        "filesystem_access": [
+            {"path": e["path"], "mode": e.get("mode", "read")}
+            for e in data.get("filesystem_access", [])
+        ],
         "slack_display_name": data.get("slack_display_name"),
         "slack_icon_emoji": data.get("slack_icon_emoji"),
         "slack_icon_url": data.get("slack_icon_url"),

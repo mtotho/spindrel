@@ -23,54 +23,55 @@
     </button>
   </div>
 
-  <!-- New profile form (hidden by default) -->
+  <!-- New profile form (hidden by default) — basic fields only; redirects to edit page after creation -->
   <div id="new-profile-form" class="hidden mb-4 bg-gray-800 rounded-xl border border-gray-700 p-5">
     <h3 class="text-sm font-semibold text-gray-300 mb-4">Create Profile</h3>
-    <form method="post" action="/admin/sandboxes/profiles" class="grid grid-cols-2 gap-4">
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Name (slug)</label>
-        <input name="name" required placeholder="python-scratch"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    <form method="post" action="/admin/sandboxes/profiles" class="space-y-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Name (slug)</label>
+          <input name="name" required placeholder="python-scratch"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Image</label>
+          <input name="image" required placeholder="python:3.12-slim"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs text-gray-400 mb-1">Description</label>
+          <input name="description" placeholder="What is this sandbox for?"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Scope Mode</label>
+          <select name="scope_mode"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="session">session (one per chat session)</option>
+            <option value="client">client (one per user)</option>
+            <option value="agent">agent (one per bot)</option>
+            <option value="shared">shared (one server-wide)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
+          <select name="network_mode"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="none">none (no network — default)</option>
+            <option value="bridge">bridge</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Idle TTL (seconds, blank = never)</label>
+          <input name="idle_ttl_seconds" type="number" placeholder="3600"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Image</label>
-        <input name="image" required placeholder="python:3.12-slim"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Description</label>
-        <input name="description" placeholder="What is this sandbox for?"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Scope Mode</label>
-        <select name="scope_mode"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-          <option value="session">session (one per chat session)</option>
-          <option value="client">client (one per user)</option>
-          <option value="agent">agent (one per bot)</option>
-          <option value="shared">shared (one server-wide)</option>
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
-        <select name="network_mode"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-          <option value="none">none (no network — default)</option>
-          <option value="bridge">bridge</option>
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Idle TTL (seconds, blank = never)</label>
-        <input name="idle_ttl_seconds" type="number" placeholder="3600"
-          class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div class="flex items-end">
-        <button type="submit"
-          class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm text-white transition-colors">
-          Create
-        </button>
-      </div>
+      <p class="text-xs text-gray-500">Ports, environment variables, volume mounts, and resource limits can be configured on the next page.</p>
+      <button type="submit"
+        class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm text-white transition-colors">
+        Create &amp; Configure →
+      </button>
     </form>
   </div>
 
@@ -90,11 +91,27 @@
       <tbody class="divide-y divide-gray-700">
         {% for p in profiles %}
         {% set profile = p.profile %}
-        <tr x-data="{ editing: false }" class="hover:bg-gray-750 align-top">
+        <tr class="hover:bg-gray-750 align-top">
           <td class="px-4 py-3">
             <div class="font-mono text-indigo-300 text-sm">{{ profile.name }}</div>
             {% if profile.description %}
             <div class="text-xs text-gray-500 mt-0.5">{{ profile.description }}</div>
+            {% endif %}
+            {% set port_count = (profile.port_mappings or []) | length %}
+            {% set env_count = (profile.env or {}) | length %}
+            {% set mount_count = (profile.mount_specs or []) | length %}
+            {% if port_count or env_count or mount_count %}
+            <div class="flex flex-wrap gap-1 mt-1.5">
+              {% if port_count %}
+              <span class="px-1.5 py-0.5 rounded text-xs bg-blue-900 text-blue-300">{{ port_count }} port{{ 's' if port_count != 1 }}</span>
+              {% endif %}
+              {% if env_count %}
+              <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">{{ env_count }} env</span>
+              {% endif %}
+              {% if mount_count %}
+              <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">{{ mount_count }} mount{{ 's' if mount_count != 1 }}</span>
+              {% endif %}
+            </div>
             {% endif %}
           </td>
           <td class="px-4 py-3 font-mono text-xs text-gray-300">{{ profile.image }}</td>
@@ -149,8 +166,8 @@
           </td>
           <td class="px-4 py-3 text-right">
             <div class="flex gap-3 justify-end">
-              <button @click="editing = true"
-                class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Edit</button>
+              <a href="/admin/sandboxes/profiles/{{ profile.id }}/edit"
+                class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Edit</a>
               <button
                 hx-delete="/admin/sandboxes/profiles/{{ profile.id }}"
                 hx-confirm="Delete profile '{{ profile.name }}'? This will also delete all instances."
@@ -159,62 +176,6 @@
                 class="text-xs text-red-500 hover:text-red-300 transition-colors">
                 Delete
               </button>
-            </div>
-
-            <!-- Edit modal -->
-            <div x-show="editing" x-cloak
-              class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"
-              @click.self="editing = false">
-              <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 w-[480px] shadow-xl">
-                <h3 class="font-semibold text-gray-200 mb-1">Edit profile <span class="font-mono text-indigo-300">{{ profile.name }}</span></h3>
-                <p class="text-xs text-gray-500 mb-4">Name cannot be changed (used in container naming).</p>
-                <form method="post" action="/admin/sandboxes/profiles/{{ profile.id }}/edit" class="space-y-4">
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-1">Image</label>
-                    <input name="image" required value="{{ profile.image }}"
-                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-1">Description</label>
-                    <input name="description" value="{{ profile.description or '' }}"
-                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-                  </div>
-                  <div class="grid grid-cols-2 gap-4">
-                    <div>
-                      <label class="block text-xs text-gray-400 mb-1">Scope Mode</label>
-                      <select name="scope_mode"
-                        class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-                        {% for mode in ["session", "client", "agent", "shared"] %}
-                        <option value="{{ mode }}" {% if profile.scope_mode == mode %}selected{% endif %}>{{ mode }}</option>
-                        {% endfor %}
-                      </select>
-                    </div>
-                    <div>
-                      <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
-                      <select name="network_mode"
-                        class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-                        <option value="none" {% if profile.network_mode == 'none' %}selected{% endif %}>none</option>
-                        <option value="bridge" {% if profile.network_mode == 'bridge' %}selected{% endif %}>bridge</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-1">Idle TTL (seconds, blank = never)</label>
-                    <input name="idle_ttl_seconds" type="number" value="{{ profile.idle_ttl_seconds or '' }}" placeholder="3600"
-                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-                  </div>
-                  <div class="flex gap-2 pt-2">
-                    <button type="submit"
-                      class="flex-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm text-white transition-colors">
-                      Save
-                    </button>
-                    <button type="button" @click="editing = false"
-                      class="flex-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors">
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
             </div>
           </td>
         </tr>
@@ -256,7 +217,12 @@
         {% for row in instances %}
         {% set inst = row.instance %}
         {% set docker_status = row.docker_status %}
-        <tr x-data="{ lockOpen: false }" class="hover:bg-gray-750 align-top">
+        <tr x-data="{ lockOpen: false, removing: false, stopping: false }"
+            x-show="!removing"
+            x-transition:leave="transition-opacity duration-300"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            class="hover:bg-gray-750 align-top">
           <td class="px-4 py-3">
             <a href="/admin/sandboxes/instances/{{ inst.id }}"
                class="font-mono text-xs text-indigo-300 hover:text-indigo-200 hover:underline">{{ inst.container_name }}</a>
@@ -326,23 +292,50 @@
           </td>
           <td class="px-4 py-3">
             <div class="flex flex-col gap-1.5">
-              <!-- Stop -->
               {% if inst.status == "running" %}
-              <form method="post" action="/admin/sandboxes/instances/{{ inst.id }}/stop"
-                onsubmit="return confirm('Stop container {{ inst.container_name }}?')">
-                <button type="submit"
-                  class="w-full text-left text-xs text-yellow-400 hover:text-yellow-300 transition-colors">Stop</button>
-              </form>
+              <button
+                :disabled="stopping || removing"
+                @click="
+                  if (!confirm('Stop container {{ inst.container_name }}?')) return;
+                  stopping = true;
+                  fetch('/admin/sandboxes/instances/{{ inst.id }}/stop', {method: 'POST', headers: {'X-Requested-With': 'fetch'}})
+                    .then(r => r.ok ? window.location.reload() : Promise.reject('Server error'))
+                    .catch(e => { stopping = false; alert('Failed to stop: ' + e); });
+                "
+                class="w-full text-left text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                :class="stopping ? 'text-yellow-600' : 'text-yellow-400 hover:text-yellow-300'">
+                <span x-show="!stopping">Stop</span>
+                <span x-show="stopping" class="flex items-center gap-1">
+                  <svg class="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  Stopping…
+                </span>
+              </button>
               {% endif %}
-              <!-- Remove -->
-              <form method="post" action="/admin/sandboxes/instances/{{ inst.id }}/remove"
-                onsubmit="return confirm('Remove {{ inst.container_name }}? This cannot be undone.')">
-                <button type="submit"
-                  class="w-full text-left text-xs text-red-500 hover:text-red-300 transition-colors">Remove</button>
-              </form>
-              <!-- Lock toggle -->
+              <button
+                :disabled="stopping || removing"
+                @click="
+                  if (!confirm('Remove {{ inst.container_name }}?\nThis stops and deletes the container.')) return;
+                  removing = true;
+                  fetch('/admin/sandboxes/instances/{{ inst.id }}/remove', {method: 'POST', headers: {'X-Requested-With': 'fetch'}})
+                    .catch(e => { removing = false; alert('Failed to remove: ' + e); });
+                "
+                class="w-full text-left text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                :class="removing ? 'text-red-800' : 'text-red-500 hover:text-red-300'">
+                <span x-show="!removing">Remove</span>
+                <span x-show="removing" class="flex items-center gap-1">
+                  <svg class="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  Removing…
+                </span>
+              </button>
               <button @click="lockOpen = !lockOpen"
-                class="text-left text-xs text-gray-400 hover:text-gray-200 transition-colors">
+                :disabled="stopping || removing"
+                class="text-left text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40">
                 Lock…
               </button>
             </div>
@@ -359,7 +352,7 @@
                   <div class="flex flex-col gap-2 mb-5">
                     {% for op in ["stop", "remove", "ensure", "exec"] %}
                     <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                      <input type="checkbox" name="{{ op if op != 'exec' else 'exec' }}"
+                      <input type="checkbox" name="{{ op }}"
                         value="1"
                         {% if op in locks %}checked{% endif %}
                         class="rounded border-gray-600 bg-gray-700 text-indigo-500" />

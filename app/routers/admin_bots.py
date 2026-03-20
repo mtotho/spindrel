@@ -85,6 +85,8 @@ async def admin_bot_create(
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
     docker_sandbox_profiles: list[str] = Form(default=[]),
+    host_exec_config_json: str = Form(default='{"enabled": false}'),
+    filesystem_access_json: str = Form(default="[]"),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -106,6 +108,16 @@ async def admin_bot_create(
         fs_indexes = json.loads(filesystem_indexes_json or "[]")
     except json.JSONDecodeError:
         fs_indexes = []
+
+    try:
+        host_exec_config = json.loads(host_exec_config_json or '{"enabled": false}')
+    except json.JSONDecodeError:
+        host_exec_config = {"enabled": False}
+
+    try:
+        filesystem_access = json.loads(filesystem_access_json or "[]")
+    except json.JSONDecodeError:
+        filesystem_access = []
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -142,6 +154,8 @@ async def admin_bot_create(
             "similarity_threshold": know_sim,
         },
         filesystem_indexes=fs_indexes,
+        host_exec_config=host_exec_config,
+        filesystem_access=filesystem_access,
         slack_display_name=slack_display_name.strip() or None,
         slack_icon_emoji=slack_icon_emoji.strip() or None,
         slack_icon_url=slack_icon_url.strip() or None,
@@ -210,6 +224,8 @@ async def admin_bot_update(
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
     docker_sandbox_profiles: list[str] = Form(default=[]),
+    host_exec_config_json: str = Form(default='{"enabled": false}'),
+    filesystem_access_json: str = Form(default="[]"),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -227,6 +243,16 @@ async def admin_bot_update(
         fs_indexes = json.loads(filesystem_indexes_json or "[]")
     except json.JSONDecodeError:
         fs_indexes = []
+
+    try:
+        host_exec_config = json.loads(host_exec_config_json or '{"enabled": false}')
+    except json.JSONDecodeError:
+        host_exec_config = {"enabled": False}
+
+    try:
+        filesystem_access = json.loads(filesystem_access_json or "[]")
+    except json.JSONDecodeError:
+        filesystem_access = []
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -268,6 +294,8 @@ async def admin_bot_update(
             "similarity_threshold": know_sim,
         }
         row.filesystem_indexes = fs_indexes
+        row.host_exec_config = host_exec_config
+        row.filesystem_access = filesystem_access
         row.slack_display_name = slack_display_name.strip() or None
         row.slack_icon_emoji = slack_icon_emoji.strip() or None
         row.slack_icon_url = slack_icon_url.strip() or None

@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
 
+    # Host execution
+    HOST_EXEC_ENABLED: bool = False
+    HOST_EXEC_DEFAULT_TIMEOUT: int = 30
+    HOST_EXEC_MAX_OUTPUT_BYTES: int = 65536  # 64 KB
+    HOST_EXEC_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
+    HOST_EXEC_BLOCKED_PATTERNS: Annotated[list[str], NoDecode] = []
+    HOST_EXEC_ENV_PASSTHROUGH: Annotated[list[str], NoDecode] = ["PATH", "HOME", "USER", "LANG", "TERM"]
+
+    # Filesystem commands
+    FS_COMMANDS_MAX_READ_BYTES: int = 500_000
+    FS_COMMANDS_MAX_LIST_ENTRIES: int = 1000
+
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False
     DOCKER_SOCKET_PATH: str = "/var/run/docker.sock"
@@ -112,7 +124,13 @@ class Settings(BaseSettings):
         anything from this conversation so far that you want to store in memory, knowledge or update your persona with. Use available tools.
         """
 
-    @field_validator("DOCKER_SANDBOX_MOUNT_ALLOWLIST", mode="before")
+    @field_validator(
+        "DOCKER_SANDBOX_MOUNT_ALLOWLIST",
+        "HOST_EXEC_WORKING_DIR_ALLOWLIST",
+        "HOST_EXEC_BLOCKED_PATTERNS",
+        "HOST_EXEC_ENV_PASSTHROUGH",
+        mode="before",
+    )
     @classmethod
     def _parse_mount_allowlist(cls, v: object) -> list[str]:
         if isinstance(v, list):
