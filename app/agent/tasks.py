@@ -6,9 +6,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import openai
 from sqlalchemy import select
 
 from app.agent.bots import get_bot
+from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task
 
@@ -215,6 +217,30 @@ async def run_task(task: Task) -> None:
         # Schedule next occurrence if recurring
         if task.recurrence:
             await _schedule_next_occurrence(task)
+
+    except openai.RateLimitError as exc:
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t is None:
+                return
+            if t.retry_count < settings.TASK_RATE_LIMIT_RETRIES:
+                t.retry_count += 1
+                # Exponential backoff: 65s, 130s, 260s — slightly longer than a 60s TPM window
+                delay = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** (t.retry_count - 1))
+                t.status = "pending"
+                t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+                t.error = f"rate_limited (attempt {t.retry_count}/{settings.TASK_RATE_LIMIT_RETRIES}): {str(exc)[:200]}"
+                await db.commit()
+                logger.warning(
+                    "Task %s rate limited, rescheduled in %ds (attempt %d/%d)",
+                    task.id, delay, t.retry_count, settings.TASK_RATE_LIMIT_RETRIES,
+                )
+            else:
+                t.status = "failed"
+                t.error = f"rate_limited (max retries exhausted): {str(exc)[:3800]}"
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
 
     except Exception as exc:
         logger.exception("Task %s failed", task.id)

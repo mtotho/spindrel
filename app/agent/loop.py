@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import openai
 from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
@@ -50,7 +51,54 @@ _client = AsyncOpenAI(
     base_url=settings.LITELLM_BASE_URL,
     api_key=settings.LITELLM_API_KEY,
     timeout=60.0,
+    max_retries=0,  # we handle retries ourselves with proper backoff for rate limits
 )
+
+
+async def _llm_call(model: str, messages: list, tools_param: list | None, tool_choice: str | None):
+    """Call the LLM with exponential backoff on rate limit errors."""
+    max_retries = settings.LLM_RATE_LIMIT_RETRIES
+    initial_wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT
+    for attempt in range(max_retries + 1):
+        try:
+            return await _client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools_param,
+                tool_choice=tool_choice,
+            )
+        except openai.RateLimitError:
+            if attempt >= max_retries:
+                raise
+            wait = initial_wait * (2 ** attempt)
+            logger.warning(
+                "Rate limited by LLM provider (attempt %d/%d), waiting %ds before retry...",
+                attempt + 1, max_retries, wait,
+            )
+            await asyncio.sleep(wait)
+
+
+async def _summarize_tool_result(tool_name: str, content: str, model: str) -> str:
+    """Summarize a large tool result to reduce context window usage. Falls back to original on error."""
+    cap = 12000
+    input_content = content[:cap] + (f"\n[... {len(content) - cap:,} chars omitted]" if len(content) > cap else "")
+    prompt = (
+        "Summarize this tool output concisely. "
+        "Preserve: exit codes, errors, warnings, key values, file names, IDs, counts, actionable info. "
+        "Omit: progress bars, verbose package lists, redundant log lines. Be brief.\n\n"
+        f"Tool: {tool_name}\n<output>\n{input_content}\n</output>"
+    )
+    try:
+        resp = await _client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
+        )
+        summary = resp.choices[0].message.content or content
+        return f"[summarized from {len(content):,} chars]\n{summary}"
+    except Exception:
+        logger.warning("Tool result summarization failed for %s, using original", tool_name)
+        return content
 
 
 @dataclass
@@ -104,12 +152,7 @@ async def run_agent_tool_loop(
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
-            response = await _client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools_param,
-                tool_choice=tool_choice,
-            )
+            response = await _llm_call(model, messages, tools_param, tool_choice)
             msg = response.choices[0].message
             msg_dict = msg.model_dump(exclude_none=True)
             messages.append(msg_dict)

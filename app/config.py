@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     AGENT_MAX_ITERATIONS: int = 15
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
+    # Rate limit retry (LLM call level — preserves accumulated tool-call context)
+    LLM_RATE_LIMIT_RETRIES: int = 2          # additional attempts after first failure
+    LLM_RATE_LIMIT_INITIAL_WAIT: int = 65    # seconds before first retry (slightly > 60s TPM window)
+    # Rate limit retry (task level — reschedules entire task on rate limit failure)
+    TASK_RATE_LIMIT_RETRIES: int = 3         # max reschedule attempts before marking failed
 
     # Web tools
     SEARXNG_URL: str = "http://searxng:8080"
@@ -96,6 +101,13 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
+    # Tool result summarization
+    TOOL_RESULT_SUMMARIZE_ENABLED: bool = False
+    TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this
+    TOOL_RESULT_SUMMARIZE_MODEL: str = ""             # empty = use bot's current model
+    TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
+    TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill", "read_file"]
+
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
 
@@ -129,6 +141,7 @@ class Settings(BaseSettings):
         "HOST_EXEC_WORKING_DIR_ALLOWLIST",
         "HOST_EXEC_BLOCKED_PATTERNS",
         "HOST_EXEC_ENV_PASSTHROUGH",
+        "TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS",
         mode="before",
     )
     @classmethod
