@@ -26,7 +26,8 @@ from app.agent.message_utils import (
     _merge_tool_schemas,
 )
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
-from app.agent.rag import retrieve_context
+from app.agent.rag import retrieve_context, fetch_skill_chunks_by_id
+from app.agent.tags import resolve_tags
 from app.agent.recording import _record_tool_call, _record_trace_event
 from app.agent.tools import retrieve_tools
 from app.config import settings
@@ -438,6 +439,78 @@ async def run_stream(
     except Exception:
         pass  # non-fatal if timezone lookup fails
 
+    # Resolve @mention tags for explicit context/tool injection
+    _tagged = await resolve_tags(
+        message=user_message,
+        bot_skills=bot.skills,
+        bot_local_tools=bot.local_tools,
+        bot_client_tools=bot.client_tools,
+        bot_id=bot.id,
+        client_id=client_id,
+        knowledge_cross_bot=bot.knowledge.cross_bot if bot.knowledge.enabled else False,
+        knowledge_cross_client=bot.knowledge.cross_client if bot.knowledge.enabled else False,
+    )
+    _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
+    _tagged_knowledge_names = [t.name for t in _tagged if t.tag_type == "knowledge"]
+    _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
+
+    if _tagged:
+        # Inject tagged skill chunks (bypasses similarity threshold)
+        if _tagged_skill_names:
+            _tagged_skill_chunks: list[str] = []
+            for _sid in _tagged_skill_names:
+                _tagged_skill_chunks.extend(await fetch_skill_chunks_by_id(_sid))
+            if _tagged_skill_chunks:
+                messages.append({
+                    "role": "system",
+                    "content": "Tagged skill context (explicitly requested):\n\n"
+                               + "\n\n---\n\n".join(_tagged_skill_chunks),
+                })
+
+        # Inject tagged knowledge docs (bypasses similarity threshold)
+        if _tagged_knowledge_names and client_id:
+            from app.agent.knowledge import get_knowledge_by_name
+            _tagged_know_chunks: list[str] = []
+            for _kname in _tagged_knowledge_names:
+                _doc = await get_knowledge_by_name(
+                    _kname, bot.id, client_id,
+                    is_cross_client=bot.knowledge.cross_client if bot.knowledge.enabled else False,
+                    is_cross_bot=bot.knowledge.cross_bot if bot.knowledge.enabled else False,
+                )
+                if _doc:
+                    _tagged_know_chunks.append(_doc)
+                else:
+                    logger.warning("Tagged knowledge %r not found", _kname)
+            if _tagged_know_chunks:
+                messages.append({
+                    "role": "system",
+                    "content": "Tagged knowledge (explicitly requested):\n\n"
+                               + "\n\n---\n\n".join(_tagged_know_chunks),
+                })
+
+        yield {
+            "type": "tagged_context",
+            "tags": [t.raw for t in _tagged],
+            "skills": _tagged_skill_names,
+            "knowledge": _tagged_knowledge_names,
+            "tools": _tagged_tool_names,
+        }
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tagged_context",
+                count=len(_tagged),
+                data={
+                    "tags": [t.raw for t in _tagged],
+                    "skills": _tagged_skill_names,
+                    "knowledge": _tagged_knowledge_names,
+                    "tools": _tagged_tool_names,
+                },
+            ))
+
     skill_ids = bot.skills if bot.skills else None
     if bot.skills or bot.rag:
         chunks, skill_sim = await retrieve_context(user_message, skill_ids=skill_ids)
@@ -589,7 +662,8 @@ async def run_stream(
                           "selected": [t["function"]["name"] for t in retrieved],
                           "top_candidates": tool_candidates},
                 ))
-            pinned_list = [by_name[n] for n in (bot.pinned_tools or []) if n in by_name]
+            _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names
+            pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
             client_only = get_client_tool_schemas(bot.client_tools)
             merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
             if not merged:

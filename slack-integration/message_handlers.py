@@ -2,7 +2,7 @@
 import base64
 import uuid
 
-from agent_client import http, post_chat
+from agent_client import http, stream_chat
 from formatting import format_response_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN
@@ -114,8 +114,14 @@ async def dispatch(
         "token": BOT_TOKEN,
     }
 
+    # Post a placeholder immediately so the user sees the bot is working
+    thinking_msg = await say("⏳ _thinking..._")
+    thinking_ts = thinking_msg["ts"]
+    thinking_channel = thinking_msg["channel"]
+
     try:
-        body = await post_chat(
+        client_actions: list = []
+        async for event in stream_chat(
             message=message,
             bot_id=bot_id,
             client_id=client_id,
@@ -123,12 +129,30 @@ async def dispatch(
             attachments=attachments if attachments else None,
             dispatch_type="slack",
             dispatch_config=dispatch_config,
-        )
-        reply = (body.get("response") or "").strip()
-        await say(format_response_for_slack(reply))
-        await _handle_client_actions(client, channel, body.get("client_actions"))
+        ):
+            etype = event.get("type")
+            if etype == "tool_start":
+                tool = event.get("tool", "tool")
+                await client.chat_update(
+                    channel=thinking_channel,
+                    ts=thinking_ts,
+                    text=f"🔧 _{tool}..._",
+                )
+            elif etype == "response":
+                reply = (event.get("text") or "").strip()
+                client_actions = event.get("client_actions") or []
+                await client.chat_update(
+                    channel=thinking_channel,
+                    ts=thinking_ts,
+                    text=format_response_for_slack(reply),
+                )
+        await _handle_client_actions(client, thinking_channel, client_actions)
     except Exception as e:
-        await say(f"Error: {str(e)[:500]}")
+        await client.chat_update(
+            channel=thinking_channel,
+            ts=thinking_ts,
+            text=f"_Error: {str(e)[:500]}_",
+        )
 
 
 def register_message_handlers(app):

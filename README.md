@@ -35,6 +35,8 @@ PLAYWRIGHT_WS_URL=ws://playwright:3000
 
 `SEARXNG_URL` and `PLAYWRIGHT_WS_URL` point to the web tool services. Both are included in docker-compose and start automatically with `dev-server.sh`.
 
+**Planned:** session-aware Docker sandboxes (OpenClaw-style long-lived containers, shared across bots/sessions by config). See [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md).
+
 ### Bots (bots/*.yaml)
 
 A bot is a named configuration that tells the server which model to use, what system prompt to send, and which tools are available. Bot YAML files live in `bots/` and are loaded once at server startup.

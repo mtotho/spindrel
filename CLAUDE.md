@@ -108,3 +108,7 @@ knowledge:
   enabled: true
 persona: true
 ```
+
+### Planned: Docker sandboxes
+
+Long-lived session-scoped containers + `docker exec` (OpenClaw-style) are **not** implemented yet. Design: [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md).

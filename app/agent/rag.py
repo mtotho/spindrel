@@ -81,3 +81,22 @@ async def retrieve_context(query: str, skill_ids: list[str] | None = None) -> tu
                      best_similarity, settings.RAG_SIMILARITY_THRESHOLD)
 
     return chunks, best_similarity
+
+
+async def fetch_skill_chunks_by_id(skill_id: str) -> list[str]:
+    """Fetch all chunks for a skill by ID, ordered by chunk index.
+
+    Bypasses similarity threshold — used for @skill:name tag injection.
+    """
+    stmt = (
+        select(Document.content)
+        .where(Document.source == f"skill:{skill_id}")
+        .order_by(Document.metadata_["chunk_index"].as_integer())
+    )
+    try:
+        async with async_session() as db:
+            result = await db.execute(stmt)
+            return list(result.scalars().all())
+    except Exception:
+        logger.exception("Failed to fetch skill chunks for %r", skill_id)
+        return []
