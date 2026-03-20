@@ -1,7 +1,15 @@
 import json
 import logging
 
-from app.agent.knowledge import get_knowledge_by_name, retrieve_knowledge, upsert_knowledge, list_knowledge_bases, append_to_knowledge
+from app.agent.knowledge import (
+    append_to_knowledge,
+    create_knowledge_pin,
+    delete_knowledge_pin,
+    get_knowledge_by_name,
+    list_knowledge_bases,
+    retrieve_knowledge,
+    upsert_knowledge,
+)
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -148,6 +156,63 @@ async def search_knowledge_tool(query: str) -> str:
     raise NotImplementedError("search_knowledge must be called via call_knowledge_tool")
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "pin_knowledge",
+        "description": (
+            "Pin a knowledge document so it is always injected into context, regardless of semantic similarity. "
+            "Use when a document should always be available (e.g. formatting rules, style guides, always-on reference). "
+            "Scope controls when the pin applies: 'bot' = always for this bot, 'channel' = always for this Slack channel/client, "
+            "'bot_channel' = only for this bot in this specific channel."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Exact name of the knowledge document to pin.",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["bot", "channel", "bot_channel"],
+                    "description": "'bot' pins for all channels, 'channel' pins for all bots in this channel, 'bot_channel' pins for this bot+channel only.",
+                },
+            },
+            "required": ["name", "scope"],
+        },
+    },
+})
+async def pin_knowledge_tool(name: str, scope: str) -> str:
+    raise NotImplementedError("pin_knowledge must be called via call_knowledge_tool")
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "unpin_knowledge",
+        "description": "Remove a knowledge pin so the document returns to similarity-based retrieval only.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Exact name of the knowledge document to unpin.",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["bot", "channel", "bot_channel"],
+                    "description": "Must match the scope used when pinning.",
+                },
+            },
+            "required": ["name", "scope"],
+        },
+    },
+})
+async def unpin_knowledge_tool(name: str, scope: str) -> str:
+    raise NotImplementedError("unpin_knowledge must be called via call_knowledge_tool")
+
+
 async def call_knowledge_tool(
     name: str,
     arguments_json: str,
@@ -223,5 +288,27 @@ async def call_knowledge_tool(
         if not chunks:
             return "No relevant knowledge found."
         return "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)
+
+    if name == "pin_knowledge":
+        doc_name = (args.get("name") or "").strip()
+        scope = (args.get("scope") or "bot").strip()
+        if not doc_name:
+            return "No name provided."
+        pin_bot_id = bot_id if scope in ("bot", "bot_channel") else None
+        pin_client_id = client_id if scope in ("channel", "bot_channel") else None
+        ok, err = await create_knowledge_pin(doc_name, pin_bot_id, pin_client_id)
+        if ok:
+            return f"Knowledge '{doc_name}' pinned (scope={scope})."
+        return f"Failed to pin: {err}" if err else "Failed to pin."
+
+    if name == "unpin_knowledge":
+        doc_name = (args.get("name") or "").strip()
+        scope = (args.get("scope") or "bot").strip()
+        if not doc_name:
+            return "No name provided."
+        pin_bot_id = bot_id if scope in ("bot", "bot_channel") else None
+        pin_client_id = client_id if scope in ("channel", "bot_channel") else None
+        removed = await delete_knowledge_pin(doc_name, pin_bot_id, pin_client_id)
+        return f"Knowledge '{doc_name}' unpinned." if removed else f"No matching pin found for '{doc_name}' (scope={scope})."
 
     return json.dumps({"error": f"Unknown knowledge tool: {name}"})

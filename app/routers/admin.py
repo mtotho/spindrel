@@ -13,17 +13,20 @@ from sqlalchemy import delete, func, select, text
 
 from app.agent.bots import get_bot, list_bots
 from app.agent.knowledge import upsert_knowledge
+from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, KnowledgeWrite, Memory, Message, Session, ToolCall, ToolEmbedding, TraceEvent
+from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite, Memory, Message, Session, ToolCall, ToolEmbedding, TraceEvent
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # Import and include sub-routers
 from app.routers.admin_tasks import router as _tasks_router  # noqa: E402
 from app.routers.admin_fs import router as _fs_router  # noqa: E402
+from app.routers.admin_knowledge_pins import router as _pins_router  # noqa: E402
 router.include_router(_tasks_router)
 router.include_router(_fs_router)
+router.include_router(_pins_router)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -99,10 +102,32 @@ async def admin_bot_detail(request: Request, bot_id: str):
         bot = get_bot(bot_id)
     except HTTPException:
         return HTMLResponse("<div class='text-red-400 p-4'>Bot not found.</div>", status_code=404)
-    # HTMX requests load the inline detail partial; direct navigation loads the full page
     is_htmx = request.headers.get("HX-Request") == "true"
-    template = "admin/bot_detail.html" if is_htmx else "admin/bot_page.html"
-    return templates.TemplateResponse(template, {"request": request, "bot": bot})
+    if is_htmx:
+        return templates.TemplateResponse("admin/bot_detail.html", {"request": request, "bot": bot})
+    persona = await get_persona(bot_id)
+    async with async_session() as db:
+        distinct_clients = [c for c in (await db.execute(
+            select(Session.client_id).distinct().order_by(Session.client_id)
+        )).scalars().all() if c]
+    return templates.TemplateResponse("admin/bot_page.html", {
+        "request": request,
+        "bot": bot,
+        "persona": persona or "",
+        "distinct_clients": distinct_clients,
+    })
+
+
+@router.post("/bots/{bot_id}/persona", response_class=HTMLResponse)
+async def admin_bot_save_persona(request: Request, bot_id: str, content: str = Form(...)):
+    try:
+        get_bot(bot_id)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    ok, err = await write_persona(bot_id, content)
+    if not ok:
+        return HTMLResponse(f"<div class='text-red-400 text-sm p-2'>Failed: {err}</div>", status_code=500)
+    return HTMLResponse("<div class='text-green-400 text-sm'>Saved.</div>")
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +371,16 @@ async def admin_knowledge_edit_full(request: Request, entry_id: uuid.UUID):
         entry = await db.get(BotKnowledge, entry_id)
         if not entry:
             raise HTTPException(status_code=404, detail="Not found")
+        distinct_clients = [c for c in (await db.execute(
+            select(Session.client_id).distinct().order_by(Session.client_id)
+        )).scalars().all() if c]
     return templates.TemplateResponse(
-        "admin/knowledge_edit_full.html", {"request": request, "entry": entry}
+        "admin/knowledge_edit_full.html", {
+            "request": request,
+            "entry": entry,
+            "bots": list_bots(),
+            "distinct_clients": distinct_clients,
+        }
     )
 
 

@@ -3,7 +3,11 @@
     <div class="font-medium text-gray-200">{{ entry.name }}</div>
     <div class="text-xs text-gray-500 mt-0.5 truncate max-w-xs">{{ entry.content[:100] }}{% if entry.content|length > 100 %}…{% endif %}</div>
   </td>
-  <td class="px-4 py-3 text-gray-400 text-xs">{{ entry.bot_id or '(shared)' }}</td>
+  <td class="px-4 py-3 text-xs">
+    {% if entry.bot_id %}
+    <a href="/admin/bots/{{ entry.bot_id }}" class="text-indigo-400 hover:text-indigo-200 font-mono">{{ entry.bot_id }}</a>
+    {% else %}<span class="text-gray-600">(shared)</span>{% endif %}
+  </td>
   <td class="px-4 py-3 text-gray-400 text-xs font-mono">{{ entry.client_id or '(shared)' }}</td>
   <td class="px-4 py-3 text-gray-400 text-xs">{{ entry.updated_at | fmt_dt }}</td>
   <td class="px-4 py-3">

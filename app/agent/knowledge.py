@@ -1,6 +1,6 @@
 import logging
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, KnowledgeWrite
+from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite
 from app.config import settings
 from sqlalchemy import select
 from openai import AsyncOpenAI
@@ -175,6 +175,80 @@ async def get_knowledge_by_name(
         result = await db.execute(stmt)
         row = result.scalar_one_or_none()
         return f"[Knowledge: {row.name}]\n\n{row.content}" if row else None
+
+
+async def get_pinned_knowledge_docs(
+    bot_id: str,
+    client_id: str,
+) -> tuple[list[str], list[str]]:
+    """Return (formatted_docs, names) for all pins matching this bot+client context."""
+    async with async_session() as db:
+        stmt = (
+            select(KnowledgePin.knowledge_name)
+            .where(
+                (KnowledgePin.bot_id == bot_id) | (KnowledgePin.bot_id.is_(None)),
+                (KnowledgePin.client_id == client_id) | (KnowledgePin.client_id.is_(None)),
+            )
+            .distinct()
+        )
+        pin_names = list((await db.execute(stmt)).scalars().all())
+
+    if not pin_names:
+        return [], []
+
+    docs = []
+    for name in pin_names:
+        doc = await get_knowledge_by_name(name, bot_id, client_id, is_cross_client=True, is_cross_bot=True)
+        if doc:
+            docs.append(doc)
+
+    return docs, pin_names
+
+
+async def create_knowledge_pin(
+    knowledge_name: str,
+    bot_id: str | None,
+    client_id: str | None,
+) -> tuple[bool, str | None]:
+    """Create a pin. At least one of bot_id/client_id must be set."""
+    if not bot_id and not client_id:
+        return False, "At least one of bot_id or client_id must be provided."
+    try:
+        async with async_session() as db:
+            db.add(KnowledgePin(
+                knowledge_name=knowledge_name,
+                bot_id=bot_id or None,
+                client_id=client_id or None,
+            ))
+            await db.commit()
+        return True, None
+    except Exception as exc:
+        if "uq_knowledge_pins" in str(exc):
+            return False, "Pin already exists for this scope."
+        return False, str(exc)
+
+
+async def delete_knowledge_pin(
+    knowledge_name: str,
+    bot_id: str | None,
+    client_id: str | None,
+) -> bool:
+    async with async_session() as db:
+        stmt = select(KnowledgePin).where(KnowledgePin.knowledge_name == knowledge_name)
+        if bot_id:
+            stmt = stmt.where(KnowledgePin.bot_id == bot_id)
+        else:
+            stmt = stmt.where(KnowledgePin.bot_id.is_(None))
+        if client_id:
+            stmt = stmt.where(KnowledgePin.client_id == client_id)
+        else:
+            stmt = stmt.where(KnowledgePin.client_id.is_(None))
+        row = (await db.execute(stmt)).scalar_one_or_none()
+        if not row:
+            return False
+        await db.delete(row)
+        await db.commit()
+    return True
 
 
 async def list_knowledge_bases(

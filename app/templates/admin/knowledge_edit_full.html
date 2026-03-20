@@ -28,8 +28,16 @@
     </form>
   </div>
 
-  <!-- Right: write history -->
-  <div class="w-64 shrink-0">
+  <!-- Right: pins + write history -->
+  <div class="w-64 shrink-0 space-y-4">
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 sticky top-6">
+      <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pins</div>
+      <div hx-get="/admin/knowledge/{{ entry.id }}/pins"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="text-xs text-gray-600">Loading…</div>
+      </div>
+    </div>
     <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 sticky top-6"
          hx-get="/admin/knowledge/{{ entry.id }}/history"
          hx-trigger="load"

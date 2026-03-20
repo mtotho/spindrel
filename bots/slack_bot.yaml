@@ -54,6 +54,8 @@ mcp_servers:
 pinned_tools:
   - get_current_local_time
   - upsert_knowledge
+  - pin_knowledge
+  - unpin_knowledge
   - get_knowledge
   - search_knowledge
   - append_to_knowledge
@@ -77,6 +79,8 @@ local_tools:
   - generate_image
   - get_current_local_time
   - upsert_knowledge
+  - pin_knowledge
+  - unpin_knowledge
   - get_trace
   - list_session_traces
   - get_knowledge

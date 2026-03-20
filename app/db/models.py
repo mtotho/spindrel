@@ -158,6 +158,16 @@ class BotKnowledge(Base):
     )
 
 
+class KnowledgePin(Base):
+    __tablename__ = "knowledge_pins"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    knowledge_name: Mapped[str] = mapped_column(Text, nullable=False)
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)    # NULL = any bot
+    client_id: Mapped[str | None] = mapped_column(Text, nullable=True) # NULL = any client
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class ToolCall(Base):
     __tablename__ = "tool_calls"
 

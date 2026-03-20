@@ -235,9 +235,9 @@ async def run_agent_tool_loop(
                         result = await call_memory_tool(
                             name, args or "{}", session_id, client_id, bot.id, bot.memory
                         )
-                    elif name == "update_persona":
+                    elif name in ("update_persona", "append_to_persona"):
                         result = await call_persona_tool(name, args or "{}", bot.id)
-                    elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge", "list_knowledge_bases") and client_id:
+                    elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge", "list_knowledge_bases", "append_to_knowledge", "pin_knowledge", "unpin_knowledge") and client_id:
                         result = await call_knowledge_tool(
                             name, args or "{}", bot.id, client_id,
                             bot.knowledge.cross_bot, bot.knowledge.cross_client, bot.knowledge.similarity_threshold,
@@ -490,6 +490,26 @@ async def run_stream(
                     "based on the user's message; you can use these directly):\n\n"
                     + "\n\n---\n\n".join(memories)
                 ),
+            })
+
+    if client_id:
+        from app.agent.knowledge import get_pinned_knowledge_docs
+        pinned_docs, pinned_names = await get_pinned_knowledge_docs(bot.id, client_id)
+        if pinned_docs:
+            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs)}
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="pinned_knowledge_context",
+                    count=len(pinned_docs),
+                    data={"names": pinned_names},
+                ))
+            messages.append({
+                "role": "system",
+                "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
             })
 
     if bot.knowledge.enabled and session_id and client_id:

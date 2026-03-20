@@ -8,17 +8,20 @@
   {% for bot in bots %}
   <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
     <div class="px-5 py-4 flex items-center justify-between border-b border-gray-700">
-      <div>
+      <a href="/admin/bots/{{ bot.id }}" class="hover:opacity-80">
         <div class="font-semibold text-gray-100">{{ bot.name }}</div>
         <div class="text-xs text-gray-400 mt-0.5 font-mono">{{ bot.id }}</div>
+      </a>
+      <div class="flex items-center gap-3">
+        <a href="/admin/bots/{{ bot.id }}" class="text-xs text-indigo-400 hover:text-indigo-300">View →</a>
+        <button
+          hx-get="/admin/bots/{{ bot.id }}"
+          hx-target="#bot-detail-{{ bot.id }}"
+          hx-swap="innerHTML"
+          class="text-xs text-gray-500 hover:text-gray-300">
+          Quick ↓
+        </button>
       </div>
-      <button
-        hx-get="/admin/bots/{{ bot.id }}"
-        hx-target="#bot-detail-{{ bot.id }}"
-        hx-swap="innerHTML"
-        class="text-xs text-indigo-400 hover:text-indigo-300">
-        Details ↓
-      </button>
     </div>
 
     <div class="px-5 py-3 text-sm grid grid-cols-2 gap-2">
