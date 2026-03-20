@@ -32,6 +32,10 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
 current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
+current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
+current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
+current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
+
 
 def set_agent_context(
     session_id: uuid.UUID | None = None,
@@ -45,6 +49,8 @@ def set_agent_context(
     memory_similarity_threshold: float | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    session_depth: int | None = None,
+    root_session_id: uuid.UUID | None = None,
 ) -> None:
     """Set the current agent context. Call at the start of run_stream."""
     current_session_id.set(session_id)
@@ -61,4 +67,13 @@ def set_agent_context(
         current_memory_cross_bot.set(memory_cross_bot)
     current_dispatch_type.set(dispatch_type)
     current_dispatch_config.set(dispatch_config)
+    if session_depth is not None:
+        current_session_depth.set(session_depth)
+    if root_session_id is not None:
+        current_root_session_id.set(root_session_id)
+
+
+def set_ephemeral_delegates(bot_ids: list[str]) -> None:
+    """Set ephemeral @-tagged bot IDs that bypass delegation allowlist for this request."""
+    current_ephemeral_delegates.set(list(bot_ids))
  

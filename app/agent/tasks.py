@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Task
+from app.db.models import Session, Task
 
 logger = logging.getLogger(__name__)
 
@@ -182,12 +182,51 @@ async def run_task(task: Task) -> None:
 
     try:
         from app.agent.loop import run
+        from app.agent.persona import get_persona
+        from app.services.sessions import _effective_system_prompt, load_or_create
         bot = get_bot(task.bot_id)
-        from app.services.sessions import load_or_create
+
         async with async_session() as db:
-            session_id, messages = await load_or_create(
-                db, task.session_id, task.client_id or "task", task.bot_id
-            )
+            # Detect cross-bot delegation: task.session_id belongs to a different bot
+            # In that case, create a proper child delegation session instead of reusing the parent
+            parent_for_delegation = None
+            delegation_depth = 1
+            delegation_root_id = None
+
+            if task.session_id is not None:
+                orig_session = await db.get(Session, task.session_id)
+                if orig_session is not None and orig_session.bot_id != task.bot_id:
+                    parent_for_delegation = task.session_id
+                    delegation_depth = (orig_session.depth or 0) + 1
+                    delegation_root_id = orig_session.root_session_id or orig_session.id
+
+            if parent_for_delegation is not None:
+                # Cross-bot task → create a new child session with delegation linkage
+                child_session_id = uuid.uuid4()
+                child_session = Session(
+                    id=child_session_id,
+                    client_id=task.client_id or "task",
+                    bot_id=task.bot_id,
+                    parent_session_id=parent_for_delegation,
+                    root_session_id=delegation_root_id,
+                    depth=delegation_depth,
+                )
+                db.add(child_session)
+                await db.commit()
+                messages = [{"role": "system", "content": _effective_system_prompt(bot)}]
+                if bot.persona:
+                    persona_layer = await get_persona(bot.id)
+                    if persona_layer:
+                        messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
+                session_id = child_session_id
+                logger.info(
+                    "Task %s: cross-bot delegation → child session %s (depth=%d, root=%s)",
+                    task.id, child_session_id, delegation_depth, delegation_root_id,
+                )
+            else:
+                session_id, messages = await load_or_create(
+                    db, task.session_id, task.client_id or "task", task.bot_id
+                )
 
         import uuid as _uuid
         correlation_id = _uuid.uuid4()

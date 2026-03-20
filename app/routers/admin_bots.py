@@ -59,6 +59,8 @@ async def _get_tool_options() -> dict:
 
 @router.get("/bots/new", response_class=HTMLResponse)
 async def admin_bot_new(request: Request):
+    from app.agent.bots import list_bots as _list_bots
+    from app.services.harness import harness_service
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
@@ -68,6 +70,8 @@ async def admin_bot_new(request: Request):
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
         "litellm_models": litellm_models,
+        "all_bots": _list_bots(),
+        "all_harnesses": harness_service.list_harnesses(),
         **tool_options,
     })
 
@@ -108,6 +112,7 @@ async def admin_bot_create(
     tool_result_config_json: str = Form(default="{}"),
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
+    delegation_config_json: str = Form(default="{}"),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -144,6 +149,11 @@ async def admin_bot_create(
         tool_result_config = json.loads(tool_result_config_json or "{}")
     except json.JSONDecodeError:
         tool_result_config = {}
+
+    try:
+        delegation_config = json.loads(delegation_config_json or "{}")
+    except json.JSONDecodeError:
+        delegation_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -187,6 +197,7 @@ async def admin_bot_create(
         tool_result_config=tool_result_config,
         knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
+        delegation_config=delegation_config,
         created_at=now,
         updated_at=now,
     )
@@ -204,6 +215,8 @@ async def admin_bot_create(
 
 @router.get("/bots/{bot_id}/edit", response_class=HTMLResponse)
 async def admin_bot_edit(request: Request, bot_id: str):
+    from app.agent.bots import list_bots as _list_bots
+    from app.services.harness import harness_service
     async with async_session() as db:
         row = await db.get(BotRow, bot_id)
         if not row:
@@ -217,6 +230,8 @@ async def admin_bot_edit(request: Request, bot_id: str):
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
         "litellm_models": litellm_models,
+        "all_bots": [b for b in _list_bots() if b.id != bot_id],
+        "all_harnesses": harness_service.list_harnesses(),
         **tool_options,
     })
 
@@ -257,6 +272,7 @@ async def admin_bot_update(
     tool_result_config_json: str = Form(default="{}"),
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
+    delegation_config_json: str = Form(default="{}"),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -289,6 +305,11 @@ async def admin_bot_update(
         tool_result_config = json.loads(tool_result_config_json or "{}")
     except json.JSONDecodeError:
         tool_result_config = {}
+
+    try:
+        delegation_config = json.loads(delegation_config_json or "{}")
+    except json.JSONDecodeError:
+        delegation_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -337,6 +358,7 @@ async def admin_bot_update(
         row.tool_result_config = tool_result_config
         row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
+        row.delegation_config = delegation_config
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
 

@@ -9,7 +9,7 @@
 
 {% if not indexes %}
 <div class="bg-gray-800 rounded-xl border border-gray-700 p-8 text-center text-gray-500">
-  No filesystem indexes configured. Add <code class="font-mono text-gray-300">filesystem_indexes</code> to a bot YAML to get started.
+  No filesystem indexes configured. Add <code class="font-mono text-gray-300">filesystem_indexes</code> to a bot YAML, or use the <code class="font-mono text-gray-300">index_directory_now</code> tool.
 </div>
 {% else %}
 <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -18,6 +18,7 @@
       <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
         <th class="px-4 py-3 text-left">Bot</th>
         <th class="px-4 py-3 text-left">Root</th>
+        <th class="px-4 py-3 text-left">Scope</th>
         <th class="px-4 py-3 text-left">Files</th>
         <th class="px-4 py-3 text-left">Chunks</th>
         <th class="px-4 py-3 text-left">Last Indexed</th>
@@ -34,12 +35,36 @@
 </div>
 {% endif %}
 
-<div class="mt-6 bg-gray-800 rounded-xl border border-gray-700 p-5">
-  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Bot YAML Configuration</h2>
-  <pre class="text-xs text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto">filesystem_indexes:
-  - root: /path/to/your/project
-    patterns: ["**/*.py", "**/*.md", "**/*.yaml"]
-    cooldown_seconds: 120   # min seconds between full re-indexes
-    watch: true             # auto-watch for file changes</pre>
+<div class="mt-6 bg-gray-800 rounded-xl border border-gray-700 p-5 space-y-4">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Configuration &amp; Scope</h2>
+
+  <div class="grid grid-cols-2 gap-4 text-xs">
+    <div class="bg-gray-900 rounded p-3">
+      <div class="font-semibold text-gray-300 mb-1">Scope levels</div>
+      <div class="space-y-1 text-gray-400">
+        <div><span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">session</span> — this bot in this channel (most specific)</div>
+        <div><span class="px-1.5 py-0.5 rounded bg-indigo-900 text-indigo-300">bot</span> — this bot across all channels</div>
+        <div><span class="px-1.5 py-0.5 rounded bg-blue-900 text-blue-300">channel</span> — any bot in this channel</div>
+        <div><span class="px-1.5 py-0.5 rounded bg-purple-900 text-purple-300">global</span> — any bot in any channel</div>
+      </div>
+      <div class="mt-2 text-gray-500">Retrieval is inclusive: a bot always sees its own scope + broader scopes (bot, channel, global).</div>
+    </div>
+    <div class="bg-gray-900 rounded p-3">
+      <div class="font-semibold text-gray-300 mb-1">Bot YAML (bot-scoped)</div>
+      <pre class="text-gray-400 font-mono overflow-x-auto">filesystem_indexes:
+  - root: /path/to/project
+    patterns: ["**/*.py", "**/*.md"]
+    cooldown_seconds: 120
+    watch: true</pre>
+      <div class="mt-2 text-gray-500">YAML indexes are always <span class="text-indigo-300">bot</span> scope (cross-channel).</div>
+    </div>
+  </div>
+
+  <div class="text-xs text-gray-500">
+    Agent tools: <code class="font-mono text-gray-300">index_directory_now(path, scope)</code>,
+    <code class="font-mono text-gray-300">search_codebase(query)</code>,
+    <code class="font-mono text-gray-300">delete_filesystem_index(path, scope)</code>,
+    <code class="font-mono text-gray-300">list_indexed_directories()</code>
+  </div>
 </div>
 {% endblock %}

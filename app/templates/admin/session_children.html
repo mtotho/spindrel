@@ -1,0 +1,40 @@
+{% if children %}
+<div class="border-l-2 border-purple-800/50 ml-4 pl-2">
+  <table class="w-full text-sm">
+    <tbody class="divide-y divide-gray-700">
+      {% for s in children %}
+      {% set _ = s %}
+      <tr class="hover:bg-gray-750 bg-gray-850">
+        <td class="px-4 py-2">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800/50">depth {{ s.depth }}</span>
+            {% if child_counts and child_counts.get(s.id, 0) > 0 %}
+            <button
+              hx-get="/admin/sessions/{{ s.id }}/children"
+              hx-target="#session-children-container-{{ s.id }}"
+              hx-swap="innerHTML"
+              class="text-xs text-blue-400 hover:text-blue-300">
+              ▶ {{ child_counts[s.id] }} child(ren)
+            </button>
+            {% endif %}
+          </div>
+          <div class="text-gray-200 text-xs truncate max-w-xs">{{ s.title or '(no title)' }}</div>
+          <div class="text-xs text-gray-500 font-mono">{{ s.id }}</div>
+        </td>
+        <td class="px-4 py-2 text-gray-300 text-xs">{{ s.bot_id }}</td>
+        <td class="px-4 py-2 text-gray-400 text-xs font-mono">{{ s.client_id }}</td>
+        <td class="px-4 py-2 text-gray-400 text-xs">{{ s.last_active | fmt_dt }}</td>
+        <td class="px-4 py-2">
+          <div class="flex items-center gap-2">
+            <a href="/admin/sessions/{{ s.id }}/correlations" class="text-xs text-gray-400 hover:text-gray-200">Correlations</a>
+          </div>
+        </td>
+      </tr>
+      <tr><td colspan="5" id="session-children-container-{{ s.id }}" class="p-0"></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-xs text-gray-500 px-4 py-2">No child sessions.</div>
+{% endif %}

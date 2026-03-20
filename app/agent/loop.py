@@ -13,7 +13,7 @@ import openai
 from openai import AsyncOpenAI
 
 from app.agent.bots import BotConfig
-from app.agent.context import set_agent_context
+from app.agent.context import set_agent_context, set_ephemeral_delegates
 from app.agent.memory import retrieve_memories
 from app.agent.knowledge import retrieve_knowledge
 from app.agent.message_utils import (
@@ -540,6 +540,9 @@ async def run_stream(
     _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
     _tagged_knowledge_names = [t.name for t in _tagged if t.tag_type == "knowledge"]
     _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
+    _tagged_bot_names = [t.name for t in _tagged if t.tag_type == "bot"]
+    if _tagged_bot_names:
+        set_ephemeral_delegates(_tagged_bot_names)
 
     if _tagged:
         # Inject tagged skill chunks (bypasses similarity threshold)
@@ -577,6 +580,7 @@ async def run_stream(
             "skills": _tagged_skill_names,
             "knowledge": _tagged_knowledge_names,
             "tools": _tagged_tool_names,
+            "bots": _tagged_bot_names,
         }
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
@@ -591,6 +595,7 @@ async def run_stream(
                     "skills": _tagged_skill_names,
                     "knowledge": _tagged_knowledge_names,
                     "tools": _tagged_tool_names,
+                    "bots": _tagged_bot_names,
                 },
             ))
 
@@ -646,6 +651,29 @@ async def run_stream(
                 "role": "system",
                 "content": f"Relevant context:\n\n{context}",
             })
+
+    # Inject a delegate bot index so the bot knows which agents it can hand off to
+    # and their exact IDs (needed for @-tagging and delegate_to_agent tool calls).
+    _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))
+    if _all_delegate_ids and settings.DELEGATION_ENABLED:
+        from app.agent.bots import get_bot as _get_bot
+        _delegate_lines: list[str] = []
+        for _did in _all_delegate_ids:
+            try:
+                _db = _get_bot(_did)
+                _desc = (_db.system_prompt or "").strip().splitlines()[0][:120] if _db.system_prompt else ""
+                _delegate_lines.append(f"  • {_did} — {_db.name}" + (f": {_desc}" if _desc else ""))
+            except Exception:
+                _delegate_lines.append(f"  • {_did}")
+        if _delegate_lines:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n"
+                    + "\n".join(_delegate_lines)
+                ),
+            })
+            yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
     if bot.memory.enabled and session_id and client_id:
         memories, mem_sim = await retrieve_memories(
@@ -796,7 +824,7 @@ async def run_stream(
                           "selected": [t["function"]["name"] for t in retrieved],
                           "top_candidates": tool_candidates},
                 ))
-            _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names
+            _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
             pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
             # Also support server-level pinning: if a pinned entry is an MCP server name,
             # include all tools from that server.
@@ -811,6 +839,24 @@ async def run_stream(
                 pre_selected_tools = list(by_name.values())
             else:
                 pre_selected_tools = merged
+
+            # Inject compact names index for unretrieved tools
+            _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
+            _unretrieved = [
+                (n, s["function"].get("description", "")[:80])
+                for n, s in by_name.items()
+                if n not in _retrieved_names and n != "get_tool_info"
+            ]
+            if _unretrieved:
+                _index_lines = "\n".join(f"  • {n}: {d}" for n, d in _unretrieved)
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "Available tools (not yet loaded — use get_tool_info(tool_name) to get full schema):\n"
+                        + _index_lines
+                    ),
+                })
+                yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
 
     if native_audio:
         messages.append({

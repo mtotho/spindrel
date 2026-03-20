@@ -1,25 +1,60 @@
 """Admin Slack channel config routes + /api/slack/config endpoint."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from sqlalchemy import func
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, Session, SlackChannelConfig
+from app.routers.admin_template_filters import install_admin_template_filters
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 api_router = APIRouter()  # Registered at root level for /api/slack/config
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+install_admin_template_filters(templates.env)
+
+
+async def _fetch_channel_names(channel_ids: list[str]) -> dict[str, str]:
+    """Call Slack conversations.info for each channel. Returns {channel_id: name}."""
+    token = settings.SLACK_BOT_TOKEN
+    if not token or not channel_ids:
+        return {}
+    names: dict[str, str] = {}
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for cid in channel_ids:
+            try:
+                r = await client.get(
+                    "https://slack.com/api/conversations.info",
+                    params={"channel": cid},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                data = r.json()
+                if data.get("ok"):
+                    ch = data.get("channel") or {}
+                    name = ch.get("name_normalized") or ch.get("name")
+                    if name:
+                        names[cid] = name
+                else:
+                    logger.warning(
+                        "Slack conversations.info failed for %s: %s (add channels:read or groups:read scope)",
+                        cid, data.get("error"),
+                    )
+            except Exception as exc:
+                logger.warning("Failed to fetch Slack channel name for %s: %s", cid, exc)
+    return names
 
 
 @router.get("/slack", response_class=HTMLResponse)
@@ -38,35 +73,59 @@ async def admin_slack(request: Request):
             .order_by(Session.client_id)
         )).scalars().all()
 
-    # Extract channel_id from "slack:{channel_id}"
     seen_channels = [cid[len("slack:"):] for cid in raw_client_ids if cid]
 
-    # Build a lookup: channel_id -> SlackChannelConfig row (if configured)
-    config_map = {c.channel_id: c for c in channel_configs}
+    # Merge seen + configured channels (configured may include ones not yet in sessions)
+    configured_ids = {c.channel_id for c in channel_configs}
+    all_channel_ids = list(dict.fromkeys(seen_channels + list(configured_ids)))
 
-    default_bot = settings.SLACK_DEFAULT_BOT
+    channel_names = await _fetch_channel_names(all_channel_ids)
+    config_map = {c.channel_id: c for c in channel_configs}
 
     return templates.TemplateResponse("admin/slack.html", {
         "request": request,
         "channel_configs": channel_configs,
         "all_bots": all_bots,
-        "default_bot": default_bot,
+        "default_bot": settings.SLACK_DEFAULT_BOT,
         "seen_channels": seen_channels,
+        "all_channel_ids": all_channel_ids,
         "config_map": config_map,
+        "channel_names": channel_names,
+        "has_token": bool(settings.SLACK_BOT_TOKEN),
     })
 
 
-@router.post("/slack/channels", response_class=HTMLResponse)
-async def admin_slack_channel_upsert(
+@router.get("/slack/channels/{channel_id}/edit-form", response_class=HTMLResponse)
+async def admin_slack_edit_form(request: Request, channel_id: str):
+    async with async_session() as db:
+        all_bots = (await db.execute(select(BotRow).order_by(BotRow.name))).scalars().all()
+        cfg = (await db.execute(
+            select(SlackChannelConfig).where(SlackChannelConfig.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+    channel_names = await _fetch_channel_names([channel_id])
+    channel_name = channel_names.get(channel_id)
+
+    return templates.TemplateResponse("admin/slack_channel_edit.html", {
+        "request": request,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "cfg": cfg,
+        "all_bots": all_bots,
+    })
+
+
+@router.post("/slack/channels/{channel_id}", response_class=HTMLResponse)
+async def admin_slack_channel_save(
     request: Request,
-    channel_id: str = Form(...),
+    channel_id: str,
     bot_id: str = Form(...),
     description: str = Form(""),
 ):
     channel_id = channel_id.strip()
     bot_id = bot_id.strip()
     if not channel_id or not bot_id:
-        return HTMLResponse("<div class='text-red-400 p-4'>channel_id and bot_id are required.</div>", status_code=422)
+        return HTMLResponse("<div class='text-red-400 p-3 text-sm'>channel_id and bot_id are required.</div>", status_code=422)
 
     now = datetime.now(timezone.utc)
     stmt = (
@@ -86,7 +145,29 @@ async def admin_slack_channel_upsert(
     async with async_session() as db:
         await db.execute(stmt)
         await db.commit()
-    return RedirectResponse("/admin/slack", status_code=303)
+        all_bots = (await db.execute(select(BotRow).order_by(BotRow.name))).scalars().all()
+        cfg = (await db.execute(
+            select(SlackChannelConfig).where(SlackChannelConfig.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+    channel_names = await _fetch_channel_names([channel_id])
+
+    # Return updated channel row + clear edit slot (OOB)
+    tmpl = templates.env.get_template("admin/slack_channel_row.html")
+    row_html = tmpl.render(
+        request=request,
+        channel_id=channel_id,
+        cfg=cfg,
+        channel_name=channel_names.get(channel_id),
+        default_bot=settings.SLACK_DEFAULT_BOT,
+        all_bots=all_bots,
+    )
+    oob_row = row_html.replace(
+        f'id="slack-row-{channel_id}"',
+        f'id="slack-row-{channel_id}" hx-swap-oob="outerHTML:#slack-row-{channel_id}"',
+        1,
+    )
+    return HTMLResponse(oob_row)
 
 
 @router.delete("/slack/channels/{config_id}", response_class=HTMLResponse)
@@ -107,7 +188,6 @@ async def admin_slack_channel_delete(config_id: int):
 @api_router.get("/slack/config")
 async def api_slack_config(request: Request):
     """Returns Slack channel→bot mapping for the Slack integration service."""
-    # Simple API key check
     api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
     expected = getattr(settings, "API_KEY", None)
     if expected and api_key != expected:
@@ -118,8 +198,6 @@ async def api_slack_config(request: Request):
         bot_rows = (await db.execute(select(BotRow))).scalars().all()
 
     channels = {row.channel_id: row.bot_id for row in channel_rows}
-    default_bot = settings.SLACK_DEFAULT_BOT
-
     bots = {
         row.id: {
             "display_name": row.slack_display_name or row.name,
@@ -129,4 +207,4 @@ async def api_slack_config(request: Request):
         for row in bot_rows
     }
 
-    return JSONResponse({"default_bot": default_bot, "channels": channels, "bots": bots})
+    return JSONResponse({"default_bot": settings.SLACK_DEFAULT_BOT, "channels": channels, "bots": bots})

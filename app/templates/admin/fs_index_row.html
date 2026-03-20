@@ -1,8 +1,27 @@
-<tr class="hover:bg-gray-750" id="fs-row-{{ idx.bot_id }}-{{ idx.root | replace('/', '-') }}">
+{% set row_key = (idx.bot_id or '') ~ '-' ~ (idx.client_id or '') ~ '-' ~ idx.root | replace('/', '-') %}
+<tr class="hover:bg-gray-750" id="fs-row-{{ row_key }}">
   <td class="px-4 py-3">
+    {% if idx.bot_id %}
     <a href="/admin/bots/{{ idx.bot_id }}" class="text-indigo-400 hover:underline text-sm">{{ idx.bot_id }}</a>
+    {% else %}
+    <span class="text-gray-500 text-sm italic">any bot</span>
+    {% endif %}
   </td>
   <td class="px-4 py-3 font-mono text-xs text-gray-300 break-all">{{ idx.root }}</td>
+  <td class="px-4 py-3">
+    {% if idx.scope == "global" %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-purple-900 text-purple-300" title="Any bot, any channel">global</span>
+    {% elif idx.scope == "channel" %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-blue-900 text-blue-300" title="Any bot in channel: {{ idx.client_id }}">channel</span>
+    {% elif idx.scope == "bot" %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-indigo-900 text-indigo-300" title="Bot {{ idx.bot_id }}, all channels">bot</span>
+    {% else %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400" title="Bot {{ idx.bot_id }} in channel {{ idx.client_id }}">session</span>
+    {% endif %}
+    {% if idx.client_id %}
+    <span class="ml-1 text-xs text-gray-500 font-mono" title="channel_id">{{ idx.client_id | truncate(16, true, '…') }}</span>
+    {% endif %}
+  </td>
   <td class="px-4 py-3 text-gray-300 text-sm">{{ idx.file_count }}</td>
   <td class="px-4 py-3 text-gray-300 text-sm">{{ idx.chunk_count }}</td>
   <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{{ idx.last_indexed | fmt_dt if idx.last_indexed else "—" }}</td>
@@ -14,15 +33,21 @@
     {% endif %}
   </td>
   <td class="px-4 py-3 text-right flex items-center justify-end gap-3">
+    <button
+      hx-get="/admin/filesystem/edit-form?root={{ idx.root | urlencode }}&bot_id={{ (idx.bot_id or '') | urlencode }}&client_id={{ (idx.client_id or '') | urlencode }}"
+      hx-target="#fs-edit-{{ row_key }} td"
+      hx-swap="innerHTML"
+      class="text-xs text-gray-400 hover:text-gray-200 transition-colors">Edit</button>
     <form hx-post="/admin/filesystem/reindex"
-          hx-target="#fs-row-{{ idx.bot_id }}-{{ idx.root | replace('/', '-') }}"
+          hx-target="#fs-row-{{ row_key }}"
           hx-swap="outerHTML">
       <input type="hidden" name="root" value="{{ idx.root }}" />
-      <input type="hidden" name="bot_id" value="{{ idx.bot_id }}" />
+      <input type="hidden" name="bot_id" value="{{ idx.bot_id or '' }}" />
+      <input type="hidden" name="client_id" value="{{ idx.client_id or '' }}" />
       <button type="submit" class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Re-index</button>
     </form>
     <button
-      hx-delete="/admin/filesystem/chunks?root={{ idx.root | urlencode }}&bot_id={{ idx.bot_id }}"
+      hx-delete="/admin/filesystem/chunks?root={{ idx.root | urlencode }}&bot_id={{ (idx.bot_id or '') | urlencode }}&client_id={{ (idx.client_id or '') | urlencode }}"
       hx-confirm="Delete all indexed chunks for {{ idx.root }}? This cannot be undone."
       hx-target="closest tr"
       hx-swap="outerHTML"
@@ -31,3 +56,4 @@
     </button>
   </td>
 </tr>
+<tr id="fs-edit-{{ row_key }}"><td colspan="8" class="p-0"></td></tr>

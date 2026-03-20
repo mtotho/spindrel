@@ -54,9 +54,10 @@ def _parse_scheduled_at(value: str | None) -> datetime | None:
     "function": {
         "name": "create_task",
         "description": (
-            "Schedule a task to be run by the agent at a later time or immediately. "
-            "The task will be dispatched back to the originating channel/thread automatically. "
-            "Use this for reminders, deferred work, or sub-agent jobs."
+            "Schedule a task for THIS bot to run later, or immediately. "
+            "Use for reminders, recurring jobs, or deferred self-work. "
+            "To run a DIFFERENT bot, use delegate_to_agent instead (preferred for cross-bot work). "
+            "The result is dispatched back to the originating channel/thread automatically."
         ),
         "parameters": {
             "type": "object",
@@ -105,6 +106,17 @@ async def create_task(
     recurrence: str | None = None,
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
+
+    # Resolve bot_id: validate early so we don't queue a task that will explode at runtime
+    if bot_id:
+        from app.agent.bots import resolve_bot_id, list_bots
+        resolved = resolve_bot_id(bot_id)
+        if resolved is None:
+            available = ", ".join(b.id for b in list_bots())
+            return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"})
+        if resolved.id != bot_id:
+            bot_id = resolved.id  # silently use the canonical ID
+
     effective_bot_id = bot_id or current_bot_id.get() or "default"
     effective_client_id = current_client_id.get()
     effective_session_id = current_session_id.get()

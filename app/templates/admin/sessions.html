@@ -16,6 +16,12 @@
     <option value="{{ bot.id }}" {% if bot_filter == bot.id %}selected{% endif %}>{{ bot.name }}</option>
     {% endfor %}
   </select>
+  <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+    <input type="checkbox" name="root_only" value="1" onchange="this.form.submit()"
+      {% if root_only %}checked{% endif %}
+      class="accent-indigo-500" />
+    Root sessions only
+  </label>
 </form>
 
 <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">

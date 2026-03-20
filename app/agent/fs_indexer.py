@@ -26,8 +26,8 @@ _client = AsyncOpenAI(
     timeout=120.0,
 )
 
-# In-memory cooldown: (abs_root, bot_id) -> monotonic timestamp of last full index
-_last_indexed: dict[tuple[str, str], float] = {}
+# In-memory cooldown: (abs_root, bot_id, client_id) -> monotonic timestamp of last full index
+_last_indexed: dict[tuple[str, str, str], float] = {}
 
 # Extensions to always skip
 _SKIP_EXTENSIONS = {
@@ -278,9 +278,10 @@ def _build_pathspec(root: Path):
 
 async def index_directory(
     root: str,
-    bot_id: str,
+    bot_id: str | None,
     patterns: list[str],
     *,
+    client_id: str | None = None,
     force: bool = False,
     file_paths: list[Path] | None = None,
     cooldown_seconds: int | None = None,
@@ -288,12 +289,14 @@ async def index_directory(
     """
     Index a directory for semantic search.
 
+    - bot_id=None: cross-bot index (accessible to all bots).
+    - client_id=None: cross-client index (accessible from all channels/clients).
     - force=True: bypass cooldown (used on startup and by the agent tool).
     - file_paths: if provided, only re-index those specific files (watcher use).
     - Returns stats: {indexed, skipped, removed, errors, cooldown}.
     """
     root_path = Path(root).resolve()
-    key = (str(root_path), bot_id)
+    key = (str(root_path), bot_id or "", client_id or "")
     now = time.monotonic()
     cd = cooldown_seconds if cooldown_seconds is not None else settings.FS_INDEX_COOLDOWN_SECONDS
 
@@ -334,14 +337,25 @@ async def index_directory(
 
     stats = {"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
 
-    # Fetch existing content_hashes in bulk for this (bot_id, root)
+    # Build scope filter helpers
+    def _scope_filter():
+        """Return WHERE conditions matching this index's exact scope."""
+        conds = [FilesystemChunk.root == str(root_path)]
+        if bot_id is None:
+            conds.append(FilesystemChunk.bot_id.is_(None))
+        else:
+            conds.append(FilesystemChunk.bot_id == bot_id)
+        if client_id is None:
+            conds.append(FilesystemChunk.client_id.is_(None))
+        else:
+            conds.append(FilesystemChunk.client_id == client_id)
+        return conds
+
+    # Fetch existing content_hashes in bulk for this (bot_id, client_id, root)
     async with async_session() as db:
         rows = (await db.execute(
             select(FilesystemChunk.file_path, FilesystemChunk.content_hash)
-            .where(
-                FilesystemChunk.bot_id == bot_id,
-                FilesystemChunk.root == str(root_path),
-            )
+            .where(*_scope_filter())
             .distinct(FilesystemChunk.file_path)
         )).all()
     existing_hashes: dict[str, str] = {row.file_path: row.content_hash for row in rows}
@@ -376,8 +390,7 @@ async def index_directory(
             # Delete old chunks for this file
             await db.execute(
                 delete(FilesystemChunk).where(
-                    FilesystemChunk.bot_id == bot_id,
-                    FilesystemChunk.root == str(root_path),
+                    *_scope_filter(),
                     FilesystemChunk.file_path == rel,
                 )
             )
@@ -385,6 +398,7 @@ async def index_directory(
             for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
                 db.add(FilesystemChunk(
                     bot_id=bot_id,
+                    client_id=client_id,
                     root=str(root_path),
                     file_path=rel,
                     content_hash=file_hash,
@@ -409,8 +423,7 @@ async def index_directory(
             async with async_session() as db:
                 await db.execute(
                     delete(FilesystemChunk).where(
-                        FilesystemChunk.bot_id == bot_id,
-                        FilesystemChunk.root == str(root_path),
+                        *_scope_filter(),
                         FilesystemChunk.file_path.in_(stale),
                     )
                 )
@@ -419,8 +432,8 @@ async def index_directory(
         _last_indexed[key] = time.monotonic()
 
     logger.info(
-        "Indexed %s for bot %s: %d new, %d skipped, %d removed, %d errors",
-        root, bot_id, stats["indexed"], stats["skipped"], stats["removed"], stats["errors"],
+        "Indexed %s for bot %s client %s: %d new, %d skipped, %d removed, %d errors",
+        root, bot_id, client_id, stats["indexed"], stats["skipped"], stats["removed"], stats["errors"],
     )
     return stats
 
@@ -431,12 +444,18 @@ async def index_directory(
 
 async def retrieve_filesystem_context(
     query: str,
-    bot_id: str,
+    bot_id: str | None,
+    client_id: str | None = None,
     roots: list[str] | None = None,
     top_k: int | None = None,
     threshold: float | None = None,
 ) -> tuple[list[str], float]:
-    """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity)."""
+    """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
+
+    Scope semantics (matches knowledge system):
+    - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
+    - client_id: returns chunks where chunk.client_id == client_id OR chunk.client_id IS NULL
+    """
     top_k = top_k or settings.FS_INDEX_TOP_K
     threshold = threshold if threshold is not None else settings.FS_INDEX_SIMILARITY_THRESHOLD
 
@@ -452,6 +471,19 @@ async def retrieve_filesystem_context(
 
     distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
 
+    from sqlalchemy import or_
+
+    bot_filter = (
+        or_(FilesystemChunk.bot_id == bot_id, FilesystemChunk.bot_id.is_(None))
+        if bot_id is not None
+        else FilesystemChunk.bot_id.is_(None)
+    )
+    client_filter = (
+        or_(FilesystemChunk.client_id == client_id, FilesystemChunk.client_id.is_(None))
+        if client_id is not None
+        else FilesystemChunk.client_id.is_(None)
+    )
+
     stmt = (
         select(
             FilesystemChunk.content,
@@ -461,7 +493,7 @@ async def retrieve_filesystem_context(
             FilesystemChunk.end_line,
             distance_expr.label("distance"),
         )
-        .where(FilesystemChunk.bot_id == bot_id)
+        .where(bot_filter, client_filter)
         .order_by(distance_expr)
         .limit(top_k)
     )

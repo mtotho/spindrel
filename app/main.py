@@ -65,6 +65,11 @@ async def lifespan(app: FastAPI):
                 logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
     await start_watchers(list_bots())
 
+    if settings.HARNESS_CONFIG_FILE and Path(settings.HARNESS_CONFIG_FILE).exists():
+        logger.info("Loading harness configs from %s...", settings.HARNESS_CONFIG_FILE)
+        from app.services.harness import harness_service
+        harness_service.load(settings.HARNESS_CONFIG_FILE)
+
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up

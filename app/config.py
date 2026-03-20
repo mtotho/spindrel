@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     FS_COMMANDS_MAX_READ_BYTES: int = 500_000
     FS_COMMANDS_MAX_LIST_ENTRIES: int = 1000
 
+    # Delegation
+    DELEGATION_ENABLED: bool = False
+    DELEGATION_MAX_DEPTH: int = 3
+    HARNESS_CONFIG_FILE: str = "harnesses.yaml"
+    HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
+
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False
     DOCKER_SOCKET_PATH: str = "/var/run/docker.sock"
@@ -114,6 +120,7 @@ class Settings(BaseSettings):
 
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
+    SLACK_BOT_TOKEN: str = ""  # xoxb-... used for channel name lookup in admin UI
 
     BASE_COMPACTION_PROMPT: str ="""\
         You are a conversation summarizer. You will receive the message history of a \
@@ -146,6 +153,7 @@ class Settings(BaseSettings):
         "HOST_EXEC_BLOCKED_PATTERNS",
         "HOST_EXEC_ENV_PASSTHROUGH",
         "TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS",
+        "HARNESS_WORKING_DIR_ALLOWLIST",
         mode="before",
     )
     @classmethod

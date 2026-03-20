@@ -37,12 +37,13 @@ async def resolve_tags(
     bot_id: str,
     client_id: str | None,
 ) -> list[ResolvedTag]:
-    """Parse @tags from a message and resolve each to skill/knowledge/tool.
+    """Parse @tags from a message and resolve each to skill/knowledge/tool/bot.
 
     Resolution order for un-namespaced tags:
       1. skill  (checked against bot's skills list)
       2. tool   (checked against bot's local + client tools)
-      3. knowledge (DB lookup for remaining candidates)
+      3. bot    (checked against bot registry — enables ephemeral delegation)
+      4. knowledge (DB lookup for remaining candidates)
     """
     raw_tags: list[tuple[str, str | None, str]] = []
     seen_names: set[str] = set()
@@ -63,6 +64,10 @@ async def resolve_tags(
     skill_set = set(bot_skills or [])
     tool_set = set(bot_local_tools or []) | set(bot_client_tools or [])
 
+    # Load bot registry for bot @-tags
+    from app.agent.bots import _registry as _bot_registry
+    bot_id_set = set(_bot_registry.keys())
+
     resolved: list[ResolvedTag] = []
     knowledge_candidates: list[tuple[str, str]] = []  # (raw, name)
 
@@ -77,6 +82,9 @@ async def resolve_tags(
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="skill"))
         elif name in tool_set:
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="tool"))
+        elif name in bot_id_set and name != bot_id:
+            # @bot-id → ephemeral delegation override (skip tagging the current bot)
+            resolved.append(ResolvedTag(raw=raw, name=name, tag_type="bot"))
         else:
             # May be a knowledge doc — defer to a single batch DB lookup
             knowledge_candidates.append((raw, name))
@@ -92,7 +100,7 @@ async def resolve_tags(
                 if name in known_names:
                     resolved.append(ResolvedTag(raw=raw, name=name, tag_type="knowledge"))
                 else:
-                    logger.info("Tag @%s not resolved: not a skill, tool, or known knowledge doc", name)
+                    logger.info("Tag @%s not resolved: not a skill, tool, bot, or known knowledge doc", name)
         except Exception:
             logger.exception("Failed to look up knowledge names for tag resolution")
 

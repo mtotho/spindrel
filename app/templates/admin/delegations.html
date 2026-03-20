@@ -1,0 +1,127 @@
+{% extends "admin/_base.html" %}
+{% block title %}Delegation Trees{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold">Delegation Trees</h1>
+    <p class="text-sm text-gray-500 mt-0.5">Sessions where one bot spawned sub-agent sessions</p>
+  </div>
+  <div class="text-sm text-gray-400">{{ total }} chain{{ 's' if total != 1 else '' }}</div>
+</div>
+
+<!-- Filter -->
+<form method="get" class="flex flex-wrap gap-3 mb-6">
+  <select name="bot_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+    <option value="">All root bots</option>
+    {% for bot in bots %}
+    <option value="{{ bot.id }}" {% if bot_filter == bot.id %}selected{% endif %}>{{ bot.name }}</option>
+    {% endfor %}
+  </select>
+  {% if bot_filter %}
+  <a href="/admin/delegations" class="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200">✕ Clear</a>
+  {% endif %}
+</form>
+
+{% if not trees %}
+<div class="bg-gray-800 rounded-xl border border-gray-700 p-10 text-center">
+  <div class="text-gray-500 mb-2">No delegation chains found.</div>
+  <div class="text-xs text-gray-600">
+    Chains appear when a bot uses <code class="bg-gray-700 px-1 rounded">delegate_to_agent</code>
+    to spawn a child agent session.
+  </div>
+</div>
+{% else %}
+
+<div class="space-y-4">
+  {% for tree in trees %}
+  <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+
+    <!-- Chain header -->
+    <div class="px-4 py-2.5 border-b border-gray-700 flex items-center justify-between bg-gray-850">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900/40 text-purple-300 border border-purple-800/50">
+          {{ tree.size }} session{{ 's' if tree.size != 1 else '' }}
+        </span>
+        <span class="text-xs text-gray-600 font-mono">{{ tree.root.id }}</span>
+      </div>
+      <span class="text-xs text-gray-500">{{ tree.root.last_active | fmt_dt }}</span>
+    </div>
+
+    <!-- Tree nodes -->
+    <div class="divide-y divide-gray-700/40">
+      {% for row in tree.rows %}
+      <div class="flex items-center px-3 py-2 hover:bg-gray-700/30 group min-w-0">
+
+        <!-- Tree connector (monospace box-drawing characters) -->
+        <div class="font-mono text-xs text-gray-600 whitespace-pre mr-1.5 leading-5 select-none flex-shrink-0">
+          {%- if row.depth > 0 -%}
+            {%- set ns = namespace(conn='') -%}
+            {%- for i in range(row.depth) -%}
+              {%- if i < row.depth - 1 -%}
+                {%- set ns.conn = ns.conn + ('│  ' if row.prefix[i] else '   ') -%}
+              {%- else -%}
+                {%- set ns.conn = ns.conn + ('└─ ' if row.is_last else '├─ ') -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{- ns.conn -}}
+          {%- else -%}&#8203;{%- endif -%}
+        </div>
+
+        <!-- Node content -->
+        <div class="flex items-center gap-2 flex-1 min-w-0">
+
+          <!-- Role badge -->
+          {% if row.depth == 0 %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-900/50 text-indigo-300 border border-indigo-800/50 flex-shrink-0">root</span>
+          {% else %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800/50 flex-shrink-0">↓{{ row.depth }}</span>
+          {% endif %}
+
+          <!-- Bot ID -->
+          <span class="text-xs text-gray-500 font-mono flex-shrink-0">{{ row.session.bot_id }}</span>
+
+          <!-- Session title -->
+          <span class="text-sm text-gray-200 truncate">{{ row.session.title or '(no title)' }}</span>
+
+          <!-- Child count indicator -->
+          {% if row.child_count > 0 %}
+          <span class="text-xs text-blue-500 flex-shrink-0" title="{{ row.child_count }} sub-agent(s)">
+            ⤷{{ row.child_count }}
+          </span>
+          {% endif %}
+        </div>
+
+        <!-- Hover actions -->
+        <div class="flex items-center gap-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-3">
+          <span class="text-xs text-gray-600">{{ row.session.last_active | fmt_dt }}</span>
+          <a href="/admin/sessions/{{ row.session.id }}/correlations"
+             class="text-xs text-gray-400 hover:text-indigo-300" title="View trace">Trace ↗</a>
+          <a href="/admin/sessions?expand={{ row.session.id }}"
+             class="text-xs text-gray-400 hover:text-gray-200" title="Open in Sessions">Session ↗</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if total > page_size %}
+<div class="flex items-center gap-2 mt-4 text-sm">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{% if bot_filter %}&bot_id={{ bot_filter }}{% endif %}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Prev</a>
+  {% endif %}
+  <span class="text-gray-400">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}
+  <a href="?page={{ page + 1 }}{% if bot_filter %}&bot_id={{ bot_filter }}{% endif %}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

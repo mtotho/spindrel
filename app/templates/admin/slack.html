@@ -8,88 +8,40 @@
   <span class="text-xs text-gray-500 ml-2">(set via <code>SLACK_DEFAULT_BOT</code> env var)</span>
 </p>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-
-  <!-- Channels seen in sessions -->
-  <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-    <div class="px-5 py-4 border-b border-gray-700">
-      <h2 class="text-base font-semibold text-gray-200">Active Channels</h2>
-      <p class="text-xs text-gray-500 mt-0.5">Channels with sessions in DB. Click to configure.</p>
+<!-- Channel mappings -->
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
+  <div class="px-5 py-4 border-b border-gray-700 flex items-center justify-between">
+    <div>
+      <h2 class="text-base font-semibold text-gray-200">Channel → Bot Mappings</h2>
+      <p class="text-xs text-gray-500 mt-0.5">
+        Channels seen in sessions + any configured mappings.
+        {% if not has_token %}
+        <span class="text-yellow-600">Set <code>SLACK_BOT_TOKEN</code> to auto-resolve channel names.</span>
+        {% endif %}
+      </p>
     </div>
-    {% if seen_channels %}
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wider">
-          <th class="px-5 py-2 text-left">Channel ID</th>
-          <th class="px-5 py-2 text-left">Mapped Bot</th>
-          <th class="px-5 py-2 text-right"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for channel_id in seen_channels %}
-        {% set cfg = config_map.get(channel_id) %}
-        <tr class="border-b border-gray-700 hover:bg-gray-750">
-          <td class="px-5 py-2.5 font-mono text-xs text-gray-300">{{ channel_id }}</td>
-          <td class="px-5 py-2.5">
-            {% if cfg %}
-            <span class="text-indigo-400 text-xs font-mono">{{ cfg.bot_id }}</span>
-            {% else %}
-            <span class="text-gray-500 text-xs italic">{{ default_bot }} (default)</span>
-            {% endif %}
-          </td>
-          <td class="px-5 py-2.5 text-right">
-            {% if cfg %}
-            <button
-              hx-delete="/admin/slack/channels/{{ cfg.id }}"
-              hx-confirm="Remove mapping for {{ channel_id }}?"
-              hx-target="closest tr"
-              hx-swap="outerHTML"
-              class="text-xs text-red-400 hover:text-red-300 mr-2">Remove</button>
-            {% endif %}
-            <button
-              onclick="fillForm('{{ channel_id }}', '{{ cfg.bot_id if cfg else '' }}')"
-              class="text-xs text-indigo-400 hover:text-indigo-300">
-              {% if cfg %}Edit{% else %}Assign{% endif %}
-            </button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <div class="px-5 py-6 text-sm text-gray-500">No Slack sessions found in DB yet.</div>
-    {% endif %}
   </div>
 
-  <!-- Add/Update mapping form -->
-  <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
-    <h2 class="text-base font-semibold text-gray-200 mb-4">Assign Channel → Bot</h2>
-    <form id="channel-form" method="post" action="/admin/slack/channels" class="space-y-4">
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Channel ID</label>
-        <input id="form-channel-id" name="channel_id" required placeholder="C012AB3CD"
-          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Bot</label>
-        <select id="form-bot-id" name="bot_id" required
-          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-          {% for bot in all_bots %}
-          <option value="{{ bot.id }}">{{ bot.name }} ({{ bot.id }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Description (optional)</label>
-        <input name="description" placeholder="e.g. #general channel"
-          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <button type="submit"
-        class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2 text-sm font-medium">
-        Save Mapping
-      </button>
-    </form>
-  </div>
+  {% if all_channel_ids %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wider">
+        <th class="px-5 py-2 text-left">Channel</th>
+        <th class="px-5 py-2 text-left">Bot</th>
+        <th class="px-5 py-2 text-right"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for channel_id in all_channel_ids %}
+      {% set cfg = config_map.get(channel_id) %}
+      {% set channel_name = channel_names.get(channel_id) %}
+      {% include "admin/slack_channel_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="px-5 py-6 text-sm text-gray-500">No Slack sessions found in DB yet.</div>
+  {% endif %}
 </div>
 
 <!-- Bot display names -->
@@ -111,23 +63,23 @@
   </div>
 </div>
 
+<!-- Slash commands reference -->
+<div class="bg-gray-800 rounded-xl border border-gray-700 p-5 mb-6">
+  <h2 class="text-base font-semibold text-gray-200 mb-3">Slash Commands</h2>
+  <div class="space-y-2 text-sm">
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/bot [id]</code><span class="text-gray-400">Switch bot for this channel. No arg = show current.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/bots</code><span class="text-gray-400">List all available bots.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/session [id|#]</code><span class="text-gray-400">Switch active session. <code>new</code> to create fresh.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/sessions</code><span class="text-gray-400">List sessions for this channel.</span></div>
+  </div>
+  <p class="text-xs text-gray-500 mt-3">
+    <strong class="text-gray-400">@-tagging:</strong> type <code class="font-mono text-gray-300">@bot-id</code> or <code class="font-mono text-gray-300">@skill-name</code> as plain text in any message — the agent resolves them automatically. No Slack autocomplete for internal IDs; use <code>/bot</code> for switching.
+  </p>
+</div>
+
 <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
   <h2 class="text-base font-semibold text-gray-200 mb-2">API Endpoint</h2>
   <code class="text-xs text-green-400 bg-gray-900 px-3 py-2 rounded block">GET /api/slack/config</code>
   <p class="text-xs text-gray-500 mt-2">Pass <code>X-API-Key</code> header or <code>?api_key=</code> query param matching <code>API_KEY</code> env var.</p>
 </div>
-
-<script>
-function fillForm(channelId, botId) {
-  document.getElementById('form-channel-id').value = channelId;
-  const sel = document.getElementById('form-bot-id');
-  if (botId) {
-    for (let i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].value === botId) { sel.selectedIndex = i; break; }
-    }
-  }
-  document.getElementById('channel-form').scrollIntoView({behavior: 'smooth'});
-  document.getElementById('form-channel-id').focus();
-}
-</script>
 {% endblock %}

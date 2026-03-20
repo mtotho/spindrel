@@ -1,0 +1,12 @@
+harnesses:
+  claude-code:
+    command: claude
+    args: ["--print", "--prompt", "{prompt}"]
+    working_directory: "{working_directory}"
+    timeout: 300
+
+  cursor:
+    command: cursor
+    args: ["--agent", "{prompt}"]
+    working_directory: "{working_directory}"
+    timeout: 600

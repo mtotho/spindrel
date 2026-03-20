@@ -105,6 +105,9 @@ class BotConfig:
     # Per-bot RAG injection limits (chars per item). None = use global settings.
     knowledge_max_inject_chars: int | None = None
     memory_max_inject_chars: int | None = None
+    # Delegation
+    delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
+    harness_access: list[str] = field(default_factory=list)  # allowed harness names
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -192,6 +195,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         tool_result_config=row.tool_result_config or {},
         knowledge_max_inject_chars=row.knowledge_max_inject_chars,
         memory_max_inject_chars=row.memory_max_inject_chars,
+        delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
+        harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
     )
 
 
@@ -262,6 +267,10 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "tool_result_config": data.get("tool_result_config", {}),
         "knowledge_max_inject_chars": data.get("knowledge_max_inject_chars"),
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),
+        "delegation_config": {
+            "delegate_bots": data.get("delegate_bots", []),
+            "harness_access": data.get("harness_access", []),
+        },
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
@@ -316,3 +325,62 @@ def get_bot(bot_id: str) -> BotConfig:
     if bot is None:
         raise HTTPException(status_code=404, detail=f"Unknown bot: {bot_id}")
     return bot
+
+
+def resolve_bot_id(hint: str) -> BotConfig | None:
+    """Fuzzy-resolve a bot by ID or name hint. Returns the best match or None.
+
+    Resolution order (first match wins):
+    1. Exact ID match
+    2. Case-insensitive ID match
+    3. Exact name match (case-insensitive)
+    4. Substring of ID  (e.g. "google" → "google_bot")
+    5. Substring of name (e.g. "lmgtfy" matches "Let Me Google That For You")
+    6. Word-overlap score on name tokens (e.g. "let me google" hits "Let Me Google…")
+    """
+    if not hint or not _registry:
+        return None
+    h = hint.strip().lower()
+
+    # 1. exact id
+    if h in _registry:
+        return _registry[h]
+
+    # 2. case-insensitive id
+    for bid, bot in _registry.items():
+        if bid.lower() == h:
+            return bot
+
+    # 3. exact name
+    for bot in _registry.values():
+        if bot.name.lower() == h:
+            return bot
+
+    # 4. substring of id
+    for bid, bot in _registry.items():
+        if h in bid.lower() or bid.lower() in h:
+            return bot
+
+    # 5. substring of name
+    for bot in _registry.values():
+        name_l = bot.name.lower()
+        if h in name_l or name_l in h:
+            return bot
+
+    # 6. word-overlap on name (highest overlap wins)
+    hint_words = set(h.split())
+    best_bot: BotConfig | None = None
+    best_score = 0
+    for bot in _registry.values():
+        name_words = set(bot.name.lower().split())
+        # also tokenise the id by splitting on _ and -
+        import re as _re
+        id_words = set(_re.split(r"[_\-]", bot.id.lower()))
+        overlap = len(hint_words & (name_words | id_words))
+        if overlap > best_score:
+            best_score = overlap
+            best_bot = bot
+    if best_score > 0:
+        return best_bot
+
+    return None

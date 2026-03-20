@@ -53,6 +53,18 @@
             placeholder="+1h or +1d or blank for one-shot"
             class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
         </div>
+        {% if task.dispatch_type == "slack" %}
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="reply_in_thread" id="reply_in_thread"
+              {% if task.dispatch_config and task.dispatch_config.get('reply_in_thread', True) %}checked{% endif %}
+              class="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500" />
+            <label for="reply_in_thread" class="text-sm text-gray-300">Reply in thread</label>
+          </div>
+          <p class="text-xs text-gray-500">Unchecked = post as new top-level channel message.</p>
+        </div>
+        {% endif %}
+
         <div x-data="promptEditor()" class="relative">
           <label class="block text-xs text-gray-400 mb-1">Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
           <textarea name="prompt" rows="6"
@@ -153,6 +165,18 @@
             {% else %}one-shot{% endif %}
           </dd>
         </div>
+        {% if task.dispatch_type == "slack" %}
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Reply in thread</dt>
+          <dd>
+            {% if task.dispatch_config and task.dispatch_config.get('reply_in_thread', True) %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">yes</span>
+            {% else %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">no — channel post</span>
+            {% endif %}
+          </dd>
+        </div>
+        {% endif %}
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Parent Task</dt>
           <dd class="text-gray-300">

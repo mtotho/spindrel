@@ -1,0 +1,35 @@
+<div class="px-5 py-4 bg-gray-900 space-y-3">
+  <div class="text-xs text-gray-400">
+    Channel: <span class="font-mono text-gray-300">{{ channel_id }}</span>
+    {% if channel_name %}<span class="text-gray-500 ml-1">#{{ channel_name }}</span>{% endif %}
+  </div>
+  <form hx-post="/admin/slack/channels/{{ channel_id }}"
+        hx-target="#slack-edit-{{ channel_id }} td"
+        hx-swap="innerHTML"
+        class="space-y-3">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Bot</label>
+      <select name="bot_id" required
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+        {% for bot in all_bots %}
+        <option value="{{ bot.id }}" {% if cfg and cfg.bot_id == bot.id %}selected{% endif %}>
+          {{ bot.name }} ({{ bot.id }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Description <span class="text-gray-600">(optional)</span></label>
+      <input name="description" placeholder="e.g. #general — customer support"
+        value="{{ cfg.description or '' }}"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+    <div class="flex justify-end gap-3">
+      <button type="button"
+        onclick="document.querySelector('#slack-edit-{{ channel_id }} td').innerHTML = ''"
+        class="px-4 py-1.5 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+      <button type="submit"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm">Save</button>
+    </div>
+  </form>
+</div>

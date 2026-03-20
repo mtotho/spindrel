@@ -135,6 +135,7 @@ async def admin_task_edit(
     scheduled_at: str = Form(""),
     recurrence: str = Form(""),
     status: str = Form(...),
+    reply_in_thread: str = Form(""),  # checkbox: "on" when checked, "" when not
 ):
     async with async_session() as db:
         task = await db.get(Task, task_id)
@@ -145,6 +146,12 @@ async def admin_task_edit(
         task.recurrence = recurrence.strip() or None
         task.status = status
 
+        # Update reply_in_thread in dispatch_config for Slack tasks
+        if task.dispatch_type == "slack" and task.dispatch_config is not None:
+            cfg = dict(task.dispatch_config)
+            cfg["reply_in_thread"] = reply_in_thread == "on"
+            task.dispatch_config = cfg
+
         # Parse scheduled_at
         sa_str = scheduled_at.strip()
         if not sa_str:
@@ -154,7 +161,6 @@ async def admin_task_edit(
                 from app.tools.local.tasks import _parse_scheduled_at
                 task.scheduled_at = _parse_scheduled_at(sa_str)
             except ValueError:
-                # Try raw ISO parse as fallback
                 try:
                     task.scheduled_at = datetime.fromisoformat(sa_str)
                 except ValueError:

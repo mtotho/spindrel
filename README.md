@@ -157,11 +157,13 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `upsert_knowledge` | Create or update a knowledge document by name. Requires `knowledge.enabled` on the bot. |
 | `get_knowledge` | Retrieve a knowledge document by exact name. Requires `knowledge.enabled` on the bot. |
 | `search_knowledge` | Search knowledge documents by semantic similarity. Requires `knowledge.enabled` on the bot. |
-| `create_task` | Schedule a deferred agent job. Runs later and dispatches the result back to the originating channel/thread. |
+| `create_task` | Schedule a deferred agent job. Runs later and dispatches the result back to the originating channel/thread. For cross-bot work use `delegate_to_agent` instead. |
 | `list_my_tasks` | List recent tasks for the current session with status and result previews. |
 | `get_task` | Get the full status and result of a task by ID. |
 | `cancel_task` | Cancel a pending task so it won't run. |
 | `reschedule_task` | Change when a pending task will run. |
+| `delegate_to_agent` | Run another bot as a sub-agent. Immediate mode returns the result synchronously; deferred mode creates a background task. See [docs/delegation.md](docs/delegation.md). |
+| `delegate_to_harness` | Run an external CLI tool (e.g. `claude`, `cursor`) as a subprocess and return its stdout. Requires `harnesses.yaml` and `harness_access` on the bot. See [docs/delegation.md](docs/delegation.md). |
 | `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
 | `list_sandbox_profiles` | List Docker sandbox profiles (image/templates) this bot can use. |
 | `ensure_sandbox` | Start a **new** container from a profile; returns `instance_id` (each call adds one until max concurrent). |
@@ -734,6 +736,32 @@ Include dispatch fields in `POST /chat` to control where task results are delive
 }
 ```
 
+## Bot-to-Bot Delegation
+
+One bot can delegate work to another bot — either synchronously (immediate mode, result returned in the same turn) or as a background task (deferred mode).
+
+**Quick setup:**
+
+```yaml
+# bots/orchestrator.yaml
+local_tools:
+  - delegate_to_agent
+delegate_bots:
+  - researcher_bot    # allowlist of bots this one can delegate to
+```
+
+Having a non-empty `delegate_bots` list enables delegation for that bot without requiring the global `DELEGATION_ENABLED` flag.
+
+**Immediate delegation** (default) — the child bot runs now and its response is returned to the orchestrator as a tool result. On Slack, the child also posts its response to the thread attributed to the child bot's display name/icon.
+
+**Deferred delegation** — creates a background task. The orchestrator gets a task ID and continues; the child's result is posted back to the originating channel when it completes.
+
+**Delegation chains** — child bots can themselves delegate (up to `DELEGATION_MAX_DEPTH`, default 3). All chains are visible at `/admin/delegations` as a tree view.
+
+**@-tag override** — users can mention `@bot-id` in their message to ephemeral-delegate to any bot, bypassing the allowlist for that single request.
+
+→ Full details: [docs/delegation.md](docs/delegation.md)
+
 ## API
 
 | Endpoint | Method | Description |
@@ -885,4 +913,6 @@ android-client/   React Native (Expo bare workflow) Android client
   android/        Native Android project (foreground service, native modules)
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
+docs/             Feature documentation
+  delegation.md   Bot-to-bot delegation and external harness execution
 ```

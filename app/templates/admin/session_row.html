@@ -1,7 +1,24 @@
 <tr id="session-row-{{ s.id }}" class="hover:bg-gray-750">
   <td class="px-4 py-3">
-    <div class="text-gray-200 font-medium truncate max-w-xs">{{ s.title or '(no title)' }}</div>
-    <div class="text-xs text-gray-500 font-mono mt-0.5">{{ s.id }}</div>
+    <div class="flex items-center gap-2">
+      {% if s.depth and s.depth > 0 %}
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-800/50">depth {{ s.depth }}</span>
+      {% endif %}
+      {% if child_counts and child_counts.get(s.id, 0) > 0 %}
+      <button
+        hx-get="/admin/sessions/{{ s.id }}/children"
+        hx-target="#session-children-container-{{ s.id }}"
+        hx-swap="innerHTML"
+        class="text-xs text-blue-400 hover:text-blue-300">
+        ▶ {{ child_counts[s.id] }} child(ren)
+      </button>
+      {% endif %}
+    </div>
+    <div class="text-gray-200 font-medium truncate max-w-xs mt-0.5">{{ s.title or '(no title)' }}</div>
+    <div class="text-xs text-gray-500 font-mono">{{ s.id }}</div>
+    {% if s.parent_session_id %}
+    <div class="text-xs text-gray-600 mt-0.5">parent: <a href="/admin/sessions?expand={{ s.parent_session_id }}" class="text-purple-400 hover:text-purple-300 font-mono">{{ s.parent_session_id }}</a></div>
+    {% endif %}
   </td>
   <td class="px-4 py-3 text-gray-300">{{ s.bot_id }}</td>
   <td class="px-4 py-3 text-gray-300 text-xs font-mono">{{ s.client_id }}</td>
@@ -36,3 +53,4 @@
   </td>
 </tr>
 <tr id="session-detail-{{ s.id }}"></tr>
+<tr><td colspan="5" id="session-children-container-{{ s.id }}" class="p-0"></td></tr>
