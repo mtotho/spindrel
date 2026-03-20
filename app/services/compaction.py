@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.agent.loop import run_agent_tool_loop
+from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Message, Session
@@ -191,7 +192,9 @@ async def _generate_summary(
 
 
 async def run_compaction_stream(
-    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
+    session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
+    *,
+    correlation_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """If compaction is due, run memory/knowledge phase (yielding tool events) then summarize.
     Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
@@ -240,6 +243,15 @@ async def run_compaction_stream(
             return
         client_id = session.client_id
         existing_summary = session.summary
+
+    asyncio.create_task(_record_trace_event(
+        correlation_id=correlation_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        client_id=client_id,
+        event_type="compaction_start",
+        data={"interval": _get_compaction_interval(bot), "keep_turns": _get_compaction_keep_turns(bot)},
+    ))
 
     keep_turns = _get_compaction_keep_turns(bot)
     turns_to_summarize = interval - keep_turns
@@ -322,27 +334,37 @@ async def run_compaction_stream(
             "Compaction complete for %s: title=%r, summary_len=%d",
             session_id, title, len(summary),
         )
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="compaction_done",
+            data={"title": title, "summary_len": len(summary)},
+        ))
         yield {"type": "compaction_done", "title": title}
     except Exception:
         logger.exception("Compaction failed for session %s", session_id)
 
 
 async def _drain_compaction(
-    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
+    session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
+    correlation_id: uuid.UUID | None = None,
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
     try:
-        async for _ in run_compaction_stream(session_id, bot, messages):
+        async for _ in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id):
             pass
     except Exception:
         logger.exception("Background compaction failed for session %s", session_id)
 
 
 def maybe_compact(
-    session_id: uuid.UUID, bot: BotConfig, messages: list[dict]
+    session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
+    correlation_id: uuid.UUID | None = None,
 ) -> None:
     """If compaction is due, run it in the background (memory phase + summary). Non-blocking."""
-    asyncio.create_task(_drain_compaction(session_id, bot, messages))
+    asyncio.create_task(_drain_compaction(session_id, bot, messages, correlation_id=correlation_id))
 
 
 async def run_compaction_forced(

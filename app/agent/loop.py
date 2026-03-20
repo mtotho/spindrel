@@ -348,6 +348,7 @@ async def run_agent_tool_loop(
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+                _orig_len = len(result_for_llm)
                 _was_summarized = False
                 if (
                     _eff_summarize_enabled
@@ -362,6 +363,19 @@ async def run_agent_tool_loop(
                         model=_eff_summarize_model,
                         max_tokens=_eff_summarize_max_tokens,
                     )
+                    if correlation_id is not None:
+                        asyncio.create_task(_record_trace_event(
+                            correlation_id=correlation_id,
+                            session_id=session_id,
+                            bot_id=bot.id,
+                            client_id=client_id,
+                            event_type="tool_result_summarization",
+                            data={
+                                "tool_name": name,
+                                "original_length": _orig_len,
+                                "summarized_length": len(result_for_llm),
+                            },
+                        ))
 
                 result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
                 logger.debug("Tool result [%s]: %s", name, result_preview)
@@ -496,6 +510,7 @@ async def run_stream(
     )
     native_audio = audio_data is not None
     turn_start = len(messages)
+    _inject_chars: dict[str, int] = {}
 
     # Inject current datetime so the bot can reason about time-based scheduling
     try:
@@ -613,7 +628,9 @@ async def run_stream(
         # Legacy pure-RAG mode: semantic similarity retrieval across all skill docs
         chunks, skill_sim = await retrieve_context(user_message, skill_ids=None)
         if chunks:
-            yield {"type": "skill_context", "count": len(chunks)}
+            _skill_chars = sum(len(c) for c in chunks)
+            _inject_chars["skill_context"] = _skill_chars
+            yield {"type": "skill_context", "count": len(chunks), "chars": _skill_chars}
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
                     correlation_id=correlation_id,
@@ -622,7 +639,7 @@ async def run_stream(
                     client_id=client_id,
                     event_type="skill_context",
                     count=len(chunks),
-                    data={"preview": chunks[0][:200], "best_similarity": round(skill_sim, 4)},
+                    data={"preview": chunks[0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
                 ))
             context = "\n\n---\n\n".join(chunks)
             messages.append({
@@ -642,8 +659,15 @@ async def run_stream(
             similarity_threshold=bot.memory.similarity_threshold,
         )
         if memories:
+            _mem_limit = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS
+            memories = [
+                m[:_mem_limit] + ("…" if len(m) > _mem_limit else "")
+                for m in memories
+            ]
+            _mem_chars = sum(len(m) for m in memories)
+            _inject_chars["memory"] = _mem_chars
             memory_preview = memories[0][:100] + "..." if len(memories[0]) > 100 else memories[0]
-            yield {"type": "memory_context", "count": len(memories), "memory_preview": memory_preview}
+            yield {"type": "memory_context", "count": len(memories), "memory_preview": memory_preview, "chars": _mem_chars}
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
                     correlation_id=correlation_id,
@@ -652,7 +676,7 @@ async def run_stream(
                     client_id=client_id,
                     event_type="memory_injection",
                     count=len(memories),
-                    data={"preview": memories[0][:200], "best_similarity": round(mem_sim, 4)},
+                    data={"preview": memories[0][:200], "best_similarity": round(mem_sim, 4), "chars": _mem_chars},
                 ))
             messages.append({
                 "role": "system",
@@ -667,7 +691,14 @@ async def run_stream(
         from app.agent.knowledge import get_pinned_knowledge_docs
         pinned_docs, pinned_names = await get_pinned_knowledge_docs(bot.id, client_id)
         if pinned_docs:
-            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs)}
+            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
+            pinned_docs = [
+                d[:_know_limit] + ("…" if len(d) > _know_limit else "")
+                for d in pinned_docs
+            ]
+            _pinned_chars = sum(len(d) for d in pinned_docs)
+            _inject_chars["pinned_knowledge"] = _pinned_chars
+            yield {"type": "pinned_knowledge_context", "count": len(pinned_docs), "chars": _pinned_chars}
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
                     correlation_id=correlation_id,
@@ -676,7 +707,7 @@ async def run_stream(
                     client_id=client_id,
                     event_type="pinned_knowledge_context",
                     count=len(pinned_docs),
-                    data={"names": pinned_names},
+                    data={"names": pinned_names, "chars": _pinned_chars},
                 ))
             messages.append({
                 "role": "system",
@@ -691,8 +722,15 @@ async def run_stream(
             similarity_threshold=bot.knowledge.similarity_threshold,
         )
         if chunks:
+            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
+            chunks = [
+                c[:_know_limit] + ("…" if len(c) > _know_limit else "")
+                for c in chunks
+            ]
+            _know_chars = sum(len(c) for c in chunks)
+            _inject_chars["knowledge"] = _know_chars
             knowledge_preview = chunks[0][:100] + "..." if len(chunks[0]) > 100 else chunks[0]
-            yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview}
+            yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview, "chars": _know_chars}
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
                     correlation_id=correlation_id,
@@ -701,7 +739,7 @@ async def run_stream(
                     client_id=client_id,
                     event_type="knowledge_context",
                     count=len(chunks),
-                    data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4)},
+                    data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4), "chars": _know_chars},
                 ))
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
 
@@ -786,6 +824,19 @@ async def run_stream(
         user_content = _build_user_message_content(user_message, attachments)
         messages.append({"role": "user", "content": user_content})
         user_msg_index = len(messages) - 1
+
+    if correlation_id is not None and _inject_chars:
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="context_injection_summary",
+            data={
+                "breakdown": _inject_chars,
+                "total_chars": sum(_inject_chars.values()),
+            },
+        ))
 
     async for event in run_agent_tool_loop(
         messages,

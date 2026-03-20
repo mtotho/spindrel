@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill", "read_file"]
 
+    # RAG injection limits (chars per item before joining; prevents context bloat)
+    KNOWLEDGE_MAX_INJECT_CHARS: int = 8000   # per knowledge doc injected into context
+    MEMORY_MAX_INJECT_CHARS: int = 3000      # per memory item injected into context
+
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
 

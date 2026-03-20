@@ -179,6 +179,7 @@ class SandboxService:
                 "name": p.name,
                 "description": p.description,
                 "image": p.image,
+                "network_mode": (p.network_mode or "none"),
                 "port_mappings": p.port_mappings or [],
             }
             for p in profiles
@@ -190,7 +191,7 @@ class SandboxService:
         bot_id: str,
         allowed_profiles: list[str] | None = None,
         port_mappings: list | None = None,
-    ) -> tuple[SandboxInstance, list]:
+    ) -> tuple[SandboxInstance, list, str]:
         if not settings.DOCKER_SANDBOX_ENABLED:
             raise SandboxError("Docker sandboxes are disabled. Set DOCKER_SANDBOX_ENABLED=true.")
 
@@ -299,7 +300,7 @@ class SandboxService:
                 inst.last_inspected_at = datetime.now(timezone.utc)
                 await db.commit()
                 await db.refresh(inst)
-                return inst, inst.port_mappings
+                return inst, inst.port_mappings, (p_network or "none")
         raise SandboxError("Failed to persist sandbox instance.")
 
     async def exec(
@@ -405,10 +406,15 @@ class SandboxService:
                 await db.delete(inst)
                 await db.commit()
 
-    async def get_profile_description(self, profile_id: uuid.UUID) -> str | None:
+    async def get_profile_meta(self, profile_id: uuid.UUID) -> dict:
         async with async_session() as db:
             profile = await db.get(SandboxProfile, profile_id)
-            return profile.description if profile else None
+            if profile is None:
+                return {"description": None, "network_mode": "none"}
+            return {
+                "description": profile.description,
+                "network_mode": profile.network_mode or "none",
+            }
 
     async def get_instance_for_bot(
         self,

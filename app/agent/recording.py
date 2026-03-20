@@ -50,7 +50,7 @@ async def _record_tool_call(
 
 async def _record_trace_event(
     *,
-    correlation_id: uuid.UUID,
+    correlation_id: uuid.UUID | None,
     session_id: uuid.UUID | None,
     bot_id: str | None,
     client_id: str | None,

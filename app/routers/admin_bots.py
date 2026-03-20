@@ -106,6 +106,8 @@ async def admin_bot_create(
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
     tool_result_config_json: str = Form(default="{}"),
+    knowledge_max_inject_chars: str = Form(""),
+    memory_max_inject_chars: str = Form(""),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -183,6 +185,8 @@ async def admin_bot_create(
         slack_icon_emoji=slack_icon_emoji.strip() or None,
         slack_icon_url=slack_icon_url.strip() or None,
         tool_result_config=tool_result_config,
+        knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
+        memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         created_at=now,
         updated_at=now,
     )
@@ -251,6 +255,8 @@ async def admin_bot_update(
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
     tool_result_config_json: str = Form(default="{}"),
+    knowledge_max_inject_chars: str = Form(""),
+    memory_max_inject_chars: str = Form(""),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -329,6 +335,8 @@ async def admin_bot_update(
         row.slack_icon_emoji = slack_icon_emoji.strip() or None
         row.slack_icon_url = slack_icon_url.strip() or None
         row.tool_result_config = tool_result_config
+        row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
+        row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
 

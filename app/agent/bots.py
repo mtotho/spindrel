@@ -102,6 +102,9 @@ class BotConfig:
     # threshold (int|None), model (str|None), max_tokens (int|None), exclude_tools (list[str]).
     # None values inherit from global TOOL_RESULT_SUMMARIZE_* settings.
     tool_result_config: dict = field(default_factory=dict)
+    # Per-bot RAG injection limits (chars per item). None = use global settings.
+    knowledge_max_inject_chars: int | None = None
+    memory_max_inject_chars: int | None = None
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -187,6 +190,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         slack_icon_emoji=row.slack_icon_emoji,
         slack_icon_url=row.slack_icon_url,
         tool_result_config=row.tool_result_config or {},
+        knowledge_max_inject_chars=row.knowledge_max_inject_chars,
+        memory_max_inject_chars=row.memory_max_inject_chars,
     )
 
 
@@ -255,6 +260,8 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "slack_icon_emoji": data.get("slack_icon_emoji"),
         "slack_icon_url": data.get("slack_icon_url"),
         "tool_result_config": data.get("tool_result_config", {}),
+        "knowledge_max_inject_chars": data.get("knowledge_max_inject_chars"),
+        "memory_max_inject_chars": data.get("memory_max_inject_chars"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

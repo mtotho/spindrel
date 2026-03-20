@@ -24,7 +24,8 @@ def _sandbox_error(msg: str, error_type: str = "error") -> str:
         "name": "list_sandbox_profiles",
         "description": (
             "List Docker sandbox profiles (container templates) this bot may use. "
-            "Each profile describes an image and resource limits. "
+            "Each profile includes network_mode: 'none' means no outbound network; "
+            "'bridge' allows internet access (e.g. git push, package installs). "
             "Call ensure_sandbox with a profile name to start a new container from that template."
         ),
         "parameters": {
@@ -59,6 +60,7 @@ async def list_sandbox_profiles() -> str:
         "description": (
             "Create and start a new Docker sandbox from a profile (template). "
             "Each call provisions a separate container until the server's max concurrent limit. "
+            "Response includes network_mode from the profile (none = no outbound network). "
             "Returns instance_id — pass it to exec_sandbox, stop_sandbox, and remove_sandbox."
         ),
         "parameters": {
@@ -101,7 +103,7 @@ async def ensure_sandbox(profile_name: str, port_mappings: list | None = None) -
     try:
         bot = get_bot(bot_id)
         allowed = bot.docker_sandbox_profiles or None
-        instance, resolved_port_mappings = await sandbox_service.ensure(
+        instance, resolved_port_mappings, network_mode = await sandbox_service.ensure(
             profile_name=profile_name,
             bot_id=bot_id,
             allowed_profiles=allowed,
@@ -121,13 +123,22 @@ async def ensure_sandbox(profile_name: str, port_mappings: list | None = None) -
         "container_name": instance.container_name,
         "status": instance.status,
         "profile": profile_name,
+        "network_mode": network_mode,
     }
+    notes: list[str] = []
     if resolved_port_mappings:
         result["port_mappings"] = resolved_port_mappings
-        result["note"] = (
+        notes.append(
             "Port mappings show host_port:container_port. "
             "Connect to the service at localhost:<host_port>."
         )
+    if network_mode == "none":
+        notes.append(
+            "network_mode is 'none': no outbound internet in this container "
+            "(git push/curl will fail unless you use a profile with network_mode bridge)."
+        )
+    if notes:
+        result["note"] = " ".join(notes)
     return json.dumps(result)
 
 
@@ -337,19 +348,27 @@ async def get_sandbox_info(instance_id: str) -> str:
     if instance is None:
         return _sandbox_error("Sandbox instance not found or not allowed for this bot.", "not_found")
 
-    description = await sandbox_service.get_profile_description(instance.profile_id)
+    meta = await sandbox_service.get_profile_meta(instance.profile_id)
 
     result: dict = {
         "instance_id": str(instance.id),
         "container_name": instance.container_name,
         "status": instance.status,
         "port_mappings": instance.port_mappings or [],
+        "profile_network_mode": meta["network_mode"],
     }
-    if description:
-        result["profile_description"] = description
+    if meta.get("description"):
+        result["profile_description"] = meta["description"]
+    notes: list[str] = []
     if instance.port_mappings:
-        result["note"] = (
+        notes.append(
             "Port mappings show host_port:container_port. "
             "Connect to the service at localhost:<host_port>."
         )
+    notes.append(
+        "profile_network_mode is the profile setting now; an existing container keeps "
+        "the network it was created with until you remove it and call ensure_sandbox again."
+    )
+    if notes:
+        result["note"] = " ".join(notes)
     return json.dumps(result)

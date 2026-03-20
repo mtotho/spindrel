@@ -194,7 +194,7 @@ class TraceEvent(Base):
     __tablename__ = "trace_events"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    correlation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -337,6 +337,8 @@ class Bot(Base):
     slack_icon_emoji: Mapped[str | None] = mapped_column(Text, nullable=True)
     slack_icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
+    memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

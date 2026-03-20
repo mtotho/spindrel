@@ -17,6 +17,10 @@
     <option value="skill_context" {% if event_type_filter == 'skill_context' %}selected{% endif %}>Skill Context</option>
     <option value="knowledge_context" {% if event_type_filter == 'knowledge_context' %}selected{% endif %}>Knowledge Context</option>
     <option value="tool_retrieval" {% if event_type_filter == 'tool_retrieval' %}selected{% endif %}>Tool RAG</option>
+    <option value="tool_result_summarization" {% if event_type_filter == 'tool_result_summarization' %}selected{% endif %}>Tool Summarization</option>
+    <option value="context_injection_summary" {% if event_type_filter == 'context_injection_summary' %}selected{% endif %}>Context Injection</option>
+    <option value="compaction_start" {% if event_type_filter == 'compaction_start' %}selected{% endif %}>Compaction Start</option>
+    <option value="compaction_done" {% if event_type_filter == 'compaction_done' %}selected{% endif %}>Compaction Done</option>
     <option value="error" {% if event_type_filter == 'error' %}selected{% endif %}>Error</option>
   </select>
   <select name="bot_id" onchange="this.form.submit()"
@@ -63,6 +67,12 @@
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-900/50 text-blue-300">knowledge</span>
           {% elif obj.event_type == 'tool_retrieval' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/50 text-yellow-300">tool_rag</span>
+          {% elif obj.event_type == 'compaction_start' or obj.event_type == 'compaction_done' %}
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-orange-900/50 text-orange-300">compaction</span>
+          {% elif obj.event_type == 'tool_result_summarization' %}
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-pink-900/50 text-pink-300">summarization</span>
+          {% elif obj.event_type == 'context_injection_summary' %}
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-cyan-900/50 text-cyan-300">ctx_inject</span>
           {% elif obj.event_type == 'error' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-300">error</span>
           {% else %}
@@ -81,7 +91,7 @@
         <td class="px-4 py-3 text-xs font-mono">
           {% if row.kind == 'tool_call' and obj.correlation_id %}
           <a href="/admin/trace/{{ obj.correlation_id }}" class="text-indigo-400 hover:text-indigo-300 truncate block max-w-[8rem]" title="{{ obj.correlation_id }}">{{ obj.correlation_id | string | truncate(8, False, '') }}…</a>
-          {% elif row.kind == 'trace_event' %}
+          {% elif row.kind == 'trace_event' and obj.correlation_id %}
           <a href="/admin/trace/{{ obj.correlation_id }}" class="text-indigo-400 hover:text-indigo-300 truncate block max-w-[8rem]" title="{{ obj.correlation_id }}">{{ obj.correlation_id | string | truncate(8, False, '') }}…</a>
           {% else %}
           <span class="text-gray-600">—</span>

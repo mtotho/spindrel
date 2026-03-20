@@ -154,7 +154,7 @@ async def chat(
         logger.debug("Client actions: %s", result.client_actions)
 
     await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
-    maybe_compact(session_id, bot, messages)
+    maybe_compact(session_id, bot, messages, correlation_id=correlation_id)
 
     return ChatResponse(
         session_id=session_id,
@@ -251,7 +251,7 @@ async def chat_stream(
 
             await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
 
-            compaction_stream = run_compaction_stream(session_id, bot, messages)
+            compaction_stream = run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id)
             async for event in compaction_stream:
                 if await request.is_disconnected():
                     break
