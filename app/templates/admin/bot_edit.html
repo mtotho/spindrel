@@ -3,6 +3,96 @@
 
 {% block content %}
 
+<script>
+function collectContextDraft() {
+  const form = document.getElementById('bot-edit-form');
+  if (!form) return {};
+  const fd = new FormData(form);
+  const hv = (name) => {
+    const h = form.querySelector(`input[name="${name}"][type="hidden"]`);
+    return h ? h.value : '';
+  };
+  const nums = (name) => {
+    const el = form.elements.namedItem(name);
+    const v = el && 'value' in el ? el.value : '';
+    if (v === '' || v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const j = (name, fb) => {
+    const el = form.querySelector(`[name="${name}"]`);
+    if (!el || !el.value) return fb;
+    try { return JSON.parse(el.value); } catch { return fb; }
+  };
+  return {
+    system_prompt: fd.get('system_prompt') || '',
+    persona: hv('persona') === 'true',
+    persona_content: fd.get('persona_content') || '',
+    local_tools: fd.getAll('local_tools'),
+    mcp_servers: fd.getAll('mcp_servers'),
+    client_tools: fd.getAll('client_tools'),
+    pinned_tools: fd.getAll('pinned_tools'),
+    skills: fd.getAll('skills'),
+    tool_retrieval: hv('tool_retrieval') === 'true',
+    tool_similarity_threshold: nums('tool_similarity_threshold'),
+    memory_enabled: hv('memory_enabled') === 'true',
+    memory_similarity_threshold: nums('memory_similarity_threshold'),
+    knowledge_enabled: hv('knowledge_enabled') === 'true',
+    knowledge_similarity_threshold: nums('knowledge_similarity_threshold'),
+    memory_max_inject_chars: nums('memory_max_inject_chars'),
+    knowledge_max_inject_chars: nums('knowledge_max_inject_chars'),
+    filesystem_indexes: j('filesystem_indexes_json', []),
+    audio_input: fd.get('audio_input') || 'transcribe',
+    delegation_config: j('delegation_config_json', {}),
+  };
+}
+
+function botContextEstimatePanel(botId) {
+  return {
+    botId,
+    loading: false,
+    err: null,
+    data: null,
+    _deb: null,
+    init() {
+      const form = document.getElementById('bot-edit-form');
+      this.refresh();
+      if (!form) return;
+      const q = () => this.debouncedRefresh();
+      form.addEventListener('input', q);
+      form.addEventListener('change', q);
+      setInterval(() => this.debouncedRefresh(), 5000);
+    },
+    debouncedRefresh() {
+      clearTimeout(this._deb);
+      this._deb = setTimeout(() => this.refresh(), 400);
+    },
+    async refresh() {
+      if (!this.botId) return;
+      this.loading = true;
+      try {
+        const r = await fetch(`/admin/bots/${this.botId}/estimate-context`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(collectContextDraft()),
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(t.slice(0, 240) || String(r.status));
+        }
+        this.data = await r.json();
+        this.err = null;
+      } catch (e) {
+        this.err = e.message || String(e);
+        this.data = null;
+      } finally {
+        this.loading = false;
+      }
+    },
+  };
+}
+</script>
+
 {% if request.query_params.get('saved') %}
 <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
   x-transition:enter="transition ease-out duration-200"
@@ -24,7 +114,9 @@
 <h1 class="text-2xl font-bold mb-1">{{ bot.name }}</h1>
 <div class="text-xs text-gray-500 mb-6">id: <span class="font-mono">{{ bot.id }}</span> · updated {{ bot.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>
 
-<form method="post" action="/admin/bots/{{ bot.id }}" class="max-w-3xl space-y-8">
+<div class="flex flex-col xl:grid xl:grid-cols-[minmax(0,48rem)_min(19rem,1fr)] xl:gap-x-10 xl:items-start">
+
+<form id="bot-edit-form" method="post" action="/admin/bots/{{ bot.id }}" class="min-w-0 max-w-3xl w-full space-y-8">
 
   <!-- Identity -->
   <section>
@@ -717,58 +809,31 @@
       }
       return 1;
     }
-    const _tagRe = /(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-.]*)/g;
-    const _tagColors = {
-      skill:      'background:#1e1b4b;color:#a5b4fc',
-      tool:       'background:#14532d;color:#86efac',
-      'tool-pack':'background:#14532d;color:#86efac',
-      knowledge:  'background:#3b0764;color:#d8b4fe',
-    };
     return {
       show: false,
       atStart: -1,
       filtered: [],
       activeIdx: 0,
-      init() {
-        this.$nextTick(() => this._updateHighlight());
-      },
-      _updateHighlight() {
-        const mirror = this.$refs.mirror;
-        const ta = this.$refs.ta;
-        if (!mirror || !ta) return;
-        const text = ta.value;
-        const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        mirror.innerHTML = esc.replace(_tagRe, (match, prefix) => {
-          const type = (prefix || '').replace(':', '');
-          const s = _tagColors[type] || 'background:#374151;color:#d1d5db';
-          return `<span style="border-radius:3px;padding:0 2px;${s}">${match}</span>`;
-        }) + '\n';
-        mirror.scrollTop = ta.scrollTop;
-      },
       onInput() {
         const ta = this.$refs.ta;
         const pos = ta.selectionStart;
         const text = ta.value.substring(0, pos);
         const atIdx = text.lastIndexOf('@');
         if (atIdx === -1 || (atIdx > 0 && /\w/.test(text[atIdx - 1]))) {
-          this.show = false;
-        } else {
-          const q = text.substring(atIdx + 1);
-          if (/\s/.test(q)) { this.show = false; }
-          else {
-            this.atStart = atIdx;
-            const ql = q.toLowerCase();
-            this.filtered = completions
-              .map(c => ({ c, s: _score(c.value, c.label, ql) }))
-              .filter(x => x.s > 0)
-              .sort((a, b) => b.s - a.s)
-              .map(x => x.c)
-              .slice(0, 10);
-            this.activeIdx = 0;
-            this.show = this.filtered.length > 0;
-          }
+          this.show = false; return;
         }
-        this._updateHighlight();
+        const q = text.substring(atIdx + 1);
+        if (/\s/.test(q)) { this.show = false; return; }
+        this.atStart = atIdx;
+        const ql = q.toLowerCase();
+        this.filtered = completions
+          .map(c => ({ c, s: _score(c.value, c.label, ql) }))
+          .filter(x => x.s > 0)
+          .sort((a, b) => b.s - a.s)
+          .map(x => x.c)
+          .slice(0, 10);
+        this.activeIdx = 0;
+        this.show = this.filtered.length > 0;
       },
       onKeydown(e) {
         if (!this.show) return;
@@ -786,7 +851,6 @@
         ta.setSelectionRange(cursor, cursor);
         ta.focus();
         this.show = false;
-        this._updateHighlight();
       },
     };
   }
@@ -816,17 +880,12 @@
       <div class="col-span-2" x-data="promptEditor()">
         <label class="block text-xs text-gray-400 mb-1">Memory/Knowledge Compaction Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
         <div class="relative">
-          <div x-ref="mirror" aria-hidden="true"
-            class="absolute inset-0 px-3 py-2 text-sm bg-gray-800 rounded-lg pointer-events-none overflow-hidden"
-            style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
           <textarea name="memory_knowledge_compaction_prompt" rows="6"
             x-ref="ta"
             @input="onInput"
-            @scroll.passive="$refs.mirror && ($refs.mirror.scrollTop = $event.target.scrollTop)"
             @keydown="onKeydown"
             @blur="setTimeout(() => show = false, 150)"
-            class="w-full border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-y"
-            style="background:transparent;color:transparent;caret-color:#e5e7eb;position:relative;z-index:1;">{{ bot.memory_knowledge_compaction_prompt or '' }}</textarea>
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y">{{ bot.memory_knowledge_compaction_prompt or '' }}</textarea>
           <div x-show="show && filtered.length > 0" x-cloak
             class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
             style="max-height: 180px; top: 100%; margin-top: 2px;">
@@ -891,4 +950,49 @@
     </button>
   </div>
 </form>
+
+<aside
+  class="order-last xl:order-none mt-10 xl:mt-0 w-full min-w-0 max-w-md xl:max-w-none shrink-0 flex flex-col rounded-xl border border-indigo-800/50 bg-gray-950/95 text-xs shadow-lg backdrop-blur-md xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto"
+  x-data="botContextEstimatePanel('{{ bot.id }}')"
+  x-init="init()">
+  <div class="flex items-center gap-2 border-b border-gray-800 px-3 py-2 bg-indigo-950/90 shrink-0 xl:sticky xl:top-0 xl:z-10 backdrop-blur-sm">
+    <span class="font-semibold text-indigo-200">Context estimate</span>
+    <span class="text-[10px] text-gray-500 uppercase tracking-wide">per turn · unsaved</span>
+    <span class="ml-auto text-indigo-400/80" x-show="loading" x-cloak>…</span>
+  </div>
+  <div class="px-3 py-2 space-y-2">
+    <p class="text-gray-500 animate-pulse" x-show="loading && !data && !err">Calculating…</p>
+    <p class="text-red-400 text-[11px]" x-show="err" x-text="err"></p>
+    <div x-show="data && !err" x-cloak>
+      <div class="flex justify-between items-baseline mb-2 text-[11px] text-gray-400">
+        <span>≈ <strong class="text-gray-200" x-text="data.approx_tokens.toLocaleString()"></strong> tokens <span class="text-gray-600">(chars÷4)</span></span>
+        <span x-text="data.total_chars.toLocaleString() + ' chars'"></span>
+      </div>
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="text-[10px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+            <th class="py-1 pr-2 font-medium">Component</th>
+            <th class="py-1 text-right font-medium">Chars</th>
+            <th class="py-1 pl-2 text-right font-medium w-14">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in (data.lines || [])" :key="row.label">
+            <tr class="border-b border-gray-800/60 align-top">
+              <td class="py-1 pr-2 font-mono text-[11px] text-gray-300">
+                <span x-text="row.label"></span>
+                <span class="block text-[9px] text-gray-600 font-sans normal-case tracking-normal mt-0.5" x-show="row.hint" x-text="row.hint"></span>
+              </td>
+              <td class="py-1 text-right tabular-nums text-gray-200" x-text="row.chars.toLocaleString()"></td>
+              <td class="py-1 pl-2 text-right text-gray-500 tabular-nums" x-text="row.pct + '%'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <p class="mt-2 text-[10px] text-gray-500 leading-snug" x-text="data.disclaimer"></p>
+    </div>
+  </div>
+</aside>
+
+</div>
 {% endblock %}

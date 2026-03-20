@@ -1,5 +1,9 @@
 /* Admin dashboard custom styles */
 
+[x-cloak] {
+  display: none !important;
+}
+
 /* HTMX loading indicator */
 .htmx-indicator {
   opacity: 0;

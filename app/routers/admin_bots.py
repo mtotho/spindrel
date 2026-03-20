@@ -1,23 +1,22 @@
 """Admin bot CRUD routes."""
 from __future__ import annotations
-
+import logging
 import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Body, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
-
 from app.agent.bots import reload_bots
 from app.agent.persona import get_persona, write_persona
 from app.config import settings
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, SandboxProfile, Skill as SkillRow, ToolEmbedding
-
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -214,6 +213,31 @@ async def admin_bot_create(
 
     await reload_bots()
     return RedirectResponse(f"/admin/bots/{bot_id}", status_code=303)
+
+
+@router.post("/bots/{bot_id}/estimate-context")
+async def admin_bot_context_estimate(bot_id: str, body: dict | None = Body(default=None)):
+    """JSON: draft bot fields from the edit form; returns heuristic per-turn context breakdown."""
+    from app.services.context_estimate import estimate_bot_context
+
+    draft = body if isinstance(body, dict) else {}
+    result = await estimate_bot_context(draft=draft, bot_id=bot_id)
+    tot = max(result.total_chars, 1)
+    lines_out = [
+        {
+            "label": row.label,
+            "chars": row.chars,
+            "pct": round(100.0 * row.chars / tot, 1),
+            "hint": row.hint,
+        }
+        for row in sorted(result.lines, key=lambda r: -r.chars)
+    ]
+    return JSONResponse({
+        "lines": lines_out,
+        "total_chars": result.total_chars,
+        "approx_tokens": result.approx_tokens,
+        "disclaimer": result.disclaimer,
+    })
 
 
 @router.get("/bots/{bot_id}/edit", response_class=HTMLResponse)
