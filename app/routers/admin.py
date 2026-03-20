@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +16,7 @@ from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
 from app.db.models import BotKnowledge, KnowledgePin, KnowledgeWrite, Memory, Message, SandboxInstance, Session, ToolCall, ToolEmbedding, TraceEvent
+from app.routers.admin_template_filters import install_admin_template_filters
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -38,19 +38,7 @@ router.include_router(_sandbox_router)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _fmt_dt(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    return dt.strftime("%Y-%m-%d %H:%M")
-
-
-templates.env.filters["fmt_dt"] = _fmt_dt  # type: ignore[attr-defined]
+install_admin_template_filters(templates.env)
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@
     <div class="px-5 py-3 flex items-center gap-4">
       <div class="flex-1 min-w-0">
         <div class="text-sm text-gray-200 truncate">{{ s.title or '(no title)' }}</div>
-        <div class="text-xs text-gray-500 mt-0.5">{{ s.bot_id }} · {{ s.client_id }} · {{ s.last_active.strftime('%Y-%m-%d %H:%M') }}</div>
+        <div class="text-xs text-gray-500 mt-0.5">{{ s.bot_id }} · {{ s.client_id }} · {{ s.last_active | fmt_dt }}</div>
       </div>
       <a href="/admin/sessions?expand={{ s.id }}" class="text-xs text-indigo-400 hover:text-indigo-300 shrink-0">View</a>
     </div>
@@ -50,7 +50,7 @@
           {{ tc.tool_type }}
           {% if tc.server_name %} · {{ tc.server_name }}{% endif %}
           {% if tc.bot_id %} · {{ tc.bot_id }}{% endif %}
-          · {{ tc.created_at.strftime('%H:%M:%S') }}
+          · {{ tc.created_at | fmt_clock }}
           {% if tc.duration_ms is not none %} · {{ tc.duration_ms }}ms{% endif %}
         </div>
       </div>

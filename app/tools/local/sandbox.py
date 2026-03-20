@@ -1,7 +1,8 @@
-"""Docker sandbox tools — list, ensure, exec, stop, remove."""
+"""Docker sandbox tools — list, create, exec, stop, remove."""
 import json
+import uuid
 
-from app.agent.context import current_bot_id, current_client_id, current_session_id
+from app.agent.context import current_bot_id, current_session_id
 from app.agent.bots import get_bot
 from app.services.sandbox import (
     SandboxAccessDeniedError,
@@ -22,8 +23,9 @@ def _sandbox_error(msg: str, error_type: str = "error") -> str:
     "function": {
         "name": "list_sandbox_profiles",
         "description": (
-            "List Docker sandbox environments this bot is authorized to use. "
-            "Returns each profile's name, description, scope mode, and image."
+            "List Docker sandbox profiles (container templates) this bot may use. "
+            "Each profile describes an image and resource limits. "
+            "Call ensure_sandbox with a profile name to start a new container from that template."
         ),
         "parameters": {
             "type": "object",
@@ -55,16 +57,16 @@ async def list_sandbox_profiles() -> str:
     "function": {
         "name": "ensure_sandbox",
         "description": (
-            "Ensure a Docker sandbox container is running. "
-            "Creates and starts it if needed (idempotent — safe to call multiple times). "
-            "Use list_sandbox_profiles to find available profile names."
+            "Create and start a new Docker sandbox from a profile (template). "
+            "Each call provisions a separate container until the server's max concurrent limit. "
+            "Returns instance_id — pass it to exec_sandbox, stop_sandbox, and remove_sandbox."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "profile_name": {
                     "type": "string",
-                    "description": "Sandbox profile name, e.g. 'python-scratch'",
+                    "description": "Profile name from list_sandbox_profiles, e.g. 'python-scratch'.",
                 },
             },
             "required": ["profile_name"],
@@ -74,7 +76,6 @@ async def list_sandbox_profiles() -> str:
 async def ensure_sandbox(profile_name: str) -> str:
     bot_id = current_bot_id.get()
     session_id = current_session_id.get()
-    client_id = current_client_id.get()
 
     if not bot_id or not session_id:
         return _sandbox_error("No bot/session context available.")
@@ -85,8 +86,6 @@ async def ensure_sandbox(profile_name: str) -> str:
         instance = await sandbox_service.ensure(
             profile_name=profile_name,
             bot_id=bot_id,
-            session_id=session_id,
-            client_id=client_id,
             allowed_profiles=allowed,
         )
     except SandboxLockedError as e:
@@ -99,10 +98,18 @@ async def ensure_sandbox(profile_name: str) -> str:
         return _sandbox_error(str(e))
 
     return json.dumps({
+        "instance_id": str(instance.id),
         "container_name": instance.container_name,
         "status": instance.status,
         "profile": profile_name,
     })
+
+
+def _parse_instance_id(raw: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(raw).strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 @register({
@@ -110,62 +117,50 @@ async def ensure_sandbox(profile_name: str) -> str:
     "function": {
         "name": "exec_sandbox",
         "description": (
-            "Run a shell command inside a sandbox container. "
-            "The container is started automatically if needed. "
-            "Output is capped at 64 KB. "
-            "Use ensure_sandbox first if you need the container ready before running commands."
+            "Run a shell command inside an existing sandbox. "
+            "Requires instance_id from ensure_sandbox. "
+            "If the container was stopped, it is started automatically. "
+            "Output is capped at 64 KB."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "profile_name": {
+                "instance_id": {
                     "type": "string",
-                    "description": "Sandbox profile name, e.g. 'python-scratch'",
+                    "description": "UUID returned by ensure_sandbox.",
                 },
                 "command": {
                     "type": "string",
-                    "description": "Shell command to run inside the container, e.g. 'python3 -c \"print(1+1)\"'",
+                    "description": "Shell command, e.g. 'python3 -c \"print(1+1)\"'",
                 },
                 "timeout_seconds": {
                     "type": "integer",
-                    "description": "Max seconds to wait for the command. Default: 30.",
+                    "description": "Max seconds to wait. Default: server default (usually 30).",
                 },
             },
-            "required": ["profile_name", "command"],
+            "required": ["instance_id", "command"],
         },
     },
 })
 async def exec_sandbox(
-    profile_name: str,
+    instance_id: str,
     command: str,
     timeout_seconds: int | None = None,
 ) -> str:
     bot_id = current_bot_id.get()
     session_id = current_session_id.get()
-    client_id = current_client_id.get()
+    iid = _parse_instance_id(instance_id)
 
     if not bot_id or not session_id:
         return _sandbox_error("No bot/session context available.")
+    if iid is None:
+        return _sandbox_error("Invalid instance_id (expected UUID).", "invalid_argument")
 
-    # Auto-ensure the container is running
-    try:
-        bot = get_bot(bot_id)
-        allowed = bot.docker_sandbox_profiles or None
-        instance = await sandbox_service.ensure(
-            profile_name=profile_name,
-            bot_id=bot_id,
-            session_id=session_id,
-            client_id=client_id,
-            allowed_profiles=allowed,
-        )
-    except SandboxLockedError as e:
-        return json.dumps({"error": "locked", "message": str(e)})
-    except SandboxAccessDeniedError as e:
-        return _sandbox_error(str(e), "access_denied")
-    except SandboxNotFoundError as e:
-        return _sandbox_error(str(e), "not_found")
-    except SandboxError as e:
-        return _sandbox_error(str(e))
+    bot = get_bot(bot_id)
+    allowed = bot.docker_sandbox_profiles or None
+    instance = await sandbox_service.get_instance_for_bot(iid, bot_id, allowed_profiles=allowed)
+    if instance is None:
+        return _sandbox_error("Sandbox instance not found or not allowed for this bot.", "not_found")
 
     try:
         result = await sandbox_service.exec(instance, command, timeout=timeout_seconds)
@@ -188,32 +183,36 @@ async def exec_sandbox(
     "function": {
         "name": "stop_sandbox",
         "description": (
-            "Stop a running sandbox container without removing it. "
-            "The container is preserved and can be restarted with ensure_sandbox."
+            "Stop a sandbox container without removing it. "
+            "Use exec_sandbox later to start it again, or remove_sandbox to delete it."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "profile_name": {
+                "instance_id": {
                     "type": "string",
-                    "description": "Sandbox profile name to stop.",
+                    "description": "UUID from ensure_sandbox.",
                 },
             },
-            "required": ["profile_name"],
+            "required": ["instance_id"],
         },
     },
 })
-async def stop_sandbox(profile_name: str) -> str:
+async def stop_sandbox(instance_id: str) -> str:
     bot_id = current_bot_id.get()
     session_id = current_session_id.get()
-    client_id = current_client_id.get()
+    iid = _parse_instance_id(instance_id)
 
     if not bot_id or not session_id:
         return _sandbox_error("No bot/session context available.")
+    if iid is None:
+        return _sandbox_error("Invalid instance_id (expected UUID).", "invalid_argument")
 
-    instance = await sandbox_service.get_instance(profile_name, bot_id, session_id, client_id)
+    bot = get_bot(bot_id)
+    allowed = bot.docker_sandbox_profiles or None
+    instance = await sandbox_service.get_instance_for_bot(iid, bot_id, allowed_profiles=allowed)
     if instance is None:
-        return _sandbox_error(f"No sandbox instance found for profile '{profile_name}'.", "not_found")
+        return _sandbox_error("Sandbox instance not found or not allowed for this bot.", "not_found")
 
     try:
         await sandbox_service.stop(instance)
@@ -230,33 +229,38 @@ async def stop_sandbox(profile_name: str) -> str:
     "function": {
         "name": "remove_sandbox",
         "description": (
-            "Stop and permanently remove a sandbox container. "
-            "A new one can be created later with ensure_sandbox."
+            "Stop and remove a sandbox container and delete its database record. "
+            "Does not affect other instances from the same profile."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "profile_name": {
+                "instance_id": {
                     "type": "string",
-                    "description": "Sandbox profile name to remove.",
+                    "description": "UUID from ensure_sandbox.",
                 },
             },
-            "required": ["profile_name"],
+            "required": ["instance_id"],
         },
     },
 })
-async def remove_sandbox(profile_name: str) -> str:
+async def remove_sandbox(instance_id: str) -> str:
     bot_id = current_bot_id.get()
     session_id = current_session_id.get()
-    client_id = current_client_id.get()
+    iid = _parse_instance_id(instance_id)
 
     if not bot_id or not session_id:
         return _sandbox_error("No bot/session context available.")
+    if iid is None:
+        return _sandbox_error("Invalid instance_id (expected UUID).", "invalid_argument")
 
-    instance = await sandbox_service.get_instance(profile_name, bot_id, session_id, client_id)
+    bot = get_bot(bot_id)
+    allowed = bot.docker_sandbox_profiles or None
+    instance = await sandbox_service.get_instance_for_bot(iid, bot_id, allowed_profiles=allowed)
     if instance is None:
-        return _sandbox_error(f"No sandbox instance found for profile '{profile_name}'.", "not_found")
+        return _sandbox_error("Sandbox instance not found or not allowed for this bot.", "not_found")
 
+    name = instance.container_name
     try:
         await sandbox_service.remove(instance)
     except SandboxLockedError as e:
@@ -264,4 +268,4 @@ async def remove_sandbox(profile_name: str) -> str:
     except SandboxError as e:
         return _sandbox_error(str(e))
 
-    return json.dumps({"message": f"Sandbox '{instance.container_name}' removed."})
+    return json.dumps({"message": f"Sandbox '{name}' removed."})

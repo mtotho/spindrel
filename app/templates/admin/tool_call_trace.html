@@ -50,7 +50,7 @@
               {{ tc.duration_ms }}ms
             </span>
             {% endif %}
-            <span>{{ tc.created_at.strftime('%H:%M:%S') }}</span>
+            <span>{{ tc.created_at | fmt_clock }}</span>
           </div>
         </div>
 

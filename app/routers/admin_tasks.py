@@ -14,17 +14,13 @@ from sqlalchemy import func, select
 from app.agent.bots import list_bots
 from app.db.engine import async_session
 from app.db.models import Task
+from app.routers.admin_template_filters import install_admin_template_filters
 
 router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-
-
-def _fmt_dt(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    return dt.strftime("%Y-%m-%d %H:%M")
+install_admin_template_filters(templates.env)
 
 
 def _ago(dt: datetime | None) -> str | None:
@@ -68,7 +64,6 @@ def _ago(dt: datetime | None) -> str | None:
     return None
 
 
-templates.env.filters["fmt_dt"] = _fmt_dt  # type: ignore[attr-defined]
 templates.env.filters["ago"] = _ago  # type: ignore[attr-defined]
 
 

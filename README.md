@@ -163,11 +163,11 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `cancel_task` | Cancel a pending task so it won't run. |
 | `reschedule_task` | Change when a pending task will run. |
 | `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
-| `list_sandbox_profiles` | List Docker sandbox environments this bot can use. |
-| `ensure_sandbox` | Create and start a sandbox container (idempotent). |
-| `exec_sandbox` | Run a shell command inside a sandbox container. |
-| `stop_sandbox` | Stop a running sandbox container (preserves state). |
-| `remove_sandbox` | Stop and permanently remove a sandbox container. |
+| `list_sandbox_profiles` | List Docker sandbox profiles (image/templates) this bot can use. |
+| `ensure_sandbox` | Start a **new** container from a profile; returns `instance_id` (each call adds one until max concurrent). |
+| `exec_sandbox` | Run a shell command in a sandbox; requires `instance_id` from `ensure_sandbox`. |
+| `stop_sandbox` | Stop a sandbox by `instance_id` (container kept). |
+| `remove_sandbox` | Stop and remove a sandbox by `instance_id`. |
 
 **`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
 

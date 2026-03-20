@@ -17,6 +17,7 @@ from app.agent.bots import list_bots
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import SandboxBotAccess, SandboxInstance, SandboxProfile, ToolCall
+from app.routers.admin_template_filters import install_admin_template_filters
 from app.services.sandbox import sandbox_service
 
 _SANDBOX_TOOL_NAMES = {"exec_sandbox", "ensure_sandbox", "stop_sandbox", "remove_sandbox", "list_sandbox_profiles"}
@@ -25,12 +26,7 @@ router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-
-
-def _fmt_dt(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    return dt.strftime("%Y-%m-%d %H:%M")
+install_admin_template_filters(templates.env)
 
 
 def _ago(dt: datetime | None) -> str:
@@ -48,7 +44,6 @@ def _ago(dt: datetime | None) -> str:
     return f"{secs // 86400}d ago"
 
 
-templates.env.filters["fmt_dt"] = _fmt_dt  # type: ignore[attr-defined]
 templates.env.filters["ago"] = _ago  # type: ignore[attr-defined]
 
 

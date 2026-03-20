@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
@@ -13,20 +12,13 @@ from sqlalchemy import delete, func, select
 from app.agent.bots import list_bots
 from app.db.engine import async_session
 from app.db.models import FilesystemChunk
+from app.routers.admin_template_filters import install_admin_template_filters
 
 router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-
-
-def _fmt_dt(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    return dt.strftime("%Y-%m-%d %H:%M")
-
-
-templates.env.filters["fmt_dt"] = _fmt_dt  # type: ignore[attr-defined]
+install_admin_template_filters(templates.env)
 
 
 @router.get("/filesystem", response_class=HTMLResponse)

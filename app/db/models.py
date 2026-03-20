@@ -303,10 +303,6 @@ class SandboxInstance(Base):
 
     profile: Mapped["SandboxProfile"] = relationship(back_populates="instances")
 
-    __table_args__ = (
-        UniqueConstraint("profile_id", "scope_type", "scope_key", name="uq_sandbox_instance_scope"),
-    )
-
 
 class Bot(Base):
     __tablename__ = "bots"

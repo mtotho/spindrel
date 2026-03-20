@@ -1,6 +1,8 @@
 """Docker sandbox service — ensure, exec, stop, remove, and lock enforcement."""
 import asyncio
+import hashlib
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -66,16 +68,38 @@ def _validate_mount_specs(mount_specs: list) -> None:
                 )
 
 
-def _build_container_name(profile_name: str, scope_type: str, scope_key: str) -> str:
-    if scope_type == "session":
-        suffix = scope_key.replace("-", "")[:12]
-    elif scope_type == "client":
-        suffix = scope_key[:8]
-    elif scope_type == "bot":
-        suffix = scope_key
-    else:  # shared
-        suffix = "shared"
-    return f"agent-sbx-{profile_name}-{suffix}"
+# Docker container names: [a-zA-Z0-9][a-zA-Z0-9_.-]* (no ':' etc.). Slack client_ids look like slack:C09...
+_DOCKER_NAME_INVALID_RUN = re.compile(r"[^a-zA-Z0-9_.-]+")
+
+# New instances use scope_type=provisioned; scope_key/instance id (legacy rows keep older values).
+_SCOPE_TYPE_PROVISIONED = "provisioned"
+
+
+def _sanitize_docker_name_segment(raw: str, max_len: int) -> str:
+    """Turn an arbitrary scope/profile string into a single Docker-legal name segment."""
+    v = (raw or "").strip()
+    if not v:
+        return "x-" + hashlib.sha256(b"").hexdigest()[:12]
+    s = _DOCKER_NAME_INVALID_RUN.sub("-", v)
+    s = re.sub(r"-{2,}", "-", s).strip("-_.")
+    if not s:
+        return "x-" + hashlib.sha256(v.encode()).hexdigest()[:12]
+    if not s[0].isalnum():
+        s = "n-" + s
+    if len(s) > max_len:
+        digest = hashlib.sha256(v.encode()).hexdigest()[:8]
+        head_len = max_len - len(digest) - 1
+        s = f"{s[:head_len]}-{digest}" if head_len > 0 else digest[:max_len]
+    return s[:max_len]
+
+
+def _build_container_name(profile_name: str, instance_id: uuid.UUID) -> str:
+    profile_seg = _sanitize_docker_name_segment(profile_name, 48)
+    suf = instance_id.hex
+    name = f"agent-sbx-{profile_seg}-{suf}"
+    if len(name) > 253:
+        name = name[:253].rstrip("-_.")
+    return name
 
 
 def _build_docker_run_args(
@@ -119,18 +143,6 @@ def _build_docker_run_args(
     return args
 
 
-def _resolve_scope(profile: SandboxProfile, bot_id: str, session_id: uuid.UUID, client_id: str | None) -> tuple[str, str]:
-    scope_mode = profile.scope_mode
-    if scope_mode == "session":
-        return "session", str(session_id)
-    elif scope_mode == "client":
-        return "client", client_id or str(session_id)
-    elif scope_mode == "agent":
-        return "bot", bot_id
-    else:  # shared
-        return "shared", str(profile.id)
-
-
 class SandboxService:
     def _assert_not_locked(self, instance: SandboxInstance, operation: str) -> None:
         locked = instance.locked_operations or []
@@ -156,7 +168,6 @@ class SandboxService:
             {
                 "name": p.name,
                 "description": p.description,
-                "scope_mode": p.scope_mode,
                 "image": p.image,
             }
             for p in profiles
@@ -166,8 +177,6 @@ class SandboxService:
         self,
         profile_name: str,
         bot_id: str,
-        session_id: uuid.UUID,
-        client_id: str | None = None,
         allowed_profiles: list[str] | None = None,
     ) -> SandboxInstance:
         if not settings.DOCKER_SANDBOX_ENABLED:
@@ -179,7 +188,6 @@ class SandboxService:
             if profile is None:
                 raise SandboxNotFoundError(f"Sandbox profile '{profile_name}' not found.")
 
-            # Check bot access
             access_stmt = select(SandboxBotAccess).where(
                 SandboxBotAccess.bot_id == bot_id,
                 SandboxBotAccess.profile_id == profile.id,
@@ -190,54 +198,37 @@ class SandboxService:
                     f"Bot '{bot_id}' does not have access to sandbox profile '{profile_name}'."
                 )
 
-            # Check bot YAML subset restriction
             if allowed_profiles is not None and profile_name not in allowed_profiles:
                 raise SandboxAccessDeniedError(
                     f"Profile '{profile_name}' is not listed in this bot's docker_sandbox_profiles."
                 )
 
-            scope_type, scope_key = _resolve_scope(profile, bot_id, session_id, client_id)
-            container_name = _build_container_name(profile.name, scope_type, scope_key)
-
-            # Get or create instance row
-            instance_stmt = select(SandboxInstance).where(
-                SandboxInstance.profile_id == profile.id,
-                SandboxInstance.scope_type == scope_type,
-                SandboxInstance.scope_key == scope_key,
-            )
-            instance = (await db.execute(instance_stmt)).scalar_one_or_none()
-
-            if instance is None:
-                # Check global cap
-                running_count = (
-                    await db.execute(
-                        select(func.count()).select_from(SandboxInstance).where(SandboxInstance.status == "running")
-                    )
-                ).scalar_one()
-                if running_count >= settings.DOCKER_SANDBOX_MAX_CONCURRENT:
-                    raise SandboxError(
-                        f"Maximum concurrent sandboxes ({settings.DOCKER_SANDBOX_MAX_CONCURRENT}) reached."
-                    )
-
-                instance = SandboxInstance(
-                    profile_id=profile.id,
-                    scope_type=scope_type,
-                    scope_key=scope_key,
-                    container_name=container_name,
-                    status="creating",
-                    created_by_bot=bot_id,
+            running_count = (
+                await db.execute(
+                    select(func.count()).select_from(SandboxInstance).where(SandboxInstance.status == "running")
                 )
-                db.add(instance)
-                await db.commit()
-                await db.refresh(instance)
+            ).scalar_one()
+            if running_count >= settings.DOCKER_SANDBOX_MAX_CONCURRENT:
+                raise SandboxError(
+                    f"Maximum concurrent sandboxes ({settings.DOCKER_SANDBOX_MAX_CONCURRENT}) reached."
+                )
 
-            # Snapshot fields needed outside this session
-            instance_id = instance.id
-            instance_status = instance.status
-            instance_container_id = instance.container_id
+            instance_id = uuid.uuid4()
+            container_name = _build_container_name(profile.name, instance_id)
+            instance = SandboxInstance(
+                id=instance_id,
+                profile_id=profile.id,
+                scope_type=_SCOPE_TYPE_PROVISIONED,
+                scope_key=str(instance_id),
+                container_name=container_name,
+                status="creating",
+                created_by_bot=bot_id,
+            )
+            db.add(instance)
+            await db.commit()
+            await db.refresh(instance)
+
             locked_ops = instance.locked_operations or []
-
-            # Snapshot profile fields needed for Docker
             p_image = profile.image
             p_network = profile.network_mode
             p_read_only = profile.read_only_root
@@ -245,74 +236,55 @@ class SandboxService:
             p_env = dict(profile.env or {})
             p_labels = dict(profile.labels or {})
             p_mount_specs = list(profile.mount_specs or [])
-            p_name = profile.name
 
-        # Lock check (outside DB session)
         if "ensure" in locked_ops:
             raise SandboxLockedError(
                 f"Sandbox '{container_name}' has 'ensure' locked by the operator. "
                 "Contact your administrator."
             )
 
-        # Mount validation
         _validate_mount_specs(p_mount_specs)
 
-        if instance_status in ("creating", "unknown") or instance_container_id is None:
-            existing_id = await self._get_container_id_by_name(container_name)
-            if existing_id:
-                running = await self._is_container_running(existing_id)
-                if not running:
-                    await self._docker_start(existing_id)
-                container_id = existing_id
-                new_status = "running"
-            else:
-                run_args = _build_docker_run_args(
-                    image=p_image,
-                    container_name=container_name,
-                    network_mode=p_network,
-                    read_only_root=p_read_only,
-                    create_options=p_create_options,
-                    env=p_env,
-                    labels=p_labels,
-                    mount_specs=p_mount_specs,
-                )
-                container_id, error = await self._docker_run(run_args)
-                if error:
-                    async with async_session() as db:
-                        inst = await db.get(SandboxInstance, instance_id)
-                        if inst:
-                            inst.status = "dead"
-                            inst.error_message = error
-                            await db.commit()
-                    raise SandboxError(f"Failed to create container '{container_name}': {error}")
-                new_status = "running"
+        existing_id = await self._get_container_id_by_name(container_name)
+        if existing_id:
+            running = await self._is_container_running(existing_id)
+            if not running:
+                await self._docker_start(existing_id)
+            container_id = existing_id
+            new_status = "running"
+        else:
+            run_args = _build_docker_run_args(
+                image=p_image,
+                container_name=container_name,
+                network_mode=p_network,
+                read_only_root=p_read_only,
+                create_options=p_create_options,
+                env=p_env,
+                labels=p_labels,
+                mount_specs=p_mount_specs,
+            )
+            container_id, error = await self._docker_run(run_args)
+            if error:
+                async with async_session() as db:
+                    inst = await db.get(SandboxInstance, instance_id)
+                    if inst:
+                        inst.status = "dead"
+                        inst.error_message = error
+                        await db.commit()
+                raise SandboxError(f"Failed to create container '{container_name}': {error}")
+            new_status = "running"
 
-            async with async_session() as db:
-                inst = await db.get(SandboxInstance, instance_id)
-                if inst:
-                    inst.container_id = container_id
-                    inst.status = new_status
-                    inst.error_message = None
-                    inst.last_inspected_at = datetime.now(timezone.utc)
-                    await db.commit()
-                    await db.refresh(inst)
-                    return inst
-
-        elif instance_status == "stopped" and instance_container_id:
-            await self._docker_start(instance_container_id)
-            async with async_session() as db:
-                inst = await db.get(SandboxInstance, instance_id)
-                if inst:
-                    inst.status = "running"
-                    inst.last_inspected_at = datetime.now(timezone.utc)
-                    await db.commit()
-                    await db.refresh(inst)
-                    return inst
-
-        # Already running — return fresh from DB
         async with async_session() as db:
             inst = await db.get(SandboxInstance, instance_id)
-            return inst
+            if inst:
+                inst.container_id = container_id
+                inst.status = new_status
+                inst.error_message = None
+                inst.last_inspected_at = datetime.now(timezone.utc)
+                await db.commit()
+                await db.refresh(inst)
+                return inst
+        raise SandboxError("Failed to persist sandbox instance.")
 
     async def exec(
         self,
@@ -324,9 +296,19 @@ class SandboxService:
 
         if instance.container_id is None:
             raise SandboxError("Container has no ID. Call ensure_sandbox first.")
+        if instance.status == "stopped" and instance.container_id:
+            await self._docker_start(instance.container_id)
+            async with async_session() as db:
+                inst = await db.get(SandboxInstance, instance.id)
+                if inst:
+                    inst.status = "running"
+                    inst.last_inspected_at = datetime.now(timezone.utc)
+                    await db.commit()
+            instance.status = "running"
         if instance.status != "running":
             raise SandboxError(
-                f"Container is not running (status: {instance.status}). Call ensure_sandbox first."
+                f"Container is not running (status: {instance.status}). "
+                "If it was removed or failed, call ensure_sandbox for a new instance."
             )
 
         timeout_secs = timeout or settings.DOCKER_SANDBOX_DEFAULT_TIMEOUT
@@ -407,25 +389,29 @@ class SandboxService:
                 await db.delete(inst)
                 await db.commit()
 
-    async def get_instance(
+    async def get_instance_for_bot(
         self,
-        profile_name: str,
+        instance_id: uuid.UUID,
         bot_id: str,
-        session_id: uuid.UUID,
-        client_id: str | None = None,
+        allowed_profiles: list[str] | None = None,
     ) -> SandboxInstance | None:
         async with async_session() as db:
-            stmt = select(SandboxProfile).where(SandboxProfile.name == profile_name)
-            profile = (await db.execute(stmt)).scalar_one_or_none()
-            if profile is None:
+            inst = await db.get(SandboxInstance, instance_id)
+            if inst is None:
                 return None
-            scope_type, scope_key = _resolve_scope(profile, bot_id, session_id, client_id)
-            stmt2 = select(SandboxInstance).where(
-                SandboxInstance.profile_id == profile.id,
-                SandboxInstance.scope_type == scope_type,
-                SandboxInstance.scope_key == scope_key,
+            if inst.created_by_bot != bot_id:
+                return None
+            access_stmt = select(SandboxBotAccess).where(
+                SandboxBotAccess.bot_id == bot_id,
+                SandboxBotAccess.profile_id == inst.profile_id,
             )
-            return (await db.execute(stmt2)).scalar_one_or_none()
+            if (await db.execute(access_stmt)).scalar_one_or_none() is None:
+                return None
+            if allowed_profiles is not None:
+                profile = await db.get(SandboxProfile, inst.profile_id)
+                if profile is None or profile.name not in allowed_profiles:
+                    return None
+            return inst
 
     # --- Docker CLI helpers ---
 
