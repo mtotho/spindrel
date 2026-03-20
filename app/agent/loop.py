@@ -285,7 +285,7 @@ async def run_agent_tool_loop(
                     asyncio.create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
-                        bot_id=bot_id,
+                        bot_id=bot.id,
                         client_id=client_id,
                         event_type="token_usage",
                         data={
@@ -492,7 +492,7 @@ async def run_agent_tool_loop(
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
-                bot_id=bot_id,
+                bot_id=bot.id,
                 client_id=client_id,
                 event_type="token_usage",
                 data={
