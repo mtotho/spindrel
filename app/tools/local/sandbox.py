@@ -146,7 +146,10 @@ def _parse_instance_id(raw: str) -> uuid.UUID | None:
             "Run a shell command inside an existing sandbox. "
             "Requires instance_id from ensure_sandbox. "
             "If the container was stopped, it is started automatically. "
-            "Output is capped at 64 KB."
+            "Output is capped at 64 KB. "
+            "For commands with verbose output (package managers, compilers, build tools), "
+            "use quiet flags to avoid filling context: apt-get install -qq -y, pip install -q, "
+            "npm install --silent, make -s, cargo build -q, etc."
         ),
         "parameters": {
             "type": "object",

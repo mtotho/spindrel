@@ -1,6 +1,7 @@
 """Admin bot CRUD routes."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.agent.bots import reload_bots
+from app.config import settings
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, SandboxProfile, Skill as SkillRow, ToolEmbedding
@@ -19,6 +21,22 @@ router = APIRouter()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+
+async def _get_litellm_models() -> list[str]:
+    """Fetch available models from LiteLLM proxy. Returns empty list on failure."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(
+        base_url=settings.LITELLM_BASE_URL,
+        api_key=settings.LITELLM_API_KEY or "dummy",
+        max_retries=0,
+        timeout=5.0,
+    )
+    try:
+        models = await client.models.list()
+        return sorted(m.id for m in models.data)
+    except Exception:
+        return []
 
 
 async def _get_tool_options() -> dict:
@@ -44,11 +62,12 @@ async def admin_bot_new(request: Request):
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
-    tool_options = await _get_tool_options()
+    tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
     return templates.TemplateResponse("admin/bot_new.html", {
         "request": request,
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
+        "litellm_models": litellm_models,
         **tool_options,
     })
 
@@ -87,6 +106,7 @@ async def admin_bot_create(
     docker_sandbox_profiles: list[str] = Form(default=[]),
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
+    tool_result_config_json: str = Form(default="{}"),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -118,6 +138,11 @@ async def admin_bot_create(
         filesystem_access = json.loads(filesystem_access_json or "[]")
     except json.JSONDecodeError:
         filesystem_access = []
+
+    try:
+        tool_result_config = json.loads(tool_result_config_json or "{}")
+    except json.JSONDecodeError:
+        tool_result_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -159,6 +184,7 @@ async def admin_bot_create(
         slack_display_name=slack_display_name.strip() or None,
         slack_icon_emoji=slack_icon_emoji.strip() or None,
         slack_icon_url=slack_icon_url.strip() or None,
+        tool_result_config=tool_result_config,
         created_at=now,
         updated_at=now,
     )
@@ -182,12 +208,13 @@ async def admin_bot_edit(request: Request, bot_id: str):
             raise HTTPException(status_code=404, detail="Bot not found")
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
-    tool_options = await _get_tool_options()
+    tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": row,
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
+        "litellm_models": litellm_models,
         **tool_options,
     })
 
@@ -226,6 +253,7 @@ async def admin_bot_update(
     docker_sandbox_profiles: list[str] = Form(default=[]),
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
+    tool_result_config_json: str = Form(default="{}"),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -253,6 +281,11 @@ async def admin_bot_update(
         filesystem_access = json.loads(filesystem_access_json or "[]")
     except json.JSONDecodeError:
         filesystem_access = []
+
+    try:
+        tool_result_config = json.loads(tool_result_config_json or "{}")
+    except json.JSONDecodeError:
+        tool_result_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
     know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
@@ -299,6 +332,7 @@ async def admin_bot_update(
         row.slack_display_name = slack_display_name.strip() or None
         row.slack_icon_emoji = slack_icon_emoji.strip() or None
         row.slack_icon_url = slack_icon_url.strip() or None
+        row.tool_result_config = tool_result_config
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
 

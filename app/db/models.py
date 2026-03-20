@@ -336,6 +336,7 @@ class Bot(Base):
     slack_display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     slack_icon_emoji: Mapped[str | None] = mapped_column(Text, nullable=True)
     slack_icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

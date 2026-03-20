@@ -19,7 +19,10 @@ from app.tools.registry import register
         "description": (
             "Execute a shell command on the host system. "
             "Supports pipes, shell features, and chaining (&&, ||). "
-            "Use for build commands, git operations, file manipulation, running scripts, etc."
+            "Use for build commands, git operations, file manipulation, running scripts, etc. "
+            "For commands with verbose output (package managers, compilers, build tools), "
+            "use quiet flags to avoid filling context: apt-get install -qq -y, pip install -q, "
+            "npm install --silent, make -s, cargo build -q, etc."
         ),
         "parameters": {
             "type": "object",

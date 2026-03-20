@@ -433,6 +433,43 @@ compaction_model: gpt-4o-mini # override model for this bot
 # memory_knowledge_compaction_prompt: |     # optional; override the "last chance to save" prompt (default from MEMORY_KNOWLEDGE_COMPACTION_PROMPT)
 ```
 
+### Tool Result Summarization
+
+Large tool outputs (e.g. `apt-get install` without `-q`, verbose build logs, long directory listings) burn through token budgets fast. Each tool result injected into context is re-sent to the LLM on every subsequent call in the same agent turn. A single 5 KB output adds ~1250 tokens to every remaining LLM call, compounding quickly at TPM limits.
+
+Tool result summarization automatically condenses oversized outputs before they enter context:
+
+1. After a tool call returns output above the threshold, the server makes a **one-shot summarization call** — no conversation history, just the raw tool output.
+2. The summary (300 tokens max) replaces the full output in the LLM context. The raw output is still stored in the database.
+3. The `tool_result` SSE event gains `"summarized": true` so clients can see when it happened.
+
+**Why it saves tokens despite the extra call:** the summarization call is isolated and cheap (it can use a fast/cheap model like gemini-flash). The savings accumulate across all remaining LLM calls in the turn — with 3 more calls after a large tool result, you pay ~300 tokens once and save 3 × 1200 tokens instead.
+
+**Global config** (`.env`):
+
+```
+TOOL_RESULT_SUMMARIZE_ENABLED=true
+TOOL_RESULT_SUMMARIZE_THRESHOLD=3000      # chars; summarize if output exceeds this
+TOOL_RESULT_SUMMARIZE_MODEL=gemini/gemini-2.5-flash  # empty = use bot's current model
+TOOL_RESULT_SUMMARIZE_MAX_TOKENS=300     # max tokens for the summary output
+TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS=get_skill,read_file  # comma-separated, never summarize these
+```
+
+**Per-bot override** — configure in the admin UI or via `tool_result_config` in the bot's DB record. Bot settings take priority; omit a field to inherit the global setting. `exclude_tools` at the bot level is merged with (not a replacement for) the global exclude list.
+
+```yaml
+# Example: force-enable for this bot with a lower threshold and cheaper model
+tool_result_config:
+  enabled: true
+  threshold: 1500
+  model: gemini/gemini-2.5-flash
+  max_tokens: 200
+  exclude_tools:
+    - list_sandbox_profiles
+```
+
+**Proactive mitigation:** tool descriptions for `exec_sandbox` and `run_host_command` already instruct the model to use quiet flags (`apt-get install -qq -y`, `pip install -q`, `npm install --silent`, etc.) to avoid verbose output in the first place.
+
 ### Long-Term Memory
 
 When `memory.enabled` is set on a bot, the bot is given a memory tool which it can choose to write memories a dedicated `memories` table with vector embeddings. These entries accumulate over time — each tool invoke appends a new memory rather than overwriting the previous one.

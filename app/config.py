@@ -102,9 +102,9 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
     # Tool result summarization
-    TOOL_RESULT_SUMMARIZE_ENABLED: bool = False
+    TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this
-    TOOL_RESULT_SUMMARIZE_MODEL: str = ""             # empty = use bot's current model
+    TOOL_RESULT_SUMMARIZE_MODEL: str = "gemini/gemini-2.5-flash"             # empty = use bot's current model
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill", "read_file"]
 

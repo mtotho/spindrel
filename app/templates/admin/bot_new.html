@@ -26,8 +26,11 @@
       </div>
       <div class="col-span-2">
         <label class="block text-xs text-gray-400 mb-1">Model <span class="text-red-400">*</span></label>
-        <input name="model" required placeholder="gemini/gemini-2.5-flash"
+        <input name="model" required placeholder="gemini/gemini-2.5-flash" list="litellm-models"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+        <datalist id="litellm-models">
+          {% for m in litellm_models %}<option value="{{ m }}">{% endfor %}
+        </datalist>
       </div>
     </div>
   </section>
@@ -40,26 +43,71 @@
   </section>
 
   <!-- Tools -->
-  <section x-data="{ retrieval: true }">
+  <script>
+  function syncPin(toolCb, pinId) {
+    const pin = document.getElementById(pinId);
+    if (!pin) return;
+    pin.disabled = !toolCb.checked;
+    pin.classList.toggle('opacity-30', !toolCb.checked);
+    if (!toolCb.checked) pin.checked = false;
+  }
+  function toolsData(retrieval, trc) {
+    return {
+      retrieval: retrieval,
+      trc: Object.assign({ exclude_tools: [] }, trc),
+      get excludeTools() { return this.trc.exclude_tools || []; },
+      isExcluded(name) { return this.excludeTools.includes(name); },
+      toggleExclude(name) {
+        const list = this.excludeTools;
+        if (list.includes(name)) {
+          this.trc.exclude_tools = list.filter(n => n !== name);
+        } else {
+          this.trc.exclude_tools = [...list, name];
+        }
+      },
+      setEnabled(v) {
+        if (v === 'true') { this.trc.enabled = true; }
+        else if (v === 'false') { this.trc.enabled = false; }
+        else { const c = {...this.trc}; delete c.enabled; this.trc = c; }
+      },
+      get enabledVal() {
+        if (this.trc.enabled === true) return 'true';
+        if (this.trc.enabled === false) return 'false';
+        return 'inherit';
+      },
+      get showExclude() { return this.trc.enabled !== false; },
+    };
+  }
+  </script>
+  <section x-data="toolsData(true, {})">
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Tools</h2>
     <div class="space-y-5">
 
       {% if local_tools %}
       <div>
-        <div class="flex items-center gap-4 mb-2">
+        <div class="flex items-center gap-3 mb-1.5">
           <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Local Tools</span>
-          <span class="text-xs text-yellow-600 ml-auto" x-show="retrieval" title="Pin = always include, bypasses RAG">📌 pin</span>
-          <span class="text-xs text-gray-500 ml-auto" x-show="!retrieval" title="All selected tools are always included when RAG is off">(all selected tools always active)</span>
+          <span class="text-xs text-yellow-600 ml-auto" x-show="retrieval" title="📌 = always include, bypasses RAG">📌 pin</span>
+          <span class="text-xs text-orange-400" x-show="showExclude" title="🔇 = skip summarization for this tool">🔇 no-sum</span>
+          <span class="text-xs text-gray-500 ml-auto" x-show="!retrieval">(all always active)</span>
         </div>
-        <div class="space-y-1">
+        <div class="grid grid-cols-2 gap-0.5">
           {% for tool in local_tools %}
-          <div class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 text-xs">
+          <div class="flex items-center gap-1.5 px-2 py-1 bg-gray-800 rounded border border-gray-700 text-xs">
             <input type="checkbox" name="local_tools" value="{{ tool }}"
-              class="text-indigo-500 rounded"
+              class="text-indigo-500 rounded shrink-0"
               onchange="syncPin(this, 'pin-new-{{ loop.index }}')" />
-            <span class="text-gray-200 font-mono flex-1">{{ tool }}</span>
-            <input type="checkbox" name="pinned_tools" value="{{ tool }}" id="pin-new-{{ loop.index }}"
-              disabled x-show="retrieval" class="text-yellow-500 rounded opacity-30" />
+            <span class="text-gray-200 font-mono flex-1 truncate" title="{{ tool }}">{{ tool }}</span>
+            <label x-show="retrieval" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-yellow-500" title="📌 Pin — always pass this tool to the LLM, bypasses RAG filtering">
+              <span>📌</span><input type="checkbox" name="pinned_tools" value="{{ tool }}" id="pin-new-{{ loop.index }}"
+                disabled class="rounded opacity-30" />
+            </label>
+            <label x-show="showExclude" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-orange-400" title="🔇 No-sum — never summarize this tool's output">
+              <span>🔇</span><input type="checkbox"
+                :checked="isExcluded('{{ tool }}')"
+                @change="toggleExclude('{{ tool }}')"
+                class="rounded" />
+            </label>
           </div>
           {% endfor %}
         </div>
@@ -68,13 +116,30 @@
 
       {% if mcp_servers %}
       <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">MCP Servers</div>
-        <div class="space-y-1">
+        <div class="flex items-center gap-3 mb-1.5">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">MCP Servers</span>
+          <span class="text-xs text-yellow-600 ml-auto" x-show="retrieval" title="📌 = pin all tools from this server">📌 pin</span>
+          <span class="text-xs text-orange-400" x-show="showExclude" title="🔇 = skip summarization for all tools from this server">🔇 no-sum</span>
+          <span class="text-xs text-gray-500 ml-auto" x-show="!retrieval">(all always active)</span>
+        </div>
+        <div class="grid grid-cols-2 gap-0.5">
           {% for server in mcp_servers %}
-          <label class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 hover:border-indigo-500 cursor-pointer text-xs">
-            <input type="checkbox" name="mcp_servers" value="{{ server }}" class="text-indigo-500 rounded" />
-            <span class="text-gray-200 font-mono">{{ server }}</span>
-          </label>
+          <div class="flex items-center gap-1.5 px-2 py-1 bg-gray-800 rounded border border-gray-700 text-xs">
+            <input type="checkbox" name="mcp_servers" value="{{ server }}"
+              class="text-indigo-500 rounded shrink-0"
+              onchange="syncPin(this, 'pin-mcp-{{ loop.index }}')" />
+            <span class="text-gray-200 font-mono flex-1 truncate" title="{{ server }}">{{ server }}</span>
+            <label x-show="retrieval" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-yellow-500" title="📌 Pin — always pass all tools from this server, bypasses RAG filtering">
+              <span>📌</span><input type="checkbox" name="pinned_tools" value="{{ server }}" id="pin-mcp-{{ loop.index }}"
+                disabled class="rounded opacity-30" />
+            </label>
+            <label x-show="showExclude" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-orange-400" title="🔇 No-sum — never summarize outputs from this server's tools">
+              <span>🔇</span><input type="checkbox"
+                :checked="isExcluded('{{ server }}')"
+                @change="toggleExclude('{{ server }}')"
+                class="rounded" />
+            </label>
+          </div>
           {% endfor %}
         </div>
       </div>
@@ -82,12 +147,12 @@
 
       {% if client_tools %}
       <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Client Tools</div>
-        <div class="space-y-1">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Client Tools</div>
+        <div class="grid grid-cols-2 gap-0.5">
           {% for tool in client_tools %}
-          <label class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 hover:border-indigo-500 cursor-pointer text-xs">
-            <input type="checkbox" name="client_tools" value="{{ tool }}" class="text-indigo-500 rounded" />
-            <span class="text-gray-200 font-mono">{{ tool }}</span>
+          <label class="flex items-center gap-2 px-2 py-1 bg-gray-800 rounded border border-gray-700 hover:border-indigo-500 cursor-pointer text-xs">
+            <input type="checkbox" name="client_tools" value="{{ tool }}" class="text-indigo-500 rounded shrink-0" />
+            <span class="text-gray-200 font-mono truncate" title="{{ tool }}">{{ tool }}</span>
           </label>
           {% endfor %}
         </div>
@@ -107,10 +172,10 @@
           <div class="flex-1">
             <label for="tool_retrieval" class="text-sm font-medium text-gray-200 cursor-pointer">Tool Retrieval (RAG)</label>
             <p class="text-xs text-gray-500 mt-0.5" x-show="retrieval">
-              Embed tool descriptions and select only the top-K most relevant tools per turn based on the user's message. Pinned tools bypass filtering and are always included.
+              Embed tool descriptions and select only the top-K most relevant tools per turn. Pinned tools bypass filtering.
             </p>
             <p class="text-xs text-amber-600 mt-0.5" x-show="!retrieval">
-              Disabled — all selected tools are passed to the LLM on every turn. Pins have no effect.
+              Disabled — all selected tools are passed every turn. Pins have no effect.
             </p>
             <div class="mt-2" x-show="retrieval">
               <label class="block text-xs text-gray-400 mb-1">Similarity Threshold <span class="text-gray-600">(default 0.35)</span></label>
@@ -122,17 +187,44 @@
         </div>
       </div>
 
+      <!-- Tool Result Summarization -->
+      <div class="pt-3 border-t border-gray-700">
+        <input type="hidden" name="tool_result_config_json" :value="JSON.stringify(trc)" />
+        <div class="flex items-center gap-3 mb-2">
+          <span class="text-sm font-medium text-gray-200">Tool Result Summarization</span>
+          <select @change="setEnabled($event.target.value)" :value="enabledVal"
+            class="ml-auto bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+            <option value="inherit">inherit global</option>
+            <option value="true">force on</option>
+            <option value="false">force off</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-500 mb-2" x-show="showExclude">
+          Summarizes large tool outputs before injecting into context. Use 🔇 to exclude individual tools or entire MCP servers.
+        </p>
+        <div class="grid grid-cols-3 gap-3" x-show="showExclude">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Trigger size (chars)</label>
+            <input type="number" x-model.number="trc.threshold" placeholder="global · 3000"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+            <p class="text-xs text-gray-600 mt-1">summarize if output longer than this</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Summarizer model</label>
+            <input type="text" x-model="trc.model" placeholder="global model" list="litellm-models"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Summary length cap (tokens)</label>
+            <input type="number" x-model.number="trc.max_tokens" placeholder="global · 300"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+            <p class="text-xs text-gray-600 mt-1">how long the generated summary can be</p>
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
-  <script>
-  function syncPin(toolCb, pinId) {
-    const pin = document.getElementById(pinId);
-    if (!pin) return;
-    pin.disabled = !toolCb.checked;
-    pin.classList.toggle('opacity-30', !toolCb.checked);
-    if (!toolCb.checked) pin.checked = false;
-  }
-  </script>
 
   <!-- Skills -->
   {% if all_skills %}

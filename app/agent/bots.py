@@ -100,6 +100,10 @@ class BotConfig:
     slack_display_name: str | None = None
     slack_icon_emoji: str | None = None
     slack_icon_url: str | None = None
+    # Bot-level overrides for tool result summarization. Keys: enabled (bool|None),
+    # threshold (int|None), model (str|None), max_tokens (int|None), exclude_tools (list[str]).
+    # None values inherit from global TOOL_RESULT_SUMMARIZE_* settings.
+    tool_result_config: dict = field(default_factory=dict)
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -186,6 +190,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         slack_display_name=row.slack_display_name,
         slack_icon_emoji=row.slack_icon_emoji,
         slack_icon_url=row.slack_icon_url,
+        tool_result_config=row.tool_result_config or {},
     )
 
 
@@ -255,6 +260,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "slack_display_name": data.get("slack_display_name"),
         "slack_icon_emoji": data.get("slack_icon_emoji"),
         "slack_icon_url": data.get("slack_icon_url"),
+        "tool_result_config": data.get("tool_result_config", {}),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

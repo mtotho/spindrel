@@ -33,7 +33,7 @@ from app.agent.recording import _record_tool_call, _record_trace_event
 from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
-from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
+from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.local.memory import call_memory_tool
 from app.tools.registry import call_local_tool, get_local_tool_schemas, is_local_tool
 from app.tools.local.persona import call_persona_tool
@@ -78,7 +78,7 @@ async def _llm_call(model: str, messages: list, tools_param: list | None, tool_c
             await asyncio.sleep(wait)
 
 
-async def _summarize_tool_result(tool_name: str, content: str, model: str) -> str:
+async def _summarize_tool_result(tool_name: str, content: str, model: str, max_tokens: int) -> str:
     """Summarize a large tool result to reduce context window usage. Falls back to original on error."""
     cap = 12000
     input_content = content[:cap] + (f"\n[... {len(content) - cap:,} chars omitted]" if len(content) > cap else "")
@@ -92,7 +92,7 @@ async def _summarize_tool_result(tool_name: str, content: str, model: str) -> st
         resp = await _client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
+            max_tokens=max_tokens,
         )
         summary = resp.choices[0].message.content or content
         return f"[summarized from {len(content):,} chars]\n{summary}"
@@ -126,6 +126,15 @@ async def run_agent_tool_loop(
     When compaction=True, every yielded event gets "compaction": True.
     """
     model = model_override or bot.model
+
+    # Effective tool result summarization settings (bot-level overrides global)
+    _trc = bot.tool_result_config or {}
+    _eff_summarize_enabled: bool = _trc["enabled"] if "enabled" in _trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED
+    _eff_summarize_threshold: int = _trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD
+    _eff_summarize_model: str = _trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model
+    _eff_summarize_max_tokens: int = _trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS
+    _eff_summarize_exclude: set[str] = set(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS) | set(_trc.get("exclude_tools") or [])
+
     if pre_selected_tools is not None:
         all_tools = list(pre_selected_tools)
     else:
@@ -296,7 +305,6 @@ async def run_agent_tool_loop(
                         result = await call_local_tool(name, args)
                 elif is_mcp_tool(name):
                     _tc_type = "mcp"
-                    from app.tools.mcp import get_mcp_server_for_tool
                     _tc_server = get_mcp_server_for_tool(name)
                     result = await call_mcp_tool(name, args)
                 else:
@@ -340,6 +348,21 @@ async def run_agent_tool_loop(
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+                _was_summarized = False
+                if (
+                    _eff_summarize_enabled
+                    and name not in _eff_summarize_exclude
+                    and (_tc_server is None or _tc_server not in _eff_summarize_exclude)
+                    and len(result_for_llm) > _eff_summarize_threshold
+                ):
+                    _was_summarized = True
+                    result_for_llm = await _summarize_tool_result(
+                        tool_name=name,
+                        content=result_for_llm,
+                        model=_eff_summarize_model,
+                        max_tokens=_eff_summarize_max_tokens,
+                    )
+
                 result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
                 logger.debug("Tool result [%s]: %s", name, result_preview)
 
@@ -350,6 +373,8 @@ async def run_agent_tool_loop(
                 })
 
                 tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
+                if _was_summarized:
+                    tool_event["summarized"] = True
                 try:
                     parsed = json.loads(result)
                     if isinstance(parsed, dict) and "error" in parsed:
@@ -743,6 +768,13 @@ async def run_stream(
                 ))
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names
             pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
+            # Also support server-level pinning: if a pinned entry is an MCP server name,
+            # include all tools from that server.
+            _server_pins = {n for n in _effective_pinned if n not in by_name}
+            if _server_pins:
+                for _tool_name, _schema in by_name.items():
+                    if get_mcp_server_for_tool(_tool_name) in _server_pins:
+                        pinned_list.append(_schema)
             client_only = get_client_tool_schemas(bot.client_tools)
             merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
             if not merged:
