@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
+from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.dependencies import get_db, verify_auth
@@ -214,6 +215,22 @@ async def chat_stream(
 
     async def event_generator():
         try:
+            # _with_keepalive uses ensure_future(__anext__), so each chunk runs in a new
+            # Task that copies *this* task's ContextVars — not the child that run_stream
+            # sets on its first step. Prime the parent so tools (e.g. create_task) see
+            # bot_id, dispatch_config, session_id on every chunk.
+            set_agent_context(
+                session_id=session_id,
+                client_id=req.client_id,
+                bot_id=bot.id,
+                correlation_id=correlation_id,
+                memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
+                memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
+                memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
+                memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+                dispatch_type=req.dispatch_type,
+                dispatch_config=req.dispatch_config,
+            )
             stream = run_stream(
                 messages, bot, message,
                 session_id=session_id, client_id=req.client_id,
