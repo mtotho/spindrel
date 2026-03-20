@@ -163,6 +163,29 @@ async def admin_sandbox_create_profile(
     return RedirectResponse("/admin/sandboxes", status_code=303)
 
 
+@router.post("/sandboxes/profiles/{profile_id}/edit", response_class=HTMLResponse)
+async def admin_sandbox_edit_profile(
+    profile_id: uuid.UUID,
+    description: str = Form(""),
+    image: str = Form(...),
+    scope_mode: str = Form("session"),
+    network_mode: str = Form("none"),
+    idle_ttl_seconds: str = Form(""),
+):
+    ttl = int(idle_ttl_seconds) if idle_ttl_seconds.strip() else None
+    async with async_session() as db:
+        profile = await db.get(SandboxProfile, profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        profile.description = description.strip() or None
+        profile.image = image.strip()
+        profile.scope_mode = scope_mode
+        profile.network_mode = network_mode
+        profile.idle_ttl_seconds = ttl
+        await db.commit()
+    return RedirectResponse("/admin/sandboxes", status_code=303)
+
+
 @router.delete("/sandboxes/profiles/{profile_id}", response_class=HTMLResponse)
 async def admin_sandbox_delete_profile(profile_id: uuid.UUID):
     async with async_session() as db:

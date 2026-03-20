@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.agent.bots import reload_bots
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
-from app.db.models import Bot as BotRow, Skill as SkillRow, ToolEmbedding
+from app.db.models import Bot as BotRow, SandboxProfile, Skill as SkillRow, ToolEmbedding
 
 router = APIRouter()
 
@@ -43,10 +43,12 @@ async def _get_tool_options() -> dict:
 async def admin_bot_new(request: Request):
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
+        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
     tool_options = await _get_tool_options()
     return templates.TemplateResponse("admin/bot_new.html", {
         "request": request,
         "all_skills": all_skills,
+        "all_sandbox_profiles": all_sandbox_profiles,
         **tool_options,
     })
 
@@ -82,6 +84,7 @@ async def admin_bot_create(
     filesystem_indexes_json: str = Form("[]"),
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
+    docker_sandbox_profiles: list[str] = Form(default=[]),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -118,7 +121,7 @@ async def admin_bot_create(
         client_tools=client_tools,
         pinned_tools=pinned_tools,
         skills=skills,
-        docker_sandbox_profiles=[],
+        docker_sandbox_profiles=docker_sandbox_profiles,
         tool_retrieval=(tool_retrieval.lower() == "true"),
         tool_similarity_threshold=_float_or_none(tool_similarity_threshold),
         persona=(persona.lower() == "true"),
@@ -164,11 +167,13 @@ async def admin_bot_edit(request: Request, bot_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Bot not found")
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
+        all_sandbox_profiles = list((await db.execute(select(SandboxProfile).order_by(SandboxProfile.name))).scalars().all())
     tool_options = await _get_tool_options()
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": row,
         "all_skills": all_skills,
+        "all_sandbox_profiles": all_sandbox_profiles,
         **tool_options,
     })
 
@@ -204,6 +209,7 @@ async def admin_bot_update(
     filesystem_indexes_json: str = Form("[]"),
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
+    docker_sandbox_profiles: list[str] = Form(default=[]),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -241,6 +247,7 @@ async def admin_bot_update(
         row.client_tools = client_tools
         row.pinned_tools = pinned_tools
         row.skills = skills
+        row.docker_sandbox_profiles = docker_sandbox_profiles
         row.tool_retrieval = (tool_retrieval.lower() == "true")
         row.tool_similarity_threshold = _float_or_none(tool_similarity_threshold)
         row.persona = (persona.lower() == "true")

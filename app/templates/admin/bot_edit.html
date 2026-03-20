@@ -285,6 +285,27 @@
     </div>
   </section>
 
+  <!-- Docker Sandboxes -->
+  {% if all_sandbox_profiles %}
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Docker Sandboxes</h2>
+    <p class="text-xs text-gray-500 mb-3">Restrict which profiles this bot can use. Leave all unchecked to allow any profile it has been granted access to.</p>
+    <div class="grid grid-cols-2 gap-2">
+      {% for profile in all_sandbox_profiles %}
+      <label class="flex items-center gap-2 p-2 bg-gray-800 rounded-lg border border-gray-700 hover:border-indigo-500 cursor-pointer">
+        <input type="checkbox" name="docker_sandbox_profiles" value="{{ profile.name }}"
+          {% if profile.name in (bot.docker_sandbox_profiles or []) %}checked{% endif %}
+          class="rounded text-indigo-500" />
+        <span class="text-sm text-gray-200 font-mono">{{ profile.name }}</span>
+        {% if profile.description %}
+        <span class="text-xs text-gray-500 ml-auto">{{ profile.description }}</span>
+        {% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <!-- Advanced -->
   <section x-data="{ open: false }">
     <button type="button" @click="open = !open"

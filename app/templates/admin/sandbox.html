@@ -90,7 +90,7 @@
       <tbody class="divide-y divide-gray-700">
         {% for p in profiles %}
         {% set profile = p.profile %}
-        <tr class="hover:bg-gray-750 align-top">
+        <tr x-data="{ editing: false }" class="hover:bg-gray-750 align-top">
           <td class="px-4 py-3">
             <div class="font-mono text-indigo-300 text-sm">{{ profile.name }}</div>
             {% if profile.description %}
@@ -148,14 +148,74 @@
             </form>
           </td>
           <td class="px-4 py-3 text-right">
-            <button
-              hx-delete="/admin/sandboxes/profiles/{{ profile.id }}"
-              hx-confirm="Delete profile '{{ profile.name }}'? This will also delete all instances."
-              hx-target="closest tr"
-              hx-swap="outerHTML"
-              class="text-xs text-red-500 hover:text-red-300 transition-colors">
-              Delete
-            </button>
+            <div class="flex gap-3 justify-end">
+              <button @click="editing = true"
+                class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Edit</button>
+              <button
+                hx-delete="/admin/sandboxes/profiles/{{ profile.id }}"
+                hx-confirm="Delete profile '{{ profile.name }}'? This will also delete all instances."
+                hx-target="closest tr"
+                hx-swap="outerHTML"
+                class="text-xs text-red-500 hover:text-red-300 transition-colors">
+                Delete
+              </button>
+            </div>
+
+            <!-- Edit modal -->
+            <div x-show="editing" x-cloak
+              class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"
+              @click.self="editing = false">
+              <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 w-[480px] shadow-xl">
+                <h3 class="font-semibold text-gray-200 mb-1">Edit profile <span class="font-mono text-indigo-300">{{ profile.name }}</span></h3>
+                <p class="text-xs text-gray-500 mb-4">Name cannot be changed (used in container naming).</p>
+                <form method="post" action="/admin/sandboxes/profiles/{{ profile.id }}/edit" class="space-y-4">
+                  <div>
+                    <label class="block text-xs text-gray-400 mb-1">Image</label>
+                    <input name="image" required value="{{ profile.image }}"
+                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-400 mb-1">Description</label>
+                    <input name="description" value="{{ profile.description or '' }}"
+                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+                  </div>
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-1">Scope Mode</label>
+                      <select name="scope_mode"
+                        class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+                        {% for mode in ["session", "client", "agent", "shared"] %}
+                        <option value="{{ mode }}" {% if profile.scope_mode == mode %}selected{% endif %}>{{ mode }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
+                      <select name="network_mode"
+                        class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+                        <option value="none" {% if profile.network_mode == 'none' %}selected{% endif %}>none</option>
+                        <option value="bridge" {% if profile.network_mode == 'bridge' %}selected{% endif %}>bridge</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-400 mb-1">Idle TTL (seconds, blank = never)</label>
+                    <input name="idle_ttl_seconds" type="number" value="{{ profile.idle_ttl_seconds or '' }}" placeholder="3600"
+                      class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+                  </div>
+                  <div class="flex gap-2 pt-2">
+                    <button type="submit"
+                      class="flex-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm text-white transition-colors">
+                      Save
+                    </button>
+                    <button type="button" @click="editing = false"
+                      class="flex-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </td>
         </tr>
         {% else %}
