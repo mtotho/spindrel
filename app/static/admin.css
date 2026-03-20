@@ -1,0 +1,26 @@
+/* Admin dashboard custom styles */
+
+/* HTMX loading indicator */
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity 200ms ease-in;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+
+/* Smooth row fade-in for HTMX swaps */
+.htmx-added {
+  animation: fadeIn 200ms ease-in;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Code / pre blocks */
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -160,6 +160,7 @@ async def persist_turn(
     bot: BotConfig,
     messages: list[dict],
     from_index: int,
+    correlation_id: uuid.UUID | None = None,
 ) -> None:
     new_messages = messages[from_index:]
     now = datetime.now(timezone.utc)
@@ -170,6 +171,7 @@ async def persist_turn(
             content=_content_for_db(msg),
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
+            correlation_id=correlation_id,
             created_at=now + timedelta(microseconds=i),
         )
         db.add(record)

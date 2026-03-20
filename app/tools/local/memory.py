@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from app.agent.context import (
     current_client_id,
     current_bot_id,
+    current_correlation_id,
     current_memory_cross_client,
     current_memory_cross_bot,
     current_memory_cross_session,
@@ -81,7 +82,7 @@ async def search_memories(query: str) -> str:
 
 
 
-    chunks = await retrieve_memories(
+    chunks, _ = await retrieve_memories(
         query=query,
         session_id=session_id,
         client_id=client_id,
@@ -123,6 +124,7 @@ async def save_memory(content: str) -> str:
     content = (content or "").strip()
     if not content:
         return "No content provided; nothing was saved."
+    correlation_id = current_correlation_id.get()
     ok, err = await write_memory(
         summary_text=content,
         client_id=client_id,
@@ -131,6 +133,7 @@ async def save_memory(content: str) -> str:
         message_range_start=None,
         message_range_end=None,
         message_count=None,
+        correlation_id=correlation_id,
     )
     if ok:
         return "Memory saved."
@@ -156,7 +159,7 @@ async def search_memories_impl(
     if not query:
         return "No search query provided."
     threshold = similarity_threshold if similarity_threshold is not None else settings.MEMORY_SIMILARITY_THRESHOLD
-    chunks = await retrieve_memories(
+    chunks, _ = await retrieve_memories(
         query=query,
         session_id=session_id,
         client_id=client_id,

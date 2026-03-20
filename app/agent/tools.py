@@ -116,9 +116,22 @@ async def _upsert_tool_row(
 async def index_local_tools() -> None:
     from app.tools.registry import iter_registered_tools
 
+    # Fetch existing hashes in one query to avoid re-embedding unchanged tools
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(ToolEmbedding.tool_key, ToolEmbedding.content_hash)
+            .where(ToolEmbedding.server_name.is_(None))
+        )).all()
+    existing_hashes = {row.tool_key: row.content_hash for row in rows}
+
+    skipped = 0
     for tool_name, schema, source_dir in iter_registered_tools():
         tkey = tool_key_for(None, tool_name)
         embed_txt = build_embed_text(schema, tool_name, None)
+        h = content_hash(embed_txt)
+        if existing_hashes.get(tkey) == h:
+            skipped += 1
+            continue
         try:
             emb = await _embed_query(embed_txt)
         except Exception:
@@ -136,6 +149,8 @@ async def index_local_tools() -> None:
             )
         except Exception:
             logger.exception("Failed to persist embedding for local tool %s", tool_name)
+    if skipped:
+        logger.info("Skipped %d unchanged local tool(s)", skipped)
 
 
 async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> None:
@@ -154,6 +169,14 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
             await db.execute(delete(ToolEmbedding).where(ToolEmbedding.server_name == server_name))
         await db.commit()
 
+        # Fetch existing hashes to skip unchanged tools
+        rows = (await db.execute(
+            select(ToolEmbedding.tool_key, ToolEmbedding.content_hash)
+            .where(ToolEmbedding.server_name == server_name)
+        )).all()
+    existing_hashes = {row.tool_key: row.content_hash for row in rows}
+
+    skipped = 0
     for sch in schemas:
         fn = sch.get("function") or {}
         tool_name = fn.get("name")
@@ -161,6 +184,10 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
             continue
         tkey = tool_key_for(server_name, tool_name)
         embed_txt = build_embed_text(sch, tool_name, server_name)
+        h = content_hash(embed_txt)
+        if existing_hashes.get(tkey) == h:
+            skipped += 1
+            continue
         try:
             emb = await _embed_query(embed_txt)
         except Exception:
@@ -178,6 +205,8 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
             )
         except Exception:
             logger.exception("Failed to persist MCP tool %s/%s", server_name, tool_name)
+    if skipped:
+        logger.info("Skipped %d unchanged MCP tool(s) for '%s'", skipped, server_name)
 
 
 async def retrieve_tools(
@@ -187,8 +216,8 @@ async def retrieve_tools(
     *,
     top_k: int | None = None,
     threshold: float | None = None,
-) -> list[dict[str, Any]]:
-    """Return OpenAI tool dicts for local + MCP tools above similarity threshold."""
+) -> tuple[list[dict[str, Any]], float]:
+    """Return (tool_dicts, best_similarity) for local + MCP tools above threshold."""
     top_k = settings.TOOL_RETRIEVAL_TOP_K if top_k is None else top_k
     threshold = settings.TOOL_RETRIEVAL_THRESHOLD if threshold is None else threshold
 
@@ -201,13 +230,13 @@ async def retrieve_tools(
         filters.append(ToolEmbedding.server_name.in_(mcp_server_names))
 
     if not filters:
-        return []
+        return [], 0.0, []
 
     try:
         query_embedding = await _embed_query(query)
     except Exception:
         logger.exception("Failed to embed query for tool retrieval")
-        return []
+        return [], 0.0, []
 
     distance_expr = ToolEmbedding.embedding.cosine_distance(query_embedding)
 
@@ -224,10 +253,10 @@ async def retrieve_tools(
             rows = result.all()
     except Exception:
         logger.exception("Tool retrieval query failed")
-        return []
+        return [], 0.0, []
 
     if not rows:
-        return []
+        return [], 0.0, []
 
     best_sim = 1.0 - rows[0][1]
     logger.info(
@@ -238,13 +267,16 @@ async def retrieve_tools(
     )
 
     out: list[dict[str, Any]] = []
+    top_candidates: list[dict[str, Any]] = []  # top 5 regardless of threshold, for diagnostics
     for schema_obj, distance in rows:
         similarity = 1.0 - distance
+        if isinstance(schema_obj, dict) and len(top_candidates) < 5:
+            top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(similarity, 4)})
         if similarity < threshold:
-            break
+            continue
         if isinstance(schema_obj, dict):
             out.append(schema_obj)
-    return out
+    return out, best_sim, top_candidates
 
 
 async def warm_mcp_tool_index_for_all_bots() -> None:

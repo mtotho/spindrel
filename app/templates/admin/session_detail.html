@@ -1,0 +1,67 @@
+<td colspan="5" class="px-4 py-4 bg-gray-900">
+  <div class="text-xs text-gray-500 mb-2">{{ total }} messages · newest first</div>
+  <div class="space-y-2 max-h-[32rem] overflow-y-auto">
+    {% for msg in messages %}
+    {% if msg.role == 'user' %}
+    <div class="flex justify-end">
+      <div class="bg-indigo-900/50 border border-indigo-800 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
+        {{ msg.content or '(no content)' }}
+        <div class="flex items-center gap-3 mt-1">
+          <span class="text-xs text-indigo-400">{{ msg.created_at | fmt_dt }}</span>
+          {% if msg.correlation_id %}
+          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% elif msg.role == 'assistant' %}
+    {% if msg.content %}
+    <div class="flex justify-start">
+      <div class="bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
+        {{ msg.content }}
+        <div class="text-xs text-gray-500 mt-1">{{ msg.created_at | fmt_dt }}</div>
+      </div>
+    </div>
+    {% endif %}
+    {% if msg.tool_calls %}
+    <div class="flex justify-start">
+      <div class="bg-gray-850 border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono text-gray-400 max-w-lg">
+        {% for tc in msg.tool_calls %}
+        <div>→ {{ tc.get('function', {}).get('name', '?') }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% elif msg.role == 'tool' %}
+    <div class="flex justify-start ml-4">
+      <div class="bg-teal-950/30 border border-teal-900/50 rounded-lg px-3 py-2 text-xs font-mono text-teal-300 max-w-lg truncate">
+        {{ msg.content[:200] if msg.content else '(empty)' }}{% if msg.content and msg.content|length > 200 %}…{% endif %}
+      </div>
+    </div>
+    {% elif msg.role == 'system' %}
+    <div class="text-xs text-gray-600 text-center">
+      [system: {{ (msg.content or '')[:80] }}{% if msg.content and msg.content|length > 80 %}…{% endif %}]
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="text-gray-500 text-sm text-center py-4">No messages.</div>
+    {% endfor %}
+  </div>
+  {% if total > page_size %}
+  <div class="flex items-center gap-2 mt-3 text-xs">
+    {% if page > 1 %}
+    <button hx-get="/admin/sessions/{{ session.id }}/detail?page={{ page - 1 }}"
+            hx-target="closest tr"
+            hx-swap="outerHTML"
+            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Newer</button>
+    {% endif %}
+    <span class="text-gray-500">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+    {% if page * page_size < total %}
+    <button hx-get="/admin/sessions/{{ session.id }}/detail?page={{ page + 1 }}"
+            hx-target="closest tr"
+            hx-swap="outerHTML"
+            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Older →</button>
+    {% endif %}
+  </div>
+  {% endif %}
+</td>

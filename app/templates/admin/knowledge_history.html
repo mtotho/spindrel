@@ -1,0 +1,17 @@
+<div class="space-y-2">
+  <div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Write History</div>
+  {% for w in writes %}
+  <div class="flex items-center justify-between text-xs py-1.5 border-b border-gray-700/50">
+    <span class="text-gray-400">{{ w.created_at | fmt_dt }}</span>
+    {% if w.correlation_id %}
+    <a href="/admin/trace/{{ w.correlation_id }}" class="text-indigo-400 hover:text-indigo-300 font-mono truncate max-w-[10rem]" title="{{ w.correlation_id }}">
+      {{ w.correlation_id | string | truncate(8, False, '') }}…
+    </a>
+    {% else %}
+    <span class="text-gray-600">—</span>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="text-gray-500 text-sm">No write history.</div>
+  {% endfor %}
+</div>

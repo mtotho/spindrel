@@ -1,0 +1,74 @@
+{% extends "admin/_base.html" %}
+{% block title %}Trace{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-2">
+  <a href="/admin/tool-calls" class="text-gray-400 hover:text-gray-200 text-sm">← Tool Calls</a>
+</div>
+<h1 class="text-2xl font-bold mb-1">Session Trace</h1>
+<div class="text-sm text-gray-400 font-mono mb-6">
+  {% if session %}{{ session.id }} — {{ session.title or '(no title)' }}
+  {% else %}{{ session_id }}{% endif %}
+</div>
+
+{% if not calls %}
+<div class="bg-gray-800 rounded-xl border border-gray-700 px-5 py-8 text-center text-gray-500">
+  No tool calls recorded for this session.
+</div>
+{% else %}
+<!-- Timeline -->
+<div class="relative">
+  <div class="absolute left-6 top-0 bottom-0 w-px bg-gray-700"></div>
+  <div class="space-y-3">
+    {% for tc in calls %}
+    <div x-data="{ open: false }" class="relative flex gap-4">
+      <!-- Dot -->
+      <div class="w-12 flex justify-center shrink-0 pt-1">
+        <div class="w-3 h-3 rounded-full border-2 {% if tc.error %}border-red-500 bg-red-500/30{% else %}border-green-500 bg-green-500/30{% endif %}"></div>
+      </div>
+      <!-- Card -->
+      <div class="flex-1 bg-gray-800 border border-gray-700 rounded-xl p-4 mb-1 cursor-pointer hover:border-gray-600"
+           @click="open = !open">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="font-mono text-indigo-300 text-sm">{{ tc.tool_name }}</span>
+            {% if tc.tool_type == 'mcp' %}
+            <span class="text-xs bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded">mcp{% if tc.server_name %}: {{ tc.server_name }}{% endif %}</span>
+            {% elif tc.tool_type == 'client' %}
+            <span class="text-xs bg-teal-900/50 text-teal-300 px-2 py-0.5 rounded">client</span>
+            {% else %}
+            <span class="text-xs bg-indigo-900/50 text-indigo-300 px-2 py-0.5 rounded">local</span>
+            {% endif %}
+            {% if tc.error %}
+            <span class="text-xs text-red-400">✗ error</span>
+            {% endif %}
+          </div>
+          <div class="flex items-center gap-3 text-xs text-gray-500">
+            <span>iter {{ tc.iteration if tc.iteration is not none else '?' }}</span>
+            {% if tc.duration_ms is not none %}
+            <span class="{% if tc.duration_ms > 5000 %}text-red-400{% elif tc.duration_ms > 1000 %}text-yellow-400{% else %}text-green-400{% endif %}">
+              {{ tc.duration_ms }}ms
+            </span>
+            {% endif %}
+            <span>{{ tc.created_at.strftime('%H:%M:%S') }}</span>
+          </div>
+        </div>
+
+        <!-- Expandable detail -->
+        <div x-show="open" x-cloak class="mt-3 grid grid-cols-2 gap-3 text-xs" @click.stop>
+          <div>
+            <div class="text-gray-400 mb-1">Arguments</div>
+            <pre class="bg-gray-900 rounded p-2 text-gray-300 overflow-x-auto max-h-40">{{ tc.arguments | tojson(indent=2) }}</pre>
+          </div>
+          <div>
+            <div class="text-gray-400 mb-1">Result</div>
+            <pre class="bg-gray-900 rounded p-2 {% if tc.error %}text-red-300{% else %}text-gray-300{% endif %} overflow-x-auto max-h-40">{{ tc.result or '(empty)' }}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

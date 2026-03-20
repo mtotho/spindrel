@@ -223,6 +223,11 @@ def is_mcp_tool(name: str) -> bool:
     return _find_server_for_tool(name) is not None
 
 
+def get_mcp_server_for_tool(tool_name: str) -> str | None:
+    """Return the MCP server name that owns this tool, or None."""
+    return _find_server_for_tool(tool_name)
+
+
 def _find_server_for_tool(tool_name: str) -> str | None:
     """Look up which server a tool belongs to from the cache."""
     for server_name, cached in _cache.items():

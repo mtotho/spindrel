@@ -130,6 +130,7 @@ async def chat(
     logger.debug("System prompt: %s...", (messages[0]["content"][:80] + "…") if messages else "none")
 
     from_index = len(messages)
+    correlation_id = uuid.uuid4()
 
     try:
         result = await run(
@@ -137,6 +138,7 @@ async def chat(
             session_id=session_id, client_id=req.client_id,
             audio_data=audio_data, audio_format=audio_format,
             attachments=att_payload,
+            correlation_id=correlation_id,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -146,7 +148,7 @@ async def chat(
         logger.info("Client actions: %d", len(result.client_actions))
         logger.debug("Client actions: %s", result.client_actions)
 
-    await persist_turn(db, session_id, bot, messages, from_index)
+    await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
     maybe_compact(session_id, bot, messages)
 
     return ChatResponse(
@@ -204,6 +206,7 @@ async def chat_stream(
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
     from_index = len(messages)
+    correlation_id = uuid.uuid4()
 
     async def event_generator():
         try:
@@ -212,6 +215,7 @@ async def chat_stream(
                 session_id=session_id, client_id=req.client_id,
                 audio_data=audio_data, audio_format=audio_format,
                 attachments=att_payload,
+                correlation_id=correlation_id,
             )
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():
@@ -222,7 +226,7 @@ async def chat_stream(
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
 
-            await persist_turn(db, session_id, bot, messages, from_index)
+            await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
 
             compaction_stream = run_compaction_stream(session_id, bot, messages)
             async for event in compaction_stream:

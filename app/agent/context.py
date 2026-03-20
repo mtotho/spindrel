@@ -5,6 +5,9 @@ from contextvars import ContextVar
 current_session_id: ContextVar[uuid.UUID | None] = ContextVar(
     "current_session_id", default=None
 )
+current_correlation_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "current_correlation_id", default=None
+)
 current_client_id: ContextVar[str | None] = ContextVar(
     "current_client_id", default=None
 )
@@ -30,6 +33,7 @@ def set_agent_context(
     session_id: uuid.UUID | None = None,
     client_id: str | None = None,
     bot_id: str | None = None,
+    correlation_id: uuid.UUID | None = None,
     *,
     memory_cross_session: bool | None = None,
     memory_cross_client: bool | None = None,
@@ -40,6 +44,7 @@ def set_agent_context(
     current_session_id.set(session_id)
     current_client_id.set(client_id)
     current_bot_id.set(bot_id)
+    current_correlation_id.set(correlation_id)
     if memory_cross_session is not None:
         current_memory_cross_session.set(memory_cross_session)
     if memory_cross_client is not None:

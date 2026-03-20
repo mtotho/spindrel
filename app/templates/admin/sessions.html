@@ -1,0 +1,66 @@
+{% extends "admin/_base.html" %}
+{% block title %}Sessions{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Sessions</h1>
+  <div class="text-sm text-gray-400">{{ total }} total</div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="flex flex-wrap gap-3 mb-6">
+  <select name="bot_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+    <option value="">All bots</option>
+    {% for bot in bots %}
+    <option value="{{ bot.id }}" {% if bot_filter == bot.id %}selected{% endif %}>{{ bot.name }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
+        <th class="px-4 py-3 text-left">Title / ID</th>
+        <th class="px-4 py-3 text-left">Bot</th>
+        <th class="px-4 py-3 text-left">Client</th>
+        <th class="px-4 py-3 text-left">Last Active</th>
+        <th class="px-4 py-3 text-left">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="sessions-table" class="divide-y divide-gray-700">
+      {% for s in sessions %}
+      {% include "admin/session_row.html" %}
+      {% else %}
+      <tr><td colspan="5" class="px-4 py-6 text-gray-500 text-center">No sessions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if total > page_size %}
+<div class="flex items-center gap-2 mt-4 text-sm">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{% if bot_filter %}&bot_id={{ bot_filter }}{% endif %}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Prev</a>
+  {% endif %}
+  <span class="text-gray-400">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}
+  <a href="?page={{ page + 1 }}{% if bot_filter %}&bot_id={{ bot_filter }}{% endif %}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if expand %}
+<script>
+  // Auto-expand the session detail panel for the given session ID
+  document.addEventListener('DOMContentLoaded', function() {
+    const btn = document.querySelector('[data-session-id="{{ expand }}"]');
+    if (btn) btn.click();
+  });
+</script>
+{% endif %}
+{% endblock %}

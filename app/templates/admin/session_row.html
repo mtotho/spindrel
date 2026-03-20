@@ -1,0 +1,38 @@
+<tr id="session-row-{{ s.id }}" class="hover:bg-gray-750">
+  <td class="px-4 py-3">
+    <div class="text-gray-200 font-medium truncate max-w-xs">{{ s.title or '(no title)' }}</div>
+    <div class="text-xs text-gray-500 font-mono mt-0.5">{{ s.id }}</div>
+  </td>
+  <td class="px-4 py-3 text-gray-300">{{ s.bot_id }}</td>
+  <td class="px-4 py-3 text-gray-300 text-xs font-mono">{{ s.client_id }}</td>
+  <td class="px-4 py-3 text-gray-400 text-xs">{{ s.last_active | fmt_dt }}</td>
+  <td class="px-4 py-3">
+    <div class="flex items-center gap-2">
+      <button
+        data-session-id="{{ s.id }}"
+        hx-get="/admin/sessions/{{ s.id }}/detail"
+        hx-target="#session-detail-{{ s.id }}"
+        hx-swap="innerHTML"
+        class="text-xs text-indigo-400 hover:text-indigo-300">
+        Messages
+      </button>
+      <button
+        hx-post="/admin/sessions/{{ s.id }}/compact"
+        hx-target="#session-row-{{ s.id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-yellow-400 hover:text-yellow-300">
+        Compact
+      </button>
+      <button
+        hx-delete="/admin/sessions/{{ s.id }}"
+        hx-target="#session-row-{{ s.id }}"
+        hx-swap="outerHTML"
+        hx-confirm="Delete this session?"
+        class="text-xs text-red-400 hover:text-red-300">
+        Delete
+      </button>
+      <a href="/admin/sessions/{{ s.id }}/correlations" class="text-xs text-gray-400 hover:text-gray-200">Correlations</a>
+    </div>
+  </td>
+</tr>
+<tr id="session-detail-{{ s.id }}"></tr>

@@ -1,0 +1,95 @@
+{% extends "admin/_base.html" %}
+{% block title %}Memories{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Memories</h1>
+  <div class="text-sm text-gray-400">{{ total }} total</div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="flex flex-wrap gap-3 mb-6">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search content…"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 w-56" />
+  <select name="bot_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+    <option value="">All bots</option>
+    {% for b in bot_ids %}
+    <option value="{{ b }}" {% if bot_filter == b %}selected{% endif %}>{{ b }}</option>
+    {% endfor %}
+  </select>
+  <select name="client_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+    <option value="">All clients</option>
+    {% for c in client_ids %}
+    <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm">Search</button>
+  {% if q or bot_filter or client_filter %}
+  <a href="/admin/memories" class="text-gray-400 hover:text-gray-200 text-sm py-1.5">Clear</a>
+  {% endif %}
+</form>
+
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
+        <th class="px-4 py-3 text-left">Content</th>
+        <th class="px-4 py-3 text-left">Bot</th>
+        <th class="px-4 py-3 text-left">Client</th>
+        <th class="px-4 py-3 text-left">Created</th>
+        <th class="px-4 py-3 text-left">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="memories-table" class="divide-y divide-gray-700">
+      {% for mem in memories %}
+      <tr id="memory-row-{{ mem.id }}" x-data="{ open: false }">
+        <td class="px-4 py-3 text-gray-300 max-w-md cursor-pointer" @click="open = !open">
+          <div x-show="!open" class="truncate">{{ mem.content[:150] }}{% if mem.content|length > 150 %}<span class="text-gray-500"> … <span class="text-indigo-400 text-xs">expand</span></span>{% endif %}</div>
+          <div x-show="open" x-cloak class="whitespace-pre-wrap text-sm">{{ mem.content }}</div>
+          {% if mem.message_count is not none %}
+          <div class="text-xs text-gray-500 mt-0.5">{{ mem.message_count }} messages</div>
+          {% endif %}
+          {% if mem.correlation_id %}
+          <div x-show="open" x-cloak class="text-xs mt-1">
+            <a href="/admin/trace/{{ mem.correlation_id }}" class="text-purple-400 hover:text-purple-300">Trace →</a>
+          </div>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-xs">{{ mem.bot_id }}</td>
+        <td class="px-4 py-3 text-gray-400 text-xs font-mono">{{ mem.client_id }}</td>
+        <td class="px-4 py-3 text-gray-400 text-xs">{{ mem.created_at | fmt_dt }}</td>
+        <td class="px-4 py-3">
+          <button
+            hx-delete="/admin/memories/{{ mem.id }}"
+            hx-target="#memory-row-{{ mem.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this memory?"
+            class="text-xs text-red-400 hover:text-red-300">
+            Delete
+          </button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="px-4 py-6 text-gray-500 text-center">No memories found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if total > page_size %}
+<div class="flex items-center gap-2 mt-4 text-sm">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}&q={{ q }}&bot_id={{ bot_filter or '' }}&client_id={{ client_filter or '' }}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Prev</a>
+  {% endif %}
+  <span class="text-gray-400">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}
+  <a href="?page={{ page + 1 }}&q={{ q }}&bot_id={{ bot_filter or '' }}&client_id={{ client_filter or '' }}"
+     class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

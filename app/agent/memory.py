@@ -52,6 +52,7 @@ async def write_memory(
     message_range_start=None,
     message_range_end=None,
     message_count: int | None = None,
+    correlation_id: uuid.UUID | None = None,
 ) -> tuple[bool, str | None]:
     """Embed content and write it to the memories table.
 
@@ -74,6 +75,7 @@ async def write_memory(
         message_range_start=message_range_start,
         message_range_end=message_range_end,
         message_count=message_count,
+        correlation_id=correlation_id,
     )
 
     try:
@@ -100,7 +102,7 @@ async def retrieve_memories(
     cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
 
-) -> list[str]:
+) -> tuple[list[str], float]:
     """Search the memories table for relevant past summaries.
 
     By default, scoped to the current session. 
@@ -114,7 +116,7 @@ async def retrieve_memories(
         query_embedding = await _embed(query)
     except Exception:
         logger.exception("Failed to embed query for memory retrieval")
-        return []
+        return [], 0.0
 
     max_distance = 1.0 - similarity_threshold
     distance_expr = Memory.embedding.cosine_distance(query_embedding)
@@ -154,10 +156,10 @@ async def retrieve_memories(
             rows = result.all()
     except Exception:
         logger.exception("Failed to query memories")
-        return []
+        return [], 0.0
 
     if not rows:
-        return []
+        return [], 0.0
 
     best_similarity = 1.0 - rows[0][2]
     logger.info(
@@ -176,4 +178,4 @@ async def retrieve_memories(
     if chunks:
         logger.info("Retrieved %d memory chunk(s)", len(chunks))
 
-    return chunks
+    return chunks, best_similarity

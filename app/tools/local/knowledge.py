@@ -1,7 +1,7 @@
 import json
 import logging
 
-from app.agent.knowledge import get_knowledge_by_name, retrieve_knowledge, upsert_knowledge, list_knowledge_bases
+from app.agent.knowledge import get_knowledge_by_name, retrieve_knowledge, upsert_knowledge, list_knowledge_bases, append_to_knowledge
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,10 @@ SEARCH_KNOWLEDGE_DESCRIPTION = (
 
 LIST_KNOWLEDGE_BASES_DESCRIPTION = (
     "List all knowledge bases. Use when you want to see all the knowledge bases available to you."
+)
+
+APPEND_TO_KNOWLEDGE_DESCRIPTION = (
+    "Append content to a knowledge document. Use when you want to add more information to a document without overwriting it."
 )
 
 @register({
@@ -57,6 +61,32 @@ LIST_KNOWLEDGE_BASES_DESCRIPTION = (
 })
 async def upsert_knowledge_tool(name: str, content: str, shared: bool = False) -> str:
     raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "append_to_knowledge",
+        "description": APPEND_TO_KNOWLEDGE_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Snake_case identifier for the document (e.g. 'project_xyz', 'home_network'). Used for exact retrieval and deduplication.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to append to the document. Will be added to the end of the document.",
+                },
+            },
+            "required": ["name", "content"],
+        },
+    },
+})
+async def append_to_knowledge_tool(name: str, content: str) -> str:
+    raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
+
 
 
 @register({
@@ -145,7 +175,7 @@ async def call_knowledge_tool(
             content=content,
             bot_id=bot_id,
             client_id=client_id,
-            shared=shared,
+            cross_bot=shared,
         )
         if ok:
             return f"Knowledge '{doc_name}' saved."
@@ -166,11 +196,23 @@ async def call_knowledge_tool(
             return "No knowledge bases found."
         return "\n".join(result)
 
+    if name == "append_to_knowledge":
+        doc_name = (args.get("name") or "").strip()
+        content = (args.get("content") or "").strip()
+        if not doc_name:
+            return "No name provided."
+        if not content:
+            return "No content provided."
+        ok, err = await append_to_knowledge(doc_name, content, bot_id, client_id)
+        if ok:
+            return f"Content appended to knowledge document '{doc_name}'."
+        return f"Failed to append to knowledge document: {err}" if err else "Failed to append to knowledge document."
+
     if name == "search_knowledge":
         query = (args.get("query") or "").strip()
         if not query:
             return "No query provided."
-        chunks = await retrieve_knowledge(
+        chunks, _ = await retrieve_knowledge(
             query=query,
             bot_id=bot_id,
             client_id=client_id,

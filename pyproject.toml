@@ -20,6 +20,8 @@ dependencies = [
     "numpy",
     "slack-bolt",
     "aiohttp",
+    "jinja2",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

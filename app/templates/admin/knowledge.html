@@ -1,0 +1,55 @@
+{% extends "admin/_base.html" %}
+{% block title %}Knowledge{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Knowledge</h1>
+  <a href="/admin/knowledge/new"
+     class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm">
+    + New Entry
+  </a>
+</div>
+
+<!-- Filters -->
+<form method="get" class="flex flex-wrap gap-3 mb-6">
+  <select name="bot_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+    <option value="">All bots</option>
+    {% for b in bot_ids %}
+    <option value="{{ b }}" {% if bot_filter == b %}selected{% endif %}>{{ b }}</option>
+    {% endfor %}
+  </select>
+  <select name="client_id" onchange="this.form.submit()"
+    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
+    <option value="">All clients</option>
+    {% for c in client_ids %}
+    <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  {% if bot_filter or client_filter %}
+  <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm py-1.5">Clear</a>
+  {% endif %}
+</form>
+
+<!-- Entries table -->
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
+        <th class="px-4 py-3 text-left">Name</th>
+        <th class="px-4 py-3 text-left">Bot</th>
+        <th class="px-4 py-3 text-left">Client</th>
+        <th class="px-4 py-3 text-left">Updated</th>
+        <th class="px-4 py-3 text-left">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="knowledge-table" class="divide-y divide-gray-700">
+      {% for entry in entries %}
+      {% include "admin/knowledge_row.html" %}
+      {% else %}
+      <tr><td colspan="5" class="px-4 py-6 text-gray-500 text-center">No knowledge entries.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

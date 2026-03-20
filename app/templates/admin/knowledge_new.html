@@ -1,0 +1,45 @@
+{% extends "admin/_base.html" %}
+{% block title %}New Knowledge Entry{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm">← Knowledge</a>
+</div>
+<h1 class="text-2xl font-bold mb-6">New Knowledge Entry</h1>
+
+<form method="post" action="/admin/knowledge" class="space-y-5 max-w-4xl">
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <label class="text-xs text-gray-400 block mb-1.5">Name <span class="text-red-400">*</span></label>
+      <input type="text" name="name" required autofocus
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+    <div>
+      <label class="text-xs text-gray-400 block mb-1.5">Bot ID <span class="text-gray-600">(blank = shared)</span></label>
+      <input type="text" name="bot_id"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+    <div>
+      <label class="text-xs text-gray-400 block mb-1.5">Client ID <span class="text-gray-600">(blank = shared)</span></label>
+      <input type="text" name="client_id"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+  </div>
+
+  <div>
+    <label class="text-xs text-gray-400 block mb-1.5">Content <span class="text-red-400">*</span></label>
+    <textarea name="content" required
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
+      style="min-height: calc(100vh - 22rem);"
+      placeholder="Write the knowledge content here…"></textarea>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <button type="submit"
+      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
+      Save &amp; Embed
+    </button>
+    <a href="/admin/knowledge" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+  </div>
+</form>
+{% endblock %}

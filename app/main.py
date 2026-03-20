@@ -57,11 +57,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Agent Server", lifespan=lifespan)
 
 # Register routers
-from app.routers import chat, sessions, transcribe  # noqa: E402
+from app.routers import admin, chat, sessions, transcribe  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(transcribe.router)
+app.include_router(admin.router)
+
+app.mount("/admin/static", StaticFiles(directory="app/static"), name="admin-static")
 
 
 @app.get("/health")

@@ -1,0 +1,76 @@
+<div class="px-5 py-4 text-sm space-y-4">
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">System Prompt</div>
+    <pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 max-h-40 overflow-y-auto">{{ bot.system_prompt }}</pre>
+  </div>
+
+  {% if bot.local_tools %}
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Local Tools</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for t in bot.local_tools %}
+      <span class="bg-indigo-900/50 text-indigo-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if bot.mcp_servers %}
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">MCP Servers</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for s in bot.mcp_servers %}
+      <span class="bg-purple-900/50 text-purple-300 text-xs px-2 py-0.5 rounded font-mono">{{ s }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if bot.client_tools %}
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Client Tools</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for t in bot.client_tools %}
+      <span class="bg-teal-900/50 text-teal-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if bot.skills %}
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Skills</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for s in bot.skills %}
+      <span class="bg-yellow-900/50 text-yellow-300 text-xs px-2 py-0.5 rounded font-mono">{{ s }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if bot.pinned_tools %}
+  <div>
+    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Pinned Tools</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for t in bot.pinned_tools %}
+      <span class="bg-orange-900/50 text-orange-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-3 gap-3 text-xs">
+    <div>
+      <span class="text-gray-500">Compaction</span>
+      <div class="text-gray-300 mt-0.5">{{ 'enabled' if bot.context_compaction else 'disabled' }}</div>
+    </div>
+    <div>
+      <span class="text-gray-500">Tool RAG</span>
+      <div class="text-gray-300 mt-0.5">{{ 'enabled' if bot.tool_retrieval else 'disabled' }}</div>
+    </div>
+    <div>
+      <span class="text-gray-500">Audio Input</span>
+      <div class="text-gray-300 mt-0.5">{{ bot.audio_input }}</div>
+    </div>
+  </div>
+</div>

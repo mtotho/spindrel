@@ -1,0 +1,41 @@
+{% extends "admin/_base.html" %}
+{% block title %}Edit: {{ entry.name }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm">← Knowledge</a>
+</div>
+<h1 class="text-2xl font-bold mb-1">{{ entry.name }}</h1>
+<div class="text-xs text-gray-500 mb-6">
+  bot: {{ entry.bot_id or '(shared)' }} · client: {{ entry.client_id or '(shared)' }} · updated {{ entry.updated_at | fmt_dt }}
+</div>
+
+<div class="flex gap-6">
+  <!-- Left: editor -->
+  <div class="flex-1 min-w-0">
+    <form method="post" action="/admin/knowledge/{{ entry.id }}/save" class="space-y-5">
+      <textarea name="content" required
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
+        style="min-height: calc(100vh - 20rem);">{{ entry.content }}</textarea>
+
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
+          Save &amp; Re-embed
+        </button>
+        <a href="/admin/knowledge" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Right: write history -->
+  <div class="w-64 shrink-0">
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 sticky top-6"
+         hx-get="/admin/knowledge/{{ entry.id }}/history"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-xs text-gray-500">Loading history…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

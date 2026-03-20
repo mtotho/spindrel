@@ -65,6 +65,7 @@ local_tools:
   - upsert_knowledge
   - get_knowledge
   - search_knowledge
+  - append_to_knowledge
   - list_knowledge_bases
   - get_current_local_time
   - generate_image
