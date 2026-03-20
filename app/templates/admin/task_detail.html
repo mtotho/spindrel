@@ -65,26 +65,33 @@
         </div>
         {% endif %}
 
-        <div x-data="promptEditor()" class="relative">
+        <div x-data="promptEditor()">
           <label class="block text-xs text-gray-400 mb-1">Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
-          <textarea name="prompt" rows="6"
-            x-ref="ta"
-            @input="onInput"
-            @keydown="onKeydown"
-            @blur="setTimeout(() => show = false, 150)"
-            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500">{{ task.prompt }}</textarea>
-          <div x-show="show && filtered.length > 0" x-cloak
-            class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
-            style="max-height: 180px; top: 100%; margin-top: 2px;">
-            <template x-for="(item, i) in filtered" :key="item.value">
-              <div @mousedown.prevent="select(item)"
-                :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
-                @mouseenter="activeIdx = i"
-                class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
-                <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
-                <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
-              </div>
-            </template>
+          <div class="relative">
+            <div x-ref="mirror" aria-hidden="true"
+              class="absolute inset-0 px-3 py-2 text-sm font-mono bg-gray-900 rounded-lg pointer-events-none overflow-hidden"
+              style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
+            <textarea name="prompt" rows="6"
+              x-ref="ta"
+              @input="onInput"
+              @scroll.passive="$refs.mirror && ($refs.mirror.scrollTop = $event.target.scrollTop)"
+              @keydown="onKeydown"
+              @blur="setTimeout(() => show = false, 150)"
+              class="w-full font-mono border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+              style="background:transparent;color:transparent;caret-color:#e5e7eb;position:relative;z-index:1;">{{ task.prompt }}</textarea>
+            <div x-show="show && filtered.length > 0" x-cloak
+              class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
+              style="max-height: 180px; top: 100%; margin-top: 2px;">
+              <template x-for="(item, i) in filtered" :key="item.value">
+                <div @mousedown.prevent="select(item)"
+                  :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
+                  @mouseenter="activeIdx = i"
+                  class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
+                  <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
+                  <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
         <div class="flex justify-end gap-3 pt-2">
@@ -261,26 +268,72 @@
 <script>
 function promptEditor() {
   const completions = {{ completions_json | safe }};
+  function _score(val, lbl, q) {
+    const v = val.toLowerCase();
+    const l = lbl.toLowerCase();
+    const name = v.includes(':') ? v.split(':').slice(1).join(':') : v;
+    if (v.startsWith(q)) return 4;
+    if (name.startsWith(q)) return 3;
+    if (v.includes(q) || l.includes(q)) return 2;
+    let hi = 0;
+    for (let i = 0; i < q.length; i++) {
+      const idx = v.indexOf(q[i], hi);
+      if (idx === -1) return 0;
+      hi = idx + 1;
+    }
+    return 1;
+  }
+  const _tagRe = /(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-.]*)/g;
+  const _tagColors = {
+    skill:      'background:#1e1b4b;color:#a5b4fc',
+    tool:       'background:#14532d;color:#86efac',
+    'tool-pack':'background:#14532d;color:#86efac',
+    knowledge:  'background:#3b0764;color:#d8b4fe',
+  };
   return {
     show: false,
     atStart: -1,
     filtered: [],
     activeIdx: 0,
+    init() {
+      this.$nextTick(() => this._updateHighlight());
+    },
+    _updateHighlight() {
+      const mirror = this.$refs.mirror;
+      const ta = this.$refs.ta;
+      if (!mirror || !ta) return;
+      const esc = ta.value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      mirror.innerHTML = esc.replace(_tagRe, (match, prefix) => {
+        const type = (prefix || '').replace(':', '');
+        const s = _tagColors[type] || 'background:#374151;color:#d1d5db';
+        return `<span style="border-radius:3px;padding:0 2px;${s}">${match}</span>`;
+      }) + '\n';
+      mirror.scrollTop = ta.scrollTop;
+    },
     onInput() {
       const ta = this.$refs.ta;
       const pos = ta.selectionStart;
       const text = ta.value.substring(0, pos);
       const atIdx = text.lastIndexOf('@');
       if (atIdx === -1 || (atIdx > 0 && /\w/.test(text[atIdx - 1]))) {
-        this.show = false; return;
+        this.show = false;
+      } else {
+        const q = text.substring(atIdx + 1);
+        if (/\s/.test(q)) { this.show = false; }
+        else {
+          this.atStart = atIdx;
+          const ql = q.toLowerCase();
+          this.filtered = completions
+            .map(c => ({ c, s: _score(c.value, c.label, ql) }))
+            .filter(x => x.s > 0)
+            .sort((a, b) => b.s - a.s)
+            .map(x => x.c)
+            .slice(0, 10);
+          this.activeIdx = 0;
+          this.show = this.filtered.length > 0;
+        }
       }
-      const q = text.substring(atIdx + 1);
-      if (/\s/.test(q)) { this.show = false; return; }
-      this.atStart = atIdx;
-      const ql = q.toLowerCase();
-      this.filtered = completions.filter(c => c.value.includes(ql)).slice(0, 10);
-      this.activeIdx = 0;
-      this.show = this.filtered.length > 0;
+      this._updateHighlight();
     },
     onKeydown(e) {
       if (!this.show) return;
@@ -298,6 +351,7 @@ function promptEditor() {
       ta.setSelectionRange(cursor, cursor);
       ta.focus();
       this.show = false;
+      this._updateHighlight();
     },
   };
 }

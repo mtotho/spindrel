@@ -45,7 +45,7 @@ orchestrator → LLM sees child result → forms its own response
 
 **Use immediate when:** you need the delegate's answer before continuing, or when presenting results back to the user in the same turn.
 
-**On Slack:** the child bot's response is also posted to the originating thread, attributed to the child bot (using its `slack_display_name` / `slack_icon_emoji`). So both bots appear to respond in the thread.
+**On Slack:** the child bot's response is also posted to the originating channel, attributed to the child bot (using its `slack_display_name` / `slack_icon_emoji`). By default the post goes to the channel level (not threaded). Pass `reply_in_thread=true` to post it as a thread reply instead.
 
 ### Deferred
 
@@ -115,6 +115,7 @@ Delegates work to another bot agent.
 | `prompt` | string | Full instructions for the delegate |
 | `mode` | `"immediate"` \| `"deferred"` | How to run. Default: `"immediate"` |
 | `scheduled_at` | string | Deferred only. ISO 8601 or offset (`+30m`, `+2h`, `+1d`) |
+| `reply_in_thread` | boolean | Post result as a Slack thread reply (`true`) or channel-level message (`false`, default). No effect outside Slack. |
 
 **Bot config required:**
 
@@ -136,6 +137,8 @@ Runs an external CLI tool (e.g. `claude`, `cursor`) as a subprocess. Requires a 
 | `harness` | string | Harness name as defined in `harnesses.yaml` |
 | `prompt` | string | Prompt/instruction to pass to the harness |
 | `working_directory` | string | Working directory for the subprocess. Must be in server allowlist. |
+| `mode` | `"sync"` \| `"deferred"` | How to run. Default: `"sync"` |
+| `reply_in_thread` | boolean | Deferred only. Post result as a Slack thread reply (`true`) or channel-level message (`false`, default). |
 
 **Bot config required:**
 

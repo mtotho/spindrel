@@ -356,11 +356,10 @@ def register_slash_commands(app):
         await ack()
         channel = command.get("channel_id") or ""
         session_id = _resolve_session_id(channel)
-        await respond("⏳ _Compacting session..._")
         try:
             result = await compact_session(session_id)
         except Exception as e:
-            await respond(f"Error: {e}")
+            await respond(f"Error compacting: {e}")
             return
         title = result.get("title") or "(untitled)"
         await respond(f"✓ Compacted. Title: *{title}*")

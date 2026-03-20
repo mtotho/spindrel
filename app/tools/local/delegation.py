@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
             "Preferred way to run a sub-agent. Use mode=immediate (default) to run the child bot "
             "now and get its response back synchronously — use this unless you have a reason to defer. "
             "Use mode=deferred to schedule it as a background task. "
-            "The child's result is automatically posted to the originating channel (e.g. Slack thread). "
+            "The child's result is automatically posted to the originating channel. "
             "Do NOT use create_task for cross-bot work; use this tool instead."
         ),
         "parameters": {
@@ -59,6 +59,14 @@ logger = logging.getLogger(__name__)
                         "+30m, +2h, +1d. Omit to run immediately after task is picked up."
                     ),
                 },
+                "reply_in_thread": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Post the child's result as a Slack thread reply (true) or new channel-level message "
+                        "(false, default). No effect outside Slack."
+                    ),
+                },
             },
             "required": ["bot_id", "prompt"],
         },
@@ -69,7 +77,12 @@ async def delegate_to_agent(
     prompt: str,
     mode: str = "immediate",
     scheduled_at: str | None = None,
+    reply_in_thread: bool = False,
 ) -> str:
+    # LLMs sometimes pass "true"/"false" strings instead of booleans
+    if isinstance(reply_in_thread, str):
+        reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")
+
     from app.agent.bots import get_bot, resolve_bot_id, list_bots
     from app.services.delegation import delegation_service, DelegationError
 
@@ -125,6 +138,7 @@ async def delegate_to_agent(
                 scheduled_at=sched_dt,
                 client_id=client_id,
                 parent_session_id=session_id,
+                reply_in_thread=reply_in_thread,
             )
             return f"Deferred delegation task created: {task_id}"
         except DelegationError as exc:
@@ -146,6 +160,7 @@ async def delegate_to_agent(
             root_session_id=root_sid,
             client_id=client_id,
             ephemeral_delegate=ephemeral,
+            reply_in_thread=reply_in_thread,
         )
         return response or "(child agent returned no response)"
     except DelegationError as exc:
@@ -214,6 +229,14 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                         "Use deferred for long-running harnesses (e.g. claude-code on large tasks)."
                     ),
                 },
+                "reply_in_thread": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Deferred mode only. Post the result as a Slack thread reply (true) or new "
+                        "channel-level message (false, default). No effect outside Slack or in sync mode."
+                    ),
+                },
             },
             "required": ["harness", "prompt"],
         },
@@ -225,6 +248,7 @@ async def delegate_to_harness(
     working_directory: str | None = None,
     mode: str = "sync",
     sandbox_instance_id: str | None = None,
+    reply_in_thread: bool = False,
 ) -> str:
     from app.agent.bots import get_bot
     from app.services.harness import harness_service, HarnessError
@@ -247,11 +271,13 @@ async def delegate_to_harness(
         session_id = current_session_id.get()
         client_id = current_client_id.get()
         src_corr = current_correlation_id.get()
+        cfg_dispatch = dict(dispatch_config)
+        cfg_dispatch["reply_in_thread"] = reply_in_thread
         harness_cfg: dict = {
             "harness_name": harness,
             "working_directory": working_directory,
             "output_dispatch_type": dispatch_type or "none",
-            "output_dispatch_config": dispatch_config,
+            "output_dispatch_config": cfg_dispatch,
         }
         sbx = _parse_uuid_opt(sandbox_instance_id)
         if sbx is not None:

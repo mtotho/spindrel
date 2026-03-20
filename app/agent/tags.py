@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 # Match @name or @type:name.
 # Negative lookbehind: skip Slack's <@USERID> and email addresses (foo@bar).
 # Names must start with a letter or underscore (not a digit).
-_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool):)?([A-Za-z_][\w\-\.]*)")
+# tool-pack must appear before tool in the alternation to avoid partial matching.
+_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-\.]*)")
 
 
 @dataclass
@@ -78,6 +79,12 @@ async def resolve_tags(
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="knowledge"))
         elif forced_type == "tool":
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="tool"))
+        elif forced_type == "tool-pack":
+            from app.tools.packs import get_tool_packs
+            for tool_name in get_tool_packs().get(name, []):
+                if tool_name not in seen_names:
+                    seen_names.add(tool_name)
+                    resolved.append(ResolvedTag(raw=raw, name=tool_name, tag_type="tool"))
         elif name in skill_set:
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="skill"))
         elif name in tool_set:

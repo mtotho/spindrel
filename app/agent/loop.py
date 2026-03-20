@@ -81,7 +81,12 @@ _client = AsyncOpenAI(
 
 
 async def _llm_call(model: str, messages: list, tools_param: list | None, tool_choice: str | None):
-    """Call the LLM with exponential backoff on rate limit errors."""
+    """Call the LLM with exponential backoff on rate limit errors.
+
+    Also retries on APITimeoutError: LiteLLM proxy may internally retry 429s for ~65s,
+    causing the HTTP call to exceed the client timeout and surface as a timeout instead of
+    a RateLimitError.
+    """
     max_retries = settings.LLM_RATE_LIMIT_RETRIES
     initial_wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT
     for attempt in range(max_retries + 1):
@@ -92,13 +97,14 @@ async def _llm_call(model: str, messages: list, tools_param: list | None, tool_c
                 tools=tools_param,
                 tool_choice=tool_choice,
             )
-        except openai.RateLimitError:
+        except (openai.RateLimitError, openai.APITimeoutError) as exc:
             if attempt >= max_retries:
                 raise
             wait = initial_wait * (2 ** attempt)
+            label = "rate limited" if isinstance(exc, openai.RateLimitError) else "timed out (possible rate limit)"
             logger.warning(
-                "Rate limited by LLM provider (attempt %d/%d), waiting %ds before retry...",
-                attempt + 1, max_retries, wait,
+                "LLM call %s (attempt %d/%d), waiting %ds before retry...",
+                label, attempt + 1, max_retries, wait,
             )
             await asyncio.sleep(wait)
 
@@ -344,9 +350,20 @@ async def run_agent_tool_loop(
                         result = json.dumps({"error": "Client did not respond in time"})
                 elif is_local_tool(name):
                     _tc_type = "local"
-                    if name in ("search_memories", "save_memory") and session_id and client_id:
+                    if name in (
+                        "search_memories",
+                        "save_memory",
+                        "purge_memory",
+                        "merge_memories",
+                    ) and session_id and client_id:
                         result = await call_memory_tool(
-                            name, args or "{}", session_id, client_id, bot.id, bot.memory
+                            name,
+                            args or "{}",
+                            session_id,
+                            client_id,
+                            bot.id,
+                            bot.memory,
+                            correlation_id=correlation_id,
                         )
                     elif name in ("update_persona", "append_to_persona"):
                         result = await call_persona_tool(name, args or "{}", bot.id)

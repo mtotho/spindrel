@@ -125,7 +125,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .where(Message.created_at > watermark_msg.created_at)
                 .order_by(Message.created_at)
             )
-            recent = [_message_to_dict(m) for m in recent_result.scalars().all()]
+            recent = [_message_to_dict(m) for m in recent_result.scalars().all() if m.role != "system"]
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             messages.extend(recent)
@@ -162,7 +162,9 @@ async def persist_turn(
     from_index: int,
     correlation_id: uuid.UUID | None = None,
 ) -> None:
-    new_messages = messages[from_index:]
+    # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
+    # re-injected fresh on every turn — persisting them causes unbounded context growth.
+    new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
     now = datetime.now(timezone.utc)
     for i, msg in enumerate(new_messages):
         record = Message(

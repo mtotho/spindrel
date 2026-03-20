@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import replace as _dc_replace
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -95,6 +96,7 @@ async def _run_compaction_memory_phase(
     client_id: str,
     bot: BotConfig,
     memory_phase_messages: list[dict],
+    correlation_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run the shared agent tool loop with the 'last chance to save' prompt only.
     Model decides what to store in memory/knowledge/persona and uses tools; _generate_summary does the actual summary separately.
@@ -112,6 +114,7 @@ async def _run_compaction_memory_phase(
         session_id=session_id,
         client_id=client_id,
         bot_id=bot.id,
+        correlation_id=correlation_id,
         memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
         memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
         memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
@@ -123,14 +126,38 @@ async def _run_compaction_memory_phase(
         {"role": "user", "content": user_content},
     ]
 
+    # If the compaction prompt contains @tool: or @tool-pack: tags, inject those tools
+    # into the memory phase even if they aren't in the bot's configured local_tools.
+    # Same pattern as run_stream() pinning for user-message @tool: tags.
+    import re as _re
+    _tool_tag_re = _re.compile(r"@tool:([A-Za-z_][\w\-\.]*)")
+    _pack_tag_re = _re.compile(r"@tool-pack:([A-Za-z_][\w\-\.]*)")
+    _tagged: list[str] = list(_tool_tag_re.findall(system_content))
+    _pack_names = _pack_tag_re.findall(system_content)
+    if _pack_names:
+        from app.tools.packs import get_tool_packs
+        _packs = get_tool_packs()
+        for _pack in _pack_names:
+            _tagged.extend(_packs.get(_pack, []))
+    _tagged_tool_names = list(dict.fromkeys(_tagged))
+    if _tagged_tool_names:
+        run_bot = _dc_replace(
+            bot,
+            local_tools=list(dict.fromkeys((bot.local_tools or []) + _tagged_tool_names)),
+            pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _tagged_tool_names)),
+        )
+    else:
+        run_bot = bot
+
     model = _get_compaction_model(bot)
     async for event in run_agent_tool_loop(
         messages,
-        bot,
+        run_bot,
         session_id=session_id,
         client_id=client_id,
         model_override=model,
         compaction=True,
+        correlation_id=correlation_id,
     ):
         yield event
 
@@ -284,7 +311,7 @@ async def run_compaction_stream(
                     break
             memory_phase_messages.append(m)
         yield {"type": "compaction_start", "phase": "memory"}
-        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages):
+        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id):
             yield event
 
     try:
@@ -379,6 +406,16 @@ async def run_compaction_forced(
 
     client_id = session.client_id
     existing_summary = session.summary
+    correlation_id = uuid.uuid4()
+
+    asyncio.create_task(_record_trace_event(
+        correlation_id=correlation_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        client_id=client_id,
+        event_type="compaction_start",
+        data={"forced": True, "interval": _get_compaction_interval(bot), "keep_turns": _get_compaction_keep_turns(bot)},
+    ))
 
     result = await db.execute(
         select(Message)
@@ -408,7 +445,7 @@ async def run_compaction_forced(
     if run_memory_phase:
         memory_phase_messages = _messages_for_memory_phase(messages)
         async for _ in _run_compaction_memory_phase(
-            session_id, client_id, bot, memory_phase_messages
+            session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id
         ):
             pass
 
@@ -442,4 +479,13 @@ async def run_compaction_forced(
         .where(Session.id == session_id)
         .values(title=title, summary=summary, summary_message_id=last_msg_id)
     )
+
+    asyncio.create_task(_record_trace_event(
+        correlation_id=correlation_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        client_id=client_id,
+        event_type="compaction_done",
+        data={"forced": True, "title": title, "summary_len": len(summary)},
+    ))
     return (title, summary)

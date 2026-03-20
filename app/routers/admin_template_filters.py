@@ -11,11 +11,12 @@ from markupsafe import Markup, escape
 from app.config import settings
 
 # Mirrors the regex in app/agent/tags.py
-_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool):)?([A-Za-z_][\w\-\.]*)")
+_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-\.]*)")
 
 _TAG_COLORS = {
     "skill": "bg-indigo-900 text-indigo-300",
     "tool": "bg-green-900 text-green-300",
+    "tool-pack": "bg-green-900 text-green-300",
     "knowledge": "bg-purple-900 text-purple-300",
 }
 

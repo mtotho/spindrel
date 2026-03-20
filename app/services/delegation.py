@@ -45,6 +45,7 @@ class DelegationService:
         root_session_id: uuid.UUID,
         client_id: str | None = None,
         ephemeral_delegate: bool = False,
+        reply_in_thread: bool = False,
     ) -> str:
         """Run a child agent immediately and return its final response."""
         from app.agent.bots import get_bot
@@ -160,7 +161,7 @@ class DelegationService:
 
         # Post to Slack (attributed to child bot) if dispatch_type is slack
         if dispatch_type == "slack" and dispatch_config and final_response:
-            await self._post_to_slack(final_response, delegate_bot, dispatch_config)
+            await self._post_to_slack(final_response, delegate_bot, dispatch_config, reply_in_thread=reply_in_thread)
 
         return final_response
 
@@ -174,8 +175,11 @@ class DelegationService:
         scheduled_at: Optional[datetime],
         client_id: str | None = None,
         parent_session_id: Optional[uuid.UUID] = None,
+        reply_in_thread: bool = False,
     ) -> str:
         """Create a Task for deferred execution. Returns task_id string."""
+        merged_config = dict(dispatch_config or {})
+        merged_config["reply_in_thread"] = reply_in_thread
         task = Task(
             bot_id=delegate_bot_id,
             client_id=client_id,
@@ -184,7 +188,7 @@ class DelegationService:
             scheduled_at=scheduled_at,
             status="pending",
             dispatch_type=dispatch_type or "none",
-            dispatch_config=dispatch_config,
+            dispatch_config=merged_config,
             created_at=datetime.now(timezone.utc),
         )
         async with async_session() as db:
@@ -205,6 +209,7 @@ class DelegationService:
         text: str,
         bot: "BotConfig",
         dispatch_config: dict,
+        reply_in_thread: bool = False,
     ) -> None:
         """Post child bot's response to Slack, attributed to the child bot."""
         channel_id = dispatch_config.get("channel_id")
@@ -215,7 +220,7 @@ class DelegationService:
             return
 
         payload: dict = {"channel": channel_id, "text": text}
-        if thread_ts:
+        if reply_in_thread and thread_ts:
             payload["thread_ts"] = thread_ts
 
         username = bot.slack_display_name or bot.name

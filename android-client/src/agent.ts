@@ -395,6 +395,8 @@ const TOOL_LABELS: Record<string, string> = {
   fetch_url: "Reading webpage",
   search_memories: "Searching memories",
   save_memory: "Saving to memory",
+  purge_memory: "Deleting memory",
+  merge_memories: "Merging memories",
   upsert_knowledge: "Updating knowledge",
   get_knowledge: "Getting knowledge",
   search_knowledge: "Searching knowledge",

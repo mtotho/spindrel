@@ -8,6 +8,8 @@ _TOOL_DISPLAY_NAMES = {
     "get_current_time": "Checking the time",
     "search_memories": "Searching memories",
     "save_memory": "Saving to memory",
+    "purge_memory": "Deleting memory",
+    "merge_memories": "Merging memories",
     "upsert_knowledge": "Updating knowledge",
     "get_knowledge": "Getting knowledge",
     "search_knowledge": "Searching knowledge",

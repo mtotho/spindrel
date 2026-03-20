@@ -29,6 +29,8 @@ mcp_servers:
 local_tools:
   - search_memories
   - save_memory
+  - purge_memory
+  - merge_memories
   - client_action
   - update_persona
   - web_search

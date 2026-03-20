@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.agent.bots import reload_bots
+from app.agent.persona import get_persona, write_persona
 from app.config import settings
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
@@ -98,6 +99,7 @@ async def admin_bot_create(
     memory_enabled: str = Form("false"),
     memory_cross_session: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
+    memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
     knowledge_similarity_threshold: str = Form(""),
     slack_display_name: str = Form(""),
@@ -183,6 +185,7 @@ async def admin_bot_create(
             "enabled": memory_enabled.lower() == "true",
             "cross_session": memory_cross_session.lower() == "true",
             "similarity_threshold": mem_sim,
+            "prompt": memory_prompt.strip() or None,
         },
         knowledge_config={
             "enabled": knowledge_enabled.lower() == "true",
@@ -217,13 +220,29 @@ async def admin_bot_create(
 async def admin_bot_edit(request: Request, bot_id: str):
     from app.agent.bots import list_bots as _list_bots
     from app.services.harness import harness_service
+    from sqlalchemy import select as sa_select
     async with async_session() as db:
         row = await db.get(BotRow, bot_id)
         if not row:
             raise HTTPException(status_code=404, detail="Bot not found")
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
-    tool_options, litellm_models = await asyncio.gather(_get_tool_options(), _get_litellm_models())
+        tool_names = (await db.execute(
+            sa_select(ToolEmbedding.tool_name).distinct().order_by(ToolEmbedding.tool_name)
+        )).scalars().all()
+    from app.tools.packs import get_tool_packs
+    packs = get_tool_packs()
+    completions = (
+        [{"value": f"skill:{s.id}", "label": f"skill:{s.id} — {s.name}"} for s in all_skills]
+        + [{"value": f"tool:{t}", "label": f"tool:{t}"} for t in tool_names]
+        + [
+            {"value": f"tool-pack:{k}", "label": f"tool-pack:{k} — {len(v)} tools"}
+            for k, v in sorted(packs.items())
+        ]
+    )
+    tool_options, litellm_models, persona_content = await asyncio.gather(
+        _get_tool_options(), _get_litellm_models(), get_persona(bot_id)
+    )
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": row,
@@ -232,6 +251,8 @@ async def admin_bot_edit(request: Request, bot_id: str):
         "litellm_models": litellm_models,
         "all_bots": [b for b in _list_bots() if b.id != bot_id],
         "all_harnesses": harness_service.list_harnesses(),
+        "persona_content": persona_content or "",
+        "completions_json": json.dumps(completions),
         **tool_options,
     })
 
@@ -251,6 +272,7 @@ async def admin_bot_update(
     tool_retrieval: str = Form("true"),
     tool_similarity_threshold: str = Form(""),
     persona: str = Form("false"),
+    persona_content: str = Form(""),
     context_compaction: str = Form("true"),
     compaction_interval: str = Form(""),
     compaction_keep_turns: str = Form(""),
@@ -258,6 +280,7 @@ async def admin_bot_update(
     memory_enabled: str = Form("false"),
     memory_cross_session: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
+    memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
     knowledge_similarity_threshold: str = Form(""),
     slack_display_name: str = Form(""),
@@ -344,6 +367,7 @@ async def admin_bot_update(
             "enabled": memory_enabled.lower() == "true",
             "cross_session": memory_cross_session.lower() == "true",
             "similarity_threshold": mem_sim,
+            "prompt": memory_prompt.strip() or None,
         }
         row.knowledge_config = {
             "enabled": knowledge_enabled.lower() == "true",
@@ -363,6 +387,9 @@ async def admin_bot_update(
         await db.commit()
 
     await reload_bots()
+
+    if persona_content.strip():
+        await write_persona(bot_id, persona_content.strip())
 
     # Re-embed any newly added skills
     added_skills = new_skills - old_skills

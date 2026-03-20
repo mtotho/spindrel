@@ -1,4 +1,4 @@
-"""Local tools: search_memories, save_memory — same table as automatic retrieval."""
+"""Local tools: search_memories, save_memory, purge_memory, merge_memories."""
 import copy
 import json
 import logging
@@ -15,7 +15,13 @@ from app.agent.context import (
     current_memory_similarity_threshold,
     current_session_id,
 )
-from app.agent.memory import retrieve_memories, write_memory
+from app.agent.memory import (
+    delete_memory_scoped,
+    format_memory_search_hit,
+    merge_memories_scoped,
+    retrieve_memory_matches,
+    write_memory,
+)
 from app.config import settings
 from app.tools.registry import get_local_tool_schemas, register
 
@@ -29,7 +35,8 @@ SEARCH_MEMORIES_DESCRIPTION = (
     "message are already injected into your context (see 'Relevant memories from past "
     "conversations' above); you can use those directly when they answer the question. "
     "Only call this tool when you need to search for something else, look up more detail, "
-    "or check before saving a new memory."
+    "or check before saving a new memory. Each result starts with id: <uuid> — use that "
+    "with purge_memory or merge_memories."
 )
 
 BASE_DESCRIPTION = (
@@ -39,6 +46,35 @@ BASE_DESCRIPTION = (
     "routine commands or transient info."
 )
 
+PURGE_MEMORY_DESCRIPTION = (
+    "Delete one memory row by id (use the id from search_memories results). "
+    "Only memories visible under this bot's memory scope can be removed."
+)
+
+MERGE_MEMORIES_DESCRIPTION = (
+    "Merge two or more memories into one: deletes the listed rows and saves a single new "
+    "memory (re-embedded). Pass merged_content for a concise combined fact; omit it to "
+    "concatenate the originals with blank lines."
+)
+
+
+def _parse_uuid(value: object) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value).strip())
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _parse_memory_id_list(raw: object) -> list[uuid.UUID] | None:
+    if not isinstance(raw, list) or len(raw) < 2:
+        return None
+    out: list[uuid.UUID] = []
+    for item in raw:
+        uid = _parse_uuid(item)
+        if uid is None:
+            return None
+        out.append(uid)
+    return out
 
 @register({
     "type": "function",
@@ -80,9 +116,7 @@ async def search_memories(query: str) -> str:
     if threshold is None:
         threshold = settings.MEMORY_SIMILARITY_THRESHOLD
 
-
-
-    chunks, _ = await retrieve_memories(
+    matches, _ = await retrieve_memory_matches(
         query=query,
         session_id=session_id,
         client_id=client_id,
@@ -92,9 +126,10 @@ async def search_memories(query: str) -> str:
         cross_bot=cross_bot,
         similarity_threshold=threshold,
     )
-    if not chunks:
+    if not matches:
         return "No relevant memories found."
-    return "Relevant memories:\n\n" + "\n\n---\n\n".join(chunks)
+    lines = [format_memory_search_hit(mid, content, created_at) for mid, content, created_at, _s in matches]
+    return "Relevant memories:\n\n" + "\n\n---\n\n".join(lines)
 
 
 @register({
@@ -140,6 +175,70 @@ async def save_memory(content: str) -> str:
     return f"Failed to save memory: {err}" if err else "Failed to save memory."
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "purge_memory",
+        "description": PURGE_MEMORY_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "memory_id": {
+                    "type": "string",
+                    "description": "UUID of the memory to delete (from search_memories).",
+                },
+            },
+            "required": ["memory_id"],
+        },
+    },
+})
+async def purge_memory(memory_id: str) -> str:
+    session_id = current_session_id.get()
+    client_id = current_client_id.get()
+    bot_id = current_bot_id.get()
+    if not session_id or not client_id or not bot_id:
+        return "Memory is not available for this conversation (no session context)."
+    from app.agent.bots import get_bot
+    bot = get_bot(bot_id)
+    return await purge_memory_impl(memory_id, session_id, client_id, bot_id, bot.memory)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "merge_memories",
+        "description": MERGE_MEMORIES_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "memory_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Two or more memory UUIDs to merge (order preserved when concatenating).",
+                },
+                "merged_content": {
+                    "type": "string",
+                    "description": "Optional. Final text for the single new memory; omit to join originals.",
+                },
+            },
+            "required": ["memory_ids"],
+        },
+    },
+})
+async def merge_memories(memory_ids: list, merged_content: str | None = None) -> str:
+    session_id = current_session_id.get()
+    client_id = current_client_id.get()
+    bot_id = current_bot_id.get()
+    if not session_id or not client_id or not bot_id:
+        return "Memory is not available for this conversation (no session context)."
+    from app.agent.bots import get_bot
+    bot = get_bot(bot_id)
+    correlation_id = current_correlation_id.get()
+    return await merge_memories_impl(
+        memory_ids, merged_content, session_id, client_id, bot_id, bot.memory, correlation_id
+    )
+
+
 # --- Implementations with explicit params (used by the loop; no context vars) ---
 
 
@@ -159,7 +258,7 @@ async def search_memories_impl(
     if not query:
         return "No search query provided."
     threshold = similarity_threshold if similarity_threshold is not None else settings.MEMORY_SIMILARITY_THRESHOLD
-    chunks, _ = await retrieve_memories(
+    matches, _ = await retrieve_memory_matches(
         query=query,
         session_id=session_id,
         client_id=client_id,
@@ -169,9 +268,10 @@ async def search_memories_impl(
         cross_bot=cross_bot,
         similarity_threshold=threshold,
     )
-    if not chunks:
+    if not matches:
         return "No relevant memories found."
-    return "Relevant memories:\n\n" + "\n\n---\n\n".join(chunks)
+    lines = [format_memory_search_hit(mid, content, created_at) for mid, content, created_at, _s in matches]
+    return "Relevant memories:\n\n" + "\n\n---\n\n".join(lines)
 
 
 async def save_memory_impl(
@@ -198,6 +298,58 @@ async def save_memory_impl(
     return f"Failed to save memory: {err}" if err else "Failed to save memory."
 
 
+async def purge_memory_impl(
+    memory_id: str,
+    session_id: uuid.UUID,
+    client_id: str,
+    bot_id: str,
+    memory_config: "MemoryConfig",
+) -> str:
+    mid = _parse_uuid(memory_id)
+    if mid is None:
+        return "Invalid memory_id (expected UUID)."
+    ok, err = await delete_memory_scoped(
+        mid,
+        session_id,
+        client_id,
+        bot_id,
+        cross_session=memory_config.cross_session,
+        cross_client=memory_config.cross_client,
+        cross_bot=memory_config.cross_bot,
+    )
+    if ok:
+        return "Memory deleted."
+    return err or "Failed to delete memory."
+
+
+async def merge_memories_impl(
+    memory_ids: object,
+    merged_content: str | None,
+    session_id: uuid.UUID,
+    client_id: str,
+    bot_id: str,
+    memory_config: "MemoryConfig",
+    correlation_id: uuid.UUID | None = None,
+) -> str:
+    parsed = _parse_memory_id_list(memory_ids)
+    if parsed is None:
+        return "memory_ids must be an array of at least two UUID strings."
+    ok, err, new_id = await merge_memories_scoped(
+        parsed,
+        merged_content,
+        session_id,
+        client_id,
+        bot_id,
+        cross_session=memory_config.cross_session,
+        cross_client=memory_config.cross_client,
+        cross_bot=memory_config.cross_bot,
+        correlation_id=correlation_id,
+    )
+    if ok and new_id:
+        return f"Memories merged into new id: {new_id}."
+    return err or "Failed to merge memories."
+
+
 async def call_memory_tool(
     name: str,
     arguments_json: str,
@@ -205,6 +357,8 @@ async def call_memory_tool(
     client_id: str,
     bot_id: str,
     memory_config: "MemoryConfig",
+    *,
+    correlation_id: uuid.UUID | None = None,
 ) -> str:
     """Run a memory tool with session_id, client_id, and config injected by the loop. No context vars."""
     try:
@@ -224,6 +378,24 @@ async def call_memory_tool(
         )
     if name == "save_memory":
         return await save_memory_impl(args.get("content", ""), session_id, client_id, bot_id)
+    if name == "purge_memory":
+        return await purge_memory_impl(
+            str(args.get("memory_id", "")),
+            session_id,
+            client_id,
+            bot_id,
+            memory_config,
+        )
+    if name == "merge_memories":
+        return await merge_memories_impl(
+            args.get("memory_ids"),
+            args.get("merged_content"),
+            session_id,
+            client_id,
+            bot_id,
+            memory_config,
+            correlation_id,
+        )
     return json.dumps({"error": f"Unknown memory tool: {name}"})
 
 
@@ -247,7 +419,7 @@ def get_memory_tool_schema(bot: "BotConfig") -> dict | None:
 
 
 def get_memory_tool_schemas(bot: "BotConfig") -> list[dict]:
-    """Return [search_memories, save_memory] schemas when memory is enabled (search first)."""
+    """Memory tool schemas (search first, then save / purge / merge)."""
     out: list[dict] = []
     search_schema = get_search_memories_tool_schema()
     if search_schema:
@@ -255,4 +427,6 @@ def get_memory_tool_schemas(bot: "BotConfig") -> list[dict]:
     save_schema = get_memory_tool_schema(bot)
     if save_schema:
         out.append(save_schema)
+    for extra in get_local_tool_schemas(["purge_memory", "merge_memories"]):
+        out.append(extra)
     return out

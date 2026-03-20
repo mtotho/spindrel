@@ -121,9 +121,15 @@ async def admin_task_detail(request: Request, task_id: uuid.UUID):
             select(ToolEmbedding.tool_name).distinct().order_by(ToolEmbedding.tool_name)
         )).scalars().all())
 
+    from app.tools.packs import get_tool_packs
+    packs = get_tool_packs()
     completions = (
         [{"value": f"skill:{s.id}", "label": f"skill:{s.id} — {s.name}"} for s in all_skills]
         + [{"value": f"tool:{t}", "label": f"tool:{t}"} for t in tool_names]
+        + [
+            {"value": f"tool-pack:{k}", "label": f"tool-pack:{k} — {len(v)} tools"}
+            for k, v in sorted(packs.items())
+        ]
     )
 
     return templates.TemplateResponse(
