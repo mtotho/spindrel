@@ -12,7 +12,7 @@
   <select name="status" onchange="this.form.submit()"
     class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
     <option value="">All statuses</option>
-    {% for s in ["pending", "running", "complete", "failed"] %}
+    {% for s in ["pending", "running", "complete", "failed", "cancelled"] %}
     <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
     {% endfor %}
   </select>
@@ -44,12 +44,29 @@
       {% for task in tasks %}
       <tr class="hover:bg-gray-750">
         <td class="px-4 py-3 text-gray-400 whitespace-nowrap">
-          <a href="/admin/tasks/{{ task.id }}" class="hover:text-indigo-400">
-            {{ task.created_at | fmt_dt }}
+          <a href="/admin/tasks/{{ task.id }}" class="hover:text-indigo-400 block leading-tight"
+            title="{{ task.created_at | fmt_dt }}">
+            {% set created_rel = task.created_at | ago %}
+            {% if created_rel %}
+            <span class="text-gray-300">{{ created_rel }}</span>
+            <span class="block text-xs text-gray-500">{{ task.created_at | fmt_dt }}</span>
+            {% else %}
+            <span class="text-gray-300">{{ task.created_at | fmt_dt }}</span>
+            {% endif %}
           </a>
         </td>
         <td class="px-4 py-3 text-gray-400 whitespace-nowrap">
-          {{ task.scheduled_at | fmt_dt if task.scheduled_at else "—" }}
+          {% if task.scheduled_at %}
+          {% set sched_rel = task.scheduled_at | ago %}
+          <div class="leading-tight" title="{{ task.scheduled_at | fmt_dt }}">
+            {% if sched_rel %}
+            <span class="text-gray-300">{{ sched_rel }}</span>
+            <span class="block text-xs text-gray-500">{{ task.scheduled_at | fmt_dt }}</span>
+            {% else %}
+            <span class="text-gray-300">{{ task.scheduled_at | fmt_dt }}</span>
+            {% endif %}
+          </div>
+          {% else %}—{% endif %}
         </td>
         <td class="px-4 py-3">
           <a href="/admin/bots/{{ task.bot_id }}" class="text-indigo-400 hover:underline">{{ task.bot_id }}</a>
@@ -77,6 +94,8 @@
           <span class="px-1.5 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300">running</span>
           {% elif task.status == "failed" %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">failed</span>
+          {% elif task.status == "cancelled" %}
+          <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">cancelled</span>
           {% else %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">pending</span>
           {% endif %}

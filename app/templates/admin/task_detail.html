@@ -90,7 +90,7 @@
             {% elif task.status == "failed" %}
             <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">failed</span>
             {% elif task.status == "cancelled" %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-600 text-gray-300">cancelled</span>
+            <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">cancelled</span>
             {% else %}
             <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">pending</span>
             {% endif %}
@@ -155,11 +155,23 @@
       <dl class="space-y-3 text-sm">
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Created</dt>
-          <dd class="text-gray-300">{{ task.created_at | fmt_dt }}</dd>
+          <dd class="text-gray-300 leading-tight" title="{{ task.created_at | fmt_dt }}">
+            {% set ca = task.created_at | ago %}
+            {% if ca %}<span class="text-gray-200">{{ ca }}</span><br><span class="text-xs text-gray-500">{{ task.created_at | fmt_dt }}</span>
+            {% else %}{{ task.created_at | fmt_dt }}{% endif %}
+          </dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Scheduled</dt>
-          <dd class="text-gray-300">{{ task.scheduled_at | fmt_dt if task.scheduled_at else "immediately" }}</dd>
+          <dd class="text-gray-300 leading-tight">
+            {% if task.scheduled_at %}
+            {% set sa = task.scheduled_at | ago %}
+            <span title="{{ task.scheduled_at | fmt_dt }}">
+              {% if sa %}<span class="text-gray-200">{{ sa }}</span><br><span class="text-xs text-gray-500">{{ task.scheduled_at | fmt_dt }}</span>
+              {% else %}{{ task.scheduled_at | fmt_dt }}{% endif %}
+            </span>
+            {% else %}immediately{% endif %}
+          </dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Run at</dt>

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -27,7 +27,49 @@ def _fmt_dt(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def _ago(dt: datetime | None) -> str | None:
+    """Short relative time for list cells; None means caller should show only fmt_dt (too far past/future)."""
+    if dt is None:
+        return None
+    now = datetime.now(timezone.utc)
+    d = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    delta_secs = int((now - d).total_seconds())
+    future = delta_secs < 0
+    secs = abs(delta_secs)
+
+    if future:
+        if secs < 60:
+            return "in <1 min"
+        if secs < 3600:
+            m = max(1, secs // 60)
+            return f"in {m} min" if m != 1 else "in 1 min"
+        if secs < 86400:
+            h = secs // 3600
+            return f"in {h} h" if h != 1 else "in 1 h"
+        if secs < 86400 * 14:
+            days = max(1, (secs + 86399) // 86400)
+            return f"in {days} d" if days != 1 else "in 1 day"
+        return None
+
+    if secs < 45:
+        return "just now"
+    if secs < 3600:
+        m = secs // 60
+        return f"{m} min ago" if m != 1 else "1 min ago"
+    if secs < 86400:
+        h = secs // 3600
+        return f"{h} h ago" if h != 1 else "1 h ago"
+    if secs < 86400 * 7:
+        days = secs // 86400
+        return f"{days} d ago" if days != 1 else "1 day ago"
+    if secs < 86400 * 90:
+        wk = secs // 604800
+        return f"{wk} wk ago" if wk != 1 else "1 wk ago"
+    return None
+
+
 templates.env.filters["fmt_dt"] = _fmt_dt  # type: ignore[attr-defined]
+templates.env.filters["ago"] = _ago  # type: ignore[attr-defined]
 
 
 @router.get("/tasks", response_class=HTMLResponse)

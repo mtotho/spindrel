@@ -6,6 +6,7 @@ import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -421,6 +422,22 @@ async def run_stream(
     native_audio = audio_data is not None
     turn_start = len(messages)
 
+    # Inject current datetime so the bot can reason about time-based scheduling
+    try:
+        from zoneinfo import ZoneInfo
+        _tz = ZoneInfo(settings.TIMEZONE)
+        _now_local = datetime.now(_tz)
+        _now_utc = datetime.now(timezone.utc)
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} "
+                f"({_now_utc.strftime('%H:%M UTC')})"
+            ),
+        })
+    except Exception:
+        pass  # non-fatal if timezone lookup fails
+
     skill_ids = bot.skills if bot.skills else None
     if bot.skills or bot.rag:
         chunks, skill_sim = await retrieve_context(user_message, skill_ids=skill_ids)
@@ -498,6 +515,32 @@ async def run_stream(
                     data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4)},
                 ))
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
+
+    if bot.filesystem_indexes:
+        from app.agent.fs_indexer import retrieve_filesystem_context
+        # Use the most permissive threshold across all configured indexes (or default)
+        fs_threshold = min(
+            (cfg.similarity_threshold for cfg in bot.filesystem_indexes if cfg.similarity_threshold is not None),
+            default=None,
+        )
+        fs_chunks, fs_sim = await retrieve_filesystem_context(user_message, bot.id, threshold=fs_threshold)
+        if fs_chunks:
+            yield {"type": "fs_context", "count": len(fs_chunks)}
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="fs_context",
+                    count=len(fs_chunks),
+                    data={"preview": fs_chunks[0][:200], "best_similarity": round(fs_sim, 4)},
+                ))
+            messages.append({
+                "role": "system",
+                "content": "Relevant code/files from indexed directories:\n\n"
+                           + "\n\n---\n\n".join(fs_chunks),
+            })
 
     pre_selected_tools: list[dict[str, Any]] | None = None
     if bot.tool_retrieval and (bot.local_tools or bot.mcp_servers or bot.client_tools):

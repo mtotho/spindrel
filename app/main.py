@@ -47,6 +47,20 @@ async def lifespan(app: FastAPI):
 
     logger.info("Loading skills...")
     await load_skills()
+
+    logger.info("Indexing configured filesystem directories...")
+    from app.agent.bots import list_bots
+    from app.agent.fs_indexer import index_directory
+    from app.agent.fs_watcher import start_watchers
+    for bot in list_bots():
+        for cfg in bot.filesystem_indexes:
+            try:
+                stats = await index_directory(cfg.root, bot.id, cfg.patterns, force=True)
+                logger.info("Indexed %s for bot %s: %s", cfg.root, bot.id, stats)
+            except Exception:
+                logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
+    await start_watchers(list_bots())
+
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up

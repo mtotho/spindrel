@@ -19,9 +19,11 @@ from app.db.models import BotKnowledge, KnowledgeWrite, Memory, Message, Session
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Import and include task sub-router
+# Import and include sub-routers
 from app.routers.admin_tasks import router as _tasks_router  # noqa: E402
+from app.routers.admin_fs import router as _fs_router  # noqa: E402
 router.include_router(_tasks_router)
+router.include_router(_fs_router)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -97,9 +99,10 @@ async def admin_bot_detail(request: Request, bot_id: str):
         bot = get_bot(bot_id)
     except HTTPException:
         return HTMLResponse("<div class='text-red-400 p-4'>Bot not found.</div>", status_code=404)
-    return templates.TemplateResponse(
-        "admin/bot_detail.html", {"request": request, "bot": bot}
-    )
+    # HTMX requests load the inline detail partial; direct navigation loads the full page
+    is_htmx = request.headers.get("HX-Request") == "true"
+    template = "admin/bot_detail.html" if is_htmx else "admin/bot_page.html"
+    return templates.TemplateResponse(template, {"request": request, "bot": bot})
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,11 @@ pinned_tools:
   - update_persona
   - search_memories
   - save_memory
+  - create_task
+  - list_my_tasks
+  - get_task
+  - cancel_task
+  - reschedule_task
 local_tools:
   - get_weather
   - web_search
@@ -73,6 +78,7 @@ local_tools:
   - get_current_local_time
   - upsert_knowledge
   - get_trace
+  - list_session_traces
   - get_knowledge
   - search_knowledge
   - append_to_knowledge
@@ -116,3 +122,8 @@ memory:
     IMPORTANT: When a user shares an image, ALWAYS call save_memory immediately 
     with a description of what the image contains before responding. Do not wait. 
     The image will not be available in future turns.
+
+filesystem_indexes:
+  - root: /home/mtoth/personal/agent-server
+    patterns: ["**/*.py", "**/*.md"]
+    watch: true

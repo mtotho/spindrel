@@ -22,6 +22,8 @@ dependencies = [
     "aiohttp",
     "jinja2",
     "python-multipart",
+    "watchfiles",
+    "pathspec",
 ]
 
 [project.optional-dependencies]

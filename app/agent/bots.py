@@ -33,6 +33,15 @@ class KnowledgeConfig:
 
 
 @dataclass
+class FilesystemIndexConfig:
+    root: str
+    patterns: list[str] = field(default_factory=lambda: ["**/*.py", "**/*.md", "**/*.yaml"])
+    cooldown_seconds: int = 300
+    watch: bool = False
+    similarity_threshold: float | None = None  # overrides FS_INDEX_SIMILARITY_THRESHOLD
+
+
+@dataclass
 class BotConfig:
     id: str
     name: str
@@ -55,6 +64,7 @@ class BotConfig:
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
+    filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
 
 def load_bots(bots_dir: Path = BOTS_DIR) -> None:
     _registry.clear()
@@ -82,6 +92,18 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             similarity_threshold=know_data.get("similarity_threshold", 0.45),
         )
 
+        fs_raw = data.get("filesystem_indexes", [])
+        filesystem_indexes = [
+            FilesystemIndexConfig(
+                root=entry["root"],
+                patterns=entry.get("patterns", ["**/*.py", "**/*.md", "**/*.yaml"]),
+                cooldown_seconds=entry.get("cooldown_seconds", 300),
+                watch=entry.get("watch", False),
+                similarity_threshold=entry.get("similarity_threshold"),
+            )
+            for entry in fs_raw
+        ]
+
         bot = BotConfig(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -104,6 +126,7 @@ def load_bots(bots_dir: Path = BOTS_DIR) -> None:
             audio_input=data.get("audio_input", "transcribe"),
             memory=memory_cfg,
             knowledge=knowledge_cfg,
+            filesystem_indexes=filesystem_indexes,
         )
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)

@@ -1,0 +1,45 @@
+{% extends "admin/_base.html" %}
+{% block title %}Filesystem Indexes{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Filesystem Indexes</h1>
+  <div class="text-sm text-gray-400">{{ indexes | length }} index{{ 'es' if indexes | length != 1 }}</div>
+</div>
+
+{% if not indexes %}
+<div class="bg-gray-800 rounded-xl border border-gray-700 p-8 text-center text-gray-500">
+  No filesystem indexes configured. Add <code class="font-mono text-gray-300">filesystem_indexes</code> to a bot YAML to get started.
+</div>
+{% else %}
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
+        <th class="px-4 py-3 text-left">Bot</th>
+        <th class="px-4 py-3 text-left">Root</th>
+        <th class="px-4 py-3 text-left">Files</th>
+        <th class="px-4 py-3 text-left">Chunks</th>
+        <th class="px-4 py-3 text-left">Last Indexed</th>
+        <th class="px-4 py-3 text-left">Watch</th>
+        <th class="px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-700">
+      {% for idx in indexes %}
+      {% include "admin/fs_index_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="mt-6 bg-gray-800 rounded-xl border border-gray-700 p-5">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Bot YAML Configuration</h2>
+  <pre class="text-xs text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto">filesystem_indexes:
+  - root: /path/to/your/project
+    patterns: ["**/*.py", "**/*.md", "**/*.yaml"]
+    cooldown_seconds: 120   # min seconds between full re-indexes
+    watch: true             # auto-watch for file changes</pre>
+</div>
+{% endblock %}

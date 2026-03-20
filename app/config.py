@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
 
+    # Filesystem indexing (semantic search over arbitrary directories)
+    FS_INDEX_TOP_K: int = 8
+    FS_INDEX_SIMILARITY_THRESHOLD: float = 0.30
+    FS_INDEX_COOLDOWN_SECONDS: int = 300   # min seconds between full re-indexes per (root, bot)
+    FS_INDEX_CHUNK_WINDOW: int = 1500      # chars for sliding-window fallback chunker
+    FS_INDEX_CHUNK_OVERLAP: int = 200      # overlap chars for sliding-window chunks
+    FS_INDEX_MAX_FILE_BYTES: int = 500_000 # skip files larger than this
+
     # Extra tool directories (colon-separated paths) scanned at startup in addition to ./tools/
     TOOL_DIRS: str = ""
 

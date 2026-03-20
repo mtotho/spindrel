@@ -1,0 +1,133 @@
+{% extends "admin/_base.html" %}
+{% block title %}Bot {{ bot.id }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/bots" class="text-gray-400 hover:text-gray-200 text-sm">← Bots</a>
+  <span class="text-gray-600">/</span>
+  <h1 class="text-xl font-bold text-gray-100">{{ bot.name }}</h1>
+  <span class="text-xs text-gray-500 font-mono">{{ bot.id }}</span>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Left column -->
+  <div class="space-y-4">
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Config</h2>
+      <dl class="space-y-3 text-sm">
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Model</dt>
+          <dd class="text-gray-200 font-mono text-xs">{{ bot.model }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Tool RAG</dt>
+          <dd class="text-gray-300">{{ 'enabled' if bot.tool_retrieval else 'disabled' }}{% if bot.tool_similarity_threshold is not none %} (threshold={{ bot.tool_similarity_threshold }}){% endif %}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Compaction</dt>
+          <dd class="text-gray-300">{{ 'enabled' if bot.context_compaction else 'disabled' }}{% if bot.context_compaction %} (every {{ bot.compaction_interval }} turns, keep {{ bot.compaction_keep_turns }}){% endif %}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Memory</dt>
+          <dd class="text-gray-300">{% if bot.memory.enabled %}enabled{% if bot.memory.cross_session %}, cross-session{% endif %}{% if bot.memory.cross_client %}, cross-client{% endif %}{% else %}disabled{% endif %}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Knowledge</dt>
+          <dd class="text-gray-300">{{ 'enabled' if bot.knowledge.enabled else 'disabled' }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Audio Input</dt>
+          <dd class="text-gray-300">{{ bot.audio_input }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-36 shrink-0">Persona</dt>
+          <dd class="text-gray-300">{{ 'enabled' if bot.persona else 'disabled' }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if bot.local_tools or bot.client_tools or bot.pinned_tools %}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Tools</h2>
+      {% if bot.local_tools %}
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 mb-1.5">Local</div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for t in bot.local_tools %}
+          <span class="bg-indigo-900/50 text-indigo-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if bot.mcp_servers %}
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 mb-1.5">MCP Servers</div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for s in bot.mcp_servers %}
+          <span class="bg-purple-900/50 text-purple-300 text-xs px-2 py-0.5 rounded font-mono">{{ s }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if bot.client_tools %}
+      <div class="mb-3">
+        <div class="text-xs text-gray-500 mb-1.5">Client Tools</div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for t in bot.client_tools %}
+          <span class="bg-teal-900/50 text-teal-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if bot.pinned_tools %}
+      <div>
+        <div class="text-xs text-gray-500 mb-1.5">Pinned (bypass RAG)</div>
+        <div class="flex flex-wrap gap-1.5">
+          {% for t in bot.pinned_tools %}
+          <span class="bg-orange-900/50 text-orange-300 text-xs px-2 py-0.5 rounded font-mono">{{ t }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if bot.skills %}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Skills</h2>
+      <div class="flex flex-wrap gap-1.5">
+        {% for s in bot.skills %}
+        <span class="bg-yellow-900/50 text-yellow-300 text-xs px-2 py-0.5 rounded font-mono">{{ s }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right column -->
+  <div class="space-y-4">
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">System Prompt</h2>
+      <pre class="text-xs text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ bot.system_prompt }}</pre>
+    </div>
+
+    {% if bot.filesystem_indexes %}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Filesystem Indexes</h2>
+      <div class="space-y-2">
+        {% for cfg in bot.filesystem_indexes %}
+        <div class="bg-gray-900 rounded p-3 text-xs font-mono">
+          <div class="text-gray-200 break-all">{{ cfg.root }}</div>
+          <div class="text-gray-500 mt-1">patterns: {{ cfg.patterns | join(', ') }}</div>
+          <div class="flex gap-3 mt-1 text-gray-500">
+            <span>cooldown: {{ cfg.cooldown_seconds }}s</span>
+            <span class="{% if cfg.watch %}text-green-400{% endif %}">watch: {{ cfg.watch }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

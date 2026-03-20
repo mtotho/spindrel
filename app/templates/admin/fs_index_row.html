@@ -1,0 +1,33 @@
+<tr class="hover:bg-gray-750" id="fs-row-{{ idx.bot_id }}-{{ idx.root | replace('/', '-') }}">
+  <td class="px-4 py-3">
+    <a href="/admin/bots/{{ idx.bot_id }}" class="text-indigo-400 hover:underline text-sm">{{ idx.bot_id }}</a>
+  </td>
+  <td class="px-4 py-3 font-mono text-xs text-gray-300 break-all">{{ idx.root }}</td>
+  <td class="px-4 py-3 text-gray-300 text-sm">{{ idx.file_count }}</td>
+  <td class="px-4 py-3 text-gray-300 text-sm">{{ idx.chunk_count }}</td>
+  <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{{ idx.last_indexed | fmt_dt if idx.last_indexed else "—" }}</td>
+  <td class="px-4 py-3">
+    {% if idx.watch %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">watching</span>
+    {% else %}
+    <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">manual</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3 text-right flex items-center justify-end gap-3">
+    <form hx-post="/admin/filesystem/reindex"
+          hx-target="#fs-row-{{ idx.bot_id }}-{{ idx.root | replace('/', '-') }}"
+          hx-swap="outerHTML">
+      <input type="hidden" name="root" value="{{ idx.root }}" />
+      <input type="hidden" name="bot_id" value="{{ idx.bot_id }}" />
+      <button type="submit" class="text-xs text-indigo-400 hover:text-indigo-200 transition-colors">Re-index</button>
+    </form>
+    <button
+      hx-delete="/admin/filesystem/chunks?root={{ idx.root | urlencode }}&bot_id={{ idx.bot_id }}"
+      hx-confirm="Delete all indexed chunks for {{ idx.root }}? This cannot be undone."
+      hx-target="closest tr"
+      hx-swap="outerHTML"
+      class="text-xs text-red-500 hover:text-red-300 transition-colors">
+      Delete
+    </button>
+  </td>
+</tr>

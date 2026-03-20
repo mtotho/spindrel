@@ -213,6 +213,32 @@ class KnowledgeWrite(Base):
     )
 
 
+class FilesystemChunk(Base):
+    __tablename__ = "filesystem_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    root: Mapped[str] = mapped_column(Text, nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)  # relative to root
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(nullable=False, default=0)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS), nullable=True)
+    language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_line: Mapped[int | None] = mapped_column(nullable=True)
+    end_line: Mapped[int | None] = mapped_column(nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata_", JSONB, server_default=text("'{}'::jsonb")
+    )
+    indexed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=text("now()"),
+    )
+
+
 class Task(Base):
     __tablename__ = "tasks"
 

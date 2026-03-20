@@ -21,9 +21,15 @@ _RELATIVE_RE = re.compile(r"^\+(\d+)([smhd])$")
 
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
+# Distinct from None so JSON `null` / explicit None can clear scheduled_at while "key omitted" leaves it unchanged.
+_UNSET = object()
+
 
 def _parse_scheduled_at(value: str | None) -> datetime | None:
-    """Parse ISO timestamp or relative offset (+30m, +2h, +1d) to UTC datetime."""
+    """Parse ISO timestamp or relative offset (+30m, +2h, +1d) to UTC datetime.
+
+    Naive ISO timestamps (no timezone suffix) are treated as local time per settings.TIMEZONE.
+    """
     if not value:
         return None
     value = value.strip()
@@ -35,8 +41,10 @@ def _parse_scheduled_at(value: str | None) -> datetime | None:
     try:
         dt = datetime.fromisoformat(value)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+            from zoneinfo import ZoneInfo
+            from app.config import settings
+            dt = dt.replace(tzinfo=ZoneInfo(settings.TIMEZONE))
+        return dt.astimezone(timezone.utc)
     except ValueError:
         raise ValueError(f"Cannot parse scheduled_at: {value!r}. Use ISO format or relative like +30m, +2h, +1d.")
 
@@ -124,8 +132,12 @@ async def create_task(
 
     recur_suffix = f" Repeats every {recurrence}." if recurrence else ""
     if scheduled:
-        when = scheduled.strftime("%Y-%m-%d %H:%M UTC")
-        return f"Task {task.id} scheduled for {when}.{recur_suffix}"
+        from zoneinfo import ZoneInfo
+        from app.config import settings
+        local_dt = scheduled.astimezone(ZoneInfo(settings.TIMEZONE))
+        when_local = local_dt.strftime("%Y-%m-%d %H:%M %Z")
+        when_utc = scheduled.strftime("%H:%M UTC")
+        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{recur_suffix}"
     return f"Task {task.id} queued (runs immediately).{recur_suffix}"
 
 
@@ -260,8 +272,9 @@ async def cancel_task(task_id: str) -> str:
     "function": {
         "name": "reschedule_task",
         "description": (
-            "Change when a pending task will run. "
-            "Only works on tasks with status=pending."
+            "Update a pending task: new run time, new instruction prompt, or both. "
+            "Same `prompt` semantics as create_task (what the agent runs when the task fires). "
+            "Only works on tasks with status=pending. Omit scheduled_at or prompt to leave that field unchanged."
         ),
         "parameters": {
             "type": "object",
@@ -274,7 +287,14 @@ async def cancel_task(task_id: str) -> str:
                     "type": "string",
                     "description": (
                         "New run time. ISO 8601 datetime or relative offset: +30m, +2h, +1d. "
-                        "Pass null to run immediately."
+                        "Pass null to run immediately. Omit entirely if you only want to change the prompt."
+                    ),
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "New instruction text for when the task runs (replaces the existing prompt). "
+                        "Omit if you only want to change the schedule."
                     ),
                 },
             },
@@ -282,13 +302,15 @@ async def cancel_task(task_id: str) -> str:
         },
     },
 })
-async def reschedule_task(task_id: str, scheduled_at: str | None = None) -> str:
+async def reschedule_task(
+    task_id: str,
+    scheduled_at: str | None | object = _UNSET,
+    prompt: str | object = _UNSET,
+) -> str:
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
         return json.dumps({"error": f"Invalid task_id: {task_id}"})
-
-    scheduled = _parse_scheduled_at(scheduled_at)
 
     async with async_session() as db:
         task = await db.get(Task, tid)
@@ -296,10 +318,22 @@ async def reschedule_task(task_id: str, scheduled_at: str | None = None) -> str:
             return json.dumps({"error": f"Task {task_id} not found."})
         if task.status != "pending":
             return json.dumps({"error": f"Task is {task.status}, can only reschedule pending tasks."})
-        task.scheduled_at = scheduled
+
+        changes: list[str] = []
+        if scheduled_at is not _UNSET:
+            scheduled = _parse_scheduled_at(scheduled_at)
+            task.scheduled_at = scheduled
+            if scheduled:
+                changes.append(f"time → {scheduled.strftime('%Y-%m-%d %H:%M UTC')}")
+            else:
+                changes.append("time → run immediately on next poll")
+        if prompt is not _UNSET:
+            task.prompt = prompt
+            changes.append("prompt updated")
+
+        if not changes:
+            return json.dumps({"error": "Provide scheduled_at and/or prompt to change."})
+
         await db.commit()
 
-    if scheduled:
-        when = scheduled.strftime("%Y-%m-%d %H:%M UTC")
-        return f"Task {task_id} rescheduled for {when}."
-    return f"Task {task_id} will run immediately on next worker poll."
+    return f"Task {task_id} updated ({'; '.join(changes)})."
