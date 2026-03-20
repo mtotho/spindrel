@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from slack_settings import STATE_PATH, channel_map, default_bot
+from slack_settings import STATE_PATH, _get_channel_map, _get_default_bot
 
 _channel_state: dict[str, dict] = {}
 _OMIT = object()
@@ -32,7 +32,7 @@ _load_state()
 
 
 def resolve_bot(channel: str) -> str:
-    return channel_map.get(channel) or default_bot
+    return _get_channel_map().get(channel) or _get_default_bot()
 
 
 def get_channel_state(channel: str) -> dict:

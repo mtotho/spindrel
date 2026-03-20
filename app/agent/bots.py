@@ -1,11 +1,16 @@
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
+from app.db.engine import async_session
+from app.db.models import Bot as BotRow
 
 logger = logging.getLogger(__name__)
 
@@ -66,72 +71,157 @@ class BotConfig:
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
     docker_sandbox_profiles: list[str] = field(default_factory=list)
+    slack_display_name: str | None = None
+    slack_icon_emoji: str | None = None
+    slack_icon_url: str | None = None
 
-def load_bots(bots_dir: Path = BOTS_DIR) -> None:
-    _registry.clear()
+
+def _bot_row_to_config(row: BotRow) -> BotConfig:
+    """Convert a DB BotRow to a BotConfig dataclass."""
+    mem = row.memory_config or {}
+    memory_cfg = MemoryConfig(
+        enabled=mem.get("enabled", False),
+        cross_session=mem.get("cross_session", False),
+        cross_client=mem.get("cross_client", False),
+        cross_bot=mem.get("cross_bot", False),
+        prompt=mem.get("prompt"),
+        similarity_threshold=mem.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
+        wipe_on_session_delete=mem.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
+    )
+    know = row.knowledge_config or {}
+    knowledge_cfg = KnowledgeConfig(
+        enabled=know.get("enabled", False),
+        cross_bot=know.get("cross_bot", False),
+        cross_client=know.get("cross_client", False),
+        similarity_threshold=know.get("similarity_threshold", 0.45),
+    )
+    fs_raw = row.filesystem_indexes or []
+    filesystem_indexes = [
+        FilesystemIndexConfig(
+            root=entry["root"],
+            patterns=entry.get("patterns", ["**/*.py", "**/*.md", "**/*.yaml"]),
+            cooldown_seconds=entry.get("cooldown_seconds", 300),
+            watch=entry.get("watch", False),
+            similarity_threshold=entry.get("similarity_threshold"),
+        )
+        for entry in fs_raw
+    ]
+    return BotConfig(
+        id=row.id,
+        name=row.name,
+        model=row.model,
+        system_prompt=row.system_prompt or "",
+        mcp_servers=row.mcp_servers or [],
+        local_tools=row.local_tools or [],
+        pinned_tools=row.pinned_tools or [],
+        tool_retrieval=row.tool_retrieval,
+        tool_similarity_threshold=row.tool_similarity_threshold,
+        client_tools=row.client_tools or [],
+        skills=row.skills or [],
+        rag=False,
+        persona=row.persona,
+        context_compaction=row.context_compaction,
+        compaction_interval=row.compaction_interval,
+        compaction_keep_turns=row.compaction_keep_turns,
+        compaction_model=row.compaction_model,
+        memory_knowledge_compaction_prompt=row.memory_knowledge_compaction_prompt,
+        audio_input=row.audio_input or "transcribe",
+        memory=memory_cfg,
+        knowledge=knowledge_cfg,
+        filesystem_indexes=filesystem_indexes,
+        docker_sandbox_profiles=row.docker_sandbox_profiles or [],
+        slack_display_name=row.slack_display_name,
+        slack_icon_emoji=row.slack_icon_emoji,
+        slack_icon_url=row.slack_icon_url,
+    )
+
+
+def _yaml_data_to_row_dict(data: dict) -> dict:
+    """Convert YAML bot data dict to a dict suitable for inserting into bots table."""
+    mem_data = data.get("memory", {})
+    know_data = data.get("knowledge", {})
+    return {
+        "id": data["id"],
+        "name": data.get("name", data["id"]),
+        "model": data["model"],
+        "system_prompt": data.get("system_prompt", "You are a helpful assistant."),
+        "local_tools": data.get("local_tools", []),
+        "mcp_servers": data.get("mcp_servers", []),
+        "client_tools": data.get("client_tools", []),
+        "pinned_tools": data.get("pinned_tools", []),
+        "skills": data.get("skills", []),
+        "docker_sandbox_profiles": data.get("docker_sandbox_profiles", []),
+        "tool_retrieval": data.get("tool_retrieval", True),
+        "tool_similarity_threshold": data.get("tool_similarity_threshold"),
+        "persona": data.get("persona", False),
+        "context_compaction": data.get("context_compaction", True),
+        "compaction_interval": data.get("compaction_interval"),
+        "compaction_keep_turns": data.get("compaction_keep_turns"),
+        "compaction_model": data.get("compaction_model"),
+        "memory_knowledge_compaction_prompt": data.get("memory_knowledge_compaction_prompt"),
+        "audio_input": data.get("audio_input", "transcribe"),
+        "memory_config": {
+            "enabled": mem_data.get("enabled", False),
+            "cross_session": mem_data.get("cross_session", False),
+            "cross_client": mem_data.get("cross_client", False),
+            "cross_bot": mem_data.get("cross_bot", False),
+            "prompt": mem_data.get("prompt"),
+            "similarity_threshold": mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
+            "wipe_on_session_delete": mem_data.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
+        },
+        "knowledge_config": {
+            "enabled": know_data.get("enabled", False),
+            "cross_bot": know_data.get("cross_bot", False),
+            "cross_client": know_data.get("cross_client", False),
+            "similarity_threshold": know_data.get("similarity_threshold", 0.45),
+        },
+        "filesystem_indexes": data.get("filesystem_indexes", []),
+        "slack_display_name": data.get("slack_display_name"),
+        "slack_icon_emoji": data.get("slack_icon_emoji"),
+        "slack_icon_url": data.get("slack_icon_url"),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+
+async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
+    """Seed bots from YAML files into DB — only if id doesn't already exist."""
     if not bots_dir.exists():
-        logger.warning("Bots directory %s does not exist", bots_dir)
+        logger.info("No bots directory at %s, skipping seed", bots_dir)
         return
-    for path in bots_dir.glob("*.yaml"):
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        mem_data = data.get("memory", {})
-        memory_cfg = MemoryConfig(
-            enabled=mem_data.get("enabled", False),
-            cross_session=mem_data.get("cross_session", False),
-            cross_client=mem_data.get("cross_client", False),
-            cross_bot=mem_data.get("cross_bot", False),
-            prompt=mem_data.get("prompt"),
-            similarity_threshold=mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
-            wipe_on_session_delete=mem_data.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
-        )
-        know_data = data.get("knowledge", {})
-        knowledge_cfg = KnowledgeConfig(
-            enabled=know_data.get("enabled", False),
-            cross_bot=know_data.get("cross_bot", False),
-            cross_client=know_data.get("cross_client", False),
-            similarity_threshold=know_data.get("similarity_threshold", 0.45),
-        )
 
-        fs_raw = data.get("filesystem_indexes", [])
-        filesystem_indexes = [
-            FilesystemIndexConfig(
-                root=entry["root"],
-                patterns=entry.get("patterns", ["**/*.py", "**/*.md", "**/*.yaml"]),
-                cooldown_seconds=entry.get("cooldown_seconds", 300),
-                watch=entry.get("watch", False),
-                similarity_threshold=entry.get("similarity_threshold"),
-            )
-            for entry in fs_raw
-        ]
+    yaml_files = list(bots_dir.glob("*.yaml"))
+    if not yaml_files:
+        return
 
-        bot = BotConfig(
-            id=data["id"],
-            name=data.get("name", data["id"]),
-            model=data["model"],
-            system_prompt=data.get("system_prompt", "You are a helpful assistant."),
-            mcp_servers=data.get("mcp_servers", []),
-            local_tools=data.get("local_tools", []),
-            pinned_tools=data.get("pinned_tools", []),
-            tool_retrieval=data.get("tool_retrieval", True),
-            tool_similarity_threshold=data.get("tool_similarity_threshold"),
-            client_tools=data.get("client_tools", []),
-            skills=data.get("skills", []),
-            rag=data.get("rag", False),
-            persona=data.get("persona", False),
-            context_compaction=data.get("context_compaction", True),
-            compaction_interval=data.get("compaction_interval", settings.COMPACTION_INTERVAL),
-            compaction_keep_turns=data.get("compaction_keep_turns", settings.COMPACTION_KEEP_TURNS),
-            compaction_model=data.get("compaction_model", settings.COMPACTION_MODEL),
-            memory_knowledge_compaction_prompt=data.get("memory_knowledge_compaction_prompt", settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT),
-            audio_input=data.get("audio_input", "transcribe"),
-            memory=memory_cfg,
-            knowledge=knowledge_cfg,
-            filesystem_indexes=filesystem_indexes,
-            docker_sandbox_profiles=data.get("docker_sandbox_profiles", []),
-        )
+    async with async_session() as db:
+        for path in yaml_files:
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            if not data or "id" not in data:
+                continue
+            row_dict = _yaml_data_to_row_dict(data)
+            stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
+            await db.execute(stmt)
+        await db.commit()
+    logger.info("Seeded bots from YAML (seed-once, no overwrites)")
+
+
+async def load_bots() -> None:
+    """Load all bots from DB into the in-memory registry."""
+    _registry.clear()
+    async with async_session() as db:
+        rows = (await db.execute(select(BotRow))).scalars().all()
+    for row in rows:
+        bot = _bot_row_to_config(row)
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)
+    logger.info("Loaded %d bot(s) from DB", len(_registry))
+
+
+async def reload_bots() -> None:
+    """Re-populate registry from DB — called after admin edits."""
+    await load_bots()
 
 
 def list_bots() -> list[BotConfig]:

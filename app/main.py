@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.agent.bots import load_bots
-from app.agent.skills import load_skills
+from app.agent.bots import load_bots, seed_bots_from_yaml
+from app.agent.skills import load_skills, seed_skills_from_files
 from app.agent.tools import (
     index_local_tools,
     validate_pinned_tools,
@@ -29,8 +29,10 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
     logger.info("Running database migrations...")
     await run_migrations()
-    logger.info("Loading bot configurations...")
-    load_bots()
+    logger.info("Seeding bots from YAML (seed-once)...")
+    await seed_bots_from_yaml()
+    logger.info("Loading bot configurations from DB...")
+    await load_bots()
     logger.info("Loading MCP server config...")
     load_mcp_config()
     extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]
@@ -45,7 +47,9 @@ async def lifespan(app: FastAPI):
     await warm_mcp_tool_index_for_all_bots()
     await validate_pinned_tools()
 
-    logger.info("Loading skills...")
+    logger.info("Seeding skills from files (seed-once)...")
+    await seed_skills_from_files()
+    logger.info("Loading skills from DB...")
     await load_skills()
 
     logger.info("Indexing configured filesystem directories...")
@@ -75,12 +79,14 @@ app = FastAPI(title="Agent Server", lifespan=lifespan)
 
 # Register routers
 from app.routers import admin, chat, sessions, transcribe  # noqa: E402
+from app.routers.admin_slack import api_router as _slack_api_router  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(transcribe.router)
 app.include_router(admin.router)
+app.include_router(_slack_api_router, prefix="/api")
 
 app.mount("/admin/static", StaticFiles(directory="app/static"), name="admin-static")
 

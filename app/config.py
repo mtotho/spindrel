@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
+    # Slack
+    SLACK_DEFAULT_BOT: str = "default"
+
     BASE_COMPACTION_PROMPT: str ="""\
         You are a conversation summarizer. You will receive the message history of a \
         conversation between a user and an AI assistant.

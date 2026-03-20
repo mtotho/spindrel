@@ -85,6 +85,12 @@ async def run_agent_tool_loop(
         mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
         client_schemas = get_client_tool_schemas(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas
+        # Auto-inject get_skill when bot has skills configured (and tool not already included)
+        if bot.skills and not any(
+            t.get("function", {}).get("name") == "get_skill" for t in all_tools
+        ):
+            skill_schemas = get_local_tool_schemas(["get_skill"])
+            all_tools = all_tools + skill_schemas
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
@@ -511,9 +517,39 @@ async def run_stream(
                 },
             ))
 
-    skill_ids = bot.skills if bot.skills else None
-    if bot.skills or bot.rag:
-        chunks, skill_sim = await retrieve_context(user_message, skill_ids=skill_ids)
+    if bot.skills:
+        # Inject a skill index so the bot knows which skills are available.
+        # The bot uses get_skill(skill_id) to retrieve full content on demand.
+        from sqlalchemy import select as _sa_select
+        from app.db.engine import async_session as _async_session
+        from app.db.models import Skill as _SkillRow
+        async with _async_session() as _db:
+            _rows = (await _db.execute(
+                _sa_select(_SkillRow.id, _SkillRow.name)
+                .where(_SkillRow.id.in_(bot.skills))
+            )).all()
+        if _rows:
+            _index_lines = "\n".join(f"- {r.id}: {r.name}" for r in _rows)
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"Available skills (use get_skill to retrieve full content):\n{_index_lines}"
+                ),
+            })
+            yield {"type": "skill_index", "count": len(_rows)}
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="skill_index",
+                    count=len(_rows),
+                    data={"skill_ids": [r.id for r in _rows]},
+                ))
+    elif bot.rag:
+        # Legacy pure-RAG mode: semantic similarity retrieval across all skill docs
+        chunks, skill_sim = await retrieve_context(user_message, skill_ids=None)
         if chunks:
             yield {"type": "skill_context", "count": len(chunks)}
             if correlation_id is not None:

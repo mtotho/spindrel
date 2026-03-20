@@ -308,6 +308,60 @@ class SandboxInstance(Base):
     )
 
 
+class Bot(Base):
+    __tablename__ = "bots"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    local_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    mcp_servers: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    client_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    skills: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    docker_sandbox_profiles: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    tool_retrieval: Mapped[bool] = mapped_column(nullable=False, default=True)
+    tool_similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    persona: Mapped[bool] = mapped_column(nullable=False, default=False)
+    context_compaction: Mapped[bool] = mapped_column(nullable=False, default=True)
+    compaction_interval: Mapped[int | None] = mapped_column(nullable=True)
+    compaction_keep_turns: Mapped[int | None] = mapped_column(nullable=True)
+    compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_input: Mapped[str] = mapped_column(Text, nullable=False, default="transcribe")
+    memory_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    knowledge_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    filesystem_indexes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    slack_display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slack_icon_emoji: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slack_icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class SlackChannelConfig(Base):
+    __tablename__ = "slack_channel_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    channel_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class Task(Base):
     __tablename__ = "tasks"
 

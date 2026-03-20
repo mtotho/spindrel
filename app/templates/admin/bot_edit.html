@@ -1,0 +1,338 @@
+{% extends "admin/_base.html" %}
+{% block title %}Edit: {{ bot.name }}{% endblock %}
+
+{% block content %}
+
+{% if request.query_params.get('saved') %}
+<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
+  x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="opacity-0 translate-y-1"
+  x-transition:enter-end="opacity-100 translate-y-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="opacity-100"
+  x-transition:leave-end="opacity-0"
+  class="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-green-700 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg">
+  <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  Saved
+</div>
+{% endif %}
+
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/bots" class="text-gray-400 hover:text-gray-200 text-sm">← Bots</a>
+  <a href="/admin/bots/{{ bot.id }}" class="text-gray-500 hover:text-gray-300 text-sm ml-auto">View →</a>
+</div>
+<h1 class="text-2xl font-bold mb-1">{{ bot.name }}</h1>
+<div class="text-xs text-gray-500 mb-6">id: <span class="font-mono">{{ bot.id }}</span> · updated {{ bot.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>
+
+<form method="post" action="/admin/bots/{{ bot.id }}" class="max-w-3xl space-y-8">
+
+  <!-- Identity -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Identity</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Bot ID</label>
+        <input value="{{ bot.id }}" disabled
+          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-400 font-mono cursor-not-allowed" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Display Name</label>
+        <input name="name" value="{{ bot.name }}" required
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Model</label>
+        <input name="model" value="{{ bot.model }}" required
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+      </div>
+    </div>
+  </section>
+
+  <!-- System Prompt -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">System Prompt</h2>
+    <textarea name="system_prompt" rows="10"
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y">{{ bot.system_prompt }}</textarea>
+  </section>
+
+  <!-- Tools -->
+  <section x-data="{ retrieval: {{ 'true' if bot.tool_retrieval else 'false' }} }">
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Tools</h2>
+    <div class="space-y-5">
+
+      {% if local_tools %}
+      <div>
+        <div class="flex items-center gap-4 mb-2">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Local Tools</span>
+          <span class="text-xs text-yellow-600 ml-auto" x-show="retrieval" title="Pin = always include, bypasses RAG">📌 pin</span>
+          <span class="text-xs text-gray-500 ml-auto" x-show="!retrieval" title="All selected tools are always included when RAG is off">(all selected tools always active)</span>
+        </div>
+        <div class="space-y-1">
+          {% for tool in local_tools %}
+          {% set enabled = tool in (bot.local_tools or []) %}
+          {% set pinned = tool in (bot.pinned_tools or []) %}
+          <div class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 text-xs">
+            <input type="checkbox" name="local_tools" value="{{ tool }}"
+              {% if enabled %}checked{% endif %}
+              class="text-indigo-500 rounded"
+              onchange="syncPin(this, 'pin-lt-{{ loop.index }}')" />
+            <span class="text-gray-200 font-mono flex-1">{{ tool }}</span>
+            <input type="checkbox" name="pinned_tools" value="{{ tool }}" id="pin-lt-{{ loop.index }}"
+              {% if pinned %}checked{% endif %}
+              {% if not enabled %}disabled{% endif %}
+              x-show="retrieval"
+              class="text-yellow-500 rounded {% if not enabled %}opacity-30{% endif %}" />
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if mcp_servers %}
+      <div>
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">MCP Servers</div>
+        <div class="space-y-1">
+          {% for server in mcp_servers %}
+          <label class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 hover:border-indigo-500 cursor-pointer text-xs">
+            <input type="checkbox" name="mcp_servers" value="{{ server }}"
+              {% if server in (bot.mcp_servers or []) %}checked{% endif %}
+              class="text-indigo-500 rounded" />
+            <span class="text-gray-200 font-mono">{{ server }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if client_tools %}
+      <div>
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Client Tools</div>
+        <div class="space-y-1">
+          {% for tool in client_tools %}
+          <label class="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded border border-gray-700 hover:border-indigo-500 cursor-pointer text-xs">
+            <input type="checkbox" name="client_tools" value="{{ tool }}"
+              {% if tool in (bot.client_tools or []) %}checked{% endif %}
+              class="text-indigo-500 rounded" />
+            <span class="text-gray-200 font-mono">{{ tool }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Tool Retrieval (RAG) -->
+      <div class="pt-3 border-t border-gray-700">
+        <div class="flex items-start gap-3">
+          <div class="flex items-center gap-2 mt-0.5">
+            <input type="checkbox" name="tool_retrieval" id="tool_retrieval" value="true"
+              {% if bot.tool_retrieval %}checked{% endif %}
+              class="rounded text-indigo-500"
+              x-model="retrieval"
+              onchange="this.form.querySelector('[name=tool_retrieval][type=hidden]').value = this.checked ? 'true' : 'false'" />
+            <input type="hidden" name="tool_retrieval" value="{{ 'true' if bot.tool_retrieval else 'false' }}" />
+          </div>
+          <div class="flex-1">
+            <label for="tool_retrieval" class="text-sm font-medium text-gray-200 cursor-pointer">Tool Retrieval (RAG)</label>
+            <p class="text-xs text-gray-500 mt-0.5" x-show="retrieval">
+              Embed tool descriptions and select only the top-K most relevant tools per turn based on the user's message. Pinned tools bypass filtering and are always included.
+            </p>
+            <p class="text-xs text-amber-600 mt-0.5" x-show="!retrieval">
+              Disabled — all selected tools are passed to the LLM on every turn. Pins have no effect.
+            </p>
+            <div class="mt-2" x-show="retrieval">
+              <label class="block text-xs text-gray-400 mb-1">Similarity Threshold <span class="text-gray-600">(default {{ "0.35" }})</span></label>
+              <input name="tool_similarity_threshold" type="number" step="0.01" min="0" max="1"
+                value="{{ bot.tool_similarity_threshold or '' }}" placeholder="0.35"
+                class="w-36 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+  <script>
+  function syncPin(toolCb, pinId) {
+    const pin = document.getElementById(pinId);
+    if (!pin) return;
+    pin.disabled = !toolCb.checked;
+    pin.classList.toggle('opacity-30', !toolCb.checked);
+    if (!toolCb.checked) pin.checked = false;
+  }
+  </script>
+
+  <!-- Skills -->
+  {% if all_skills %}
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Skills</h2>
+    <div class="grid grid-cols-2 gap-2">
+      {% for skill in all_skills %}
+      <label class="flex items-center gap-2 p-2 bg-gray-800 rounded-lg border border-gray-700 hover:border-indigo-500 cursor-pointer">
+        <input type="checkbox" name="skills" value="{{ skill.id }}"
+          {% if skill.id in (bot.skills or []) %}checked{% endif %}
+          class="rounded text-indigo-500" />
+        <span class="text-sm text-gray-200">{{ skill.name }}</span>
+        <span class="text-xs text-gray-500 font-mono ml-auto">{{ skill.id }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Features -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Features</h2>
+    <div class="grid grid-cols-2 gap-4">
+      {% for field, label, val in [
+        ('persona','Persona', bot.persona),
+        ('context_compaction','Context Compaction', bot.context_compaction),
+      ] %}
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
+          {% if val %}checked{% endif %}
+          class="rounded text-indigo-500"
+          onchange="this.form.querySelector('[name={{ field }}][type=hidden]').value = this.checked ? 'true' : 'false'" />
+        <input type="hidden" name="{{ field }}" value="{{ 'true' if val else 'false' }}" />
+        <label for="{{ field }}" class="text-sm text-gray-300">{{ label }}</label>
+      </div>
+      {% endfor %}
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Compaction Interval (turns)</label>
+        <input name="compaction_interval" type="number" value="{{ bot.compaction_interval or '' }}" placeholder="default"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Compaction Keep Turns</label>
+        <input name="compaction_keep_turns" type="number" value="{{ bot.compaction_keep_turns or '' }}" placeholder="default"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Memory -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Memory</h2>
+    {% set mem = bot.memory_config or {} %}
+    <div class="grid grid-cols-2 gap-4">
+      {% for field, label, val in [
+        ('memory_enabled','Enable Memory', mem.get('enabled', False)),
+        ('memory_cross_session','Cross-Session', mem.get('cross_session', False)),
+      ] %}
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
+          {% if val %}checked{% endif %}
+          class="rounded text-indigo-500"
+          onchange="this.form.querySelector('[name={{ field }}][type=hidden]').value = this.checked ? 'true' : 'false'" />
+        <input type="hidden" name="{{ field }}" value="{{ 'true' if val else 'false' }}" />
+        <label for="{{ field }}" class="text-sm text-gray-300">{{ label }}</label>
+      </div>
+      {% endfor %}
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Similarity Threshold</label>
+        <input name="memory_similarity_threshold" type="number" step="0.01"
+          value="{{ mem.get('similarity_threshold', 0.45) }}"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Knowledge -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Knowledge</h2>
+    {% set know = bot.knowledge_config or {} %}
+    <div class="grid grid-cols-2 gap-4">
+      {% for field, label, val in [
+        ('knowledge_enabled','Enable Knowledge', know.get('enabled', False)),
+        ('knowledge_cross_client','Cross-Client', know.get('cross_client', False)),
+      ] %}
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
+          {% if val %}checked{% endif %}
+          class="rounded text-indigo-500"
+          onchange="this.form.querySelector('[name={{ field }}][type=hidden]').value = this.checked ? 'true' : 'false'" />
+        <input type="hidden" name="{{ field }}" value="{{ 'true' if val else 'false' }}" />
+        <label for="{{ field }}" class="text-sm text-gray-300">{{ label }}</label>
+      </div>
+      {% endfor %}
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Similarity Threshold</label>
+        <input name="knowledge_similarity_threshold" type="number" step="0.01"
+          value="{{ know.get('similarity_threshold', 0.45) }}"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Slack -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Slack</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Display Name</label>
+        <input name="slack_display_name" value="{{ bot.slack_display_name or '' }}" placeholder="{{ bot.name }}"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Icon Emoji</label>
+        <input name="slack_icon_emoji" value="{{ bot.slack_icon_emoji or '' }}" placeholder=":robot_face:"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Icon URL</label>
+        <input name="slack_icon_url" value="{{ bot.slack_icon_url or '' }}" placeholder="https://..."
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Advanced -->
+  <section x-data="{ open: false }">
+    <button type="button" @click="open = !open"
+      class="text-lg font-semibold text-gray-200 pb-2 border-b border-gray-700 w-full flex items-center justify-between">
+      <span>Advanced</span>
+      <span x-text="open ? '▲' : '▼'" class="text-sm text-gray-400"></span>
+    </button>
+    <div x-show="open" class="grid grid-cols-2 gap-4 mt-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Audio Input</label>
+        <select name="audio_input"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="transcribe" {% if bot.audio_input == 'transcribe' %}selected{% endif %}>transcribe</option>
+          <option value="native" {% if bot.audio_input == 'native' %}selected{% endif %}>native</option>
+        </select>
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Compaction Model</label>
+        <input name="compaction_model" value="{{ bot.compaction_model or '' }}" placeholder="default"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Memory/Knowledge Compaction Prompt</label>
+        <textarea name="memory_knowledge_compaction_prompt" rows="3"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y">{{ bot.memory_knowledge_compaction_prompt or '' }}</textarea>
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Filesystem Indexes (JSON)</label>
+        <textarea name="filesystem_indexes_json" rows="4"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y">{{ bot.filesystem_indexes | tojson }}</textarea>
+      </div>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-4">
+    <button type="submit"
+      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
+      Save Changes
+    </button>
+    <a href="/admin/bots/{{ bot.id }}" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+    <button type="button"
+      hx-delete="/admin/bots/{{ bot.id }}"
+      hx-confirm="Delete bot {{ bot.id }}? This cannot be undone."
+      hx-target="body"
+      hx-push-url="/admin/bots"
+      class="ml-auto text-sm text-red-400 hover:text-red-300">
+      Delete Bot
+    </button>
+  </div>
+</form>
+{% endblock %}

@@ -25,6 +25,12 @@ from app.routers.admin_tasks import router as _tasks_router  # noqa: E402
 from app.routers.admin_fs import router as _fs_router  # noqa: E402
 from app.routers.admin_knowledge_pins import router as _pins_router  # noqa: E402
 from app.routers.admin_sandbox import router as _sandbox_router  # noqa: E402
+from app.routers.admin_bots import router as _bots_router  # noqa: E402
+from app.routers.admin_skills import router as _skills_router  # noqa: E402
+from app.routers.admin_slack import router as _slack_router  # noqa: E402
+router.include_router(_bots_router)
+router.include_router(_skills_router)
+router.include_router(_slack_router)
 router.include_router(_tasks_router)
 router.include_router(_fs_router)
 router.include_router(_pins_router)

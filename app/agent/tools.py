@@ -116,6 +116,9 @@ async def _upsert_tool_row(
 async def index_local_tools() -> None:
     from app.tools.registry import iter_registered_tools
 
+    current_tools = list(iter_registered_tools())
+    current_keys = {tool_key_for(None, tool_name) for tool_name, _, _ in current_tools}
+
     # Fetch existing hashes in one query to avoid re-embedding unchanged tools
     async with async_session() as db:
         rows = (await db.execute(
@@ -124,8 +127,18 @@ async def index_local_tools() -> None:
         )).all()
     existing_hashes = {row.tool_key: row.content_hash for row in rows}
 
+    # Remove stale local tools no longer registered
+    stale_keys = set(existing_hashes) - current_keys
+    if stale_keys:
+        async with async_session() as db:
+            await db.execute(
+                delete(ToolEmbedding).where(ToolEmbedding.tool_key.in_(stale_keys))
+            )
+            await db.commit()
+        logger.info("Removed %d stale local tool embedding(s): %s", len(stale_keys), sorted(stale_keys))
+
     skipped = 0
-    for tool_name, schema, source_dir in iter_registered_tools():
+    for tool_name, schema, source_dir in current_tools:
         tkey = tool_key_for(None, tool_name)
         embed_txt = build_embed_text(schema, tool_name, None)
         h = content_hash(embed_txt)

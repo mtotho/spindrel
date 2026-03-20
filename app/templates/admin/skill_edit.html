@@ -1,0 +1,63 @@
+{% extends "admin/_base.html" %}
+{% block title %}{% if skill %}Edit: {{ skill.name }}{% else %}New Skill{% endif %}{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/skills" class="text-gray-400 hover:text-gray-200 text-sm">← Skills</a>
+</div>
+
+{% if skill %}
+<h1 class="text-2xl font-bold mb-1">{{ skill.name }}</h1>
+<div class="text-xs text-gray-500 mb-6">
+  id: <span class="font-mono">{{ skill.id }}</span> · updated {{ skill.updated_at.strftime('%Y-%m-%d %H:%M') }}
+</div>
+<form method="post" action="/admin/skills/{{ skill.id }}" class="max-w-3xl space-y-5">
+  <div>
+    <label class="block text-xs text-gray-400 mb-1">Name</label>
+    <input name="name" value="{{ skill.name }}" required
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+  </div>
+{% else %}
+<h1 class="text-2xl font-bold mb-6">New Skill</h1>
+<form method="post" action="/admin/skills" class="max-w-3xl space-y-5">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Skill ID <span class="text-red-400">*</span></label>
+      <input name="id" required placeholder="arch_linux"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+      <p class="text-xs text-gray-500 mt-1">Lowercase slug, cannot be changed.</p>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Display Name <span class="text-red-400">*</span></label>
+      <input name="name" required placeholder="Arch Linux"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+  </div>
+{% endif %}
+
+  <div>
+    <label class="block text-xs text-gray-400 mb-1">Content (Markdown)</label>
+    <textarea name="content" required
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
+      style="min-height: calc(100vh - 22rem);">{% if skill %}{{ skill.content }}{% endif %}</textarea>
+    <p class="text-xs text-gray-500 mt-1">Chunks are split by <code>## </code> headings and re-embedded on save.</p>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <button type="submit"
+      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
+      {% if skill %}Save &amp; Re-embed{% else %}Create &amp; Embed{% endif %}
+    </button>
+    <a href="/admin/skills" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+    {% if skill %}
+    <button type="button"
+      hx-delete="/admin/skills/{{ skill.id }}"
+      hx-confirm="Delete skill '{{ skill.id }}'?"
+      hx-push-url="/admin/skills"
+      class="ml-auto text-sm text-red-400 hover:text-red-300">
+      Delete Skill
+    </button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

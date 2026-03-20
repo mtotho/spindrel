@@ -78,6 +78,20 @@ class SlackDispatcher:
         }
         if thread_ts and reply_in_thread:
             payload["thread_ts"] = thread_ts
+
+        # Display name / icon overrides (requires chat:write.customize scope)
+        try:
+            bot_config = get_bot(task.bot_id)
+            username = bot_config.slack_display_name or bot_config.name or None
+            if username:
+                payload["username"] = username
+            if bot_config.slack_icon_emoji:
+                payload["icon_emoji"] = bot_config.slack_icon_emoji
+            elif bot_config.slack_icon_url:
+                payload["icon_url"] = bot_config.slack_icon_url
+        except Exception:
+            pass  # bot not found or no display config — use Slack app defaults
+
         try:
             r = await _http.post(
                 "https://slack.com/api/chat.postMessage",
