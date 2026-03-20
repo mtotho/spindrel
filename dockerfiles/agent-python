@@ -1,6 +1,11 @@
 FROM python:3.12-slim
 
-RUN apt-get update -qq && apt-get install -y -qq git && rm -rf /var/lib/apt/lists/*
+# Node.js + claude CLI — lets the agent run `claude --print "..."` inside sandbox containers
+# via exec_sandbox. Also installs git for repo operations.
+# Auth: set ANTHROPIC_API_KEY in the sandbox profile env (admin UI) or mount ~/.claude.
+RUN apt-get update -qq && apt-get install -y -qq git gh nodejs npm && \
+    npm install -g @anthropic-ai/claude-code && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV GIT_TERMINAL_PROMPT=0
 

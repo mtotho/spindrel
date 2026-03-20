@@ -163,7 +163,7 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `cancel_task` | Cancel a pending task so it won't run. |
 | `reschedule_task` | Change when a pending task will run. |
 | `delegate_to_agent` | Run another bot as a sub-agent. Immediate mode returns the result synchronously; deferred mode creates a background task. See [docs/delegation.md](docs/delegation.md). |
-| `delegate_to_harness` | Run an external CLI tool (e.g. `claude`, `cursor`) as a subprocess and return its stdout. Requires `harnesses.yaml` and `harness_access` on the bot. See [docs/delegation.md](docs/delegation.md). |
+| `delegate_to_harness` | Run an external CLI tool (e.g. `claude`, `cursor`) as a subprocess and return its stdout. Requires `harnesses.yaml` and `harness_access` on the bot. See [docs/harness.md](docs/harness.md). |
 | `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
 | `list_sandbox_profiles` | List Docker sandbox profiles (image/templates) this bot can use. |
 | `ensure_sandbox` | Start a **new** container from a profile; returns `instance_id` (each call adds one until max concurrent). |
@@ -762,6 +762,30 @@ Having a non-empty `delegate_bots` list enables delegation for that bot without 
 
 → Full details: [docs/delegation.md](docs/delegation.md)
 
+## External Harnesses
+
+Harnesses let a bot call external CLI tools (e.g. `claude`, `cursor`) as subprocesses and get their stdout back as a tool result.
+
+**Quick setup:**
+
+```yaml
+# bots/my_bot.yaml
+local_tools:
+  - delegate_to_harness
+harness_access:
+  - claude-code    # allowlist of harness names from harnesses.yaml
+```
+
+**Claude Code harness** — uses `ANTHROPIC_API_KEY` from `.env` (inherited by the subprocess automatically). For Claude subscription users, see credential mounting in the docs.
+
+```
+ANTHROPIC_API_KEY=sk-ant-api03-...   # in .env
+```
+
+The `Dockerfile` and `dockerfiles/agent-python` both include Node.js + `@anthropic-ai/claude-code` for Docker deployments. The `harnesses.yaml` is mounted via `docker-compose.yml`.
+
+→ Full details: [docs/harness.md](docs/harness.md)
+
 ## API
 
 | Endpoint | Method | Description |
@@ -914,5 +938,6 @@ android-client/   React Native (Expo bare workflow) Android client
 migrations/       Alembic migrations
 scripts/          Dev helper scripts
 docs/             Feature documentation
-  delegation.md   Bot-to-bot delegation and external harness execution
+  delegation.md   Bot-to-bot delegation (delegate_to_agent)
+  harness.md      External CLI harness execution (delegate_to_harness, claude-code setup)
 ```
