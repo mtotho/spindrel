@@ -34,6 +34,8 @@ async def post_chat(
     client_id: str,
     session_id: str,
     attachments: list[dict] | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> dict:
     payload: dict = {
         "message": message,
@@ -43,6 +45,10 @@ async def post_chat(
     }
     if attachments:
         payload["attachments"] = attachments
+    if dispatch_type:
+        payload["dispatch_type"] = dispatch_type
+    if dispatch_config:
+        payload["dispatch_config"] = dispatch_config
     r = await http.post(
         f"{AGENT_BASE_URL}/chat",
         json=payload,

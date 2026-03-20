@@ -29,6 +29,10 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
     "current_memory_cross_bot", default=None
 )
 
+current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
+current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
+
+
 def set_agent_context(
     session_id: uuid.UUID | None = None,
     client_id: str | None = None,
@@ -39,6 +43,8 @@ def set_agent_context(
     memory_cross_client: bool | None = None,
     memory_cross_bot: bool | None = None,
     memory_similarity_threshold: float | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> None:
     """Set the current agent context. Call at the start of run_stream."""
     current_session_id.set(session_id)
@@ -53,4 +59,6 @@ def set_agent_context(
         current_memory_similarity_threshold.set(memory_similarity_threshold)
     if memory_cross_bot is not None:
         current_memory_cross_bot.set(memory_cross_bot)
+    current_dispatch_type.set(dispatch_type)
+    current_dispatch_config.set(dispatch_config)
  

@@ -155,6 +155,12 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `upsert_knowledge` | Create or update a knowledge document by name. Requires `knowledge.enabled` on the bot. |
 | `get_knowledge` | Retrieve a knowledge document by exact name. Requires `knowledge.enabled` on the bot. |
 | `search_knowledge` | Search knowledge documents by semantic similarity. Requires `knowledge.enabled` on the bot. |
+| `create_task` | Schedule a deferred agent job. Runs later and dispatches the result back to the originating channel/thread. |
+| `list_my_tasks` | List recent tasks for the current session with status and result previews. |
+| `get_task` | Get the full status and result of a task by ID. |
+| `cancel_task` | Cancel a pending task so it won't run. |
+| `reschedule_task` | Change when a pending task will run. |
+| `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
 
 **`context_compaction`** (default `true`) enables automatic context summarization. When enabled, the server periodically uses an LLM to generate a title and detailed summary for the session, then loads the summary instead of the full message history. This keeps context windows manageable for long conversations.
 
@@ -575,6 +581,114 @@ A Slack Socket Mode bot routes DMs and channel messages to the same `POST /chat`
 When both Slack tokens are set, `./scripts/dev-server.sh` starts the Slack bot automatically in the background and stops it on exit. To run the bot alone: `python slack_bot.py`.
 
 **Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read` (and DM scopes if needed), plus **`files:read`** to download shared attachments and **`files:write`** so `generate_image` can post images back. Configure the app at [api.slack.com/apps](https://api.slack.com/apps) (Socket Mode, event subscriptions `message.channels`, `app_mention`). See [SLACK_FILE_AND_IMAGE_INTEGRATION.MD](SLACK_FILE_AND_IMAGE_INTEGRATION.MD) for file/vision/image tool behavior.
+
+## Task Scheduling
+
+The task system lets the agent schedule deferred work and deliver results back to wherever the request came from — a Slack thread, a webhook, or just the DB for polling. A background worker polls for due tasks every 5 seconds.
+
+### What you can do
+
+**Reminders** — ask the bot to remind you of something later:
+
+> "Remind me to check the deployment in 20 minutes"
+> "Send me a message tomorrow morning at 9am asking if I submitted the timesheet"
+
+The bot calls `create_task` with a prompt and a time offset. When the task fires, the result is posted back to the same Slack channel and thread automatically. No extra setup.
+
+**Deferred research** — kick off a long job and come back to it:
+
+> "In 2 hours, check the weather and the Hacker News front page and give me a summary"
+> "At midnight, fetch the status of all my home assistant entities and save a snapshot to knowledge"
+
+**Conditional follow-ups** — chain work together:
+
+> "Check if the garage door is open. If it is, send me a message in 10 minutes to close it."
+
+The agent handles this in one turn: check the door, then call `create_task` with a conditional prompt.
+
+**Recurring-ish tasks** — approximate recurrence by scheduling the next task from within a task's prompt:
+
+> "Every hour, check if the office temperature is above 78°F and message me if so"
+
+The task prompt can include: *"After checking, schedule yourself again for +1h."* The agent will call `create_task` again at the end of each run.
+
+### Time format
+
+`create_task` and `reschedule_task` accept:
+
+| Format | Example | Meaning |
+|---|---|---|
+| Relative offset | `+30m` | 30 minutes from now |
+| Relative offset | `+2h` | 2 hours from now |
+| Relative offset | `+1d` | 1 day from now |
+| Relative offset | `+90s` | 90 seconds from now |
+| ISO 8601 | `2026-03-20T09:00:00` | Absolute UTC time |
+| null / omit | — | Run immediately (next worker poll, ≤5s) |
+
+### Managing tasks
+
+```
+you:  remind me to water the plants in 2 hours
+bot:  Done — task abc123 scheduled for 14:32 UTC.
+
+you:  actually make it 3 hours
+bot:  [calls list_my_tasks, then reschedule_task]
+      Rescheduled to 15:32 UTC.
+
+you:  cancel it
+bot:  [calls cancel_task]
+      Task abc123 cancelled.
+
+you:  what tasks do i have pending?
+bot:  [calls list_my_tasks]
+      Tasks:
+      - abc123 [pending] scheduled=2026-03-19 15:32 UTC
+      - def456 [complete] scheduled=immediately | result: Office temp is 72°F.
+```
+
+### Adding task tools to a bot
+
+```yaml
+local_tools:
+  - create_task
+  - list_my_tasks
+  - get_task
+  - cancel_task
+  - reschedule_task
+```
+
+Tool retrieval will surface them when the intent sounds like scheduling/reminders. If you want them always available regardless of RAG, add them to `pinned_tools` too.
+
+### Dispatch types
+
+When `create_task` is called during a request, it automatically inherits the dispatch routing from that request's context. You don't configure this per-task — it just works.
+
+| dispatch_type | Where results go |
+|---|---|
+| `slack` | Posted to the originating Slack channel/thread via `chat.postMessage` |
+| `webhook` | POSTed as JSON to a URL in `dispatch_config.url` |
+| `internal` | Written as a message into a session so another agent can pick it up |
+| `none` | Result stored in DB only; poll with `get_task` |
+
+CLI and direct API clients get `none` by default — use `get_task` or check `/admin/tasks` to see results.
+
+### Admin UI
+
+`/admin/tasks` shows all tasks with status, bot, dispatch type, and result previews. Click a task for the full prompt, result, error traceback, dispatch config, and timing.
+
+### API
+
+Include dispatch fields in `POST /chat` to control where task results are delivered when calling from your own code:
+
+```json
+{
+  "message": "check the weather and remind me again in 1 hour",
+  "bot_id": "slack_bot",
+  "client_id": "my-app",
+  "dispatch_type": "webhook",
+  "dispatch_config": {"url": "https://example.com/hooks/agent-results"}
+}
+```
 
 ## API
 

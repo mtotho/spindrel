@@ -40,6 +40,8 @@ class ChatRequest(BaseModel):
     audio_format: Optional[str] = None  # e.g. "m4a", "wav", "webm"
     audio_native: Optional[bool] = None  # True/False overrides bot default; None = use bot setting
     attachments: list[Attachment] = Field(default_factory=list)
+    dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"
+    dispatch_config: Optional[dict] = None  # type-specific routing config
 
 
 class ChatResponse(BaseModel):
@@ -139,6 +141,8 @@ async def chat(
             audio_data=audio_data, audio_format=audio_format,
             attachments=att_payload,
             correlation_id=correlation_id,
+            dispatch_type=req.dispatch_type,
+            dispatch_config=req.dispatch_config,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -216,6 +220,8 @@ async def chat_stream(
                 audio_data=audio_data, audio_format=audio_format,
                 attachments=att_payload,
                 correlation_id=correlation_id,
+                dispatch_type=req.dispatch_type,
+                dispatch_config=req.dispatch_config,
             )
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():

@@ -19,6 +19,10 @@ from app.db.models import BotKnowledge, KnowledgeWrite, Memory, Message, Session
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+# Import and include task sub-router
+from app.routers.admin_tasks import router as _tasks_router  # noqa: E402
+router.include_router(_tasks_router)
+
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 

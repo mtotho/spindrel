@@ -1,0 +1,207 @@
+{% extends "admin/_base.html" %}
+{% block title %}Task {{ task.id }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div class="flex items-center gap-3">
+    <a href="/admin/tasks" class="text-gray-400 hover:text-gray-200 text-sm">← Tasks</a>
+    <span class="text-gray-600">/</span>
+    <h1 class="text-xl font-bold text-gray-100">Task Detail</h1>
+  </div>
+  <div class="flex gap-2" x-data>
+    <button @click="$dispatch('open-edit')"
+      class="px-3 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors">
+      Edit
+    </button>
+    <button
+      hx-delete="/admin/tasks/{{ task.id }}"
+      hx-confirm="Delete this task? This cannot be undone."
+      hx-on::after-request="window.location='/admin/tasks'"
+      class="px-3 py-1.5 text-sm bg-red-800 hover:bg-red-700 text-white rounded-lg transition-colors">
+      Delete
+    </button>
+  </div>
+</div>
+
+<!-- Edit form (Alpine modal) -->
+<div x-data="{ open: false }" @open-edit.window="open = true">
+  <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-2xl shadow-2xl mx-4">
+      <h2 class="text-lg font-semibold text-gray-100 mb-5">Edit Task</h2>
+      <form method="post" action="/admin/tasks/{{ task.id }}/edit" class="space-y-4">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Status</label>
+          <select name="status"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            {% for s in ["pending", "cancelled", "failed", "complete"] %}
+            <option value="{{ s }}" {% if task.status == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Set to "pending" to re-queue a failed task.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Scheduled At</label>
+          <input type="text" name="scheduled_at"
+            value="{{ task.scheduled_at.strftime('%Y-%m-%dT%H:%M:%S') if task.scheduled_at else '' }}"
+            placeholder="2026-03-20T09:00:00 or +2h or leave blank for immediate"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Recurrence</label>
+          <input type="text" name="recurrence"
+            value="{{ task.recurrence or '' }}"
+            placeholder="+1h or +1d or blank for one-shot"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Prompt</label>
+          <textarea name="prompt" rows="6"
+            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500">{{ task.prompt }}</textarea>
+        </div>
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" @click="open = false"
+            class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
+          <button type="submit"
+            class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+  <!-- Left: metadata -->
+  <div class="space-y-4">
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Metadata</h2>
+      <dl class="space-y-3 text-sm">
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">ID</dt>
+          <dd class="text-gray-200 font-mono break-all">{{ task.id }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Status</dt>
+          <dd>
+            {% if task.status == "complete" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">complete</span>
+            {% elif task.status == "running" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300">running</span>
+            {% elif task.status == "failed" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">failed</span>
+            {% elif task.status == "cancelled" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-600 text-gray-300">cancelled</span>
+            {% else %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">pending</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Bot</dt>
+          <dd><a href="/admin/bots/{{ task.bot_id }}" class="text-indigo-400 hover:underline">{{ task.bot_id }}</a></dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Client</dt>
+          <dd class="text-gray-300">{{ task.client_id or "—" }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Session</dt>
+          <dd class="text-gray-300">
+            {% if task.session_id %}
+            <a href="/admin/sessions/{{ task.session_id }}/detail" class="text-indigo-400 hover:underline font-mono text-xs">
+              {{ task.session_id }}
+            </a>
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Dispatch</dt>
+          <dd>
+            {% if task.dispatch_type == "slack" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">slack</span>
+            {% elif task.dispatch_type == "webhook" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-blue-900 text-blue-300">webhook</span>
+            {% elif task.dispatch_type == "internal" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-purple-900 text-purple-300">internal</span>
+            {% else %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">none</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Recurrence</dt>
+          <dd class="text-gray-300">
+            {% if task.recurrence %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-indigo-900 text-indigo-300">{{ task.recurrence }}</span>
+            {% else %}one-shot{% endif %}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Parent Task</dt>
+          <dd class="text-gray-300">
+            {% if task.parent_task_id %}
+            <a href="/admin/tasks/{{ task.parent_task_id }}" class="text-indigo-400 hover:underline font-mono text-xs">
+              {{ task.parent_task_id }}
+            </a>
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- Timing -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Timing</h2>
+      <dl class="space-y-3 text-sm">
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Created</dt>
+          <dd class="text-gray-300">{{ task.created_at | fmt_dt }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Scheduled</dt>
+          <dd class="text-gray-300">{{ task.scheduled_at | fmt_dt if task.scheduled_at else "immediately" }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Run at</dt>
+          <dd class="text-gray-300">{{ task.run_at | fmt_dt if task.run_at else "—" }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-500 w-32 shrink-0">Completed</dt>
+          <dd class="text-gray-300">{{ task.completed_at | fmt_dt if task.completed_at else "—" }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- Dispatch config -->
+    {% if task.dispatch_config %}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Dispatch Config</h2>
+      <pre class="text-xs text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ task.dispatch_config | tojson(indent=2) }}</pre>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: prompt + result/error -->
+  <div class="space-y-4">
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Prompt</h2>
+      <pre class="text-sm text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ task.prompt }}</pre>
+    </div>
+
+    {% if task.result %}
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Result</h2>
+      <pre class="text-sm text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ task.result }}</pre>
+    </div>
+    {% endif %}
+
+    {% if task.error %}
+    <div class="bg-gray-800 rounded-xl border border-red-900 p-5">
+      <h2 class="text-sm font-semibold text-red-400 uppercase tracking-wider mb-3">Error</h2>
+      <pre class="text-sm text-red-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap">{{ task.error }}</pre>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -51,24 +51,40 @@ system_prompt: |
   PERSONA: The [PERSONA] block injected below is your internalized self-knowledge. Treat it as your own. Update it proactively when you learn something about yourself or this user worth keeping permanently.
 mcp_servers:
   - homeassistant
-local_tools:
-  - get_weather
+pinned_tools:
+  - get_current_local_time
+  - upsert_knowledge
+  - get_knowledge
+  - search_knowledge
+  - append_to_knowledge
+  - list_knowledge_bases
+  - update_persona
   - search_memories
   - save_memory
-  - update_persona
+local_tools:
+  - get_weather
   - web_search
   - fetch_url
   - bennie_loggins_health_vet_visits
   - bennie_loggins_health_poop_logs
   - bennie_loggins_health_puke_logs
   - bennie_loggins_health_summary
+  - generate_image
+  - get_current_local_time
   - upsert_knowledge
+  - get_trace
   - get_knowledge
   - search_knowledge
   - append_to_knowledge
   - list_knowledge_bases
-  - get_current_local_time
-  - generate_image
+  - update_persona
+  - search_memories
+  - save_memory
+  - create_task
+  - list_my_tasks
+  - get_task
+  - cancel_task
+  - reschedule_task
 tool_retrieval: true
 tool_similarity_threshold: 0.35
 skills:

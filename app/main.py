@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -51,6 +52,8 @@ async def lifespan(app: FastAPI):
         from app.stt import warm_up as stt_warm_up
         stt_warm_up()
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
+    from app.agent.tasks import task_worker
+    asyncio.create_task(task_worker())
     yield
 
 

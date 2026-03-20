@@ -1,13 +1,11 @@
 import asyncio
 import json
 import logging
-import re
 import time
 import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -16,12 +14,21 @@ from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.agent.memory import retrieve_memories
 from app.agent.knowledge import retrieve_knowledge
+from app.agent.message_utils import (
+    _AUDIO_TRANSCRIPT_INSTRUCTION,
+    _all_tool_schemas_by_name,
+    _build_audio_user_message,
+    _build_user_message_content,
+    _event_with_compaction_tag,
+    _extract_client_actions,
+    _extract_transcript,
+    _merge_tool_schemas,
+)
 from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.agent.rag import retrieve_context
+from app.agent.recording import _record_tool_call, _record_trace_event
 from app.agent.tools import retrieve_tools
 from app.config import settings
-from app.db.engine import async_session
-from app.db.models import ToolCall, TraceEvent
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, is_mcp_tool
 from app.tools.local.memory import call_memory_tool
@@ -30,76 +37,6 @@ from app.tools.local.persona import call_persona_tool
 from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
-
-
-async def _record_tool_call(
-    *,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    bot_id: str | None,
-    tool_name: str,
-    tool_type: str,
-    server_name: str | None,
-    iteration: int,
-    arguments: dict,
-    result: str | None,
-    error: str | None,
-    duration_ms: int,
-    correlation_id: uuid.UUID | None = None,
-) -> None:
-    """Fire-and-forget: write a ToolCall row to the DB."""
-    try:
-        async with async_session() as db:
-            db.add(ToolCall(
-                session_id=session_id,
-                client_id=client_id,
-                bot_id=bot_id,
-                tool_name=tool_name,
-                tool_type=tool_type,
-                server_name=server_name,
-                iteration=iteration,
-                arguments=arguments,
-                result=result[:4000] if result else None,
-                error=error,
-                duration_ms=duration_ms,
-                correlation_id=correlation_id,
-                created_at=datetime.now(timezone.utc),
-            ))
-            await db.commit()
-    except Exception:
-        logger.exception("Failed to record tool call for %s", tool_name)
-
-
-async def _record_trace_event(
-    *,
-    correlation_id: uuid.UUID,
-    session_id: uuid.UUID | None,
-    bot_id: str | None,
-    client_id: str | None,
-    event_type: str,
-    event_name: str | None = None,
-    count: int | None = None,
-    data: dict | None = None,
-    duration_ms: int | None = None,
-) -> None:
-    """Fire-and-forget: write a TraceEvent row to the DB."""
-    try:
-        async with async_session() as db:
-            db.add(TraceEvent(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot_id,
-                client_id=client_id,
-                event_type=event_type,
-                event_name=event_name,
-                count=count,
-                data=data,
-                duration_ms=duration_ms,
-                created_at=datetime.now(timezone.utc),
-            ))
-            await db.commit()
-    except Exception:
-        logger.exception("Failed to record trace event %s", event_type)
 
 
 def _trace(msg: str, *args: Any) -> None:
@@ -113,117 +50,12 @@ _client = AsyncOpenAI(
     timeout=60.0,
 )
 
-_TRANSCRIPT_RE = re.compile(r"\[transcript\](.*?)\[/transcript\]", re.DOTALL)
-
-_AUDIO_TRANSCRIPT_INSTRUCTION = (
-    "The user's message includes audio input. Before your response, include an exact "
-    "transcription of what the user said in [transcript]...[/transcript] tags. "
-    "Place the transcript on its own line before your actual reply. Example:\n"
-    "[transcript]Hello, how are you?[/transcript]\n"
-    "I'm doing well! How can I help?"
-)
-
-
-def _build_user_message_content(text: str, attachments: list[dict] | None) -> str | list[dict]:
-    """OpenAI-style multimodal user content for LiteLLM. `attachments` items: type image, content (base64), mime_type."""
-    if not attachments:
-        return text
-    parts: list[dict] = [{"type": "text", "text": text or "(no text)"}]
-    for att in attachments:
-        if att.get("type") != "image":
-            continue
-        mime = att.get("mime_type") or "image/jpeg"
-        b64 = att.get("content") or ""
-        if not b64:
-            continue
-        parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:{mime};base64,{b64}"},
-        })
-    return parts
-
-
-def _build_audio_user_message(audio_data: str, audio_format: str | None) -> dict:
-    """Construct a multimodal user message with an audio content part."""
-    fmt = audio_format or "m4a"
-    return {
-        "role": "user",
-        "content": [
-            {
-                "type": "input_audio",
-                "input_audio": {"data": audio_data, "format": fmt},
-            },
-        ],
-    }
-
-
-def _extract_transcript(text: str) -> tuple[str, str]:
-    """Parse [transcript]...[/transcript] from model response.
-
-    Returns (transcript, clean_response). If no tags found, transcript is empty
-    and clean_response is the original text.
-    """
-    match = _TRANSCRIPT_RE.search(text)
-    if not match:
-        return "", text
-
-    transcript = match.group(1).strip()
-    clean = text[:match.start()] + text[match.end():]
-    return transcript, clean.strip()
-
 
 @dataclass
 class RunResult:
     response: str = ""
     transcript: str = ""
     client_actions: list[dict] = field(default_factory=list)
-
-
-def _extract_client_actions(messages: list[dict], from_index: int) -> list[dict]:
-    """Scan messages added during this turn for client_action tool calls."""
-    actions = []
-    for msg in messages[from_index:]:
-        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
-            continue
-        for tc in msg["tool_calls"]:
-            if tc.get("function", {}).get("name") == "client_action":
-                try:
-                    args = json.loads(tc["function"]["arguments"])
-                    actions.append(args)
-                except (json.JSONDecodeError, KeyError):
-                    pass
-    return actions
-
-
-def _event_with_compaction_tag(event: dict[str, Any], compaction: bool) -> dict[str, Any]:
-    if compaction:
-        return {**event, "compaction": True}
-    return event
-
-
-def _merge_tool_schemas(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[str] = set()
-    out: list[dict[str, Any]] = []
-    for group in groups:
-        for t in group:
-            fn = t.get("function") or {}
-            name = fn.get("name")
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            out.append(t)
-    return out
-
-
-async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]:
-    by_name: dict[str, dict[str, Any]] = {}
-    for t in get_local_tool_schemas(bot.local_tools):
-        by_name[t["function"]["name"]] = t
-    for t in await fetch_mcp_tools(bot.mcp_servers):
-        by_name[t["function"]["name"]] = t
-    for t in get_client_tool_schemas(bot.client_tools):
-        by_name[t["function"]["name"]] = t
-    return by_name
 
 
 async def run_agent_tool_loop(
@@ -307,14 +139,28 @@ async def run_agent_tool_loop(
                         "content": "You must respond to the user. Write a response now."
                     })
                     try:
-                        retry = await _client.chat.completions.create(
-                            model=model,
-                            messages=messages,
-                        )
+                        # Anthropic (via LiteLLM) rejects requests that include tool turns in
+                        # `messages` unless `tools=` is also sent; use tool_choice=none so we
+                        # only get a plain assistant reply.
+                        retry_kw: dict[str, Any] = {"model": model, "messages": messages}
+                        if tools_param is not None:
+                            retry_kw["tools"] = tools_param
+                            retry_kw["tool_choice"] = "none"
+                        retry = await _client.chat.completions.create(**retry_kw)
                         text = retry.choices[0].message.content or ""
                         messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                     except Exception as exc:
                         logger.error("Forced-response retry failed: %s", exc)
+                        if correlation_id is not None:
+                            asyncio.create_task(_record_trace_event(
+                                correlation_id=correlation_id,
+                                session_id=session_id,
+                                bot_id=bot.id,
+                                client_id=client_id,
+                                event_type="llm_error",
+                                event_name="forced_response_retry",
+                                data={"message": str(exc)[:2000]},
+                            ))
                         text = "(I encountered an error generating a response. Please try again.)"
                         messages.append({"role": "assistant", "content": text})
 
@@ -482,10 +328,11 @@ async def run_agent_tool_loop(
             "role": "system",
             "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
         })
-        response = await _client.chat.completions.create(
-            model=model,
-            messages=messages,
-        )
+        final_kw: dict[str, Any] = {"model": model, "messages": messages}
+        if tools_param is not None:
+            final_kw["tools"] = tools_param
+            final_kw["tool_choice"] = "none"
+        response = await _client.chat.completions.create(**final_kw)
         msg = response.choices[0].message
         messages.append(msg.model_dump(exclude_none=True))
         if response.usage and correlation_id is not None:
@@ -547,6 +394,8 @@ async def run_stream(
     audio_format: str | None = None,
     attachments: list[dict] | None = None,
     correlation_id: uuid.UUID | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -566,6 +415,8 @@ async def run_stream(
         memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
         memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
         memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+        dispatch_type=dispatch_type,
+        dispatch_config=dispatch_config,
     )
     native_audio = audio_data is not None
     turn_start = len(messages)
@@ -720,6 +571,8 @@ async def run(
     audio_format: str | None = None,
     attachments: list[dict] | None = None,
     correlation_id: uuid.UUID | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -729,6 +582,8 @@ async def run(
         audio_data=audio_data, audio_format=audio_format,
         attachments=attachments,
         correlation_id=correlation_id,
+        dispatch_type=dispatch_type,
+        dispatch_config=dispatch_config,
     ):
         if event["type"] == "response":
             result.response = event["text"]

@@ -85,6 +85,7 @@ async def dispatch(
     say,
     client,
     files: list | None = None,
+    thread_ts: str | None = None,
 ):
     text = (text or "").strip()
 
@@ -107,6 +108,12 @@ async def dispatch(
 
     message = f"[Slack channel:{channel} user:{user}] {text}{appended}"
 
+    dispatch_config = {
+        "channel_id": channel,
+        "thread_ts": thread_ts,
+        "token": BOT_TOKEN,
+    }
+
     try:
         body = await post_chat(
             message=message,
@@ -114,6 +121,8 @@ async def dispatch(
             client_id=client_id,
             session_id=session_id,
             attachments=attachments if attachments else None,
+            dispatch_type="slack",
+            dispatch_config=dispatch_config,
         )
         reply = (body.get("response") or "").strip()
         await say(format_response_for_slack(reply))
@@ -133,6 +142,7 @@ def register_message_handlers(app):
             return
         if (event.get("text") or "").strip().startswith("<@"):
             return
+        thread_ts = event.get("thread_ts") or event.get("ts")
         await dispatch(
             event["channel"],
             event["user"],
@@ -140,6 +150,7 @@ def register_message_handlers(app):
             say,
             client,
             event.get("files"),
+            thread_ts=thread_ts,
         )
 
     @app.event("app_mention")
@@ -150,6 +161,7 @@ def register_message_handlers(app):
         if not text and not event.get("files"):
             await say("_Say something after the mention, or attach a file._")
             return
+        thread_ts = event.get("thread_ts") or event.get("ts")
         await dispatch(
             event["channel"],
             event["user"],
@@ -157,4 +169,5 @@ def register_message_handlers(app):
             say,
             client,
             event.get("files"),
+            thread_ts=thread_ts,
         )
