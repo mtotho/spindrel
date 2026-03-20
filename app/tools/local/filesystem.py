@@ -267,6 +267,81 @@ async def delete_filesystem_index(path: str, scope: str = "session") -> str:
     return json.dumps({"deleted_chunks": result.rowcount, "root": abs_root, "scope": scope})
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "set_filesystem_threshold",
+        "description": (
+            "Adjust the cosine similarity threshold used to decide whether filesystem chunks are injected into context. "
+            "Raise the threshold (e.g. to 0.6–0.75) if irrelevant files are being injected for unrelated queries. "
+            "Lower it (e.g. to 0.3–0.4) if relevant code/docs are being missed. "
+            "Typical useful range: 0.35–0.75. "
+            "Omit 'path' to update all configured indexes for this bot at once. "
+            "Changes take effect immediately on the next request."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "threshold": {
+                    "type": "number",
+                    "description": "New similarity threshold (0.0–1.0). Higher = more selective (fewer injected chunks).",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional. Absolute path of a specific indexed directory to adjust. Omit to update all indexes.",
+                },
+            },
+            "required": ["threshold"],
+        },
+    },
+})
+async def set_filesystem_threshold(threshold: float, path: str | None = None) -> str:
+    from app.agent.bots import reload_bots
+    from app.agent.context import current_bot_id
+    from app.db.engine import async_session
+    from app.db.models import Bot as BotRow
+    from sqlalchemy import select as sa_select
+
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."})
+    if not (0.0 <= threshold <= 1.0):
+        return json.dumps({"error": "Threshold must be between 0.0 and 1.0."})
+
+    async with async_session() as db:
+        row = (await db.execute(sa_select(BotRow).where(BotRow.id == bot_id))).scalar_one_or_none()
+        if row is None:
+            return json.dumps({"error": f"Bot '{bot_id}' not found."})
+
+        existing = list(row.filesystem_indexes or [])
+        if not existing:
+            return "No filesystem indexes configured for this bot."
+
+        if path:
+            abs_path = str(Path(path).resolve())
+            matched = False
+            for entry in existing:
+                if str(Path(entry.get("root", "")).resolve()) == abs_path:
+                    old = entry.get("similarity_threshold", "server default")
+                    entry["similarity_threshold"] = threshold
+                    matched = True
+                    break
+            if not matched:
+                roots = [e.get("root", "") for e in existing]
+                return f"No filesystem index found for '{path}'. Configured roots: {roots}"
+            msg = f"Filesystem threshold for '{path}' updated: {old} → {threshold}."
+        else:
+            for entry in existing:
+                entry["similarity_threshold"] = threshold
+            msg = f"Filesystem threshold for all {len(existing)} index(es) updated to {threshold}."
+
+        row.filesystem_indexes = existing
+        await db.commit()
+
+    reload_bots()
+    return msg + " Takes effect on the next request."
+
+
 def _scope_label(row_bot_id: str | None, row_client_id: str | None, current_bot: str, current_client: str | None) -> str:
     """Human-readable scope description for list output."""
     if row_bot_id is None and row_client_id is None:

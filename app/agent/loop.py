@@ -41,6 +41,30 @@ from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
 
+_SYS_MSG_PREFIXES: list[tuple[str, str]] = [
+    ("Current time:", "sys:datetime"),
+    ("Tagged skill context", "sys:tagged_skills"),
+    ("Tagged knowledge", "sys:tagged_knowledge"),
+    ("Available skills (use get_skill", "sys:skill_index"),
+    ("Relevant context:\n", "sys:skill_context"),
+    ("Available sub-agents", "sys:delegate_index"),
+    ("Relevant memories from past", "sys:memory"),
+    ("Pinned knowledge", "sys:pinned_knowledge"),
+    ("Relevant knowledge:\n", "sys:knowledge"),
+    ("Relevant code/files", "sys:fs_context"),
+    ("Available tools (not yet loaded", "sys:tool_index"),
+    ("You must respond to the user", "sys:forced_response"),
+    ("You have used too many tool calls", "sys:max_iterations"),
+    ("[TRANSCRIPT_INSTRUCTION]", "sys:audio"),
+]
+
+
+def _CLASSIFY_SYS_MSG(content: str) -> str:
+    for prefix, label in _SYS_MSG_PREFIXES:
+        if content.startswith(prefix):
+            return label
+    return "sys:system_prompt"
+
 
 def _trace(msg: str, *args: Any) -> None:
     """Log a single-line agent trace when AGENT_TRACE is enabled (no JSON)."""
@@ -160,6 +184,35 @@ async def run_agent_tool_loop(
         for iteration in range(settings.AGENT_MAX_ITERATIONS):
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
+
+            if correlation_id is not None:
+                _breakdown: dict[str, dict] = {}
+                for _m in messages:
+                    _role = _m.get("role", "?")
+                    _content = _m.get("content") or ""
+                    _chars = sum(len(str(p)) for p in _content) if isinstance(_content, list) else len(_content)
+                    if _role == "assistant" and _m.get("tool_calls"):
+                        _chars += sum(len(str(tc)) for tc in _m["tool_calls"])
+                    _key = _role
+                    if _role == "system" and isinstance(_content, str):
+                        _key = _CLASSIFY_SYS_MSG(_content)
+                    if _key not in _breakdown:
+                        _breakdown[_key] = {"count": 0, "chars": 0}
+                    _breakdown[_key]["count"] += 1
+                    _breakdown[_key]["chars"] += _chars
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="context_breakdown",
+                    data={
+                        "breakdown": _breakdown,
+                        "total_messages": len(messages),
+                        "total_chars": sum(v["chars"] for v in _breakdown.values()),
+                        "iteration": iteration + 1,
+                    },
+                ))
 
             response = await _llm_call(model, messages, tools_param, tool_choice)
             msg = response.choices[0].message

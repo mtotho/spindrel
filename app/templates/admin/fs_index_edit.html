@@ -15,8 +15,9 @@
   </div>
 
   <form hx-post="/admin/filesystem/save-edit"
-        hx-target="#fs-edit-{{ idx.row_key }} td"
-        hx-swap="innerHTML"
+        hx-target="#fs-row-{{ idx.row_key }}"
+        hx-swap="outerHTML"
+        hx-on::after-request="document.getElementById('fs-edit-{{ idx.row_key }}').querySelector('td').innerHTML=''"
         class="space-y-3">
     <input type="hidden" name="root" value="{{ idx.root }}" />
     <input type="hidden" name="bot_id" value="{{ idx.bot_id or '' }}" />
@@ -30,11 +31,17 @@
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 resize-y font-mono">{{ idx.patterns | join('\n') }}</textarea>
     </div>
 
-    <div class="flex items-center gap-6">
+    <div class="flex items-center gap-6 flex-wrap">
       <div>
         <label class="text-xs text-gray-400 block mb-1">Cooldown (seconds)</label>
         <input type="number" name="cooldown_seconds" value="{{ idx.cooldown_seconds }}" min="0"
           class="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Similarity Threshold <span class="text-gray-500">(blank = server default)</span></label>
+        <input type="number" name="similarity_threshold" step="0.01" min="0" max="1"
+          value="{{ idx.similarity_threshold if idx.similarity_threshold is not none else '' }}" placeholder="server default"
+          class="w-36 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>
       <div class="flex items-center gap-2 mt-4">
         <input type="checkbox" name="watch" id="watch-{{ idx.row_key }}"

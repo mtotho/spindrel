@@ -659,6 +659,23 @@
     </div>
   </section>
 
+  <!-- Filesystem Indexes script (must be before x-data use) -->
+  <script>
+  function fsIndexData() {
+    const init = {{ (bot.filesystem_indexes or []) | tojson }};
+    return {
+      entries: (init || []).map(e => ({...e, similarity_threshold: e.similarity_threshold ?? null})),
+      newRoot: '', newThreshold: null,
+      addEntry() {
+        if (!this.newRoot.trim()) return;
+        this.entries = [...this.entries, {root: this.newRoot.trim(), patterns: ['**/*.py','**/*.md','**/*.yaml'], cooldown_seconds: 300, watch: false, similarity_threshold: this.newThreshold || null}];
+        this.newRoot = ''; this.newThreshold = null;
+      },
+      removeEntry(i) { this.entries = this.entries.filter((_, j) => j !== i); },
+    };
+  }
+  </script>
+
   <!-- Advanced -->
   <section x-data="{ open: false }">
     <button type="button" @click="open = !open"
@@ -685,10 +702,34 @@
         <textarea name="memory_knowledge_compaction_prompt" rows="3"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y">{{ bot.memory_knowledge_compaction_prompt or '' }}</textarea>
       </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Filesystem Indexes (JSON)</label>
-        <textarea name="filesystem_indexes_json" rows="4"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y">{{ bot.filesystem_indexes | tojson }}</textarea>
+      <div class="col-span-2" x-data="fsIndexData()">
+        <input type="hidden" name="filesystem_indexes_json" :value="JSON.stringify(entries)" />
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-xs text-gray-400">Filesystem Indexes</label>
+          <span class="text-xs text-gray-600">Configure patterns/watch in FS Admin · threshold overrides server default</span>
+        </div>
+        <div class="space-y-1 mb-2">
+          <template x-for="(entry, i) in entries" :key="i">
+            <div class="flex items-center gap-2 bg-gray-800 rounded px-3 py-1.5 border border-gray-700 text-xs">
+              <span class="font-mono text-gray-200 flex-1 truncate" x-text="entry.root"></span>
+              <label class="text-gray-500 shrink-0">threshold</label>
+              <input type="number" step="0.01" min="0" max="1"
+                :value="entry.similarity_threshold ?? ''"
+                @input="entry.similarity_threshold = $event.target.value ? parseFloat($event.target.value) : null"
+                placeholder="default"
+                class="w-24 bg-gray-900 border border-gray-600 rounded px-2 py-0.5 text-gray-200 focus:outline-none focus:border-indigo-500" />
+              <button type="button" @click="removeEntry(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
+            </div>
+          </template>
+          <div x-show="entries.length === 0" class="text-xs text-gray-600 italic px-1">No filesystem indexes configured</div>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" x-model="newRoot" @keydown.enter.prevent="addEntry()" placeholder="/path/to/directory"
+            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          <input type="number" x-model.number="newThreshold" step="0.01" min="0" max="1" placeholder="threshold"
+            class="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+          <button type="button" @click="addEntry()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+        </div>
       </div>
     </div>
   </section>

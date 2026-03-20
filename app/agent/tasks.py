@@ -166,8 +166,82 @@ DISPATCHERS: dict[str, SlackDispatcher | WebhookDispatcher | InternalDispatcher 
 # Runner
 # ---------------------------------------------------------------------------
 
+async def run_harness_task(task: Task) -> None:
+    """Execute a harness task: run the subprocess, store result, dispatch to output channel."""
+    logger.info("Running harness task %s", task.id)
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        t = await db.get(Task, task.id)
+        if t is None:
+            return
+        t.status = "running"
+        t.run_at = now
+        await db.commit()
+
+    cfg = task.dispatch_config or {}
+    harness_name = cfg.get("harness_name", "")
+    working_directory = cfg.get("working_directory")
+    output_dispatch_type = cfg.get("output_dispatch_type", "none")
+    output_dispatch_config = cfg.get("output_dispatch_config") or {}
+
+    try:
+        from app.agent.bots import get_bot
+        from app.services.harness import harness_service, HarnessError
+        bot = get_bot(task.bot_id)
+
+        result = await harness_service.run(
+            harness_name=harness_name,
+            prompt=task.prompt,
+            working_directory=working_directory,
+            bot=bot,
+        )
+
+        parts = []
+        if result.stdout:
+            parts.append(result.stdout)
+        if result.stderr:
+            parts.append(f"[stderr]\n{result.stderr}")
+        if result.truncated:
+            parts.append("[output truncated]")
+        parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
+        result_text = "\n".join(parts)
+
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "complete"
+                t.result = result_text
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+
+        # Build a synthetic task for delivery with the output dispatch config
+        output_task = Task(
+            id=task.id,
+            bot_id=task.bot_id,
+            dispatch_type=output_dispatch_type,
+            dispatch_config=output_dispatch_config,
+        )
+        dispatcher = DISPATCHERS.get(output_dispatch_type, DISPATCHERS["none"])
+        await dispatcher.deliver(output_task, result_text)
+
+    except Exception as exc:
+        logger.exception("Harness task %s failed", task.id)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = str(exc)[:4000]
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+
+
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
+    if task.dispatch_type == "harness":
+        await run_harness_task(task)
+        return
+
     logger.info("Running task %s (bot=%s)", task.id, task.bot_id)
     now = datetime.now(timezone.utc)
 

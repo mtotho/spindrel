@@ -50,6 +50,7 @@
     {% set is_rag = item.kind == 'trace_event' and obj.event_type in ('memory_injection', 'skill_context', 'knowledge_context', 'fs_context', 'pinned_knowledge_context') %}
     {% set is_tool_rag = item.kind == 'trace_event' and obj.event_type == 'tool_retrieval' %}
     {% set is_tokens = item.kind == 'trace_event' and obj.event_type == 'token_usage' %}
+    {% set is_context_breakdown = item.kind == 'trace_event' and obj.event_type == 'context_breakdown' %}
     {% set is_tool = item.kind == 'tool_call' %}
     {% set is_msg = item.kind == 'message' %}
 
@@ -59,6 +60,7 @@
         {% if is_error %}border-red-400 bg-red-900
         {% elif is_rag %}border-purple-400 bg-purple-900
         {% elif is_tool_rag %}border-yellow-400 bg-yellow-900
+        {% elif is_context_breakdown %}border-cyan-500 bg-cyan-950
         {% elif is_tokens %}border-gray-500 bg-gray-800
         {% elif is_tool %}border-indigo-400 bg-indigo-900
         {% elif is_msg and obj.role == 'user' %}border-green-400 bg-green-900
@@ -108,6 +110,8 @@
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-violet-900/50 text-violet-300 shrink-0">pinned</span>
             {% elif obj.event_type == 'tool_retrieval' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/50 text-yellow-300 shrink-0">tool_rag</span>
+            {% elif obj.event_type == 'context_breakdown' %}
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-cyan-900/50 text-cyan-300 shrink-0">ctx</span>
             {% elif obj.event_type == 'token_usage' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-400 shrink-0">tokens</span>
             {% elif obj.event_type == 'error' %}
@@ -141,6 +145,14 @@
             {% if obj.data and obj.data.get('threshold') is not none %}
             <span class="text-gray-600 text-xs font-mono">threshold={{ obj.data.get('threshold') }}</span>
             {% endif %}
+            {% elif is_context_breakdown and obj.data %}
+            {% set bd = obj.data.get('breakdown', {}) %}
+            {% set total_chars = obj.data.get('total_chars', 0) %}
+            {% for key, info in bd.items() | sort(attribute='1.chars', reverse=True) %}
+            <span class="text-xs font-mono {% if info.chars > total_chars * 0.2 %}text-amber-300{% else %}text-cyan-400{% endif %}" title="{{ key }}">{{ key.replace('sys:', '') }}:{{ info.chars }}</span>
+            {% endfor %}
+            <span class="text-gray-500 text-xs">= {{ total_chars }}</span>
+            {% if obj.data.get('iteration') %}<span class="text-gray-600 text-xs">iter {{ obj.data.get('iteration') }}</span>{% endif %}
             {% elif is_tokens and obj.data %}
             <span class="text-gray-400 text-xs font-mono">↑{{ obj.data.get('prompt_tokens', '?') }} ↓{{ obj.data.get('completion_tokens', '?') }} total={{ obj.data.get('total_tokens', '?') }}</span>
             {% if obj.data.get('iteration') %}<span class="text-gray-600 text-xs">iter {{ obj.data.get('iteration') }}</span>{% endif %}
@@ -197,7 +209,25 @@
             </div>
             {% endif %}
           {% else %}
-            {% if obj.data %}
+            {% if is_context_breakdown and obj.data and obj.data.get('breakdown') %}
+            <div>
+              <div class="text-xs text-gray-500 mb-1 uppercase tracking-wide">Context Breakdown — {{ obj.data.get('total_messages', 0) }} messages / {{ obj.data.get('total_chars', 0) }} chars</div>
+              <table class="w-full text-xs font-mono">
+                <thead><tr class="text-gray-500 text-left"><th class="pr-4 pb-1">role</th><th class="pr-4 pb-1">msgs</th><th class="pb-1">chars</th></tr></thead>
+                <tbody>
+                  {% set total_chars = obj.data.get('total_chars', 1) %}
+                  {% for role, info in obj.data.get('breakdown', {}).items() | sort(attribute='1.chars', reverse=True) %}
+                  {% set pct = ((info.chars / total_chars) * 100) | round(1) if total_chars > 0 else 0 %}
+                  <tr class="{% if info.chars > total_chars * 0.3 %}text-amber-300{% else %}text-gray-300{% endif %}">
+                    <td class="pr-4 py-0.5">{{ role }}</td>
+                    <td class="pr-4 py-0.5">{{ info.count }}</td>
+                    <td class="py-0.5">{{ info.chars }} <span class="text-gray-600">({{ pct }}%)</span></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% elif obj.data %}
             <div>
               <div class="text-xs text-gray-500 mb-1 uppercase tracking-wide">Data</div>
               <pre class="text-xs font-mono text-gray-300 bg-gray-900 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">{{ obj.data | tojson(indent=2) }}</pre>
@@ -233,6 +263,12 @@ function buildEventText(evt) {
     if (evt.result) lines.push(`  result: ${evt.result.substring(0, 500)}${evt.result.length > 500 ? '...' : ''}`);
     if (evt.error) lines.push(`  error: ${evt.error}`);
     if (evt.duration_ms != null) lines.push(`  duration: ${evt.duration_ms}ms`);
+  } else if (evt.event_type === 'context_breakdown' && evt.data) {
+    lines.push(`[context_breakdown] iter=${evt.data.iteration || 1} total=${evt.data.total_chars || 0} chars`);
+    if (evt.data.breakdown) {
+      const sorted = Object.entries(evt.data.breakdown).sort((a, b) => b[1].chars - a[1].chars);
+      for (const [key, info] of sorted) lines.push(`  ${key}: ${info.count} msg, ${info.chars} chars`);
+    }
   } else {
     lines.push(`[${evt.event_type}]${evt.event_name ? ' ' + evt.event_name : ''}`);
     if (evt.count != null) lines.push(`  count: ${evt.count}`);

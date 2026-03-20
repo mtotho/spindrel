@@ -220,6 +220,56 @@ async def unpin_knowledge_tool(name: str, scope: str) -> str:
     raise NotImplementedError("unpin_knowledge must be called via call_knowledge_tool")
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "set_knowledge_threshold",
+        "description": (
+            "Adjust the cosine similarity threshold used to decide whether knowledge documents are injected into context. "
+            "Raise the threshold (e.g. to 0.6–0.7) if irrelevant knowledge is being injected for unrelated questions. "
+            "Lower it (e.g. to 0.3–0.35) if relevant knowledge is being missed. "
+            "Typical useful range: 0.35–0.75. Default is 0.45. "
+            "Changes take effect immediately on the next request."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "threshold": {
+                    "type": "number",
+                    "description": "New similarity threshold (0.0–1.0). Higher = more selective.",
+                },
+            },
+            "required": ["threshold"],
+        },
+    },
+})
+async def set_knowledge_threshold(threshold: float) -> str:
+    from app.agent.bots import reload_bots
+    from app.agent.context import current_bot_id
+    from app.db.engine import async_session
+    from app.db.models import Bot as BotRow
+    from sqlalchemy import select as sa_select
+
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."})
+    if not (0.0 <= threshold <= 1.0):
+        return json.dumps({"error": "Threshold must be between 0.0 and 1.0."})
+
+    async with async_session() as db:
+        row = (await db.execute(sa_select(BotRow).where(BotRow.id == bot_id))).scalar_one_or_none()
+        if row is None:
+            return json.dumps({"error": f"Bot '{bot_id}' not found."})
+        cfg = dict(row.knowledge_config or {})
+        old = cfg.get("similarity_threshold", 0.45)
+        cfg["similarity_threshold"] = threshold
+        row.knowledge_config = cfg
+        await db.commit()
+
+    reload_bots()
+    return f"Knowledge similarity threshold updated: {old} → {threshold}. Takes effect on the next request."
+
+
 async def call_knowledge_tool(
     name: str,
     arguments_json: str,

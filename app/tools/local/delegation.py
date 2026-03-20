@@ -159,8 +159,10 @@ async def delegate_to_agent(
         "name": "delegate_to_harness",
         "description": (
             "Run an external CLI harness (e.g. claude-code, cursor) as a subprocess with a prompt. "
-            "Returns stdout from the harness. Harness must be configured in harnesses.yaml and "
-            "the bot must have harness_access for the named harness."
+            "Use mode=sync (default) to wait for the result. "
+            "Use mode=deferred to run in the background — the result is posted back to the channel when done; "
+            "the tool returns a task_id immediately. "
+            "Harness must be configured in harnesses.yaml and the bot must have harness_access for it."
         ),
         "parameters": {
             "type": "object",
@@ -177,6 +179,17 @@ async def delegate_to_agent(
                     "type": "string",
                     "description": "Working directory for the harness process. Must be in server allowlist if set.",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["sync", "deferred"],
+                    "default": "sync",
+                    "description": (
+                        "sync (default): wait for the harness to finish and return its output. "
+                        "deferred: start the harness in the background, return a task_id immediately; "
+                        "result is posted back to the originating channel when complete. "
+                        "Use deferred for long-running harnesses (e.g. claude-code on large tasks)."
+                    ),
+                },
             },
             "required": ["harness", "prompt"],
         },
@@ -186,6 +199,7 @@ async def delegate_to_harness(
     harness: str,
     prompt: str,
     working_directory: str | None = None,
+    mode: str = "sync",
 ) -> str:
     from app.agent.bots import get_bot
     from app.services.harness import harness_service, HarnessError
@@ -200,6 +214,35 @@ async def delegate_to_harness(
     if not settings.DELEGATION_ENABLED and not bot.harness_access:
         return json.dumps({"error": "Delegation is disabled. Set DELEGATION_ENABLED=true or configure harness_access for this bot."})
 
+    if mode == "deferred":
+        from app.db.engine import async_session
+        from app.db.models import Task
+        dispatch_type = current_dispatch_type.get()
+        dispatch_config = dict(current_dispatch_config.get() or {})
+        session_id = current_session_id.get()
+        client_id = current_client_id.get()
+        task = Task(
+            bot_id=parent_bot_id,
+            client_id=client_id,
+            session_id=session_id,
+            prompt=prompt,
+            status="pending",
+            dispatch_type="harness",
+            dispatch_config={
+                "harness_name": harness,
+                "working_directory": working_directory,
+                "output_dispatch_type": dispatch_type or "none",
+                "output_dispatch_config": dispatch_config,
+            },
+        )
+        async with async_session() as db:
+            db.add(task)
+            await db.commit()
+            await db.refresh(task)
+        logger.info("Deferred harness task created: %s (harness=%s)", task.id, harness)
+        return json.dumps({"task_id": str(task.id), "status": "deferred", "harness": harness})
+
+    # sync mode
     try:
         result = await harness_service.run(
             harness_name=harness,

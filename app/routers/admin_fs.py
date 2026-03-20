@@ -171,7 +171,8 @@ def _row_key(bot_id: str | None, client_id: str | None, root: str) -> str:
 
 def _build_idx(bot_id: str | None, client_id: str | None, root: str,
                chunk_count: int, file_count: int, last_indexed,
-               watch: bool, patterns: list[str], cooldown_seconds: int) -> dict:
+               watch: bool, patterns: list[str], cooldown_seconds: int,
+               similarity_threshold: float | None = None) -> dict:
     scope = _scope_badge(bot_id, client_id)
     return {
         "bot_id": bot_id,
@@ -183,6 +184,7 @@ def _build_idx(bot_id: str | None, client_id: str | None, root: str,
         "watch": watch,
         "patterns": patterns,
         "cooldown_seconds": cooldown_seconds,
+        "similarity_threshold": similarity_threshold,
         "scope": scope,
         "row_key": _row_key(bot_id, client_id, root),
     }
@@ -193,10 +195,11 @@ async def admin_fs_edit_form(request: Request, root: str, bot_id: str = "", clie
     resolved_bot_id = bot_id.strip() or None
     resolved_client_id = client_id.strip() or None
 
-    # Load current patterns/watch/cooldown from bot config if available
+    # Load current patterns/watch/cooldown/threshold from bot config if available
     patterns = ["**/*.py", "**/*.md", "**/*.yaml"]
     watch = False
     cooldown_seconds = 300
+    similarity_threshold: float | None = None
     if resolved_bot_id:
         try:
             from app.agent.bots import get_bot
@@ -210,6 +213,7 @@ async def admin_fs_edit_form(request: Request, root: str, bot_id: str = "", clie
                 patterns = cfg.patterns
                 watch = cfg.watch
                 cooldown_seconds = cfg.cooldown_seconds
+                similarity_threshold = cfg.similarity_threshold
         except Exception:
             pass
 
@@ -217,6 +221,7 @@ async def admin_fs_edit_form(request: Request, root: str, bot_id: str = "", clie
         resolved_bot_id, resolved_client_id, root,
         chunk_count=0, file_count=0, last_indexed=None,
         watch=watch, patterns=patterns, cooldown_seconds=cooldown_seconds,
+        similarity_threshold=similarity_threshold,
     )
     return templates.TemplateResponse(
         "admin/fs_index_edit.html",
@@ -233,6 +238,7 @@ async def admin_fs_save_edit(
     patterns: str = Form(default="**/*.py\n**/*.md\n**/*.yaml"),
     cooldown_seconds: int = Form(default=300),
     watch: str = Form(default=""),
+    similarity_threshold: str = Form(default=""),
 ):
     from app.agent.fs_indexer import index_directory
 
@@ -240,6 +246,11 @@ async def admin_fs_save_edit(
     resolved_client_id = client_id.strip() or None
     parsed_patterns = [p.strip() for p in patterns.splitlines() if p.strip()]
     watch_bool = bool(watch)  # checkbox sends "on" when checked, absent when not
+    parsed_threshold: float | None = None
+    try:
+        parsed_threshold = float(similarity_threshold) if similarity_threshold.strip() else None
+    except (ValueError, AttributeError):
+        pass
 
     # Persist to bot config if this is a bot-owned index
     if resolved_bot_id:
@@ -249,6 +260,7 @@ async def admin_fs_save_edit(
             from app.db.models import Bot as BotRow
             from sqlalchemy import select as sa_select
 
+            from sqlalchemy.orm.attributes import flag_modified
             bot = get_bot(resolved_bot_id)
             abs_root = str(Path(root).resolve())
             async with _session() as db:
@@ -256,25 +268,34 @@ async def admin_fs_save_edit(
                     sa_select(BotRow).where(BotRow.id == resolved_bot_id)
                 )).scalar_one_or_none()
                 if row is not None:
-                    existing = list(row.filesystem_indexes or [])
+                    import copy
+                    existing = copy.deepcopy(row.filesystem_indexes or [])
                     updated = False
                     for entry in existing:
                         if str(Path(entry.get("root", "")).resolve()) == abs_root:
                             entry["patterns"] = parsed_patterns
                             entry["watch"] = watch_bool
                             entry["cooldown_seconds"] = cooldown_seconds
+                            if parsed_threshold is not None:
+                                entry["similarity_threshold"] = parsed_threshold
+                            elif "similarity_threshold" in entry:
+                                del entry["similarity_threshold"]
                             updated = True
                             break
                     if not updated:
-                        existing.append({
+                        new_entry: dict = {
                             "root": root,
                             "patterns": parsed_patterns,
                             "watch": watch_bool,
                             "cooldown_seconds": cooldown_seconds,
-                        })
+                        }
+                        if parsed_threshold is not None:
+                            new_entry["similarity_threshold"] = parsed_threshold
+                        existing.append(new_entry)
                     row.filesystem_indexes = existing
+                    flag_modified(row, "filesystem_indexes")
                     await db.commit()
-            reload_bots()
+            await reload_bots()
         except Exception:
             pass  # non-fatal — still re-index with new patterns
 
@@ -315,19 +336,13 @@ async def admin_fs_save_edit(
         watch=watch_bool,
         patterns=parsed_patterns,
         cooldown_seconds=cooldown_seconds,
+        similarity_threshold=parsed_threshold,
     )
 
-    # Render updated data row for OOB swap + clear the edit slot
-    row_key = _row_key(resolved_bot_id, resolved_client_id, abs_root)
-    tmpl = templates.env.get_template("admin/fs_index_row.html")
-    data_row_html = tmpl.render(request=request, idx=idx)
-    oob_row = data_row_html.replace(
-        f'id="fs-row-{row_key}"',
-        f'id="fs-row-{row_key}" hx-swap-oob="outerHTML:#fs-row-{row_key}"',
-        1,
+    return templates.TemplateResponse(
+        "admin/fs_index_row.html",
+        {"request": request, "idx": idx},
     )
-    # Standard response clears the edit slot; OOB updates the data row
-    return HTMLResponse(oob_row)
 
 
 @router.delete("/filesystem/chunks", response_class=HTMLResponse)
