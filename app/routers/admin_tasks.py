@@ -123,6 +123,7 @@ async def admin_task_detail(request: Request, task_id: uuid.UUID):
 
     from app.tools.packs import get_tool_packs
     packs = get_tool_packs()
+    bots = list_bots()
     completions = (
         [{"value": f"skill:{s.id}", "label": f"skill:{s.id} — {s.name}"} for s in all_skills]
         + [{"value": f"tool:{t}", "label": f"tool:{t}"} for t in tool_names]
@@ -134,7 +135,7 @@ async def admin_task_detail(request: Request, task_id: uuid.UUID):
 
     return templates.TemplateResponse(
         "admin/task_detail.html",
-        {"request": request, "task": task, "completions_json": json.dumps(completions)},
+        {"request": request, "task": task, "completions_json": json.dumps(completions), "bots": bots},
     )
 
 
@@ -145,7 +146,9 @@ async def admin_task_edit(
     scheduled_at: str = Form(""),
     recurrence: str = Form(""),
     status: str = Form(...),
+    bot_id: str = Form(...),
     reply_in_thread: str = Form(""),  # checkbox: "on" when checked, "" when not
+    trigger_rag_loop: str = Form(""),  # checkbox: "on" when checked, "" when not
 ):
     async with async_session() as db:
         task = await db.get(Task, task_id)
@@ -155,6 +158,8 @@ async def admin_task_edit(
         task.prompt = prompt.strip()
         task.recurrence = recurrence.strip() or None
         task.status = status
+        task.bot_id = bot_id.strip()
+        task.trigger_rag_loop = trigger_rag_loop == "on"
 
         # Update reply_in_thread in dispatch_config for Slack tasks
         if task.dispatch_type == "slack" and task.dispatch_config is not None:

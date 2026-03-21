@@ -1,0 +1,158 @@
+{% extends "admin/_base.html" %}
+{% block title %}Session {{ session.id }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/admin/sessions" class="text-gray-400 hover:text-gray-200 text-sm">← Sessions</a>
+  <span class="text-gray-600">/</span>
+  <h1 class="text-xl font-bold text-gray-100">Session Detail</h1>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-3 mb-6">
+  <div class="bg-gray-800 rounded-xl border border-gray-700 p-5 lg:col-span-1">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Metadata</h2>
+    <dl class="space-y-3 text-sm">
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">ID</dt>
+        <dd class="text-gray-200 font-mono break-all text-xs">{{ session.id }}</dd>
+      </div>
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Bot</dt>
+        <dd><a href="/admin/bots/{{ session.bot_id }}" class="text-indigo-400 hover:underline">{{ session.bot_id }}</a></dd>
+      </div>
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Client</dt>
+        <dd class="text-gray-300 font-mono text-xs break-all">{{ session.client_id }}</dd>
+      </div>
+      {% if session.title %}
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Title</dt>
+        <dd class="text-gray-300">{{ session.title }}</dd>
+      </div>
+      {% endif %}
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Last active</dt>
+        <dd class="text-gray-300 text-xs">{{ session.last_active | fmt_dt }}</dd>
+      </div>
+      {% if session.depth and session.depth > 0 %}
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Depth</dt>
+        <dd><span class="px-1.5 py-0.5 rounded text-xs bg-purple-900/50 text-purple-300 border border-purple-800/50">{{ session.depth }}</span></dd>
+      </div>
+      {% endif %}
+      {% if session.parent_session_id %}
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Parent</dt>
+        <dd><a href="/admin/sessions/{{ session.parent_session_id }}/detail" class="text-indigo-400 hover:underline font-mono text-xs">{{ session.parent_session_id }}</a></dd>
+      </div>
+      {% endif %}
+      {% if session.root_session_id and session.root_session_id != session.parent_session_id %}
+      <div class="flex gap-2">
+        <dt class="text-gray-500 w-24 shrink-0">Root</dt>
+        <dd><a href="/admin/sessions/{{ session.root_session_id }}/detail" class="text-indigo-400 hover:underline font-mono text-xs">{{ session.root_session_id }}</a></dd>
+      </div>
+      {% endif %}
+    </dl>
+  </div>
+
+  {% if plans %}
+  <div class="bg-gray-800 rounded-xl border border-gray-700 p-5 lg:col-span-2">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Plans ({{ plans | length }})</h2>
+    <div class="space-y-3">
+      {% for plan in plans %}
+      {% set items = plan_items.get(plan.id | string, []) %}
+      <div class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="font-medium text-gray-200">{{ plan.title }}</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono
+            {% if plan.status == 'active' %}bg-green-900/50 text-green-400
+            {% elif plan.status == 'complete' %}bg-blue-900/50 text-blue-400
+            {% else %}bg-gray-700 text-gray-400{% endif %}">{{ plan.status }}</span>
+        </div>
+        {% if plan.description %}
+        <div class="text-gray-500 mb-1">{{ plan.description }}</div>
+        {% endif %}
+        <ol class="space-y-0.5 ml-1">
+          {% for item in items %}
+          <li class="flex items-start gap-1.5 text-gray-400">
+            <span class="shrink-0 w-4 text-right text-gray-600">{{ item.position }}.</span>
+            <span class="{% if item.status == 'done' %}line-through text-gray-600{% elif item.status == 'in_progress' %}text-yellow-400{% elif item.status == 'skipped' %}text-gray-600{% endif %}">{{ item.content }}</span>
+            <span class="shrink-0 text-[10px] font-mono {% if item.status == 'done' %}text-green-600{% elif item.status == 'in_progress' %}text-yellow-600{% elif item.status == 'skipped' %}text-gray-600{% else %}text-gray-600{% endif %}">[{{ item.status }}]</span>
+            {% if item.notes %}<span class="text-gray-500 italic">— {{ item.notes }}</span>{% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Messages <span class="text-gray-600 font-normal normal-case tracking-normal text-xs">({{ total }} total, newest first)</span></h2>
+  <div class="space-y-2 max-h-[60vh] overflow-y-auto">
+    {% for msg in messages %}
+    {% if msg.role == 'user' %}
+    <div class="flex justify-end">
+      <div class="bg-indigo-900/50 border border-indigo-800 rounded-xl px-4 py-2.5 max-w-2xl text-sm text-gray-200">
+        {{ msg.content or '(no content)' }}
+        <div class="flex items-center gap-3 mt-1">
+          <span class="text-xs text-indigo-400">{{ msg.created_at | fmt_dt }}</span>
+          {% if msg.correlation_id %}
+          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% elif msg.role == 'assistant' %}
+    {% if msg.content %}
+    <div class="flex justify-start">
+      <div class="bg-gray-700 border border-gray-600 rounded-xl px-4 py-2.5 max-w-2xl text-sm text-gray-200">
+        {{ msg.content }}
+        <div class="flex items-center gap-3 mt-1">
+          <span class="text-xs text-gray-500">{{ msg.created_at | fmt_dt }}</span>
+          {% if msg.correlation_id %}
+          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if msg.tool_calls %}
+    <div class="flex justify-start">
+      <div class="border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono text-gray-400 max-w-2xl">
+        {% for tc in msg.tool_calls %}
+        <div>→ {{ tc.get('function', {}).get('name', '?') }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% elif msg.role == 'tool' %}
+    <div class="flex justify-start ml-4">
+      <div class="bg-teal-950/30 border border-teal-900/50 rounded-lg px-3 py-2 text-xs font-mono text-teal-300 max-w-2xl truncate">
+        {{ msg.content[:200] if msg.content else '(empty)' }}{% if msg.content and msg.content|length > 200 %}…{% endif %}
+      </div>
+    </div>
+    {% elif msg.role == 'system' %}
+    <div class="text-xs text-gray-600 text-center">
+      [system: {{ (msg.content or '')[:80] }}{% if msg.content and msg.content|length > 80 %}…{% endif %}]
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="text-gray-500 text-sm text-center py-4">No messages.</div>
+    {% endfor %}
+  </div>
+  {% if total > page_size %}
+  <div class="flex items-center gap-2 mt-4 text-sm">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}" class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-gray-300">← Newer</a>
+    {% endif %}
+    <span class="text-gray-400">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+    {% if page * page_size < total %}
+    <a href="?page={{ page + 1 }}" class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-gray-300">Older →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

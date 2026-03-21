@@ -2,106 +2,25 @@
 {% block title %}Task {{ task.id }}{% endblock %}
 
 {% block content %}
+<form method="post" action="/admin/tasks/{{ task.id }}/edit">
 <div class="flex items-center justify-between mb-6">
   <div class="flex items-center gap-3">
     <a href="/admin/tasks" class="text-gray-400 hover:text-gray-200 text-sm">← Tasks</a>
     <span class="text-gray-600">/</span>
     <h1 class="text-xl font-bold text-gray-100">Task Detail</h1>
   </div>
-  <div class="flex gap-2" x-data>
-    <button @click="$dispatch('open-edit')"
+  <div class="flex gap-2">
+    <button type="submit"
       class="px-3 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors">
-      Edit
+      Save
     </button>
-    <button
+    <button type="button"
       hx-delete="/admin/tasks/{{ task.id }}"
       hx-confirm="Delete this task? This cannot be undone."
       hx-on::after-request="window.location='/admin/tasks'"
       class="px-3 py-1.5 text-sm bg-red-800 hover:bg-red-700 text-white rounded-lg transition-colors">
       Delete
     </button>
-  </div>
-</div>
-
-<!-- Edit form (Alpine modal) -->
-<div x-data="{ open: false }" @open-edit.window="open = true">
-  <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-2xl shadow-2xl mx-4">
-      <h2 class="text-lg font-semibold text-gray-100 mb-5">Edit Task</h2>
-      <form method="post" action="/admin/tasks/{{ task.id }}/edit" class="space-y-4">
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Status</label>
-          <select name="status"
-            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-            {% for s in ["pending", "cancelled", "failed", "complete"] %}
-            <option value="{{ s }}" {% if task.status == s %}selected{% endif %}>{{ s }}</option>
-            {% endfor %}
-          </select>
-          <p class="text-xs text-gray-500 mt-1">Set to "pending" to re-queue a failed task.</p>
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Scheduled At</label>
-          <input type="text" name="scheduled_at"
-            value="{{ task.scheduled_at.strftime('%Y-%m-%dT%H:%M:%S') if task.scheduled_at else '' }}"
-            placeholder="2026-03-20T09:00:00 or +2h or leave blank for immediate"
-            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Recurrence</label>
-          <input type="text" name="recurrence"
-            value="{{ task.recurrence or '' }}"
-            placeholder="+1h or +1d or blank for one-shot"
-            class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
-        </div>
-        {% if task.dispatch_type == "slack" %}
-        <div class="flex items-center gap-6">
-          <div class="flex items-center gap-2">
-            <input type="checkbox" name="reply_in_thread" id="reply_in_thread"
-              {% if task.dispatch_config and task.dispatch_config.get('reply_in_thread', True) %}checked{% endif %}
-              class="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500" />
-            <label for="reply_in_thread" class="text-sm text-gray-300">Reply in thread</label>
-          </div>
-          <p class="text-xs text-gray-500">Unchecked = post as new top-level channel message.</p>
-        </div>
-        {% endif %}
-
-        <div x-data="promptEditor()">
-          <label class="block text-xs text-gray-400 mb-1">Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
-          <div class="relative">
-            <div x-ref="mirror" aria-hidden="true"
-              class="absolute inset-0 px-3 py-2 text-sm font-mono bg-gray-900 rounded-lg pointer-events-none overflow-hidden"
-              style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
-            <textarea name="prompt" rows="6"
-              x-ref="ta"
-              @input="onInput"
-              @scroll.passive="$refs.mirror && ($refs.mirror.scrollTop = $event.target.scrollTop)"
-              @keydown="onKeydown"
-              @blur="setTimeout(() => show = false, 150)"
-              class="w-full font-mono border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-              style="background:transparent;color:transparent;caret-color:#e5e7eb;position:relative;z-index:1;">{{ task.prompt }}</textarea>
-            <div x-show="show && filtered.length > 0" x-cloak
-              class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
-              style="max-height: 180px; top: 100%; margin-top: 2px;">
-              <template x-for="(item, i) in filtered" :key="item.value">
-                <div @mousedown.prevent="select(item)"
-                  :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
-                  @mouseenter="activeIdx = i"
-                  class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
-                  <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
-                  <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
-        <div class="flex justify-end gap-3 pt-2">
-          <button type="button" @click="open = false"
-            class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
-          <button type="submit"
-            class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Save</button>
-        </div>
-      </form>
-    </div>
   </div>
 </div>
 
@@ -113,28 +32,31 @@
       <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Metadata</h2>
       <dl class="space-y-3 text-sm">
         <div class="flex gap-2">
-          <dt class="text-gray-500 w-32 shrink-0">ID</dt>
-          <dd class="text-gray-200 font-mono break-all">{{ task.id }}</dd>
+          <dt class="text-gray-500 w-32 shrink-0 pt-0.5">ID</dt>
+          <dd class="text-gray-200 font-mono break-all text-xs">{{ task.id }}</dd>
         </div>
-        <div class="flex gap-2">
-          <dt class="text-gray-500 w-32 shrink-0">Status</dt>
-          <dd>
-            {% if task.status == "complete" %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">complete</span>
-            {% elif task.status == "running" %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300">running</span>
-            {% elif task.status == "failed" %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">failed</span>
-            {% elif task.status == "cancelled" %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-red-900 text-red-300">cancelled</span>
-            {% else %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">pending</span>
-            {% endif %}
+        <div class="flex gap-2 items-start">
+          <dt class="text-gray-500 w-32 shrink-0 pt-1.5">Status</dt>
+          <dd class="flex-1">
+            <select name="status"
+              class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+              {% for s in ["pending", "cancelled", "failed", "complete"] %}
+              <option value="{{ s }}" {% if task.status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Set to "pending" to re-queue a failed task.</p>
           </dd>
         </div>
-        <div class="flex gap-2">
-          <dt class="text-gray-500 w-32 shrink-0">Bot</dt>
-          <dd><a href="/admin/bots/{{ task.bot_id }}" class="text-indigo-400 hover:underline">{{ task.bot_id }}</a></dd>
+        <div class="flex gap-2 items-start">
+          <dt class="text-gray-500 w-32 shrink-0 pt-1.5">Bot</dt>
+          <dd class="flex-1">
+            <select name="bot_id"
+              class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+              {% for bot in bots %}
+              <option value="{{ bot.id }}" {% if task.bot_id == bot.id %}selected{% endif %}>{{ bot.id }}{% if bot.name and bot.name != bot.id %} — {{ bot.name }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Client</dt>
@@ -159,31 +81,42 @@
             <span class="px-1.5 py-0.5 rounded text-xs bg-blue-900 text-blue-300">webhook</span>
             {% elif task.dispatch_type == "internal" %}
             <span class="px-1.5 py-0.5 rounded text-xs bg-purple-900 text-purple-300">internal</span>
+            {% elif task.dispatch_type == "harness" %}
+            <span class="px-1.5 py-0.5 rounded text-xs bg-amber-900 text-amber-200">harness</span>
             {% else %}
             <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">none</span>
             {% endif %}
           </dd>
         </div>
-        <div class="flex gap-2">
-          <dt class="text-gray-500 w-32 shrink-0">Recurrence</dt>
-          <dd class="text-gray-300">
-            {% if task.recurrence %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-indigo-900 text-indigo-300">{{ task.recurrence }}</span>
-            {% else %}one-shot{% endif %}
+        <div class="flex gap-2 items-start">
+          <dt class="text-gray-500 w-32 shrink-0 pt-1.5">Recurrence</dt>
+          <dd class="flex-1">
+            <input type="text" name="recurrence"
+              value="{{ task.recurrence or '' }}"
+              placeholder="+1h or +1d or blank for one-shot"
+              class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
           </dd>
         </div>
         {% if task.dispatch_type == "slack" %}
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center">
           <dt class="text-gray-500 w-32 shrink-0">Reply in thread</dt>
-          <dd>
-            {% if task.dispatch_config and task.dispatch_config.get('reply_in_thread', True) %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-green-900 text-green-300">yes</span>
-            {% else %}
-            <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">no — channel post</span>
-            {% endif %}
+          <dd class="flex items-center gap-2">
+            <input type="checkbox" name="reply_in_thread" id="reply_in_thread"
+              {% if task.dispatch_config and task.dispatch_config.get('reply_in_thread', True) %}checked{% endif %}
+              class="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500" />
+            <label for="reply_in_thread" class="text-xs text-gray-500">Unchecked = new channel post</label>
           </dd>
         </div>
         {% endif %}
+        <div class="flex gap-2 items-center">
+          <dt class="text-gray-500 w-32 shrink-0">Trigger RAG loop</dt>
+          <dd class="flex items-center gap-2">
+            <input type="checkbox" name="trigger_rag_loop" id="trigger_rag_loop"
+              {% if task.trigger_rag_loop %}checked{% endif %}
+              class="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500" />
+            <label for="trigger_rag_loop" class="text-xs text-gray-500">Run follow-up agent turn after posting</label>
+          </dd>
+        </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Parent Task</dt>
           <dd class="text-gray-300">
@@ -209,16 +142,13 @@
             {% else %}{{ task.created_at | fmt_dt }}{% endif %}
           </dd>
         </div>
-        <div class="flex gap-2">
-          <dt class="text-gray-500 w-32 shrink-0">Scheduled</dt>
-          <dd class="text-gray-300 leading-tight">
-            {% if task.scheduled_at %}
-            {% set sa = task.scheduled_at | ago %}
-            <span title="{{ task.scheduled_at | fmt_dt }}">
-              {% if sa %}<span class="text-gray-200">{{ sa }}</span><br><span class="text-xs text-gray-500">{{ task.scheduled_at | fmt_dt }}</span>
-              {% else %}{{ task.scheduled_at | fmt_dt }}{% endif %}
-            </span>
-            {% else %}immediately{% endif %}
+        <div class="flex gap-2 items-start">
+          <dt class="text-gray-500 w-32 shrink-0 pt-1.5">Scheduled</dt>
+          <dd class="flex-1">
+            <input type="text" name="scheduled_at"
+              value="{{ task.scheduled_at.strftime('%Y-%m-%dT%H:%M:%S') if task.scheduled_at else '' }}"
+              placeholder="2026-03-20T09:00:00 or +2h or leave blank for immediate"
+              class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-indigo-500" />
           </dd>
         </div>
         <div class="flex gap-2">
@@ -243,9 +173,34 @@
 
   <!-- Right: prompt + result/error -->
   <div class="space-y-4">
-    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
-      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Prompt</h2>
-      <div class="text-sm text-gray-300 font-mono bg-gray-900 rounded p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed">{{ task.prompt | highlight_tags }}</div>
+    <div x-data="promptEditor()" class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Prompt <span class="text-gray-600 font-normal normal-case tracking-normal text-xs">(type @ to insert skill/tool tags)</span></h2>
+      <div class="relative">
+        <div x-ref="mirror" aria-hidden="true"
+          class="absolute inset-0 px-3 py-2 text-sm font-mono bg-gray-900 rounded-lg pointer-events-none overflow-hidden"
+          style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
+        <textarea name="prompt" rows="8"
+          x-ref="ta"
+          @input="onInput"
+          @scroll.passive="$refs.mirror && ($refs.mirror.scrollTop = $event.target.scrollTop)"
+          @keydown="onKeydown"
+          @blur="setTimeout(() => show = false, 150)"
+          class="w-full font-mono border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+          style="background:transparent;color:transparent;caret-color:#e5e7eb;position:relative;z-index:1;">{{ task.prompt }}</textarea>
+        <div x-show="show && filtered.length > 0" x-cloak
+          class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
+          style="max-height: 180px; top: 100%; margin-top: 2px;">
+          <template x-for="(item, i) in filtered" :key="item.value">
+            <div @mousedown.prevent="select(item)"
+              :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
+              @mouseenter="activeIdx = i"
+              class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
+              <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
+              <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
 
     {% if task.result %}
@@ -264,6 +219,7 @@
   </div>
 
 </div>
+</form>
 
 <script>
 function promptEditor() {

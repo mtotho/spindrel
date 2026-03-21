@@ -70,7 +70,10 @@ def _parse_scheduled_at(value: str | None) -> datetime | None:
                     "type": "string",
                     "description": (
                         "When to run. ISO 8601 datetime or relative offset: +30m, +2h, +1d. "
-                        "Omit or null to run immediately."
+                        "Omit or null to run immediately. "
+                        "Naive datetimes (no timezone suffix) are interpreted as the server's "
+                        "local timezone. To be safe, prefer relative offsets (+1h) or include "
+                        "a timezone in ISO 8601 format (e.g. 2026-03-21T09:00:00-05:00)."
                     ),
                 },
                 "bot_id": {
@@ -80,9 +83,9 @@ def _parse_scheduled_at(value: str | None) -> datetime | None:
                 "reply_in_thread": {
                     "type": "boolean",
                     "description": (
-                        "Slack only. When true (default), the result is posted as a reply "
-                        "in the same thread as the original message. When false, the result "
-                        "is posted as a new top-level message in the channel."
+                        "Slack only. When false (default), the result is posted as a new "
+                        "top-level message in the channel. When true, the result is posted "
+                        "as a reply in the same thread as the original message."
                     ),
                 },
                 "recurrence": {
@@ -91,6 +94,15 @@ def _parse_scheduled_at(value: str | None) -> datetime | None:
                         "Repeat interval. Same format as scheduled_at offsets: +30m, +1h, +1d. "
                         "After each successful run, the next occurrence is automatically scheduled. "
                         "Omit for one-shot tasks."
+                    ),
+                },
+                "trigger_rag_loop": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, after the task posts its result, an immediate follow-up "
+                        "agent run is triggered so the bot can review what it posted and take "
+                        "any needed follow-up action. Useful for tasks that should self-check "
+                        "or continue work after posting. Default false."
                     ),
                 },
             },
@@ -102,8 +114,9 @@ async def create_task(
     prompt: str,
     scheduled_at: str | None = None,
     bot_id: str | None = None,
-    reply_in_thread: bool = True,
+    reply_in_thread: bool = False,
     recurrence: str | None = None,
+    trigger_rag_loop: bool = False,
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
 
@@ -135,6 +148,7 @@ async def create_task(
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
         recurrence=recurrence or None,
+        trigger_rag_loop=trigger_rag_loop,
         created_at=datetime.now(timezone.utc),
     )
     async with async_session() as db:
@@ -185,11 +199,12 @@ async def list_my_tasks() -> str:
     lines = []
     for t in tasks:
         scheduled = t.scheduled_at.strftime("%Y-%m-%d %H:%M UTC") if t.scheduled_at else "immediately"
+        recur = f" recurrence={t.recurrence}" if t.recurrence else ""
         result_preview = ""
         if t.result:
             result_preview = " | result: " + (t.result[:80] + "..." if len(t.result) > 80 else t.result)
         lines.append(
-            f"- {t.id} [{t.status}] bot={t.bot_id} scheduled={scheduled}{result_preview}"
+            f"- {t.id} [{t.status}] bot={t.bot_id} scheduled={scheduled}{recur}{result_preview}"
         )
     return "Tasks:\n" + "\n".join(lines)
 
@@ -284,9 +299,8 @@ async def cancel_task(task_id: str) -> str:
     "function": {
         "name": "reschedule_task",
         "description": (
-            "Update a pending task: new run time, new instruction prompt, or both. "
-            "Same `prompt` semantics as create_task (what the agent runs when the task fires). "
-            "Only works on tasks with status=pending. Omit scheduled_at or prompt to leave that field unchanged."
+            "Update a pending task: run time, prompt, reply_in_thread, or trigger_rag_loop. "
+            "Only works on tasks with status=pending. Omit any field to leave it unchanged."
         ),
         "parameters": {
             "type": "object",
@@ -299,14 +313,30 @@ async def cancel_task(task_id: str) -> str:
                     "type": "string",
                     "description": (
                         "New run time. ISO 8601 datetime or relative offset: +30m, +2h, +1d. "
-                        "Pass null to run immediately. Omit entirely if you only want to change the prompt."
+                        "Pass null to run immediately. Omit to leave unchanged. "
+                        "Naive datetimes (no timezone suffix) are interpreted as the server's "
+                        "local timezone. Prefer relative offsets or include a timezone suffix."
                     ),
                 },
                 "prompt": {
                     "type": "string",
                     "description": (
                         "New instruction text for when the task runs (replaces the existing prompt). "
-                        "Omit if you only want to change the schedule."
+                        "Omit to leave unchanged."
+                    ),
+                },
+                "reply_in_thread": {
+                    "type": "boolean",
+                    "description": (
+                        "Slack only. When false (default), result posts as a top-level channel message. "
+                        "When true, posts as a thread reply. Omit to leave unchanged."
+                    ),
+                },
+                "trigger_rag_loop": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, after the task posts its result a follow-up agent run is triggered "
+                        "so the bot can react. Omit to leave unchanged."
                     ),
                 },
             },
@@ -318,6 +348,8 @@ async def reschedule_task(
     task_id: str,
     scheduled_at: str | None | object = _UNSET,
     prompt: str | object = _UNSET,
+    reply_in_thread: bool | object = _UNSET,
+    trigger_rag_loop: bool | object = _UNSET,
 ) -> str:
     try:
         tid = uuid.UUID(task_id)
@@ -342,9 +374,17 @@ async def reschedule_task(
         if prompt is not _UNSET:
             task.prompt = prompt
             changes.append("prompt updated")
+        if reply_in_thread is not _UNSET:
+            cfg = dict(task.dispatch_config or {})
+            cfg["reply_in_thread"] = reply_in_thread
+            task.dispatch_config = cfg
+            changes.append(f"reply_in_thread → {reply_in_thread}")
+        if trigger_rag_loop is not _UNSET:
+            task.trigger_rag_loop = trigger_rag_loop
+            changes.append(f"trigger_rag_loop → {trigger_rag_loop}")
 
         if not changes:
-            return json.dumps({"error": "Provide scheduled_at and/or prompt to change."})
+            return json.dumps({"error": "Provide at least one field to change."})
 
         await db.commit()
 

@@ -65,7 +65,7 @@ async def _schedule_next_occurrence(task: Task) -> None:
 # ---------------------------------------------------------------------------
 
 class SlackDispatcher:
-    async def deliver(self, task: Task, result: str) -> None:
+    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
         cfg = task.dispatch_config or {}
         channel_id = cfg.get("channel_id")
         thread_ts = cfg.get("thread_ts")
@@ -112,10 +112,23 @@ class SlackDispatcher:
             )
         except Exception:
             logger.exception("SlackDispatcher.deliver failed for task %s", task.id)
+            return
+
+        # Upload any images generated during the task
+        from app.services.slack_uploads import upload_image
+        for action in (client_actions or []):
+            if action.get("type") == "upload_image":
+                await upload_image(
+                    token=token,
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    reply_in_thread=reply_in_thread,
+                    action=action,
+                )
 
 
 class WebhookDispatcher:
-    async def deliver(self, task: Task, result: str) -> None:
+    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
         cfg = task.dispatch_config or {}
         url = cfg.get("url")
         if not url:
@@ -129,7 +142,7 @@ class WebhookDispatcher:
 
 
 class InternalDispatcher:
-    async def deliver(self, task: Task, result: str) -> None:
+    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
         """Persist result as a user message in a parent session so the parent bot can process it."""
         cfg = task.dispatch_config or {}
         session_id_str = cfg.get("session_id")
@@ -156,7 +169,7 @@ class InternalDispatcher:
 
 
 class NoneDispatcher:
-    async def deliver(self, task: Task, result: str) -> None:
+    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
         pass  # result stored in DB only; caller polls get_task
 
 
@@ -401,6 +414,7 @@ async def run_task(task: Task) -> None:
 
         import uuid as _uuid
         correlation_id = _uuid.uuid4()
+        messages_start = len(messages)  # capture before run() appends new turn
         run_result = await run(
             messages, bot, task.prompt,
             session_id=session_id,
@@ -411,6 +425,11 @@ async def run_task(task: Task) -> None:
         )
         result_text = run_result.response
 
+        # Persist turn to session history so future agent turns see it as context
+        from app.services.sessions import persist_turn
+        async with async_session() as db:
+            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id)
+
         # Mark complete
         async with async_session() as db:
             t = await db.get(Task, task.id)
@@ -420,9 +439,29 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
-        # Dispatch result
+        # Dispatch result (including any generated images)
         dispatcher = DISPATCHERS.get(task.dispatch_type or "none", DISPATCHERS["none"])
-        await dispatcher.deliver(task, result_text)
+        await dispatcher.deliver(task, result_text, client_actions=run_result.client_actions)
+
+        # trigger_rag_loop: create an immediate follow-up agent turn so the bot can
+        # react to what it just posted. Posts response to the same channel.
+        if getattr(task, "trigger_rag_loop", False) and result_text:
+            _trl_cfg = {k: v for k, v in (task.dispatch_config or {}).items() if not k.startswith("_")}
+            _trl_task = Task(
+                bot_id=task.bot_id,
+                client_id=task.client_id,
+                session_id=session_id,
+                prompt=f"[Your scheduled task just ran and posted to the channel. The output was:]\n\n{result_text}",
+                status="pending",
+                dispatch_type=task.dispatch_type,
+                dispatch_config=_trl_cfg,
+                trigger_rag_loop=False,  # prevent loop
+                created_at=datetime.now(timezone.utc),
+            )
+            async with async_session() as db:
+                db.add(_trl_task)
+                await db.commit()
+            logger.info("Task %s: created trigger_rag_loop follow-up task", task.id)
 
         # Notify parent: create a callback task for the parent bot if requested
         _cfg = task.dispatch_config or {}

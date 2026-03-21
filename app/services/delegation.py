@@ -58,9 +58,9 @@ class DelegationService:
         from app.services.sessions import load_or_create, persist_turn
 
         # Global flag OR bot has explicit delegate_bots config enables delegation
-        if not settings.DELEGATION_ENABLED and not parent_bot.delegate_bots:
+        if not parent_bot.delegate_bots:
             raise DelegationError(
-                "Delegation is disabled. Set DELEGATION_ENABLED=true or configure delegate_bots for this bot."
+                "Delegation is disabled. Configure delegate_bots for this bot."
             )
 
         if depth >= settings.DELEGATION_MAX_DEPTH:

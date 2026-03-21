@@ -19,7 +19,12 @@
     <div class="flex justify-start">
       <div class="bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
         {{ msg.content }}
-        <div class="text-xs text-gray-500 mt-1">{{ msg.created_at | fmt_dt }}</div>
+        <div class="flex items-center gap-3 mt-1">
+          <span class="text-xs text-gray-500">{{ msg.created_at | fmt_dt }}</span>
+          {% if msg.correlation_id %}
+          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
+          {% endif %}
+        </div>
       </div>
     </div>
     {% endif %}

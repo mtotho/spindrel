@@ -129,6 +129,9 @@ class HarnessService:
                 timeout=timeout,
             )
 
+        else:
+           raise HarnessError("Harness must be run in a sandbox. Use sandbox_instance_id to run in a sandbox.")
+
         # Host subprocess
         wd: str | None = None
         if working_directory:

@@ -223,9 +223,9 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                     ),
                 },
                 "sandbox_instance_id": {
-                    "type": "string",
+                    "type": "string", #not sure what the future is here. but i dont want it outside hte sandbox for now
                     "description": (
-                        "If set, run the harness inside this sandbox (UUID from ensure_sandbox). "
+                        "Required for now.If set, run the harness inside this sandbox (UUID from ensure_sandbox). "
                         "Requires DOCKER_SANDBOX_ENABLED and a profile image that includes the harness CLI "
                         "(e.g. agent-python with claude). Omit to run on the agent-server host."
                     ),
@@ -267,9 +267,9 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
 async def delegate_to_harness(
     harness: str,
     prompt: str,
+    sandbox_instance_id: str,
     working_directory: str | None = None,
     mode: str = "sync",
-    sandbox_instance_id: str | None = None,
     reply_in_thread: bool = False,
     notify_parent: bool = True,
 ) -> str:

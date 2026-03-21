@@ -257,8 +257,10 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
                 select(PlanItem).where(PlanItem.plan_id == _p.id).order_by(PlanItem.position)
             )).scalars().all()
             plan_items_map[str(_p.id)] = list(_items)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    template = "admin/session_detail.html" if is_htmx else "admin/session_detail_page.html"
     return templates.TemplateResponse(
-        "admin/session_detail.html",
+        template,
         {
             "request": request,
             "session": session,

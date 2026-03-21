@@ -91,7 +91,6 @@ class Settings(BaseSettings):
     FS_COMMANDS_MAX_LIST_ENTRIES: int = 1000
 
     # Delegation
-    DELEGATION_ENABLED: bool = False
     DELEGATION_MAX_DEPTH: int = 3
     HARNESS_CONFIG_FILE: str = "harnesses.yaml"
     HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
