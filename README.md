@@ -857,6 +857,26 @@ The `Dockerfile` and `dockerfiles/agent-python` both include Node.js + `@anthrop
 
 → Full details: [docs/harness.md](docs/harness.md)
 
+## Integration Framework
+
+External services (Gmail, GitHub, webhooks, etc.) can connect to the agent server without touching core code. Each integration lives in `integrations/<name>/` and is auto-discovered at startup.
+
+**Integration API** — `/api/v1/` — REST endpoints for injecting messages and ingesting documents from external services. All require `Authorization: Bearer <API_KEY>`.
+
+| Endpoint | Description |
+|---|---|
+| `POST /api/v1/sessions` | Create/get a session for an integration client |
+| `POST /api/v1/sessions/{id}/messages` | Inject a message (optionally fan-out to Slack, trigger agent) |
+| `GET /api/v1/sessions/{id}/messages` | List session messages |
+| `POST /api/v1/documents` | Ingest + embed a document for semantic search |
+| `GET /api/v1/documents/search?q=...` | Cosine similarity search over integration documents |
+| `GET /api/v1/documents/{id}` | Fetch document by ID |
+| `DELETE /api/v1/documents/{id}` | Delete document |
+
+**Fan-out**: When a message is injected into a session with `notify=true`, it is automatically forwarded to the session's delivery targets. For Slack sessions (client_id starts with `slack:`), the message is posted to the corresponding channel.
+
+→ Full details: [docs/integrations/README.md](docs/integrations/README.md)
+
 ## API
 
 | Endpoint | Method | Description |

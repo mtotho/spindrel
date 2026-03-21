@@ -589,8 +589,26 @@ async def run_stream(
       {"type": "tool_result", "tool": "<name>"}
       {"type": "memory_context", "count": <int>}
       {"type": "transcript", "text": "..."}
+      {"type": "delegation_post", "bot_id": "...", "text": "...", "reply_in_thread": bool}
       {"type": "response", "text": "...", "client_actions": [...]}
+
+    delegation_post events are emitted just before the response event so that the Slack
+    client can post child-bot messages first (giving them an earlier timestamp), then post
+    the parent's response as a new message — ensuring correct visual ordering.
     """
+    # Track whether this is the outermost run_stream invocation (not a nested call from
+    # run_immediate).  Only the outermost instance manages the delegation-post queue;
+    # nested calls (child runs inside delegate_to_agent) share the same list so their
+    # queued posts bubble up to the outermost emitter.
+    from app.agent.context import current_pending_delegation_posts
+    _is_outermost_stream = current_pending_delegation_posts.get() is None
+    _delegation_posts: list = []
+    if _is_outermost_stream:
+        current_pending_delegation_posts.set(_delegation_posts)
+    else:
+        # Reuse the outer list so deeply-nested delegation posts still reach the surface.
+        _delegation_posts = current_pending_delegation_posts.get()  # type: ignore[assignment]
+
     set_agent_context(
         session_id=session_id,
         client_id=client_id,
@@ -1012,18 +1030,49 @@ async def run_stream(
             },
         ))
 
-    async for event in run_agent_tool_loop(
-        messages,
-        bot,
-        session_id=session_id,
-        client_id=client_id,
-        turn_start=turn_start,
-        native_audio=native_audio,
-        user_msg_index=user_msg_index,
-        pre_selected_tools=pre_selected_tools,
-        correlation_id=correlation_id,
-    ):
-        yield event
+    # Only the outermost run_stream buffers the response and emits delegation_post events.
+    # Nested calls (child agents inside delegate_to_agent) just pass events through.
+    if _is_outermost_stream:
+        _last_response: dict | None = None
+        async for event in run_agent_tool_loop(
+            messages,
+            bot,
+            session_id=session_id,
+            client_id=client_id,
+            turn_start=turn_start,
+            native_audio=native_audio,
+            user_msg_index=user_msg_index,
+            pre_selected_tools=pre_selected_tools,
+            correlation_id=correlation_id,
+        ):
+            if event.get("type") == "response":
+                _last_response = event
+            else:
+                yield event
+        # Emit child-bot delegation posts BEFORE the parent response so the Slack client
+        # can post child messages first (lower Slack timestamp) then repost the parent.
+        for _dp in _delegation_posts:
+            yield {
+                "type": "delegation_post",
+                "bot_id": _dp["bot_id"],
+                "text": _dp["text"],
+                "reply_in_thread": _dp.get("reply_in_thread", False),
+            }
+        if _last_response is not None:
+            yield _last_response
+    else:
+        async for event in run_agent_tool_loop(
+            messages,
+            bot,
+            session_id=session_id,
+            client_id=client_id,
+            turn_start=turn_start,
+            native_audio=native_audio,
+            user_msg_index=user_msg_index,
+            pre_selected_tools=pre_selected_tools,
+            correlation_id=correlation_id,
+        ):
+            yield event
 
 
 async def run(
@@ -1055,4 +1104,17 @@ async def run(
             result.client_actions = event.get("client_actions", [])
         elif event["type"] == "transcript":
             result.transcript = event["text"]
+        elif event["type"] == "delegation_post" and dispatch_type and dispatch_config:
+            # Non-streaming context (task worker): deliver child bot's message via appropriate dispatcher.
+            from app.services.delegation import delegation_service as _ds
+            try:
+                await _ds.post_child_response(
+                    dispatch_type=dispatch_type,
+                    dispatch_config=dispatch_config,
+                    text=event.get("text", ""),
+                    bot_id=event.get("bot_id") or "",
+                    reply_in_thread=event.get("reply_in_thread", False),
+                )
+            except Exception:
+                logger.warning("run(): delegation_post failed for bot %s", event.get("bot_id"))
     return result

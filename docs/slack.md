@@ -61,6 +61,8 @@ A message is active when:
 - The user **@mentions the Slack app** (`app_mention` event), OR
 - The channel has `require_mention = false` (agent responds to all messages)
 
+An `app_mention` with no text after the mention still runs the agent (so you can ping after passive-only channel activity).
+
 Active messages go through the full agent pipeline: RAG retrieval, tool calls, LLM response. The response is posted to the channel attributed to the responding bot.
 
 ### Passive messages — stored silently, no reply

@@ -23,6 +23,7 @@ _yaml_default_bot: str = _yaml_cfg.get("default_bot", "default")
 
 BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]  # xoxb-...
 APP_LEVEL_TOKEN = os.environ["SLACK_APP_TOKEN"]  # xapp-...
+
 API_KEY = os.environ.get("AGENT_API_KEY") or os.environ.get("API_KEY")
 AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 STATE_PATH = _DIR / "slack_state.json"

@@ -67,6 +67,16 @@ logger = logging.getLogger(__name__)
                         "(false, default). No effect outside Slack."
                     ),
                 },
+                "notify_parent": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": (
+                        "Deferred mode only. When true (default), the parent agent automatically runs again "
+                        "once the sub-agent completes, receiving the sub-agent's result as input so it can "
+                        "synthesize or react. Set false for fire-and-forget tasks where the parent doesn't "
+                        "need to react."
+                    ),
+                },
             },
             "required": ["bot_id", "prompt"],
         },
@@ -78,6 +88,7 @@ async def delegate_to_agent(
     mode: str = "immediate",
     scheduled_at: str | None = None,
     reply_in_thread: bool = False,
+    notify_parent: bool = True,
 ) -> str:
     # LLMs sometimes pass "true"/"false" strings instead of booleans
     if isinstance(reply_in_thread, str):
@@ -139,6 +150,7 @@ async def delegate_to_agent(
                 client_id=client_id,
                 parent_session_id=session_id,
                 reply_in_thread=reply_in_thread,
+                notify_parent=notify_parent,
             )
             return f"Deferred delegation task created: {task_id}"
         except DelegationError as exc:
@@ -237,6 +249,16 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                         "channel-level message (false, default). No effect outside Slack or in sync mode."
                     ),
                 },
+                "notify_parent": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": (
+                        "Deferred mode only. When true (default), the parent agent automatically runs again "
+                        "once the harness completes, receiving the harness output as input so it can "
+                        "review, summarize, or react. Set false for fire-and-forget jobs where the parent "
+                        "doesn't need to act on the result."
+                    ),
+                },
             },
             "required": ["harness", "prompt"],
         },
@@ -249,7 +271,14 @@ async def delegate_to_harness(
     mode: str = "sync",
     sandbox_instance_id: str | None = None,
     reply_in_thread: bool = False,
+    notify_parent: bool = True,
 ) -> str:
+    # LLMs sometimes pass "true"/"false" strings instead of booleans
+    if isinstance(reply_in_thread, str):
+        reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")
+    if isinstance(notify_parent, str):
+        notify_parent = notify_parent.strip().lower() not in ("false", "0", "no", "")
+
     from app.agent.bots import get_bot
     from app.services.harness import harness_service, HarnessError
 
@@ -279,6 +308,12 @@ async def delegate_to_harness(
             "output_dispatch_type": dispatch_type or "none",
             "output_dispatch_config": cfg_dispatch,
         }
+        if notify_parent and session_id is not None:
+            harness_cfg["_notify_parent"] = True
+            harness_cfg["_parent_bot_id"] = parent_bot_id
+            harness_cfg["_parent_session_id"] = str(session_id)
+            if client_id:
+                harness_cfg["_parent_client_id"] = client_id
         sbx = _parse_uuid_opt(sandbox_instance_id)
         if sbx is not None:
             harness_cfg["sandbox_instance_id"] = str(sbx)

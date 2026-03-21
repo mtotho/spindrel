@@ -97,9 +97,10 @@ async def dispatch(
 
     appended, attachments = await _process_slack_files(files or [])
 
+    if mentioned and not text and not appended and not attachments:
+        text = "[@mention only, no user text — use channel context and respond.]"
+
     if not text and not appended and not attachments:
-        if mentioned:
-            await say("_No message to process._")
         return
     if not text and attachments and not appended:
         text = "(see attached image(s))"
@@ -164,6 +165,7 @@ async def dispatch(
 
         try:
             client_actions: list = []
+            _delegation_posts_seen = False
             async for event in stream_chat(
                 message=full_message,
                 bot_id=bot_id,
@@ -183,15 +185,59 @@ async def dispatch(
                         text=f"🔧 _{tool}..._",
                         **identity,
                     )
+                elif etype == "delegation_post":
+                    # Child bot's result arrives before the parent's response event.
+                    # Post it as a new message so it gets an earlier Slack timestamp
+                    # than the parent's final response (which will be posted next).
+                    _delegation_posts_seen = True
+                    child_bot_id = event.get("bot_id") or ""
+                    child_text = (event.get("text") or "").strip()
+                    child_reply_in_thread = event.get("reply_in_thread", False)
+                    child_display = get_bot_display_info(child_bot_id)
+                    child_identity: dict = {}
+                    if child_display.get("display_name"):
+                        child_identity["username"] = child_display["display_name"]
+                    if child_display.get("icon_emoji"):
+                        child_identity["icon_emoji"] = child_display["icon_emoji"]
+                    elif child_display.get("icon_url"):
+                        child_identity["icon_url"] = child_display["icon_url"]
+                    try:
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=format_response_for_slack(child_text),
+                            thread_ts=thread_ts if child_reply_in_thread else None,
+                            **child_identity,
+                        )
+                    except Exception:
+                        pass
                 elif etype == "response":
                     reply = (event.get("text") or "").strip()
                     client_actions = event.get("client_actions") or []
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=format_response_for_slack(reply),
-                        **identity,
-                    )
+                    if _delegation_posts_seen:
+                        # Child messages were posted as new messages above.
+                        # Delete the "thinking" placeholder and repost the parent's
+                        # response as a fresh message so it appears AFTER child messages
+                        # in Slack's timestamp ordering.
+                        try:
+                            await client.chat_delete(
+                                channel=thinking_channel,
+                                ts=thinking_ts,
+                            )
+                        except Exception:
+                            pass
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=format_response_for_slack(reply),
+                            thread_ts=thread_ts,
+                            **identity,
+                        )
+                    else:
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=format_response_for_slack(reply),
+                            **identity,
+                        )
             await _handle_client_actions(client, thinking_channel, client_actions)
         except Exception as e:
             await client.chat_update(
@@ -232,9 +278,6 @@ def register_message_handlers(app):
         if event.get("bot_id"):
             return
         text = (event.get("text") or "").split(">", 1)[-1].strip()
-        if not text and not event.get("files"):
-            await say("_Say something after the mention, or attach a file._")
-            return
         thread_ts = event.get("thread_ts") or event.get("ts")
         await dispatch(
             event["channel"],

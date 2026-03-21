@@ -104,6 +104,12 @@ class SlackDispatcher:
             data = r.json()
             if not data.get("ok"):
                 logger.error("Slack API error for task %s: %s", task.id, data.get("error"))
+                return
+            from app.services.sessions import store_slack_echo_as_passive
+
+            await store_slack_echo_as_passive(
+                task.session_id, task.client_id, task.bot_id, result,
+            )
         except Exception:
             logger.exception("SlackDispatcher.deliver failed for task %s", task.id)
 
@@ -267,6 +273,36 @@ async def run_harness_task(task: Task) -> None:
         dispatcher = DISPATCHERS.get(output_dispatch_type, DISPATCHERS["none"])
         await dispatcher.deliver(output_task, result_text)
 
+        # Notify parent bot: create a callback task so the parent can react to harness output.
+        if cfg.get("_notify_parent") and result_text:
+            _parent_bot_id = cfg.get("_parent_bot_id")
+            _parent_session_str = cfg.get("_parent_session_id")
+            _parent_client_id = cfg.get("_parent_client_id")
+            if _parent_bot_id and _parent_session_str:
+                try:
+                    _parent_session_id = uuid.UUID(_parent_session_str)
+                    _cb_cfg = {k: v for k, v in output_dispatch_config.items() if not k.startswith("_")}
+                    _cb_task = Task(
+                        bot_id=_parent_bot_id,
+                        client_id=_parent_client_id,
+                        session_id=_parent_session_id,
+                        prompt=f"[Harness {harness_name} completed]\n\n{result_text}",
+                        status="pending",
+                        dispatch_type=output_dispatch_type,
+                        dispatch_config=_cb_cfg,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    async with async_session() as db:
+                        db.add(_cb_task)
+                        await db.commit()
+                        await db.refresh(_cb_task)
+                    logger.info(
+                        "Harness task %s: created parent callback task %s (bot=%s, session=%s)",
+                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
+                    )
+                except Exception:
+                    logger.exception("Failed to create parent callback task for harness task %s", task.id)
+
     except Exception as exc:
         logger.exception("Harness task %s failed", task.id)
         async with async_session() as db:
@@ -387,6 +423,38 @@ async def run_task(task: Task) -> None:
         # Dispatch result
         dispatcher = DISPATCHERS.get(task.dispatch_type or "none", DISPATCHERS["none"])
         await dispatcher.deliver(task, result_text)
+
+        # Notify parent: create a callback task for the parent bot if requested
+        _cfg = task.dispatch_config or {}
+        if _cfg.get("_notify_parent") and result_text:
+            _parent_bot_id = _cfg.get("_parent_bot_id")
+            _parent_session_str = _cfg.get("_parent_session_id")
+            _parent_client_id = _cfg.get("_parent_client_id")
+            if _parent_bot_id and _parent_session_str:
+                try:
+                    _parent_session_id = uuid.UUID(_parent_session_str)
+                    # Callback dispatch config: same as original but strip internal _* keys
+                    _cb_cfg = {k: v for k, v in _cfg.items() if not k.startswith("_")}
+                    _cb_task = Task(
+                        bot_id=_parent_bot_id,
+                        client_id=_parent_client_id,
+                        session_id=_parent_session_id,
+                        prompt=f"[Sub-agent {task.bot_id} completed]\n\n{result_text}",
+                        status="pending",
+                        dispatch_type=task.dispatch_type,
+                        dispatch_config=_cb_cfg,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    async with async_session() as db:
+                        db.add(_cb_task)
+                        await db.commit()
+                        await db.refresh(_cb_task)
+                    logger.info(
+                        "Task %s: created parent callback task %s (bot=%s, session=%s)",
+                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
+                    )
+                except Exception:
+                    logger.exception("Failed to create parent callback task for task %s", task.id)
 
         # Schedule next occurrence if recurring
         if task.recurrence:

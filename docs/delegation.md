@@ -47,6 +47,8 @@ orchestrator → LLM sees child result → forms its own response
 
 **On Slack:** the child bot's response is also posted to the originating channel, attributed to the child bot (using its `slack_display_name` / `slack_icon_emoji`). By default the post goes to the channel level (not threaded). Pass `reply_in_thread=true` to post it as a thread reply instead.
 
+The Socket Mode integration ignores `bot_message` events, so after a successful `chat.postMessage` the server also appends a **passive** row on the parent channel session (when that Slack channel has **Passive memory** enabled in `/admin/slack`). That row uses the same `metadata` shape as ambient human messages so the orchestrator sees the delegate’s text in the channel-context block on the next turn.
+
 ### Deferred
 
 Creates a **background Task** that runs the delegate later. The orchestrator gets a task ID back immediately and continues. The delegate's result is posted to the originating channel when it completes.

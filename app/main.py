@@ -83,11 +83,17 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Agent Server", lifespan=lifespan)
+app = FastAPI(
+    title="Agent Server",
+    description="Self-hosted LLM agent server. Integration API at /api/v1/ — see /docs.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 # Register routers
 from app.routers import admin, chat, sessions, transcribe  # noqa: E402
 from app.routers.admin_slack import api_router as _slack_api_router  # noqa: E402
+from app.routers.api_v1 import router as _api_v1_router  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 app.include_router(chat.router)
@@ -95,8 +101,19 @@ app.include_router(sessions.router)
 app.include_router(transcribe.router)
 app.include_router(admin.router)
 app.include_router(_slack_api_router, prefix="/api")
+app.include_router(_api_v1_router)
 
 app.mount("/admin/static", StaticFiles(directory="app/static"), name="admin-static")
+
+# Auto-discover and register integrations from integrations/*/router.py
+from integrations import discover_integrations as _discover_integrations  # noqa: E402
+for _integration_id, _integration_router in _discover_integrations():
+    app.include_router(
+        _integration_router,
+        prefix=f"/integrations/{_integration_id}",
+        tags=[f"Integration: {_integration_id}"],
+    )
+    logger.info("Registered integration: %s", _integration_id)
 
 
 @app.get("/health")

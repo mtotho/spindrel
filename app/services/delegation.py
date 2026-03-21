@@ -159,9 +159,33 @@ class DelegationService:
             await asyncio.sleep(0)
             restore_agent_context(parent_ctx)
 
-        # Post to Slack (attributed to child bot) if dispatch_type is slack
+        # Post to Slack (attributed to child bot) if dispatch_type is slack.
+        # In a streaming context (outermost run_stream set the ContextVar), queue the post
+        # so it can be emitted as a delegation_post event BEFORE the parent's response —
+        # this ensures the child's message appears above the parent's in Slack's timeline.
+        # In a non-streaming context (task worker), post immediately.
         if dispatch_type == "slack" and dispatch_config and final_response:
-            await self._post_to_slack(final_response, delegate_bot, dispatch_config, reply_in_thread=reply_in_thread)
+            from app.agent.context import current_pending_delegation_posts
+            pending = current_pending_delegation_posts.get()
+            if pending is not None:
+                pending.append({
+                    "text": final_response,
+                    "bot_id": delegate_bot_id,
+                    "reply_in_thread": reply_in_thread,
+                })
+                from app.services.sessions import store_slack_echo_as_passive
+                await store_slack_echo_as_passive(
+                    parent_session_id, client_id, delegate_bot_id, final_response
+                )
+            else:
+                posted = await self._post_to_slack(
+                    final_response, delegate_bot, dispatch_config, reply_in_thread=reply_in_thread
+                )
+                if posted:
+                    from app.services.sessions import store_slack_echo_as_passive
+                    await store_slack_echo_as_passive(
+                        parent_session_id, client_id, delegate_bot_id, final_response
+                    )
 
         return final_response
 
@@ -176,10 +200,17 @@ class DelegationService:
         client_id: str | None = None,
         parent_session_id: Optional[uuid.UUID] = None,
         reply_in_thread: bool = False,
+        notify_parent: bool = True,
     ) -> str:
         """Create a Task for deferred execution. Returns task_id string."""
         merged_config = dict(dispatch_config or {})
         merged_config["reply_in_thread"] = reply_in_thread
+        if notify_parent and parent_session_id is not None:
+            merged_config["_notify_parent"] = True
+            merged_config["_parent_bot_id"] = parent_bot.id
+            merged_config["_parent_session_id"] = str(parent_session_id)
+            if client_id:
+                merged_config["_parent_client_id"] = client_id
         task = Task(
             bot_id=delegate_bot_id,
             client_id=client_id,
@@ -204,20 +235,44 @@ class DelegationService:
         )
         return str(task.id)
 
+    async def post_child_response(
+        self,
+        dispatch_type: str,
+        dispatch_config: dict,
+        text: str,
+        bot_id: str,
+        reply_in_thread: bool = False,
+    ) -> bool:
+        """Dispatch a child bot's response to the appropriate target.
+
+        Called by the non-streaming run() wrapper when delegation_post events are emitted.
+        Routing is driven by dispatch_type so the agent loop stays integration-agnostic.
+        """
+        if dispatch_type == "slack" and dispatch_config:
+            from app.agent.bots import get_bot as _get_bot
+            try:
+                bot = _get_bot(bot_id)
+            except Exception:
+                logger.warning("post_child_response: unknown bot %r", bot_id)
+                return False
+            return await self._post_to_slack(text, bot, dispatch_config, reply_in_thread=reply_in_thread)
+        # Future dispatch types (webhook, internal, …) can be added here.
+        return False
+
     async def _post_to_slack(
         self,
         text: str,
         bot: "BotConfig",
         dispatch_config: dict,
         reply_in_thread: bool = False,
-    ) -> None:
-        """Post child bot's response to Slack, attributed to the child bot."""
+    ) -> bool:
+        """Post child bot's response to Slack, attributed to the child bot. Returns whether Slack OK."""
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")
         token = dispatch_config.get("token")
         if not channel_id or not token:
             logger.warning("Slack delegation post skipped: missing channel_id or token")
-            return
+            return False
 
         payload: dict = {"channel": channel_id, "text": text}
         if reply_in_thread and thread_ts:
@@ -240,8 +295,11 @@ class DelegationService:
             data = r.json()
             if not data.get("ok"):
                 logger.warning("Slack delegation post failed: %s", data.get("error"))
+                return False
+            return True
         except Exception as exc:
             logger.warning("Failed to post delegation result to Slack: %s", exc)
+            return False
 
 
 delegation_service = DelegationService()

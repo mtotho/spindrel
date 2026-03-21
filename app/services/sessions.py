@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig, get_bot
 from app.agent.persona import get_persona
-from app.db.models import Message, Session
+from app.db.engine import async_session
+from app.db.models import IntegrationChannelConfig, Message, Session
 
 
 logger = logging.getLogger(__name__)
@@ -42,13 +43,22 @@ async def upsert_integration_session(
 
 
 def normalize_stored_content(content: str | None) -> str | list[Any] | None:
-    """DB stores JSON-encoded multimodal user turns; reload as a list for the LLM."""
+    """DB stores JSON-encoded multimodal user turns; reload as a list for the LLM.
+
+    Only returns a list when every item is a dict with a "type" key — the shape produced
+    by _content_for_db(). Plain text that happens to start with "[" (e.g. Slack passive
+    messages, user messages like '["a","b"]') stays as a string to avoid Anthropic 400s.
+    """
     if content is None:
         return None
     if isinstance(content, str) and content.startswith("["):
         try:
             parsed = json.loads(content)
-            if isinstance(parsed, list):
+            if (
+                isinstance(parsed, list)
+                and parsed
+                and all(isinstance(item, dict) and "type" in item for item in parsed)
+            ):
                 return parsed
         except json.JSONDecodeError:
             pass
@@ -252,6 +262,52 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
+
+
+async def store_slack_echo_as_passive(
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    posting_bot_id: str,
+    text: str,
+) -> None:
+    """Mirror a bot-authored Slack line into the channel session for the next agent load.
+
+    Socket Mode ignores ``bot_id`` message events, so ``chat.postMessage`` results (e.g. delegated
+    bots) never flow through ``store_passive_message`` from the Slack integration. This writes
+    the same shape of row as human passive traffic: ``metadata.passive`` so it appears in the
+    channel-context system block on load.
+    """
+    stripped = (text or "").strip()
+    if session_id is None or not client_id or not stripped:
+        return
+
+    ch_label = client_id.split(":", 1)[-1] if ":" in client_id else client_id
+    content = f"[Slack channel:{ch_label} bot:{posting_bot_id}] {stripped}"
+
+    include_in_memory = True
+    try:
+        async with async_session() as db:
+            if client_id.startswith("slack:"):
+                row = await db.get(IntegrationChannelConfig, client_id)
+                if row is not None:
+                    if not row.passive_memory:
+                        return
+                    include_in_memory = row.passive_memory
+            metadata = {
+                "passive": True,
+                "include_in_memory": include_in_memory,
+                "trigger_rag": False,
+                "source": "slack",
+                "sender_type": "bot",
+                "sender_id": f"bot:{posting_bot_id}",
+            }
+            await store_passive_message(db, session_id, content, metadata)
+    except Exception:
+        logger.exception(
+            "store_slack_echo_as_passive failed session=%s client_id=%s",
+            session_id,
+            client_id,
+        )
 
 
 async def store_passive_message(
