@@ -509,7 +509,7 @@
     toggleHarness(h) { this.d.harness_access.includes(h) ? this.d.harness_access = this.d.harness_access.filter(x=>x!==h) : this.d.harness_access=[...this.d.harness_access,h]; },
   }">
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Delegation</h2>
-    <p class="text-xs text-gray-500 mb-4">Allow this bot to delegate work to other bots or external harnesses. Requires <code class="bg-gray-700 px-1 rounded">DELEGATION_ENABLED=true</code>.</p>
+    <p class="text-xs text-gray-500 mb-4">Allow this bot to delegate work to other bots or external harnesses.</p>
 
     <input type="hidden" name="delegation_config_json" :value="JSON.stringify(config)" />
 

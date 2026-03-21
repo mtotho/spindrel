@@ -70,11 +70,43 @@ def get_slack_config() -> dict:
 
 # Provide module-level channel_map / default_bot for backward compat
 def _get_channel_map() -> dict[str, str]:
-    return get_slack_config().get("channels", _yaml_channel_map)
+    cfg = get_slack_config()
+    channels = cfg.get("channels", _yaml_channel_map)
+    # channels may be dict[str, str] (legacy) or dict[str, dict] (new format)
+    result: dict[str, str] = {}
+    for k, v in channels.items():
+        if isinstance(v, dict):
+            result[k] = v.get("bot_id") or ""
+        else:
+            result[k] = v
+    return result
 
 
 def _get_default_bot() -> str:
     return get_slack_config().get("default_bot", _yaml_default_bot)
+
+
+def get_channel_config(channel_id: str) -> dict:
+    """Return full config for a channel: bot_id, require_mention, passive_memory, rag_on_all."""
+    cfg = get_slack_config()
+    channels = cfg.get("channels", {})
+    ch = channels.get(channel_id, {})
+    default_bot = cfg.get("default_bot", _yaml_default_bot)
+    if isinstance(ch, dict):
+        return {
+            "bot_id": ch.get("bot_id") or default_bot,
+            "require_mention": ch.get("require_mention", True),
+            "passive_memory": ch.get("passive_memory", True),
+            "rag_on_all": ch.get("rag_on_all", False),
+        }
+    # Legacy: ch is a bot_id string
+    bot_id = ch if ch else default_bot
+    return {
+        "bot_id": bot_id,
+        "require_mention": True,
+        "passive_memory": True,
+        "rag_on_all": False,
+    }
 
 
 # For modules that import these at import time, give them live-refreshing proxies

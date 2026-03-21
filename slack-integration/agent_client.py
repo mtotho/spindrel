@@ -39,6 +39,7 @@ async def post_chat(
     attachments: list[dict] | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    msg_metadata: dict | None = None,
 ) -> dict:
     payload: dict = {
         "message": message,
@@ -52,6 +53,8 @@ async def post_chat(
         payload["dispatch_type"] = dispatch_type
     if dispatch_config:
         payload["dispatch_config"] = dispatch_config
+    if msg_metadata:
+        payload["msg_metadata"] = msg_metadata
     r = await http.post(
         f"{AGENT_BASE_URL}/chat",
         json=payload,
@@ -60,6 +63,31 @@ async def post_chat(
     )
     r.raise_for_status()
     return r.json()
+
+
+async def store_passive_message_http(
+    session_id: str,
+    client_id: str,
+    bot_id: str,
+    content: str,
+    metadata: dict,
+) -> None:
+    """POST to /chat with passive=True to store a message without running the agent."""
+    payload: dict = {
+        "message": content,
+        "bot_id": bot_id,
+        "client_id": client_id,
+        "session_id": session_id,
+        "passive": True,
+        "msg_metadata": metadata,
+    }
+    async with httpx.AsyncClient(timeout=10.0) as sc:
+        r = await sc.post(
+            f"{AGENT_BASE_URL}/chat",
+            json=payload,
+            headers={"Authorization": f"Bearer {API_KEY}"},
+        )
+        r.raise_for_status()
 
 
 async def fetch_session_context(session_id: str) -> dict:
@@ -120,6 +148,7 @@ async def stream_chat(
     attachments: list[dict] | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    msg_metadata: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream events from POST /chat/stream as an async generator of parsed dicts."""
     payload: dict = {
@@ -134,6 +163,8 @@ async def stream_chat(
         payload["dispatch_type"] = dispatch_type
     if dispatch_config:
         payload["dispatch_config"] = dispatch_config
+    if msg_metadata:
+        payload["msg_metadata"] = msg_metadata
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as sc:
         async with sc.stream(
             "POST",

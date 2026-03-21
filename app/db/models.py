@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Integer, Text, text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, Text, text, UniqueConstraint
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -46,6 +46,7 @@ class Session(Base):
         nullable=True,
     )
     depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Message.created_at"
@@ -66,6 +67,9 @@ class Message(Base):
     tool_calls: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tool_call_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
@@ -396,6 +400,22 @@ class SlackChannelConfig(Base):
     channel_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     bot_id: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class IntegrationChannelConfig(Base):
+    __tablename__ = "integration_channel_configs"
+
+    client_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    integration: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'slack'"))
+    require_mention: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    passive_memory: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    rag_on_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

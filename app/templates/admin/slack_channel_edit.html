@@ -8,7 +8,7 @@
         hx-swap="innerHTML"
         class="space-y-3">
     <div>
-      <label class="block text-xs text-gray-400 mb-1">Bot</label>
+      <label class="block text-xs text-gray-400 mb-1">Default Bot</label>
       <select name="bot_id" required
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
         {% for bot in all_bots %}
@@ -17,12 +17,27 @@
         </option>
         {% endfor %}
       </select>
+      <p class="text-xs text-gray-600 mt-1">Bot that responds to @mentions and <code>/ask</code> commands when no bot-id is specified.</p>
     </div>
-    <div>
-      <label class="block text-xs text-gray-400 mb-1">Description <span class="text-gray-600">(optional)</span></label>
-      <input name="description" placeholder="e.g. #general — customer support"
-        value="{{ cfg.description or '' }}"
-        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    <div class="space-y-2">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" name="require_mention" value="true"
+          {% if not cfg or cfg.require_mention %}checked{% endif %}
+          class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+        <div>
+          <span class="text-xs text-gray-300">Require @mention to trigger agent</span>
+          <p class="text-xs text-gray-600 mt-0.5">When checked, only messages that @mention the Slack app trigger the bot. All other messages are silently stored as channel context. When unchecked, the bot replies to every message in the channel.</p>
+        </div>
+      </label>
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" name="passive_memory" value="true"
+          {% if not cfg or cfg.passive_memory %}checked{% endif %}
+          class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+        <div>
+          <span class="text-xs text-gray-300">Include passive messages in memory compaction</span>
+          <p class="text-xs text-gray-600 mt-0.5">When the bot runs its memory/knowledge phase during compaction, passive channel messages are included in the transcript so the bot can extract relevant facts into knowledge.</p>
+        </div>
+      </label>
     </div>
     <div class="flex justify-end gap-3">
       <button type="button"

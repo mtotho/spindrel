@@ -46,10 +46,10 @@ logger = logging.getLogger(__name__)
                 "mode": {
                     "type": "string",
                     "enum": ["immediate", "deferred"],
-                    "default": "immediate",
+                    "default": "deferred",
                     "description": (
-                        "immediate (default): run the child agent now and return its response synchronously. "
-                        "deferred: create a scheduled task (use only when you explicitly want async/later execution)."
+                        "immediate: run the child agent now and return its response synchronously. "
+                        "deferred (default): create a scheduled task (use only when you explicitly want async/later execution)."
                     ),
                 },
                 "scheduled_at": {

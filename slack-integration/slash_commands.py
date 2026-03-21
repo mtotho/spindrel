@@ -1,18 +1,18 @@
-"""Slash commands: /bot, /sessions, /session, /bots, /context, /plan."""
-import uuid
+"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact."""
 
 from agent_client import (
     compact_session,
-    fetch_session_context,
     fetch_session_plans,
-    fetch_sessions,
+    fetch_session_context,
     list_bots,
+    stream_chat,
     update_plan_item_status,
     update_plan_status,
 )
-from formatting import format_last_active
-from session_helpers import fuzzy_find_session, slack_client_id
-from state import get_channel_state, set_channel_state
+from formatting import format_last_active, format_response_for_slack
+from session_helpers import derive_session_id, slack_client_id
+from slack_settings import BOT_TOKEN, get_bot_display_info
+from state import get_channel_lock, get_channel_state, set_channel_state
 
 
 _ITEM_STATUS_ICON = {
@@ -24,15 +24,13 @@ _ITEM_STATUS_ICON = {
 
 
 def _resolve_session_id(channel: str) -> str:
-    state = get_channel_state(channel)
     client_id = slack_client_id(channel)
-    return state.get("session_id") or str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{state['bot_id']}"))
+    return derive_session_id(client_id)
 
 
 def _format_plan(plan: dict, detail: bool = False) -> str:
     items = plan.get("items", [])
     done = sum(1 for i in items if i["status"] == "done")
-    skipped = sum(1 for i in items if i["status"] == "skipped")
     total = len(items)
     pid = plan["id"][:8]
     header = f"*[{pid}] {plan['title']}* ({done}/{total} done)"
@@ -69,103 +67,9 @@ def register_slash_commands(app):
             await respond(f"Unknown bot. Available: {', '.join(sorted(valid))}")
             return
 
-        set_channel_state(channel, bot_id=arg, session_id=None)
-        await respond(f"Switched to `{arg}`. New session for this bot.")
-
-    @app.command("/sessions")
-    async def cmd_sessions(ack, command, respond):
-        await ack()
-        channel = command.get("channel_id") or ""
-        state = get_channel_state(channel)
-        client_id = slack_client_id(channel)
-        bot_id = state["bot_id"]
-
-        current_sid = (
-            state.get("session_id") or str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}"))
-        ).lower()
-
-        try:
-            sessions = await fetch_sessions(channel)
-        except Exception as e:
-            await respond(f"Error listing sessions: {e}")
-            return
-
-        if not sessions:
-            await respond("No sessions. Send a message to create one, or `/session new`.")
-            return
-
-        lines = []
-        for i, s in enumerate(sessions[:25], 1):
-            sid = s.get("id") or ""
-            selected = sid.lower() == current_sid if sid else False
-            marker = "[*] " if selected else "    "
-            title = (s.get("title") or "(untitled)")[:28]
-            last = format_last_active(s.get("last_active") or "")
-            line = f"{marker}{i}. `{sid[:8]}` {title} bot=`{s.get('bot_id', '')}` {last}"
-            lines.append(line)
-        if len(sessions) > 25:
-            lines.append(f"_... and {len(sessions) - 25} more_")
-        lines.append("")
-        lines.append("_Select: /session <number or id or title>_")
-        await respond("\n".join(lines))
-
-    @app.command("/session")
-    async def cmd_session(ack, command, respond):
-        await ack()
-        channel = command.get("channel_id") or ""
-        arg = (command.get("text") or "").strip()
-
-        state = get_channel_state(channel)
-        client_id = slack_client_id(channel)
-        default_sid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{state['bot_id']}"))
-
-        if not arg:
-            sid = state.get("session_id") or default_sid
-            await respond(f"Current session: `{sid[:8]}...`")
-            return
-
-        if arg.lower() == "new":
-            set_channel_state(channel, session_id=str(uuid.uuid4()))
-            await respond("Started a new session.")
-            return
-
-        try:
-            sessions = await fetch_sessions(channel)
-        except Exception as e:
-            await respond(f"Error: {e}")
-            return
-
-        if arg.isdigit():
-            index = int(arg) - 1
-            if 0 <= index < len(sessions):
-                sid = sessions[index]["id"]
-                set_channel_state(channel, session_id=sid)
-                title = sessions[index].get("title") or "(untitled)"
-                await respond(f"✓ Switched to session `{sid[:8]}...` {title}")
-            else:
-                await respond("Invalid session number. Use `/sessions` to list.")
-            return
-
-        try:
-            sid_parsed = str(uuid.UUID(arg))
-            found = any((s.get("id") or "").lower() == sid_parsed.lower() for s in sessions)
-            if found:
-                set_channel_state(channel, session_id=sid_parsed)
-                await respond(f"Switched to session `{sid_parsed[:8]}...`")
-            else:
-                await respond("Session with that UUID not found for this client.")
-            return
-        except ValueError:
-            pass
-
-        found = fuzzy_find_session(sessions, arg)
-        if found:
-            sid = found["id"]
-            set_channel_state(channel, session_id=sid)
-            title = found.get("title") or "(untitled)"
-            await respond(f"Switched to session `{sid[:8]}...` ({title})")
-        else:
-            await respond("No session found matching that number, id, or title. Use `/sessions` to list.")
+        set_channel_state(channel, bot_id=arg)
+        session_id = _resolve_session_id(channel)
+        await respond(f"Switched to `{arg}`. Session unchanged: `{session_id[:8]}…`")
 
     @app.command("/bots")
     async def cmd_bots(ack, command, respond):
@@ -178,6 +82,126 @@ def register_slash_commands(app):
             for b in bots_list
         ]
         await respond("\n".join(lines))
+
+    @app.command("/ask")
+    async def cmd_ask(ack, command, client, respond):
+        """Route a message to a specific bot: /ask <bot-id> <message>"""
+        await ack()
+        channel = command.get("channel_id") or ""
+        user = command.get("user_id") or "unknown"
+        text = (command.get("text") or "").strip()
+
+        if not text:
+            bots_list = await list_bots()
+            lines = ["Usage: `/ask <bot-id> <message>`", "", "*Available bots:*"]
+            lines += [f"  `{b['id']}` — {b['name']}" for b in bots_list]
+            await respond("\n".join(lines))
+            return
+
+        parts = text.split(None, 1)
+        if len(parts) < 2:
+            await respond("Usage: `/ask <bot-id> <message>`\nExample: `/ask calculator-bot what is 2+2?`")
+            return
+
+        target_bot_id = parts[0].lower()
+        message = parts[1].strip()
+
+        if not message:
+            await respond("Please provide a message after the bot ID.")
+            return
+
+        try:
+            bots_list = await list_bots()
+            valid = {b["id"] for b in bots_list}
+        except Exception:
+            valid = set()
+
+        if target_bot_id not in valid:
+            await respond(
+                f"Unknown bot `{target_bot_id}`.\n"
+                f"Available: {', '.join(f'`{b}`' for b in sorted(valid))}"
+            )
+            return
+
+        client_id = slack_client_id(channel)
+        session_id = derive_session_id(client_id)
+
+        msg_metadata = {
+            "passive": False,
+            "source": "slack",
+            "sender_type": "human",
+            "sender_id": f"slack:{user}",
+            "recipient_id": f"bot:{target_bot_id}",
+            "trigger_rag": True,
+        }
+
+        full_message = f"[Slack channel:{channel} user:{user}] {message}"
+
+        dispatch_config = {
+            "channel_id": channel,
+            "thread_ts": None,
+            "token": BOT_TOKEN,
+        }
+
+        display_info = get_bot_display_info(target_bot_id)
+        identity: dict = {}
+        if display_info.get("display_name"):
+            identity["username"] = display_info["display_name"]
+        if display_info.get("icon_emoji"):
+            identity["icon_emoji"] = display_info["icon_emoji"]
+        elif display_info.get("icon_url"):
+            identity["icon_url"] = display_info["icon_url"]
+
+        lock = get_channel_lock(channel)
+        if lock.locked():
+            await respond("⏳ _Still thinking, try again in a moment._")
+            return
+
+        async with lock:
+            thinking_msg = await client.chat_postMessage(
+                channel=channel,
+                text="⏳ _thinking..._",
+                **identity,
+            )
+            thinking_ts = thinking_msg["ts"]
+            thinking_channel = thinking_msg["channel"]
+
+            try:
+                client_actions: list = []
+                async for event in stream_chat(
+                    message=full_message,
+                    bot_id=target_bot_id,
+                    client_id=client_id,
+                    session_id=session_id,
+                    dispatch_type="slack",
+                    dispatch_config=dispatch_config,
+                    msg_metadata=msg_metadata,
+                ):
+                    etype = event.get("type")
+                    if etype == "tool_start":
+                        tool = event.get("tool", "tool")
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=f"🔧 _{tool}..._",
+                            **identity,
+                        )
+                    elif etype == "response":
+                        reply = (event.get("text") or "").strip()
+                        client_actions = event.get("client_actions") or []
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=format_response_for_slack(reply),
+                            **identity,
+                        )
+            except Exception as e:
+                await client.chat_update(
+                    channel=thinking_channel,
+                    ts=thinking_ts,
+                    text=f"_Error: {str(e)[:500]}_",
+                    **identity,
+                )
 
     @app.command("/context")
     async def cmd_context(ack, command, respond):

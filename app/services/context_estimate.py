@@ -272,7 +272,7 @@ async def estimate_bot_context(
             lines.append(EstimateLine("tools:param", 0, "no tools enabled"))
 
     # Delegation index (when enabled)
-    if delegate_bots and settings.DELEGATION_ENABLED:
+    if delegate_bots:
         dele_lines = 0
         dele_chars = len("Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n")
         for did in delegate_bots:

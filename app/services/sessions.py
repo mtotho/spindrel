@@ -5,6 +5,7 @@ from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig, get_bot
@@ -13,6 +14,31 @@ from app.db.models import Message, Session
 
 
 logger = logging.getLogger(__name__)
+
+
+def derive_integration_session_id(client_id: str) -> uuid.UUID:
+    """Derive a stable session_id from client_id alone (channel-scoped, bot-independent)."""
+    return uuid.uuid5(uuid.NAMESPACE_DNS, client_id)
+
+
+async def upsert_integration_session(
+    db: AsyncSession, client_id: str, bot_id: str
+) -> uuid.UUID:
+    """Ensure an integration session exists for client_id. Returns the session_id."""
+    session_id = derive_integration_session_id(client_id)
+    stmt = (
+        pg_insert(Session)
+        .values(
+            id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            locked=True,
+        )
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return session_id
 
 
 def normalize_stored_content(content: str | None) -> str | list[Any] | None:
@@ -68,6 +94,7 @@ async def load_or_create(
     session_id: uuid.UUID | None,
     client_id: str,
     bot_id: str,
+    locked: bool = False,
 ) -> tuple[uuid.UUID, list[dict]]:
     if session_id is not None:
         existing = await db.get(Session, session_id)
@@ -79,7 +106,7 @@ async def load_or_create(
         session_id = uuid.uuid4()
 
     bot = get_bot(bot_id)
-    session = Session(id=session_id, client_id=client_id, bot_id=bot_id)
+    session = Session(id=session_id, client_id=client_id, bot_id=bot_id, locked=locked)
     db.add(session)
 
     system_content = _effective_system_prompt(bot)
@@ -102,6 +129,21 @@ async def load_or_create(
 
 
 
+def _format_passive_context(passive_msgs: list[dict]) -> str:
+    """Format passive channel messages as a system context block."""
+    lines = ["[Channel context — ambient messages not directed at the bot]"]
+    for m in passive_msgs:
+        meta = m.get("_metadata") or {}
+        sender = meta.get("sender_id") or "user"
+        content = m.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+        lines.append(f"  {sender}: {content}")
+    return "\n".join(lines)
+
+
 async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     """Load messages for a session, using compacted summary when available."""
     bot = get_bot(session.bot_id)
@@ -116,6 +158,16 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             msgs.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
         return msgs
 
+    def _split_passive_active(msgs: list[dict]) -> tuple[list[dict], list[dict]]:
+        passive = [m for m in msgs if (m.get("_metadata") or {}).get("passive")]
+        active = [m for m in msgs if not (m.get("_metadata") or {}).get("passive")]
+        return passive, active
+
+    def _inject_channel_context(messages: list[dict], passive: list[dict]) -> list[dict]:
+        if passive:
+            messages.append({"role": "system", "content": _format_passive_context(passive)})
+        return messages
+
     if session.summary and session.summary_message_id and bot.context_compaction:
         watermark_msg = await db.get(Message, session.summary_message_id)
         if watermark_msg is not None:
@@ -126,10 +178,12 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .order_by(Message.created_at)
             )
             recent = [_message_to_dict(m) for m in recent_result.scalars().all() if m.role != "system"]
+            passive, active = _split_passive_active(recent)
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
-            messages.extend(recent)
-            return _sanitize_tool_messages(messages)
+            _inject_channel_context(messages, passive)
+            messages.extend(active)
+            return _sanitize_tool_messages(_strip_metadata_keys(messages))
         else:
             # watermark gone but summary exists — inject summary + all non-system messages
             logger.warning("Watermark message missing for session %s, falling back to summary + full history", session.id)
@@ -140,10 +194,12 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             )
             all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
             non_system = [m for m in all_msgs if m["role"] != "system"]
+            passive, active = _split_passive_active(non_system)
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
-            messages.extend(non_system)
-            return _sanitize_tool_messages(messages)
+            _inject_channel_context(messages, passive)
+            messages.extend(active)
+            return _sanitize_tool_messages(_strip_metadata_keys(messages))
 
     result = await db.execute(
         select(Message)
@@ -152,7 +208,11 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     )
     all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
-    return _sanitize_tool_messages(_base_messages() + non_system_msgs)
+    passive, active = _split_passive_active(non_system_msgs)
+    messages = _base_messages()
+    _inject_channel_context(messages, passive)
+    messages.extend(active)
+    return _sanitize_tool_messages(_strip_metadata_keys(messages))
 
 async def persist_turn(
     db: AsyncSession,
@@ -161,12 +221,19 @@ async def persist_turn(
     messages: list[dict],
     from_index: int,
     correlation_id: uuid.UUID | None = None,
+    msg_metadata: dict | None = None,
 ) -> None:
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
     now = datetime.now(timezone.utc)
+    first_user = True
     for i, msg in enumerate(new_messages):
+        # Attach msg_metadata to the first user message in the turn
+        meta = {}
+        if msg_metadata and msg.get("role") == "user" and first_user:
+            meta = msg_metadata
+            first_user = False
         record = Message(
             session_id=session_id,
             role=msg["role"],
@@ -174,10 +241,35 @@ async def persist_turn(
             tool_calls=msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
             correlation_id=correlation_id,
+            metadata_=meta,
             created_at=now + timedelta(microseconds=i),
         )
         db.add(record)
 
+    await db.execute(
+        update(Session)
+        .where(Session.id == session_id)
+        .values(last_active=now)
+    )
+    await db.commit()
+
+
+async def store_passive_message(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    content: str,
+    metadata: dict,
+) -> None:
+    """Store a passive (non-agent-triggering) message in the session."""
+    now = datetime.now(timezone.utc)
+    record = Message(
+        session_id=session_id,
+        role="user",
+        content=content,
+        metadata_=metadata,
+        created_at=now,
+    )
+    db.add(record)
     await db.execute(
         update(Session)
         .where(Session.id == session_id)
@@ -279,4 +371,18 @@ def _message_to_dict(msg: Message) -> dict:
         d["tool_calls"] = msg.tool_calls
     if msg.tool_call_id is not None:
         d["tool_call_id"] = msg.tool_call_id
+    # Store metadata in a private key so _load_messages can split passive/active;
+    # _strip_metadata_keys removes it before returning to the LLM.
+    if msg.metadata_:
+        d["_metadata"] = msg.metadata_
     return d
+
+
+def _strip_metadata_keys(messages: list[dict]) -> list[dict]:
+    """Remove internal _metadata keys before passing messages to the LLM."""
+    out = []
+    for m in messages:
+        if "_metadata" in m:
+            m = {k: v for k, v in m.items() if k != "_metadata"}
+        out.append(m)
+    return out

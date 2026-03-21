@@ -27,7 +27,7 @@
     <thead>
       <tr class="border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wider">
         <th class="px-5 py-2 text-left">Channel</th>
-        <th class="px-5 py-2 text-left">Bot</th>
+        <th class="px-5 py-2 text-left">Bot / Settings</th>
         <th class="px-5 py-2 text-right"></th>
       </tr>
     </thead>
@@ -35,6 +35,7 @@
       {% for channel_id in all_channel_ids %}
       {% set cfg = config_map.get(channel_id) %}
       {% set channel_name = channel_names.get(channel_id) %}
+      {% set session_id = session_ids.get(channel_id) %}
       {% include "admin/slack_channel_row.html" %}
       {% endfor %}
     </tbody>
@@ -67,11 +68,16 @@
 <div class="bg-gray-800 rounded-xl border border-gray-700 p-5 mb-6">
   <h2 class="text-base font-semibold text-gray-200 mb-3">Slash Commands</h2>
   <div class="space-y-2 text-sm">
-    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/bot [id]</code><span class="text-gray-400">Switch bot for this channel. No arg = show current.</span></div>
-    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/bots</code><span class="text-gray-400">List all available bots.</span></div>
-    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/session [id|#]</code><span class="text-gray-400">Switch active session. <code>new</code> to create fresh.</span></div>
-    <div class="flex gap-3"><code class="font-mono text-green-400 w-36">/sessions</code><span class="text-gray-400">List sessions for this channel.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/ask &lt;bot-id&gt; &lt;message&gt;</code><span class="text-gray-400">Route a message to a specific bot. Bot responds in the channel attributed to its display name.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/bot [id]</code><span class="text-gray-400">Switch default bot for this channel (used for @mentions). Session stays the same.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/bots</code><span class="text-gray-400">List all available bots and their IDs.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/context</code><span class="text-gray-400">Show context breakdown for this channel's session.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/plan [...]</code><span class="text-gray-400">Manage plans in this channel's session.</span></div>
+    <div class="flex gap-3"><code class="font-mono text-green-400 w-48">/compact</code><span class="text-gray-400">Force-compact the session context.</span></div>
   </div>
+  <p class="text-xs text-gray-500 mt-3">
+    <strong class="text-gray-400">Note:</strong> Sessions are now channel-scoped. One session per channel, shared across all bots. Switching bots with <code>/bot</code> keeps the same session.
+  </p>
   <p class="text-xs text-gray-500 mt-3">
     <strong class="text-gray-400">@-tagging:</strong> type <code class="font-mono text-gray-300">@bot-id</code> or <code class="font-mono text-gray-300">@skill-name</code> as plain text in any message — the agent resolves them automatically. No Slack autocomplete for internal IDs; use <code>/bot</code> for switching.
   </p>

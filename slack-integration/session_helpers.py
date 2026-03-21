@@ -1,21 +1,11 @@
 """Slack↔agent session identity helpers."""
+import uuid
 
 
 def slack_client_id(channel_id: str) -> str:
     return f"slack:{channel_id}"
 
 
-def fuzzy_find_session(sessions: list[dict], query: str) -> dict | None:
-    """Match by UUID prefix or title (single match), or None."""
-    if not query or not sessions:
-        return None
-    query = query.strip().lower()
-    by_id = [s for s in sessions if (s.get("id") or "").lower().startswith(query)]
-    if len(by_id) == 1:
-        return by_id[0]
-    by_title = [s for s in sessions if query in (s.get("title") or "").lower()]
-    if len(by_title) == 1:
-        return by_title[0]
-    if by_id or by_title:
-        return (by_id + [m for m in by_title if m not in by_id])[0]
-    return None
+def derive_session_id(client_id: str) -> str:
+    """Derive a stable session_id from client_id alone (channel-scoped, bot-independent)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, client_id))

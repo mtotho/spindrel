@@ -620,27 +620,59 @@ See [ANDROID_CLIENT_PLAN.MD](ANDROID_CLIENT_PLAN.MD) for the full architecture, 
 
 ## Slack
 
-A Slack Socket Mode bot routes DMs and channel messages to the same `POST /chat` endpoint used by the CLI and Android clients. It runs as a **separate process** (no inbound ports; Slack pushes events over an outbound WebSocket).
+A Slack Socket Mode bot routes channel messages to the `POST /chat` endpoint. It runs as a **separate process** (no inbound ports; Slack pushes events over an outbound WebSocket).
 
-**Setup:** Add to `.env`: `SLACK_BOT_TOKEN` (xoxb-...), `SLACK_APP_TOKEN` (xapp-...), and `AGENT_API_KEY` (same value as `API_KEY`). Optionally set `AGENT_BASE_URL` (default `http://localhost:8000`). Edit `slack_config.yaml` to set `default_bot` (a bot id from `bots/*.yaml`), `session_scope` (user or channel), and optional `channels` / `users` mappings.
+**Setup:** Add to `.env`:
 
-When both Slack tokens are set, `./scripts/dev-server.sh` starts the Slack bot automatically in the background and stops it on exit. To run the bot alone: `python slack_bot.py`.
+```
+SLACK_BOT_TOKEN=xoxb-...          # Bot token (from OAuth)
+SLACK_APP_TOKEN=xapp-...          # App-level token (for Socket Mode)
+AGENT_API_KEY=same-as-API_KEY     # Auth key for the agent-server
+AGENT_BASE_URL=http://localhost:8000  # Agent-server URL
+SLACK_DEFAULT_BOT=default         # Fallback bot when no channel mapping exists
+```
 
-**Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read` (and DM scopes if needed), plus **`files:read`** to download shared attachments and **`files:write`** so `generate_image` can post images back. Configure the app at [api.slack.com/apps](https://api.slack.com/apps) (Socket Mode, event subscriptions `message.channels`, `app_mention`). See [SLACK_FILE_AND_IMAGE_INTEGRATION.MD](SLACK_FILE_AND_IMAGE_INTEGRATION.MD) for file/vision/image tool behavior.
+When both Slack tokens are set, `./scripts/dev-server.sh` starts the bot automatically. To run standalone: `cd slack-integration && python slack_bot.py`.
+
+**Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`, `commands`, `files:read`, `files:write`. Optional: `chat:write.customize` for per-bot display names.
+
+**Event subscriptions:** `message.channels`, `app_mention`
+
+Full details: [docs/slack.md](docs/slack.md)
+
+### Session model
+
+Each Slack channel has **one shared session** derived deterministically from the channel ID. The session is shared across all bots in that channel — switching the default bot with `/bot` keeps the same session and preserves full conversation history.
+
+### Active vs passive messages
+
+Messages in a channel are classified as **active** or **passive**:
+
+- **Active** — the agent runs and replies. Triggered by @mentioning the Slack app, or when `require_mention = false` for the channel.
+- **Passive** — stored silently, no reply. Triggered by all other messages when `require_mention = true` (the default). Passive messages are injected as a system context block (`[Channel context — ambient messages not directed at the bot]`) on the next active turn, and optionally included in memory compaction so the bot can extract facts from channel activity into long-term knowledge.
+
+Configure per-channel at **`/admin/slack`**.
+
+### Channel configuration
+
+| Setting | Default | Description |
+|---|---|---|
+| **Default Bot** | `SLACK_DEFAULT_BOT` | The bot that responds to @mentions and `/ask` in this channel. |
+| **Require @mention** | `true` | When checked, only @mentions trigger the agent. All other messages are stored passively. When unchecked, the bot replies to every message. |
+| **Passive memory** | `true` | When compaction runs, passive channel messages are included in the memory phase so the bot can extract relevant facts into knowledge. |
 
 ### Slash commands
 
-Register the following slash commands in your Slack app at **api.slack.com/apps → Slash Commands**. Set each command's Request URL to anything (it's ignored in Socket Mode — Slack sends slash command payloads over the same WebSocket). Enable the `commands` scope on the Bot token.
+Register these at **api.slack.com/apps → Slash Commands** (Socket Mode; Request URL is ignored). Enable the `commands` scope on the Bot token.
 
 | Command | Description |
 |---|---|
-| `/bot [id]` | Show or switch the current bot for this channel |
-| `/bots` | List all available bots |
-| `/session [new\|id\|title\|#]` | Show or switch the current session |
-| `/sessions` | List recent sessions for this channel |
-| `/context` | Show the latest context window breakdown (chars per role) |
-| `/compact` | Force session compaction (summarize + memory write) now |
-| `/plan [subcommand]` | View and manage agent plans (see below) |
+| `/ask <bot-id> <message>` | Route a message to a specific bot. Bot replies in the channel with its display name. `/ask` alone lists available bots. |
+| `/bot [id]` | Show or switch the default bot for this channel. Session is unchanged. |
+| `/bots` | List all available bots and their IDs. |
+| `/context` | Show the current context window breakdown (chars per role). |
+| `/compact` | Force session compaction (summarize + memory write) now. |
+| `/plan [subcommand]` | View and manage agent plans (see below). |
 
 **`/plan` subcommands:**
 
@@ -657,6 +689,15 @@ Register the following slash commands in your Slack app at **api.slack.com/apps 
 ```
 
 `<id>` is a plan UUID prefix (first 8 chars is usually enough). Item numbers are 1-based.
+
+### Multi-bot channels
+
+A channel has one **default bot** (used for @mentions), but multiple bots can operate in the same channel:
+
+- **`/ask <bot-id> <message>`** — routes directly to a specific bot; the bot replies attributed to its display name
+- **Delegation** — the default bot can delegate to other bots via `delegate_to_agent`; the sub-bot's response is posted to the channel attributed to its display name
+
+**Note:** Slack allows only one @mentionable user per app installation. Multiple independently @mentionable bots require separate Slack app installs.
 
 ## Task Scheduling
 
@@ -970,4 +1011,5 @@ scripts/          Dev helper scripts
 docs/             Feature documentation
   delegation.md   Bot-to-bot delegation (delegate_to_agent)
   harness.md      External CLI harness execution (delegate_to_harness, claude-code setup)
+  slack.md        Slack integration (session model, passive messages, channel config)
 ```

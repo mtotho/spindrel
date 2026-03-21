@@ -1,4 +1,4 @@
-"""Per-channel bot/session preferences persisted to slack_state.json."""
+"""Per-channel bot preferences persisted to slack_state.json."""
 import asyncio
 import json
 from pathlib import Path
@@ -13,7 +13,6 @@ def get_channel_lock(channel: str) -> asyncio.Lock:
     if channel not in _channel_locks:
         _channel_locks[channel] = asyncio.Lock()
     return _channel_locks[channel]
-_OMIT = object()
 
 
 def _load_state() -> None:
@@ -45,15 +44,18 @@ def resolve_bot(channel: str) -> str:
 
 def get_channel_state(channel: str) -> dict:
     if channel in _channel_state:
-        return _channel_state[channel].copy()
-    return {"bot_id": resolve_bot(channel), "session_id": None}
+        state = _channel_state[channel].copy()
+        # Strip any legacy session_id (sessions are now derived from client_id)
+        state.pop("session_id", None)
+        return state
+    return {"bot_id": resolve_bot(channel)}
 
 
-def set_channel_state(channel: str, *, bot_id=None, session_id=_OMIT) -> None:
+def set_channel_state(channel: str, *, bot_id=None) -> None:
     if channel not in _channel_state:
-        _channel_state[channel] = {"bot_id": resolve_bot(channel), "session_id": None}
+        _channel_state[channel] = {"bot_id": resolve_bot(channel)}
     if bot_id is not None:
         _channel_state[channel]["bot_id"] = bot_id
-    if session_id is not _OMIT:
-        _channel_state[channel]["session_id"] = session_id
+    # Remove legacy session_id if present
+    _channel_state[channel].pop("session_id", None)
     _save_state()

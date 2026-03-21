@@ -750,7 +750,7 @@ async def run_stream(
     # Inject a delegate bot index so the bot knows which agents it can hand off to
     # and their exact IDs (needed for @-tagging and delegate_to_agent tool calls).
     _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))
-    if _all_delegate_ids and settings.DELEGATION_ENABLED:
+    if _all_delegate_ids:
         from app.agent.bots import get_bot as _get_bot
         _delegate_lines: list[str] = []
         for _did in _all_delegate_ids:

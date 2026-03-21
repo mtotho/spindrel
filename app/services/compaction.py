@@ -67,6 +67,7 @@ def _get_compaction_keep_turns(bot: BotConfig) -> int:
 def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
     """Build message list for memory phase: user, assistant, and tool (content truncated to 500 chars).
     Lets the model see tool results when deciding what to store, without blowing context on huge payloads.
+    Passive messages are included with a [passive] prefix so the LLM can decide what to memorize.
     """
     filtered = []
     for m in messages:
@@ -74,8 +75,13 @@ def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
         content = m.get("content")
         if content is None:
             continue
+        is_passive = (m.get("_metadata") or {}).get("passive", False)
         if role in ("user", "assistant"):
-            filtered.append({"role": role, "content": _stringify_message_content(content)})
+            text = _stringify_message_content(content)
+            if is_passive:
+                filtered.append({"role": role, "content": f"[passive] {text}"})
+            else:
+                filtered.append({"role": role, "content": text})
         elif role == "tool":
             text = _stringify_message_content(content)
             truncated = text[:500] + "..." if len(text) > 500 else text
@@ -155,14 +161,30 @@ async def _run_compaction_memory_phase(
 
 
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
-    """Build the message list to send to the summarization LLM."""
-    filtered = []
+    """Build the message list to send to the summarization LLM.
+    Passive messages are excluded from the alternating user/assistant turns.
+    If there are any passive messages, prepend a 'Channel context' system block.
+    """
+    passive_lines: list[str] = []
+    active: list[dict] = []
+
     for m in messages:
         role = m.get("role")
         content = m.get("content")
-        if role in ("user", "assistant") and content:
-            filtered.append({"role": role, "content": _stringify_message_content(content)})
-    return filtered
+        if not content:
+            continue
+        is_passive = (m.get("_metadata") or {}).get("passive", False)
+        if role == "user" and is_passive:
+            meta = m.get("_metadata") or {}
+            sender = meta.get("sender_id") or "user"
+            passive_lines.append(f"  {sender}: {_stringify_message_content(content)}")
+        elif role in ("user", "assistant") and not is_passive:
+            active.append({"role": role, "content": _stringify_message_content(content)})
+
+    if passive_lines:
+        ctx = "Channel context since last compaction:\n" + "\n".join(passive_lines)
+        return [{"role": "system", "content": ctx}] + active
+    return active
 
 
 async def _generate_summary(
@@ -426,6 +448,8 @@ async def run_compaction_forced(
             d["tool_calls"] = m.tool_calls
         if m.tool_call_id is not None:
             d["tool_call_id"] = m.tool_call_id
+        if m.metadata_:
+            d["_metadata"] = m.metadata_
         return d
 
     messages = [_msg_to_dict(m) for m in all_msgs]

@@ -16,7 +16,12 @@ from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.dependencies import get_db, verify_auth
 from app.services.compaction import maybe_compact, run_compaction_stream
-from app.services.sessions import load_or_create, persist_turn
+from app.services.sessions import (
+    derive_integration_session_id,
+    load_or_create,
+    persist_turn,
+    store_passive_message,
+)
 from app.stt import transcribe as stt_transcribe
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,8 @@ class ChatRequest(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"
     dispatch_config: Optional[dict] = None  # type-specific routing config
+    passive: bool = False  # If True, store message but skip agent run
+    msg_metadata: Optional[dict] = None  # Metadata to attach to the user message row
 
 
 class ChatResponse(BaseModel):
@@ -50,6 +57,13 @@ class ChatResponse(BaseModel):
     response: str
     transcript: str = ""
     client_actions: list[dict] = []
+
+
+_INTEGRATION_PREFIXES = ("slack:", "discord:", "teams:")
+
+
+def _is_integration_client(client_id: str) -> bool:
+    return any(client_id.startswith(p) for p in _INTEGRATION_PREFIXES)
 
 
 @router.get("/bots")
@@ -120,14 +134,27 @@ async def chat(
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
-    logger.info("POST /chat  bot=%s  session=%s  message=%r", req.bot_id, req.session_id, message[:80])
+    is_integration = _is_integration_client(req.client_id)
+    # For integration sessions, derive stable session_id from client_id
+    resolved_session_id = req.session_id
+    if is_integration and resolved_session_id is None:
+        resolved_session_id = derive_integration_session_id(req.client_id)
+
+    logger.info("POST /chat  bot=%s  session=%s  passive=%s  message=%r",
+                req.bot_id, resolved_session_id, req.passive, message[:80])
 
     try:
         session_id, messages = await load_or_create(
-            db, req.session_id, req.client_id, req.bot_id
+            db, resolved_session_id, req.client_id, req.bot_id,
+            locked=is_integration,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    # Passive path: store message without running agent
+    if req.passive:
+        await store_passive_message(db, session_id, message, req.msg_metadata or {})
+        return ChatResponse(session_id=session_id, response="", client_actions=[])
 
     logger.info("Session %s loaded, %d messages", session_id, len(messages))
     logger.debug("System prompt: %s...", (messages[0]["content"][:80] + "…") if messages else "none")
@@ -153,7 +180,11 @@ async def chat(
         logger.info("Client actions: %d", len(result.client_actions))
         logger.debug("Client actions: %s", result.client_actions)
 
-    await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
+    await persist_turn(
+        db, session_id, bot, messages, from_index,
+        correlation_id=correlation_id,
+        msg_metadata=req.msg_metadata,
+    )
     maybe_compact(session_id, bot, messages, correlation_id=correlation_id)
 
     return ChatResponse(
@@ -201,14 +232,30 @@ async def chat_stream(
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
-    logger.info("POST /chat/stream  bot=%s  session=%s  message=%r", req.bot_id, req.session_id, message[:80])
+    is_integration = _is_integration_client(req.client_id)
+    resolved_session_id = req.session_id
+    if is_integration and resolved_session_id is None:
+        resolved_session_id = derive_integration_session_id(req.client_id)
+
+    logger.info("POST /chat/stream  bot=%s  session=%s  passive=%s  message=%r",
+                req.bot_id, resolved_session_id, req.passive, message[:80])
 
     try:
         session_id, messages = await load_or_create(
-            db, req.session_id, req.client_id, req.bot_id
+            db, resolved_session_id, req.client_id, req.bot_id,
+            locked=is_integration,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    # Passive path: store message and return empty stream
+    if req.passive:
+        await store_passive_message(db, session_id, message, req.msg_metadata or {})
+
+        async def _passive_stream():
+            yield f"data: {json.dumps({'type': 'passive_stored', 'session_id': str(session_id)})}\n\n"
+
+        return StreamingResponse(_passive_stream(), media_type="text/event-stream")
 
     from_index = len(messages)
     correlation_id = uuid.uuid4()
@@ -249,7 +296,11 @@ async def chat_stream(
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
 
-            await persist_turn(db, session_id, bot, messages, from_index, correlation_id=correlation_id)
+            await persist_turn(
+                db, session_id, bot, messages, from_index,
+                correlation_id=correlation_id,
+                msg_metadata=req.msg_metadata,
+            )
 
             compaction_stream = run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id)
             async for event in compaction_stream:

@@ -1,11 +1,10 @@
 """Slack message and app_mention → agent /chat."""
 import base64
-import uuid
 
-from agent_client import http, stream_chat
+from agent_client import http, store_passive_message_http, stream_chat
 from formatting import format_response_for_slack
-from session_helpers import slack_client_id
-from slack_settings import BOT_TOKEN, get_bot_display_info
+from session_helpers import derive_session_id, slack_client_id
+from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_lock, get_channel_state
 
 TEXT_MIMES = {
@@ -86,32 +85,60 @@ async def dispatch(
     client,
     files: list | None = None,
     thread_ts: str | None = None,
+    mentioned: bool = False,
 ):
     text = (text or "").strip()
 
+    config = get_channel_config(channel)
     state = get_channel_state(channel)
-    bot_id = state["bot_id"]
+    bot_id = state["bot_id"] or config["bot_id"]
     client_id = slack_client_id(channel)
-    session_id_override = state.get("session_id")
-    if session_id_override is not None:
-        session_id = session_id_override
-    else:
-        session_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{client_id}:{bot_id}"))
+    session_id = derive_session_id(client_id)
 
     appended, attachments = await _process_slack_files(files or [])
 
     if not text and not appended and not attachments:
-        await say("_No message to process._")
+        if mentioned:
+            await say("_No message to process._")
         return
     if not text and attachments and not appended:
         text = "(see attached image(s))"
+
+    # Determine if this should be passive (stored but no agent run).
+    # require_mention=True (default): only @mentions trigger the agent.
+    # require_mention=False: all messages trigger the agent.
+    is_passive = not mentioned and config["require_mention"]
+
+    msg_metadata = {
+        "passive": is_passive,
+        "include_in_memory": config["passive_memory"],
+        "trigger_rag": mentioned or not config["require_mention"],
+        "source": "slack",
+        "sender_type": "human",
+        "sender_id": f"slack:{user}",
+        "recipient_id": f"bot:{bot_id}" if mentioned else None,
+    }
+
+    full_message = f"[Slack channel:{channel} user:{user}] {text}{appended}"
+
+    if is_passive:
+        # Store message without running agent
+        try:
+            await store_passive_message_http(
+                session_id=session_id,
+                client_id=client_id,
+                bot_id=bot_id,
+                content=full_message,
+                metadata=msg_metadata,
+            )
+        except Exception:
+            pass  # Passive storage failure is non-fatal
+        return
 
     lock = get_channel_lock(channel)
     if lock.locked():
         await say("⏳ _Still thinking, try again in a moment._")
         return
-
-    message = f"[Slack channel:{channel} user:{user}] {text}{appended}"
 
     dispatch_config = {
         "channel_id": channel,
@@ -138,13 +165,14 @@ async def dispatch(
         try:
             client_actions: list = []
             async for event in stream_chat(
-                message=message,
+                message=full_message,
                 bot_id=bot_id,
                 client_id=client_id,
                 session_id=session_id,
                 attachments=attachments if attachments else None,
                 dispatch_type="slack",
                 dispatch_config=dispatch_config,
+                msg_metadata=msg_metadata,
             ):
                 etype = event.get("type")
                 if etype == "tool_start":
@@ -196,6 +224,7 @@ def register_message_handlers(app):
             client,
             event.get("files"),
             thread_ts=thread_ts,
+            mentioned=False,
         )
 
     @app.event("app_mention")
@@ -215,4 +244,5 @@ def register_message_handlers(app):
             client,
             event.get("files"),
             thread_ts=thread_ts,
+            mentioned=True,
         )
