@@ -138,6 +138,7 @@ async def create_task(
     if dispatch_type == "slack":
         dispatch_config["reply_in_thread"] = reply_in_thread
 
+    callback_cfg = {"trigger_rag_loop": True} if trigger_rag_loop else None
     task = Task(
         bot_id=effective_bot_id,
         client_id=effective_client_id,
@@ -147,8 +148,8 @@ async def create_task(
         status="pending",
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
+        callback_config=callback_cfg,
         recurrence=recurrence or None,
-        trigger_rag_loop=trigger_rag_loop,
         created_at=datetime.now(timezone.utc),
     )
     async with async_session() as db:
@@ -380,7 +381,7 @@ async def reschedule_task(
             task.dispatch_config = cfg
             changes.append(f"reply_in_thread → {reply_in_thread}")
         if trigger_rag_loop is not _UNSET:
-            task.trigger_rag_loop = trigger_rag_loop
+            task.callback_config = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop}
             changes.append(f"trigger_rag_loop → {trigger_rag_loop}")
 
         if not changes:

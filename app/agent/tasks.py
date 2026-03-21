@@ -95,7 +95,7 @@ async def run_harness_task(task: Task) -> None:
         t.run_at = now
         await db.commit()
 
-    cfg = task.dispatch_config or {}
+    cfg = task.callback_config or {}
     harness_name = cfg.get("harness_name", "")
     working_directory = cfg.get("working_directory")
     output_dispatch_type = cfg.get("output_dispatch_type", "none")
@@ -164,14 +164,13 @@ async def run_harness_task(task: Task) -> None:
         await dispatcher.deliver(output_task, result_text)
 
         # Notify parent bot: create a callback task so the parent can react to harness output.
-        if cfg.get("_notify_parent") and result_text:
-            _parent_bot_id = cfg.get("_parent_bot_id")
-            _parent_session_str = cfg.get("_parent_session_id")
-            _parent_client_id = cfg.get("_parent_client_id")
+        if cfg.get("notify_parent") and result_text:
+            _parent_bot_id = cfg.get("parent_bot_id")
+            _parent_session_str = cfg.get("parent_session_id")
+            _parent_client_id = cfg.get("parent_client_id")
             if _parent_bot_id and _parent_session_str:
                 try:
                     _parent_session_id = uuid.UUID(_parent_session_str)
-                    _cb_cfg = {k: v for k, v in output_dispatch_config.items() if not k.startswith("_")}
                     _cb_task = Task(
                         bot_id=_parent_bot_id,
                         client_id=_parent_client_id,
@@ -179,7 +178,7 @@ async def run_harness_task(task: Task) -> None:
                         prompt=f"[Harness {harness_name} completed]\n\n{result_text}",
                         status="pending",
                         dispatch_type=output_dispatch_type,
-                        dispatch_config=_cb_cfg,
+                        dispatch_config=dict(output_dispatch_config),
                         created_at=datetime.now(timezone.utc),
                     )
                     async with async_session() as db:
@@ -320,10 +319,11 @@ async def run_task(task: Task) -> None:
         dispatcher = dispatchers.get(task.dispatch_type)
         await dispatcher.deliver(task, result_text, client_actions=run_result.client_actions)
 
+        _cb = task.callback_config or {}
+
         # trigger_rag_loop: create an immediate follow-up agent turn so the bot can
         # react to what it just posted. Posts response to the same channel.
-        if getattr(task, "trigger_rag_loop", False) and result_text:
-            _trl_cfg = {k: v for k, v in (task.dispatch_config or {}).items() if not k.startswith("_")}
+        if _cb.get("trigger_rag_loop") and result_text:
             _trl_task = Task(
                 bot_id=task.bot_id,
                 client_id=task.client_id,
@@ -331,8 +331,8 @@ async def run_task(task: Task) -> None:
                 prompt=f"[Your scheduled task just ran and posted to the channel. The output was:]\n\n{result_text}",
                 status="pending",
                 dispatch_type=task.dispatch_type,
-                dispatch_config=_trl_cfg,
-                trigger_rag_loop=False,  # prevent loop
+                dispatch_config=dict(task.dispatch_config or {}),
+                callback_config={"trigger_rag_loop": False},  # prevent loop
                 created_at=datetime.now(timezone.utc),
             )
             async with async_session() as db:
@@ -341,16 +341,13 @@ async def run_task(task: Task) -> None:
             logger.info("Task %s: created trigger_rag_loop follow-up task", task.id)
 
         # Notify parent: create a callback task for the parent bot if requested
-        _cfg = task.dispatch_config or {}
-        if _cfg.get("_notify_parent") and result_text:
-            _parent_bot_id = _cfg.get("_parent_bot_id")
-            _parent_session_str = _cfg.get("_parent_session_id")
-            _parent_client_id = _cfg.get("_parent_client_id")
+        if _cb.get("notify_parent") and result_text:
+            _parent_bot_id = _cb.get("parent_bot_id")
+            _parent_session_str = _cb.get("parent_session_id")
+            _parent_client_id = _cb.get("parent_client_id")
             if _parent_bot_id and _parent_session_str:
                 try:
                     _parent_session_id = uuid.UUID(_parent_session_str)
-                    # Callback dispatch config: same as original but strip internal _* keys
-                    _cb_cfg = {k: v for k, v in _cfg.items() if not k.startswith("_")}
                     _cb_task = Task(
                         bot_id=_parent_bot_id,
                         client_id=_parent_client_id,
@@ -358,7 +355,7 @@ async def run_task(task: Task) -> None:
                         prompt=f"[Sub-agent {task.bot_id} completed]\n\n{result_text}",
                         status="pending",
                         dispatch_type=task.dispatch_type,
-                        dispatch_config=_cb_cfg,
+                        dispatch_config=dict(task.dispatch_config or {}),
                         created_at=datetime.now(timezone.utc),
                     )
                     async with async_session() as db:

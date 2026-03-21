@@ -203,14 +203,15 @@ class DelegationService:
         notify_parent: bool = True,
     ) -> str:
         """Create a Task for deferred execution. Returns task_id string."""
-        merged_config = dict(dispatch_config or {})
-        merged_config["reply_in_thread"] = reply_in_thread
+        delivery_config = dict(dispatch_config or {})
+        delivery_config["reply_in_thread"] = reply_in_thread
+        callback_cfg: dict = {}
         if notify_parent and parent_session_id is not None:
-            merged_config["_notify_parent"] = True
-            merged_config["_parent_bot_id"] = parent_bot.id
-            merged_config["_parent_session_id"] = str(parent_session_id)
+            callback_cfg["notify_parent"] = True
+            callback_cfg["parent_bot_id"] = parent_bot.id
+            callback_cfg["parent_session_id"] = str(parent_session_id)
             if client_id:
-                merged_config["_parent_client_id"] = client_id
+                callback_cfg["parent_client_id"] = client_id
         task = Task(
             bot_id=delegate_bot_id,
             client_id=client_id,
@@ -219,7 +220,8 @@ class DelegationService:
             scheduled_at=scheduled_at,
             status="pending",
             dispatch_type=dispatch_type or "none",
-            dispatch_config=merged_config,
+            dispatch_config=delivery_config,
+            callback_config=callback_cfg or None,
             created_at=datetime.now(timezone.utc),
         )
         async with async_session() as db:

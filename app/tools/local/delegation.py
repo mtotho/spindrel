@@ -300,25 +300,25 @@ async def delegate_to_harness(
         session_id = current_session_id.get()
         client_id = current_client_id.get()
         src_corr = current_correlation_id.get()
-        cfg_dispatch = dict(dispatch_config)
-        cfg_dispatch["reply_in_thread"] = reply_in_thread
-        harness_cfg: dict = {
+        delivery_config = dict(dispatch_config)
+        delivery_config["reply_in_thread"] = reply_in_thread
+        callback_cfg: dict = {
             "harness_name": harness,
             "working_directory": working_directory,
             "output_dispatch_type": dispatch_type or "none",
-            "output_dispatch_config": cfg_dispatch,
+            "output_dispatch_config": delivery_config,
         }
         if notify_parent and session_id is not None:
-            harness_cfg["_notify_parent"] = True
-            harness_cfg["_parent_bot_id"] = parent_bot_id
-            harness_cfg["_parent_session_id"] = str(session_id)
+            callback_cfg["notify_parent"] = True
+            callback_cfg["parent_bot_id"] = parent_bot_id
+            callback_cfg["parent_session_id"] = str(session_id)
             if client_id:
-                harness_cfg["_parent_client_id"] = client_id
+                callback_cfg["parent_client_id"] = client_id
         sbx = _parse_uuid_opt(sandbox_instance_id)
         if sbx is not None:
-            harness_cfg["sandbox_instance_id"] = str(sbx)
+            callback_cfg["sandbox_instance_id"] = str(sbx)
         if src_corr is not None:
-            harness_cfg["source_correlation_id"] = str(src_corr)
+            callback_cfg["source_correlation_id"] = str(src_corr)
         task = Task(
             bot_id=parent_bot_id,
             client_id=client_id,
@@ -326,7 +326,8 @@ async def delegate_to_harness(
             prompt=prompt,
             status="pending",
             dispatch_type="harness",
-            dispatch_config=harness_cfg,
+            dispatch_config={},
+            callback_config=callback_cfg,
         )
         async with async_session() as db:
             db.add(task)

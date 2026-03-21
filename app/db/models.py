@@ -464,9 +464,9 @@ class Task(Base):
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     dispatch_type: Mapped[str] = mapped_column(Text, nullable=False, default="none")
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    callback_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     recurrence: Mapped[str | None] = mapped_column(Text, nullable=True)  # e.g. "+1h", "+1d"
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    trigger_rag_loop: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 class Plan(Base):

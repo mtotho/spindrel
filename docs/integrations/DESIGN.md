@@ -184,26 +184,28 @@ served by `app/routers/admin_slack.py`. It does NOT query the DB directly.
 
 ## Known Debt
 
+For detailed explanation of each item (current behavior, problem, fix, implementation steps)
+see [`DEBT.md`](DEBT.md).
+
 ### Remaining issues
 
-- [ ] `_post_to_slack()` still duplicated in 3 places:
-  `app/services/delegation.py`, `app/routers/admin_slack.py`, `app/routers/api_v1_sessions.py`
+- [ ] `_post_to_slack()` still duplicated in `app/services/delegation.py` and
+  `app/routers/api_v1_sessions.py` and `integrations/slack/dispatcher.py`
   **Fix**: consolidate into `app/services/slack_client.py`
 
 - [ ] `dispatch_config` polluted with delegation bookkeeping (`_notify_parent`, `_parent_*`)
-  **Fix**: add `Task.callback_config` JSONB column; move those keys there
+  and harness execution params (`harness_name`, `working_directory`, etc.)
+  **Fix**: add `Task.callback_config` JSONB column (migration 039); move those keys there
 
-- [ ] `Task.trigger_rag_loop` is a Slack-specific concept on a generic model
-  **Fix**: move to `callback_config` or handle via task metadata
+- [ ] `Task.trigger_rag_loop` boolean column is Slack-specific on a generic model
+  **Fix**: move to `callback_config`; drop the column (migration 040)
 
-- [ ] `slack-integration/` folder at repo root is now superseded by `integrations/slack/`
-  **Fix**: delete `slack-integration/` once `integrations/slack/` is confirmed stable
-
-- [ ] `_fanout()` in `api_v1_sessions.py` has hardcoded Slack check
-  **Fix**: drive fan-out through `dispatch_config.type` + dispatcher registry
+- [ ] `_fanout()` in `api_v1_sessions.py` has hardcoded `startswith("slack:")` check
+  **Fix**: drive fan-out through dispatcher registry (depends on `slack_client.py` being done)
 
 ### Completed
 
+- [x] `slack-integration/` folder deleted — `integrations/slack/` is canonical
 - [x] Dispatcher registry is now pluggable — `app/agent/dispatchers.py` + `integrations/slack/dispatcher.py`
 - [x] `SlackDispatcher` moved out of `tasks.py` into `integrations/slack/dispatcher.py`
 - [x] `Bot.slack_display_name/icon_emoji/icon_url` → `display_name`, `avatar_url`, `integration_config`
@@ -211,6 +213,7 @@ served by `app/routers/admin_slack.py`. It does NOT query the DB directly.
 - [x] `SlackChannelConfig` table dropped (migration 033)
 - [x] `app/services/slack_uploads.py` created — canonical file upload, form-encoding bug fixed
 - [x] Integration process discovery — `process.py` convention, `dev-server.sh` auto-starts
+- [x] Knowledge session scoping + per-row similarity thresholds (migrations 035–038)
 
 ---
 

@@ -159,7 +159,7 @@ async def admin_task_edit(
         task.recurrence = recurrence.strip() or None
         task.status = status
         task.bot_id = bot_id.strip()
-        task.trigger_rag_loop = trigger_rag_loop == "on"
+        task.callback_config = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop == "on"}
 
         # Update reply_in_thread in dispatch_config for Slack tasks
         if task.dispatch_type == "slack" and task.dispatch_config is not None:

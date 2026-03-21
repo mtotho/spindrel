@@ -112,7 +112,7 @@
           <dt class="text-gray-500 w-32 shrink-0">Trigger RAG loop</dt>
           <dd class="flex items-center gap-2">
             <input type="checkbox" name="trigger_rag_loop" id="trigger_rag_loop"
-              {% if task.trigger_rag_loop %}checked{% endif %}
+              {% if task.callback_config and task.callback_config.get('trigger_rag_loop') %}checked{% endif %}
               class="rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500" />
             <label for="trigger_rag_loop" class="text-xs text-gray-500">Run follow-up agent turn after posting</label>
           </dd>
