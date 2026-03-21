@@ -14,9 +14,12 @@
     <thead>
       <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
         <th class="px-4 py-3 text-left">Time</th>
-        <th class="px-4 py-3 text-left">Correlation ID</th>
-        <th class="px-4 py-3 text-left">Tool Calls</th>
-        <th class="px-4 py-3 text-left">RAG Events</th>
+        <th class="px-4 py-3 text-left">Request</th>
+        <th class="px-4 py-3 text-left">Response</th>
+        <th class="px-4 py-3 text-left">Duration</th>
+        <th class="px-4 py-3 text-left">Trace</th>
+        <th class="px-4 py-3 text-left">Tools</th>
+        <th class="px-4 py-3 text-left">Events</th>
         <th class="px-4 py-3 text-left">Status</th>
       </tr>
     </thead>
@@ -24,9 +27,34 @@
       {% for c in correlations %}
       <tr class="hover:bg-gray-750">
         <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{{ c.first_at | fmt_dt }}</td>
+        <td class="px-4 py-3 text-gray-300 text-xs max-w-xs">
+          {% if c.user_preview %}
+          <span class="truncate block" title="{{ c.user_preview }}">{{ c.user_preview }}</span>
+          {% else %}
+          <span class="text-gray-600">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-300 text-xs max-w-xs">
+          {% if c.response_preview %}
+          <span class="truncate block" title="{{ c.response_preview }}">{{ c.response_preview }}</span>
+          {% else %}
+          <span class="text-gray-600">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+          {% if c.duration_ms is not none %}
+            {% if c.duration_ms >= 1000 %}
+            {{ "%.1f"|format(c.duration_ms / 1000) }}s
+            {% else %}
+            {{ c.duration_ms }}ms
+            {% endif %}
+          {% else %}
+          <span class="text-gray-600">—</span>
+          {% endif %}
+        </td>
         <td class="px-4 py-3 font-mono text-xs">
           <a href="/admin/trace/{{ c.correlation_id }}" class="text-indigo-400 hover:text-indigo-300">
-            {{ c.correlation_id }}
+            {{ c.correlation_id | string | truncate(8, False, '') }}…
           </a>
         </td>
         <td class="px-4 py-3 text-gray-300 text-xs">{{ c.tc_count }}</td>
@@ -40,7 +68,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="px-4 py-6 text-gray-500 text-center">No correlations found for this session.</td></tr>
+      <tr><td colspan="8" class="px-4 py-6 text-gray-500 text-center">No correlations found for this session.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -115,8 +115,8 @@ async def delegate_to_agent(
         return json.dumps({"error": f"Could not load parent bot: {exc}"})
 
     # Global flag OR bot-level config (non-empty delegate_bots) enables delegation
-    if not settings.DELEGATION_ENABLED and not parent_bot.delegate_bots:
-        return json.dumps({"error": "Delegation is disabled. Set DELEGATION_ENABLED=true or configure delegate_bots for this bot."})
+    if not parent_bot.delegate_bots:
+        return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
 
     # Fuzzy-resolve bot_id so partial names / aliases work
     resolved = resolve_bot_id(bot_id)
@@ -289,8 +289,8 @@ async def delegate_to_harness(
         return json.dumps({"error": f"Could not load bot: {exc}"})
 
     # Global flag OR bot-level harness_access config enables harness delegation
-    if not settings.DELEGATION_ENABLED and not bot.harness_access:
-        return json.dumps({"error": "Delegation is disabled. Set DELEGATION_ENABLED=true or configure harness_access for this bot."})
+    if not bot.harness_access:
+        return json.dumps({"error": "Delegation is disabled. Configure harness_access for this bot."})
 
     if mode == "deferred":
         from app.db.engine import async_session

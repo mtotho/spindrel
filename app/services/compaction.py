@@ -393,21 +393,47 @@ async def run_compaction_stream(
 async def _drain_compaction(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
+    compacted = False
     try:
-        async for _ in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id):
-            pass
+        async for event in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id):
+            if isinstance(event, dict) and event.get("type") == "compaction_done":
+                compacted = True
     except Exception:
         logger.exception("Background compaction failed for session %s", session_id)
+
+    if compacted and dispatch_type and dispatch_config:
+        try:
+            from app.agent.dispatchers import get as get_dispatcher
+            from app.db.models import Task
+            notif = Task(
+                bot_id=bot.id,
+                session_id=session_id,
+                dispatch_type=dispatch_type,
+                dispatch_config=dispatch_config,
+            )
+            dispatcher = get_dispatcher(dispatch_type)
+            await dispatcher.deliver(notif, "🧠 _Context compacted._")
+        except Exception:
+            logger.warning("Failed to post compaction notification for session %s", session_id)
 
 
 def maybe_compact(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
+    dispatch_type: str | None = None,
+    dispatch_config: dict | None = None,
 ) -> None:
     """If compaction is due, run it in the background (memory phase + summary). Non-blocking."""
-    asyncio.create_task(_drain_compaction(session_id, bot, messages, correlation_id=correlation_id))
+    asyncio.create_task(_drain_compaction(
+        session_id, bot, messages,
+        correlation_id=correlation_id,
+        dispatch_type=dispatch_type,
+        dispatch_config=dispatch_config,
+    ))
 
 
 async def run_compaction_forced(

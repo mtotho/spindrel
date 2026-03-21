@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,8 +15,10 @@ from app.agent.bots import get_bot, list_bots
 from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
+from app.db.models import Task as TaskModel
 from app.dependencies import get_db, verify_auth
-from app.services.compaction import maybe_compact, run_compaction_stream
+from app.services import session_locks
+from app.services.compaction import maybe_compact
 from app.services.sessions import (
     derive_integration_session_id,
     is_integration_client_id,
@@ -183,7 +186,12 @@ async def chat(
         correlation_id=correlation_id,
         msg_metadata=req.msg_metadata,
     )
-    maybe_compact(session_id, bot, messages, correlation_id=correlation_id)
+    maybe_compact(
+        session_id, bot, messages,
+        correlation_id=correlation_id,
+        dispatch_type=req.dispatch_type,
+        dispatch_config=req.dispatch_config,
+    )
 
     return ChatResponse(
         session_id=session_id,
@@ -255,6 +263,41 @@ async def chat_stream(
 
         return StreamingResponse(_passive_stream(), media_type="text/event-stream")
 
+    # Session locking: if a RAG loop is already running for this session, queue the
+    # request as a Task and return a `queued` event.  The Task worker will run the
+    # message once the current loop finishes and dispatch the response via the
+    # integration-agnostic dispatcher system.
+    if not session_locks.acquire(session_id):
+        # Clear thread_ts so the delayed response posts to the channel directly
+        # (not as a thread reply to the original message).
+        queued_dispatch_config = (
+            {**req.dispatch_config, "thread_ts": None}
+            if req.dispatch_config
+            else req.dispatch_config
+        )
+        queued_task = TaskModel(
+            bot_id=req.bot_id,
+            client_id=req.client_id,
+            session_id=session_id,
+            prompt=message,
+            status="pending",
+            dispatch_type=req.dispatch_type,
+            dispatch_config=queued_dispatch_config,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(queued_task)
+        await db.commit()
+        await db.refresh(queued_task)
+        _task_id = str(queued_task.id)
+        logger.info(
+            "Session %s busy — queued message as task %s", session_id, _task_id
+        )
+
+        async def _queued_stream():
+            yield f"data: {json.dumps({'type': 'queued', 'session_id': str(session_id), 'task_id': _task_id})}\n\n"
+
+        return StreamingResponse(_queued_stream(), media_type="text/event-stream")
+
     from_index = len(messages)
     correlation_id = uuid.uuid4()
 
@@ -300,15 +343,17 @@ async def chat_stream(
                 msg_metadata=req.msg_metadata,
             )
 
-            compaction_stream = run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id)
-            async for event in compaction_stream:
-                if await request.is_disconnected():
-                    break
-                event_with_session = {**event, "session_id": str(session_id)}
-                yield f"data: {json.dumps(event_with_session)}\n\n"
+            maybe_compact(
+                session_id, bot, messages,
+                correlation_id=correlation_id,
+                dispatch_type=req.dispatch_type,
+                dispatch_config=req.dispatch_config,
+            )
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+        finally:
+            session_locks.release(session_id)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

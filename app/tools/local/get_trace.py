@@ -117,7 +117,6 @@ async def list_session_traces(limit: int = 10) -> str:
 
     return "\n".join(lines)
 
-
 @register({
     "type": "function",
     "function": {
@@ -125,7 +124,7 @@ async def list_session_traces(limit: int = 10) -> str:
         "description": (
             "Read the full trace of a conversation turn: all RAG retrieval events, "
             "tool calls (with arguments and results), token usage, and errors. "
-            "Defaults to the current turn. Pass a correlation_id to inspect a previous turn. "
+            "Defaults to the current turn. Pass a correlation_id, trace_id, or id to inspect a previous turn. "
             "Use list_session_traces first to find correlation_ids with errors."
         ),
         "parameters": {
@@ -134,7 +133,19 @@ async def list_session_traces(limit: int = 10) -> str:
                 "correlation_id": {
                     "type": "string",
                     "description": (
-                        "UUID of the turn to inspect. Omit to inspect the current turn."
+                        "UUID of the turn to inspect. Can also be passed as trace_id or id. Omit to inspect the current turn."
+                    ),
+                },
+                "trace_id": {
+                    "type": "string",
+                    "description": (
+                        "Alias for correlation_id."
+                    ),
+                },
+                "id": {
+                    "type": "string",
+                    "description": (
+                        "Alias for correlation_id."
                     ),
                 },
             },
@@ -142,12 +153,18 @@ async def list_session_traces(limit: int = 10) -> str:
         },
     },
 })
-async def get_trace(correlation_id: str | None = None) -> str:
-    if correlation_id:
+async def get_trace(
+    correlation_id: str | None = None,
+    trace_id: str | None = None,
+    id: str | None = None,
+) -> str:
+    # Fuzzy pick the first defined parameter in the order correlation_id, trace_id, id
+    param_val = correlation_id or trace_id or id
+    if param_val:
         try:
-            corr_id = uuid.UUID(correlation_id)
+            corr_id = uuid.UUID(param_val)
         except ValueError:
-            return json.dumps({"error": f"Invalid correlation_id: {correlation_id!r}"})
+            return json.dumps({"error": f"Invalid correlation_id/trace_id/id: {param_val!r}"})
     else:
         corr_id = current_correlation_id.get()
         if not corr_id:

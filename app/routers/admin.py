@@ -237,7 +237,7 @@ async def admin_session_children(request: Request, session_id: uuid.UUID):
 @router.get("/sessions/{session_id}/detail", response_class=HTMLResponse)
 async def admin_session_detail(request: Request, session_id: uuid.UUID, page: int = 1):
     page_size = 30
-    offset = (page - 1) * page_size
+    is_htmx = request.headers.get("HX-Request") == "true"
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if not session:
@@ -245,11 +245,16 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
         total = (await db.execute(
             select(func.count()).where(Message.session_id == session_id)
         )).scalar_one()
+        last_page = max(1, ((total - 1) // page_size) + 1)
+        # Full-page direct links (e.g. from trace) default to newest messages
+        if not is_htmx and page == 1:
+            page = last_page
+        offset = (page - 1) * page_size
         messages = (
             await db.execute(
                 select(Message)
                 .where(Message.session_id == session_id)
-                .order_by(Message.created_at.desc())
+                .order_by(Message.created_at.asc())
                 .offset(offset)
                 .limit(page_size)
             )
@@ -263,7 +268,19 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
                 select(PlanItem).where(PlanItem.plan_id == _p.id).order_by(PlanItem.position)
             )).scalars().all()
             plan_items_map[str(_p.id)] = list(_items)
-    is_htmx = request.headers.get("HX-Request") == "true"
+
+    # Group messages into turns by correlation_id
+    turns = []
+    current_turn: dict = {"correlation_id": None, "messages": []}
+    for msg in messages:
+        if msg.correlation_id != current_turn["correlation_id"]:
+            if current_turn["messages"]:
+                turns.append(current_turn)
+            current_turn = {"correlation_id": msg.correlation_id, "messages": []}
+        current_turn["messages"].append(msg)
+    if current_turn["messages"]:
+        turns.append(current_turn)
+
     template = "admin/session_detail.html" if is_htmx else "admin/session_detail_page.html"
     return templates.TemplateResponse(
         template,
@@ -271,9 +288,11 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
             "request": request,
             "session": session,
             "messages": messages,
+            "turns": turns,
             "page": page,
             "page_size": page_size,
             "total": total,
+            "last_page": last_page,
             "plans": plans,
             "plan_items": plan_items_map,
         },
@@ -1094,6 +1113,51 @@ async def admin_session_correlations(request: Request, session_id: uuid.UUID):
             )
         ).all()
 
+        # Message time ranges per correlation (for duration)
+        msg_times = (
+            await db.execute(
+                select(
+                    Message.correlation_id,
+                    func.min(Message.created_at).label("msg_first_at"),
+                    func.max(Message.created_at).label("msg_last_at"),
+                )
+                .where(Message.session_id == session_id)
+                .where(Message.correlation_id.is_not(None))
+                .group_by(Message.correlation_id)
+            )
+        ).all()
+
+        # First user message content per correlation
+        user_msgs = (
+            await db.execute(
+                select(Message.correlation_id, Message.content)
+                .where(Message.session_id == session_id)
+                .where(Message.correlation_id.is_not(None))
+                .where(Message.role == "user")
+                .order_by(Message.correlation_id, Message.created_at.asc())
+                .distinct(Message.correlation_id)
+            )
+        ).all()
+
+        # First assistant message content per correlation
+        asst_msgs = (
+            await db.execute(
+                select(Message.correlation_id, Message.content)
+                .where(Message.session_id == session_id)
+                .where(Message.correlation_id.is_not(None))
+                .where(Message.role == "assistant")
+                .where(Message.content.is_not(None))
+                .where(Message.content != "")
+                .order_by(Message.correlation_id, Message.created_at.asc())
+                .distinct(Message.correlation_id)
+            )
+        ).all()
+
+    # Build lookup dicts
+    msg_times_map = {row.correlation_id: row for row in msg_times}
+    user_preview_map = {row.correlation_id: (row.content or "")[:120] for row in user_msgs}
+    asst_preview_map = {row.correlation_id: (row.content or "")[:120] for row in asst_msgs}
+
     # Merge by correlation_id
     corr_map: dict[uuid.UUID, dict] = {}
     for row in tc_corr:
@@ -1120,6 +1184,17 @@ async def admin_session_correlations(request: Request, session_id: uuid.UUID):
             corr_map[cid]["has_error"] = bool(row.error_count and row.error_count > 0)
             if row.first_at < corr_map[cid]["first_at"]:
                 corr_map[cid]["first_at"] = row.first_at
+
+    # Enrich with preview and duration
+    for cid, entry in corr_map.items():
+        entry["user_preview"] = user_preview_map.get(cid, "")
+        entry["response_preview"] = asst_preview_map.get(cid, "")
+        mt = msg_times_map.get(cid)
+        if mt and mt.msg_last_at and mt.msg_first_at:
+            delta = mt.msg_last_at - mt.msg_first_at
+            entry["duration_ms"] = int(delta.total_seconds() * 1000)
+        else:
+            entry["duration_ms"] = None
 
     correlations = sorted(corr_map.values(), key=lambda x: x["first_at"], reverse=True)
 

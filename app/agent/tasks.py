@@ -13,6 +13,7 @@ from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Session, Task
+from app.services import session_locks
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,18 @@ async def run_task(task: Task) -> None:
         await run_harness_task(task)
         return
 
+    # Respect the per-session active lock.  If a streaming HTTP request is still
+    # running for this session, defer this task by 10 seconds rather than running
+    # a parallel agent loop.
+    if task.session_id and not session_locks.acquire(task.session_id):
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
+                await db.commit()
+        logger.info("Task %s deferred 10s: session %s is busy", task.id, task.session_id)
+        return
+
     logger.info("Running task %s (bot=%s)", task.id, task.bot_id)
     now = datetime.now(timezone.utc)
 
@@ -235,6 +248,8 @@ async def run_task(task: Task) -> None:
     async with async_session() as db:
         t = await db.get(Task, task.id)
         if t is None:
+            if task.session_id:
+                session_locks.release(task.session_id)
             return
         t.status = "running"
         t.run_at = now
@@ -406,6 +421,9 @@ async def run_task(task: Task) -> None:
                 t.error = str(exc)[:4000]
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+    finally:
+        if task.session_id:
+            session_locks.release(task.session_id)
 
 
 async def fetch_due_tasks() -> list[Task]:

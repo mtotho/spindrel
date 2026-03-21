@@ -319,6 +319,15 @@ async def run_agent_tool_loop(
                     transcript_emitted = True
 
                 logger.info("Final response (%d chars): %r", len(text), text[:120])
+                if correlation_id is not None and not compaction:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="response",
+                        data={"text": text[:500], "full_length": len(text)},
+                    ))
                 yield _event_with_compaction_tag({
                     "type": "response",
                     "text": text,
@@ -560,6 +569,15 @@ async def run_agent_tool_loop(
             transcript_emitted = True
 
         _trace("✓ response (%d chars)", len(text))
+        if correlation_id is not None and not compaction:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="response",
+                data={"text": text[:500], "full_length": len(text)},
+            ))
         yield _event_with_compaction_tag({
             "type": "response",
             "text": text,

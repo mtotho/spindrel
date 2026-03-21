@@ -1,18 +1,10 @@
 """Per-channel bot preferences persisted to slack_state.json."""
-import asyncio
 import json
 from pathlib import Path
 
 from slack_settings import STATE_PATH, _get_channel_map, _get_default_bot
 
 _channel_state: dict[str, dict] = {}
-_channel_locks: dict[str, asyncio.Lock] = {}
-
-
-def get_channel_lock(channel: str) -> asyncio.Lock:
-    if channel not in _channel_locks:
-        _channel_locks[channel] = asyncio.Lock()
-    return _channel_locks[channel]
 
 
 def _load_state() -> None:

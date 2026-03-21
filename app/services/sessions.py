@@ -119,6 +119,13 @@ async def load_or_create(
     if session_id is not None:
         existing = await db.get(Session, session_id)
         if existing is not None:
+            # Update bot_id if the channel has been remapped to a different bot
+            if existing.bot_id != bot_id:
+                await db.execute(
+                    update(Session).where(Session.id == session_id).values(bot_id=bot_id)
+                )
+                await db.commit()
+                await db.refresh(existing)
             messages = await _load_messages(db, existing)
             return session_id, messages
 

@@ -16,7 +16,7 @@ delegate_bots:
   - code_bot
 ```
 
-> Having a non-empty `delegate_bots` list enables delegation for that bot regardless of the global `DELEGATION_ENABLED` flag.
+> Having a non-empty `delegate_bots` list enables delegation for that bot.
 
 **2. Ask it to delegate:**
 
@@ -85,14 +85,7 @@ delegate_bots:
 
 The bot can only delegate to bots in this list (unless an `@bot-id` override is used — see below).
 
-### Global flag
 
-```
-# .env
-DELEGATION_ENABLED=true
-```
-
-When `true`, any bot with `delegate_to_agent` in `local_tools` can delegate to **any** bot. This is the permissive/dev setting. In production, use per-bot `delegate_bots` allowlists instead.
 
 ### Depth limit
 
@@ -285,7 +278,6 @@ harness_access:            # allowlist of harness names from harnesses.yaml
 ### .env
 
 ```
-DELEGATION_ENABLED=false        # global flag — not required if delegate_bots is set
 DELEGATION_MAX_DEPTH=3          # max chain depth before DelegationDepthError
 HARNESS_CONFIG_FILE=harnesses.yaml
 HARNESS_WORKING_DIR_ALLOWLIST=  # comma-separated paths; empty = all allowed

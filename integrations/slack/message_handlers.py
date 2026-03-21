@@ -5,7 +5,7 @@ from agent_client import http, store_passive_message_http, stream_chat
 from formatting import format_response_for_slack
 from session_helpers import derive_session_id, slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
-from state import get_channel_lock, get_channel_state
+from state import get_channel_state
 
 TEXT_MIMES = {
     "text/plain",
@@ -77,6 +77,132 @@ async def _handle_client_actions(client, channel: str, actions: list) -> None:
         )
 
 
+def _get_identity(bot_id: str) -> dict:
+    """Build display identity kwargs for a bot (requires chat:write.customize scope)."""
+    display_info = get_bot_display_info(bot_id)
+    identity: dict = {}
+    if display_info.get("display_name"):
+        identity["username"] = display_info["display_name"]
+    if display_info.get("icon_emoji"):
+        identity["icon_emoji"] = display_info["icon_emoji"]
+    elif display_info.get("icon_url"):
+        identity["icon_url"] = display_info["icon_url"]
+    return identity
+
+
+async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> None:
+    """Run one full agent dispatch cycle: post thinking placeholder, stream response, update/replace."""
+    full_message = payload["full_message"]
+    bot_id = payload["bot_id"]
+    client_id = payload["client_id"]
+    session_id = payload["session_id"]
+    attachments = payload["attachments"]
+    dispatch_config = payload["dispatch_config"]
+    thread_ts = payload["thread_ts"]
+    msg_metadata = payload["msg_metadata"]
+
+    # Defer posting the thinking placeholder until we know the server is actually
+    # running the agent.  If the first event back is `queued`, we skip posting
+    # entirely so there is no orphaned placeholder to clean up.
+    thinking_ts: str | None = None
+    thinking_channel: str | None = None
+
+    async def _ensure_thinking() -> None:
+        nonlocal thinking_ts, thinking_channel
+        if thinking_ts is None:
+            msg = await client.chat_postMessage(
+                channel=channel,
+                text="⏳ _thinking..._",
+                **identity,
+            )
+            thinking_ts = msg["ts"]
+            thinking_channel = msg["channel"]
+
+    try:
+        client_actions: list = []
+        _delegation_posts_seen = False
+        async for event in stream_chat(
+            message=full_message,
+            bot_id=bot_id,
+            client_id=client_id,
+            session_id=session_id,
+            attachments=attachments if attachments else None,
+            dispatch_type="slack",
+            dispatch_config=dispatch_config,
+            msg_metadata=msg_metadata,
+        ):
+            etype = event.get("type")
+            if etype == "queued":
+                # Server queued the message — response will arrive later via
+                # the task dispatcher.  Nothing was posted, nothing to clean up.
+                return
+            await _ensure_thinking()
+            if etype == "tool_start":
+                tool = event.get("tool", "tool")
+                await client.chat_update(
+                    channel=thinking_channel,
+                    ts=thinking_ts,
+                    text=f"🔧 _{tool}..._",
+                    **identity,
+                )
+            elif etype == "delegation_post":
+                _delegation_posts_seen = True
+                child_bot_id = event.get("bot_id") or ""
+                child_text = (event.get("text") or "").strip()
+                child_reply_in_thread = event.get("reply_in_thread", False)
+                child_display = get_bot_display_info(child_bot_id)
+                child_identity: dict = {}
+                if child_display.get("display_name"):
+                    child_identity["username"] = child_display["display_name"]
+                if child_display.get("icon_emoji"):
+                    child_identity["icon_emoji"] = child_display["icon_emoji"]
+                elif child_display.get("icon_url"):
+                    child_identity["icon_url"] = child_display["icon_url"]
+                try:
+                    await client.chat_postMessage(
+                        channel=thinking_channel,
+                        text=format_response_for_slack(child_text),
+                        thread_ts=thread_ts if child_reply_in_thread else None,
+                        **child_identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "response":
+                reply = (event.get("text") or "").strip()
+                client_actions = event.get("client_actions") or []
+                if _delegation_posts_seen:
+                    try:
+                        await client.chat_delete(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                        )
+                    except Exception:
+                        pass
+                    await client.chat_postMessage(
+                        channel=thinking_channel,
+                        text=format_response_for_slack(reply),
+                        thread_ts=thread_ts,
+                        **identity,
+                    )
+                else:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=format_response_for_slack(reply),
+                        **identity,
+                    )
+        if thinking_channel:
+            await _handle_client_actions(client, thinking_channel, client_actions)
+    except Exception as e:
+        if thinking_ts and thinking_channel:
+            await client.chat_update(
+                channel=thinking_channel,
+                ts=thinking_ts,
+                text=f"_Error: {str(e)[:500]}_",
+                **identity,
+            )
+
+
 async def dispatch(
     channel: str,
     user: str,
@@ -136,116 +262,23 @@ async def dispatch(
             pass  # Passive storage failure is non-fatal
         return
 
-    lock = get_channel_lock(channel)
-    if lock.locked():
-        await say("⏳ _Still thinking, try again in a moment._")
-        return
-
     dispatch_config = {
         "channel_id": channel,
         "thread_ts": thread_ts,
         "token": BOT_TOKEN,
     }
-
-    # Build display identity kwargs (requires chat:write.customize scope)
-    display_info = get_bot_display_info(bot_id)
-    identity: dict = {}
-    if display_info.get("display_name"):
-        identity["username"] = display_info["display_name"]
-    if display_info.get("icon_emoji"):
-        identity["icon_emoji"] = display_info["icon_emoji"]
-    elif display_info.get("icon_url"):
-        identity["icon_url"] = display_info["icon_url"]
-
-    async with lock:
-        # Post a placeholder immediately so the user sees the bot is working
-        thinking_msg = await say("⏳ _thinking..._", **identity)
-        thinking_ts = thinking_msg["ts"]
-        thinking_channel = thinking_msg["channel"]
-
-        try:
-            client_actions: list = []
-            _delegation_posts_seen = False
-            async for event in stream_chat(
-                message=full_message,
-                bot_id=bot_id,
-                client_id=client_id,
-                session_id=session_id,
-                attachments=attachments if attachments else None,
-                dispatch_type="slack",
-                dispatch_config=dispatch_config,
-                msg_metadata=msg_metadata,
-            ):
-                etype = event.get("type")
-                if etype == "tool_start":
-                    tool = event.get("tool", "tool")
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=f"🔧 _{tool}..._",
-                        **identity,
-                    )
-                elif etype == "delegation_post":
-                    # Child bot's result arrives before the parent's response event.
-                    # Post it as a new message so it gets an earlier Slack timestamp
-                    # than the parent's final response (which will be posted next).
-                    _delegation_posts_seen = True
-                    child_bot_id = event.get("bot_id") or ""
-                    child_text = (event.get("text") or "").strip()
-                    child_reply_in_thread = event.get("reply_in_thread", False)
-                    child_display = get_bot_display_info(child_bot_id)
-                    child_identity: dict = {}
-                    if child_display.get("display_name"):
-                        child_identity["username"] = child_display["display_name"]
-                    if child_display.get("icon_emoji"):
-                        child_identity["icon_emoji"] = child_display["icon_emoji"]
-                    elif child_display.get("icon_url"):
-                        child_identity["icon_url"] = child_display["icon_url"]
-                    try:
-                        await client.chat_postMessage(
-                            channel=thinking_channel,
-                            text=format_response_for_slack(child_text),
-                            thread_ts=thread_ts if child_reply_in_thread else None,
-                            **child_identity,
-                        )
-                    except Exception:
-                        pass
-                elif etype == "response":
-                    reply = (event.get("text") or "").strip()
-                    client_actions = event.get("client_actions") or []
-                    if _delegation_posts_seen:
-                        # Child messages were posted as new messages above.
-                        # Delete the "thinking" placeholder and repost the parent's
-                        # response as a fresh message so it appears AFTER child messages
-                        # in Slack's timestamp ordering.
-                        try:
-                            await client.chat_delete(
-                                channel=thinking_channel,
-                                ts=thinking_ts,
-                            )
-                        except Exception:
-                            pass
-                        await client.chat_postMessage(
-                            channel=thinking_channel,
-                            text=format_response_for_slack(reply),
-                            thread_ts=thread_ts,
-                            **identity,
-                        )
-                    else:
-                        await client.chat_update(
-                            channel=thinking_channel,
-                            ts=thinking_ts,
-                            text=format_response_for_slack(reply),
-                            **identity,
-                        )
-            await _handle_client_actions(client, thinking_channel, client_actions)
-        except Exception as e:
-            await client.chat_update(
-                channel=thinking_channel,
-                ts=thinking_ts,
-                text=f"_Error: {str(e)[:500]}_",
-                **identity,
-            )
+    identity = _get_identity(bot_id)
+    payload = {
+        "full_message": full_message,
+        "bot_id": bot_id,
+        "client_id": client_id,
+        "session_id": session_id,
+        "attachments": attachments,
+        "dispatch_config": dispatch_config,
+        "thread_ts": thread_ts,
+        "msg_metadata": msg_metadata,
+    }
+    await _run_dispatch(channel, payload, client, identity)
 
 
 def register_message_handlers(app):

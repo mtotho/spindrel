@@ -1,16 +1,94 @@
 <td colspan="5" class="px-4 py-4 bg-gray-900">
-  <div class="text-xs text-gray-500 mb-2">{{ total }} messages · newest first</div>
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-xs text-gray-500">{{ total }} messages · oldest first</div>
+    {% if total > page_size and page < last_page %}
+    <a hx-get="/admin/sessions/{{ session.id }}/detail?page={{ last_page }}"
+       hx-target="closest tr"
+       hx-swap="outerHTML"
+       class="text-xs text-indigo-400 hover:text-indigo-300 cursor-pointer">Jump to latest ↓</a>
+    {% endif %}
+  </div>
   <div class="space-y-2 max-h-[32rem] overflow-y-auto">
-    {% for msg in messages %}
+    {% for turn in turns %}
+    {% if turn.correlation_id %}
+    {# --- Grouped turn: user + assistant (and tools) share one Trace link --- #}
+    {% set user_msgs = turn.messages | selectattr('role', 'equalto', 'user') | list %}
+    {% set asst_msgs = turn.messages | selectattr('role', 'equalto', 'assistant') | list %}
+    {% set tool_msgs = turn.messages | selectattr('role', 'equalto', 'tool') | list %}
+    {% set sys_msgs = turn.messages | selectattr('role', 'equalto', 'system') | list %}
+    <div class="rounded-xl border border-gray-700/50 overflow-hidden" x-data="{ toolsOpen: false }">
+      {# User messages #}
+      {% for msg in user_msgs %}
+      <div class="flex justify-end px-2 pt-2 {% if not loop.last %}pb-1{% endif %}">
+        <div class="bg-indigo-900/50 border border-indigo-800 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
+          {{ msg.content or '(no content)' }}
+          <div class="flex items-center gap-3 mt-1">
+            <span class="text-xs text-indigo-400">{{ msg.created_at | fmt_dt }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      {# Tool call summaries (collapsed) #}
+      {% if tool_msgs %}
+      <div class="px-2 py-1">
+        <button @click="toolsOpen = !toolsOpen" class="text-xs text-gray-600 hover:text-gray-400 font-mono">
+          <span x-text="toolsOpen ? '▾' : '▸'">▸</span> {{ tool_msgs | length }} tool result{{ 's' if tool_msgs | length != 1 }}
+        </button>
+        <div x-show="toolsOpen" x-cloak class="mt-1 space-y-1 ml-4">
+          {% for msg in tool_msgs %}
+          <div class="bg-teal-950/30 border border-teal-900/50 rounded-lg px-3 py-2 text-xs font-mono text-teal-300 max-w-lg truncate">
+            {{ msg.content[:200] if msg.content else '(empty)' }}{% if msg.content and msg.content|length > 200 %}…{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Assistant messages #}
+      {% for msg in asst_msgs %}
+      {% if msg.content %}
+      <div class="flex justify-start px-2 {% if loop.first %}pt-1{% endif %} {% if loop.last and not tool_msgs %}pb-2{% else %}pb-1{% endif %}">
+        <div class="bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
+          {{ msg.content }}
+          <div class="flex items-center gap-3 mt-1">
+            <span class="text-xs text-gray-500">{{ msg.created_at | fmt_dt }}</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      {% if msg.tool_calls %}
+      <div class="flex justify-start px-2 pb-1">
+        <div class="bg-gray-850 border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono text-gray-400 max-w-lg">
+          {% for tc in msg.tool_calls %}
+          <div>→ {{ tc.get('function', {}).get('name', '?') }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+
+      {# System messages (collapsed by default) #}
+      {% for msg in sys_msgs %}
+      <div class="px-4 py-1 text-xs text-gray-600 text-center">
+        [system: {{ (msg.content or '')[:80] }}{% if msg.content and msg.content|length > 80 %}…{% endif %}]
+      </div>
+      {% endfor %}
+
+      {# Single Trace link for the whole turn #}
+      <div class="flex justify-end px-4 pb-2 pt-1 border-t border-gray-800/50">
+        <a href="/admin/trace/{{ turn.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
+      </div>
+    </div>
+    {% else %}
+    {# --- Legacy/ungrouped messages (no correlation_id) --- #}
+    {% for msg in turn.messages %}
     {% if msg.role == 'user' %}
     <div class="flex justify-end">
       <div class="bg-indigo-900/50 border border-indigo-800 rounded-xl px-4 py-2.5 max-w-lg text-sm text-gray-200">
         {{ msg.content or '(no content)' }}
         <div class="flex items-center gap-3 mt-1">
           <span class="text-xs text-indigo-400">{{ msg.created_at | fmt_dt }}</span>
-          {% if msg.correlation_id %}
-          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
-          {% endif %}
         </div>
       </div>
     </div>
@@ -21,9 +99,6 @@
         {{ msg.content }}
         <div class="flex items-center gap-3 mt-1">
           <span class="text-xs text-gray-500">{{ msg.created_at | fmt_dt }}</span>
-          {% if msg.correlation_id %}
-          <a href="/admin/trace/{{ msg.correlation_id }}" class="text-xs text-purple-400 hover:text-purple-300">Trace →</a>
-          {% endif %}
         </div>
       </div>
     </div>
@@ -48,6 +123,8 @@
       [system: {{ (msg.content or '')[:80] }}{% if msg.content and msg.content|length > 80 %}…{% endif %}]
     </div>
     {% endif %}
+    {% endfor %}
+    {% endif %}
     {% else %}
     <div class="text-gray-500 text-sm text-center py-4">No messages.</div>
     {% endfor %}
@@ -58,14 +135,14 @@
     <button hx-get="/admin/sessions/{{ session.id }}/detail?page={{ page - 1 }}"
             hx-target="closest tr"
             hx-swap="outerHTML"
-            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Newer</button>
+            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">← Older</button>
     {% endif %}
-    <span class="text-gray-500">Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-    {% if page * page_size < total %}
+    <span class="text-gray-500">Page {{ page }} of {{ last_page }}</span>
+    {% if page < last_page %}
     <button hx-get="/admin/sessions/{{ session.id }}/detail?page={{ page + 1 }}"
             hx-target="closest tr"
             hx-swap="outerHTML"
-            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Older →</button>
+            class="px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-gray-300">Newer →</button>
     {% endif %}
   </div>
   {% endif %}
