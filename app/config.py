@@ -115,6 +115,8 @@ class Settings(BaseSettings):
 
     # RAG injection limits (chars per item before joining; prevents context bloat)
     KNOWLEDGE_MAX_INJECT_CHARS: int = 8000   # per knowledge doc injected into context
+    # Minimum cosine similarity when a knowledge row has no per-row override (0–1)
+    KNOWLEDGE_SIMILARITY_THRESHOLD: float = 0.45
     MEMORY_MAX_INJECT_CHARS: int = 3000      # per memory item injected into context
 
     # Slack

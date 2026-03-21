@@ -32,7 +32,6 @@ class MemoryConfig:
 @dataclass
 class KnowledgeConfig:
     enabled: bool = False
-    similarity_threshold: float = 0.45
 
 
 @dataclass
@@ -95,9 +94,9 @@ class BotConfig:
     docker_sandbox_profiles: list[str] = field(default_factory=list)
     host_exec: HostExecConfig = field(default_factory=HostExecConfig)
     filesystem_access: list[FilesystemAccessEntry] = field(default_factory=list)
-    slack_display_name: str | None = None
-    slack_icon_emoji: str | None = None
-    slack_icon_url: str | None = None
+    display_name: str | None = None
+    avatar_url: str | None = None
+    integration_config: dict = field(default_factory=dict)
     # Bot-level overrides for tool result summarization. Keys: enabled (bool|None),
     # threshold (int|None), model (str|None), max_tokens (int|None), exclude_tools (list[str]).
     # None values inherit from global TOOL_RESULT_SUMMARIZE_* settings.
@@ -127,7 +126,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
     know = row.knowledge_config or {}
     knowledge_cfg = KnowledgeConfig(
         enabled=know.get("enabled", False),
-        similarity_threshold=know.get("similarity_threshold", 0.45),
     )
     fs_raw = row.filesystem_indexes or []
     filesystem_indexes = [
@@ -191,9 +189,9 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         docker_sandbox_profiles=row.docker_sandbox_profiles or [],
         host_exec=host_exec_cfg,
         filesystem_access=filesystem_access,
-        slack_display_name=row.slack_display_name,
-        slack_icon_emoji=row.slack_icon_emoji,
-        slack_icon_url=row.slack_icon_url,
+        display_name=row.display_name,
+        avatar_url=row.avatar_url,
+        integration_config=row.integration_config or {},
         tool_result_config=row.tool_result_config or {},
         knowledge_max_inject_chars=row.knowledge_max_inject_chars,
         memory_max_inject_chars=row.memory_max_inject_chars,
@@ -256,7 +254,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         },
         "knowledge_config": {
             "enabled": know_data.get("enabled", False),
-            "similarity_threshold": know_data.get("similarity_threshold", 0.45),
         },
         "filesystem_indexes": data.get("filesystem_indexes", []),
         "host_exec_config": _parse_host_exec_yaml(data.get("host_exec", {})),
@@ -264,9 +261,9 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
             {"path": e["path"], "mode": e.get("mode", "read")}
             for e in data.get("filesystem_access", [])
         ],
-        "slack_display_name": data.get("slack_display_name"),
-        "slack_icon_emoji": data.get("slack_icon_emoji"),
-        "slack_icon_url": data.get("slack_icon_url"),
+        "display_name": data.get("display_name"),
+        "avatar_url": data.get("avatar_url"),
+        "integration_config": data.get("integration_config", {}),
         "tool_result_config": data.get("tool_result_config", {}),
         "knowledge_max_inject_chars": data.get("knowledge_max_inject_chars"),
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),

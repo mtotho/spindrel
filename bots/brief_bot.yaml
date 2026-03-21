@@ -60,7 +60,6 @@ knowledge:
   enabled: true
   cross_bot: true
   cross_client: true
-  similarity_threshold: 0.45
 memory:
   enabled: true
   cross_session: true

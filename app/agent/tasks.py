@@ -5,18 +5,16 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import httpx
 import openai
 from sqlalchemy import select
 
+from app.agent import dispatchers
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Session, Task
 
 logger = logging.getLogger(__name__)
-
-_http = httpx.AsyncClient(timeout=30.0)
 
 
 # ---------------------------------------------------------------------------
@@ -58,127 +56,6 @@ async def _schedule_next_occurrence(task: Task) -> None:
         ))
         await db.commit()
     logger.info("Task %s recurring: next run at %s", task.id, next_run.strftime("%Y-%m-%d %H:%M UTC"))
-
-
-# ---------------------------------------------------------------------------
-# Dispatchers
-# ---------------------------------------------------------------------------
-
-class SlackDispatcher:
-    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
-        cfg = task.dispatch_config or {}
-        channel_id = cfg.get("channel_id")
-        thread_ts = cfg.get("thread_ts")
-        token = cfg.get("token")
-        if not channel_id or not token:
-            logger.warning("SlackDispatcher: missing channel_id or token for task %s", task.id)
-            return
-        reply_in_thread = cfg.get("reply_in_thread", True)
-        payload: dict = {
-            "channel": channel_id,
-            "text": result,
-        }
-        if thread_ts and reply_in_thread:
-            payload["thread_ts"] = thread_ts
-
-        # Display name / icon overrides (requires chat:write.customize scope)
-        try:
-            bot_config = get_bot(task.bot_id)
-            username = bot_config.slack_display_name or bot_config.name or None
-            if username:
-                payload["username"] = username
-            if bot_config.slack_icon_emoji:
-                payload["icon_emoji"] = bot_config.slack_icon_emoji
-            elif bot_config.slack_icon_url:
-                payload["icon_url"] = bot_config.slack_icon_url
-        except Exception:
-            pass  # bot not found or no display config — use Slack app defaults
-
-        try:
-            r = await _http.post(
-                "https://slack.com/api/chat.postMessage",
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            r.raise_for_status()
-            data = r.json()
-            if not data.get("ok"):
-                logger.error("Slack API error for task %s: %s", task.id, data.get("error"))
-                return
-            from app.services.sessions import store_slack_echo_as_passive
-
-            await store_slack_echo_as_passive(
-                task.session_id, task.client_id, task.bot_id, result,
-            )
-        except Exception:
-            logger.exception("SlackDispatcher.deliver failed for task %s", task.id)
-            return
-
-        # Upload any images generated during the task
-        from app.services.slack_uploads import upload_image
-        for action in (client_actions or []):
-            if action.get("type") == "upload_image":
-                await upload_image(
-                    token=token,
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    reply_in_thread=reply_in_thread,
-                    action=action,
-                )
-
-
-class WebhookDispatcher:
-    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
-        cfg = task.dispatch_config or {}
-        url = cfg.get("url")
-        if not url:
-            logger.warning("WebhookDispatcher: missing url for task %s", task.id)
-            return
-        try:
-            r = await _http.post(url, json={"task_id": str(task.id), "result": result})
-            r.raise_for_status()
-        except Exception:
-            logger.exception("WebhookDispatcher.deliver failed for task %s", task.id)
-
-
-class InternalDispatcher:
-    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
-        """Persist result as a user message in a parent session so the parent bot can process it."""
-        cfg = task.dispatch_config or {}
-        session_id_str = cfg.get("session_id")
-        if not session_id_str:
-            logger.warning("InternalDispatcher: missing session_id for task %s", task.id)
-            return
-        try:
-            from app.db.models import Message, Session
-            session_id = uuid.UUID(session_id_str)
-            async with async_session() as db:
-                session = await db.get(Session, session_id)
-                if not session:
-                    logger.error("InternalDispatcher: session %s not found for task %s", session_id, task.id)
-                    return
-                db.add(Message(
-                    session_id=session_id,
-                    role="user",
-                    content=f"[Task {task.id} completed]\n\n{result}",
-                    created_at=datetime.now(timezone.utc),
-                ))
-                await db.commit()
-        except Exception:
-            logger.exception("InternalDispatcher.deliver failed for task %s", task.id)
-
-
-class NoneDispatcher:
-    async def deliver(self, task: Task, result: str, client_actions: list[dict] | None = None) -> None:
-        pass  # result stored in DB only; caller polls get_task
-
-
-DISPATCHERS: dict[str, SlackDispatcher | WebhookDispatcher | InternalDispatcher | NoneDispatcher] = {
-    "slack": SlackDispatcher(),
-    "webhook": WebhookDispatcher(),
-    "internal": InternalDispatcher(),
-    "none": NoneDispatcher(),
-}
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +160,7 @@ async def run_harness_task(task: Task) -> None:
             dispatch_type=output_dispatch_type,
             dispatch_config=output_dispatch_config,
         )
-        dispatcher = DISPATCHERS.get(output_dispatch_type, DISPATCHERS["none"])
+        dispatcher = dispatchers.get(output_dispatch_type)
         await dispatcher.deliver(output_task, result_text)
 
         # Notify parent bot: create a callback task so the parent can react to harness output.
@@ -440,7 +317,7 @@ async def run_task(task: Task) -> None:
                 await db.commit()
 
         # Dispatch result (including any generated images)
-        dispatcher = DISPATCHERS.get(task.dispatch_type or "none", DISPATCHERS["none"])
+        dispatcher = dispatchers.get(task.dispatch_type)
         await dispatcher.deliver(task, result_text, client_actions=run_result.client_actions)
 
         # trigger_rag_loop: create an immediate follow-up agent turn so the bot can

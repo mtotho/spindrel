@@ -18,6 +18,7 @@ from app.dependencies import get_db, verify_auth
 from app.services.compaction import maybe_compact, run_compaction_stream
 from app.services.sessions import (
     derive_integration_session_id,
+    is_integration_client_id,
     load_or_create,
     persist_turn,
     store_passive_message,
@@ -59,11 +60,8 @@ class ChatResponse(BaseModel):
     client_actions: list[dict] = []
 
 
-_INTEGRATION_PREFIXES = ("slack:", "discord:", "teams:")
-
-
 def _is_integration_client(client_id: str) -> bool:
-    return any(client_id.startswith(p) for p in _INTEGRATION_PREFIXES)
+    return is_integration_client_id(client_id)
 
 
 @router.get("/bots")

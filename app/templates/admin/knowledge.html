@@ -2,7 +2,7 @@
 {% block title %}Knowledge{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
+<div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold">Knowledge</h1>
   <a href="/admin/knowledge/new"
      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm">
@@ -10,34 +10,101 @@
   </a>
 </div>
 
-<!-- Filters -->
-<form method="get" class="flex flex-wrap gap-3 mb-6">
-  <select name="bot_id" onchange="this.form.submit()"
-    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
-    <option value="">All bots</option>
-    {% for b in bot_ids %}
-    <option value="{{ b }}" {% if bot_filter == b %}selected{% endif %}>{{ b }}</option>
-    {% endfor %}
-  </select>
-  <select name="client_id" onchange="this.form.submit()"
-    class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200">
-    <option value="">All clients</option>
-    {% for c in client_ids %}
-    <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
-    {% endfor %}
-  </select>
-  {% if bot_filter or client_filter %}
-  <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm py-1.5">Clear</a>
+<details class="mb-6 border border-indigo-500/30 rounded-xl bg-gray-900/40 open:ring-1 open:ring-indigo-500/20">
+  <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-indigo-200/95 hover:text-indigo-100 list-none [&::-webkit-details-marker]:hidden flex items-center gap-2">
+    <span class="text-indigo-400 text-xs shrink-0" aria-hidden="true">▶</span>
+    <span>How knowledge scoping works (bot, client, session, integrations)</span>
+  </summary>
+  <div class="px-4 pb-4 pt-0 text-sm text-gray-400 space-y-4 border-t border-gray-700/80">
+    <p class="pt-3 leading-relaxed">
+      Each knowledge row is matched using <strong class="text-gray-300">name</strong> (for <code class="text-gray-500">@tags</code>),
+      plus <strong class="text-gray-300">bot</strong>, <strong class="text-gray-300">client</strong>, and optionally <strong class="text-gray-300">chat session</strong>
+      for automatic semantic retrieval (RAG). Empty bot or client means “any” for that axis.
+    </p>
+
+    <div>
+      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Client ID vs session ID</h3>
+      <ul class="space-y-2 text-xs leading-relaxed list-disc pl-4">
+        <li><strong class="text-gray-300">Client ID</strong> — Stable string for where the conversation lives (e.g. web client id, or integration channel id like <code class="text-amber-500/90">slack:C01234567</code>). It does not change when you open a new browser tab; for Slack it is one id per channel.</li>
+        <li><strong class="text-gray-300">Session ID</strong> — UUID of a row in <code class="text-gray-500">sessions</code>. That row ties messages, compaction, and (for integrations) is often created to mirror the channel. Automatic knowledge search can require the <em>current</em> chat session to match the row’s session, or include rows with <strong class="text-gray-300">no session</strong> (legacy pool) so they appear in every thread for that bot+client.</li>
+      </ul>
+    </div>
+
+    <div>
+      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Integrations (Slack, Discord, Teams, …)</h3>
+      <p class="text-xs leading-relaxed mb-2">
+        Integration <code class="text-gray-500">client_id</code> values use a prefix (<code class="text-gray-500">slack:</code>, <code class="text-gray-500">discord:</code>, <code class="text-gray-500">teams:</code>, …).
+        The server derives a <strong class="text-gray-300">stable session UUID</strong> from the client id alone (same channel → same UUID every time), so channel-scoped knowledge can pin to that session.
+        Use the full editor on a row to attach or change session; the list shows the session title when the session row has one.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2"><code class="text-gray-500">@name</code> vs semantic RAG</h3>
+      <ul class="space-y-1.5 text-xs leading-relaxed list-disc pl-4">
+        <li><strong class="text-gray-300">Explicit <code class="text-gray-500">@document_name</code></strong> — Resolves by name for the same bot + client; session is not used for that lookup.</li>
+        <li><strong class="text-gray-300">Automatic retrieval</strong> — Uses bot + client + session rules above; legacy rows (session unset) still participate for that bot+client in every chat.</li>
+      </ul>
+    </div>
+
+    <div class="rounded-lg border border-gray-700 bg-gray-800/60 p-3 text-xs text-gray-500">
+      <strong class="text-gray-400">Filters on this page</strong> — The bot, client, and session dropdowns only narrow the table. They do not edit rows. Use <strong class="text-gray-400">Full editor</strong> to change scope or similarity per document.
+    </div>
+  </div>
+</details>
+
+<p class="text-sm text-gray-500 mb-4 max-w-3xl">
+  Rows are keyed by <strong class="text-gray-400">name + bot + client + optional session</strong>.
+  Open the panel above for client vs session and integration behavior.
+</p>
+
+<!-- Filters: narrow the table only (does not edit rows) -->
+<form method="get" class="flex flex-wrap items-end gap-3 mb-2">
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Filter by bot</label>
+    <select name="bot_id" onchange="this.form.submit()"
+      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 min-w-[10rem]">
+      <option value="">All bots</option>
+      {% for b in bot_ids %}
+      <option value="{{ b }}" {% if bot_filter == b %}selected{% endif %}>{{ b }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Filter by client ID</label>
+    <select name="client_id" onchange="this.form.submit()"
+      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 min-w-[12rem] max-w-[24rem]">
+      <option value="">All clients</option>
+      {% for c in client_ids %}
+      <option value="{{ c }}" {% if client_filter == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs text-gray-500 mb-1">Filter by chat session</label>
+    <select name="session_filter" onchange="this.form.submit()"
+      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 min-w-[14rem] max-w-[28rem]">
+      <option value="">All sessions</option>
+      <option value="__none__" {% if session_filter == '__none__' %}selected{% endif %}>No session (legacy pool)</option>
+      {% for opt in session_filter_choices %}
+      <option value="{{ opt.value }}" {% if session_filter == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if bot_filter or client_filter or session_filter %}
+  <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm py-1.5">Clear filters</a>
   {% endif %}
 </form>
+<p class="text-xs text-gray-600 mb-6">These dropdowns only filter the list — they do not assign knowledge to a bot, channel, or session.</p>
 
-<!-- Entries table -->
-<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-  <table class="w-full text-sm">
+<div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden overflow-x-auto">
+  <table class="w-full text-sm min-w-[64rem]">
     <thead>
       <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
         <th class="px-4 py-3 text-left">Name</th>
-        <th class="px-4 py-3 text-left" colspan="2">Scope</th>
+        <th class="px-4 py-3 text-left">Bot</th>
+        <th class="px-4 py-3 text-left">Client</th>
+        <th class="px-4 py-3 text-left">Chat session</th>
         <th class="px-4 py-3 text-left">Updated</th>
         <th class="px-4 py-3 text-left">Actions</th>
       </tr>
@@ -46,7 +113,7 @@
       {% for entry in entries %}
       {% include "admin/knowledge_row.html" %}
       {% else %}
-      <tr><td colspan="5" class="px-4 py-6 text-gray-500 text-center">No knowledge entries.</td></tr>
+      <tr><td colspan="6" class="px-4 py-6 text-gray-500 text-center">No knowledge entries.</td></tr>
       {% endfor %}
     </tbody>
   </table>

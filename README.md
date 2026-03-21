@@ -10,6 +10,9 @@ cp .env.example .env         # edit this first — see "Configuration" below
 ./scripts/dev-client.sh      # starts the CLI chat client (terminal 2)
 ```
 
+psql -U agent -d agentdb -h localhost -p 5432
+
+
 The dev-server script starts three Docker containers (postgres, searxng, playwright) and then runs the FastAPI server locally with `--reload`.
 
 ## Configuration

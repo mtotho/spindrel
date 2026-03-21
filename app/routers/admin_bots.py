@@ -11,7 +11,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from app.agent.bots import reload_bots
+from app.agent.knowledge import list_knowledge_candidates_for_bot
 from app.agent.persona import get_persona, write_persona
+from app.config import settings
 from app.agent.skills import re_embed_skill
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, SandboxProfile, Skill as SkillRow, ToolEmbedding
@@ -51,19 +53,56 @@ async def _get_tool_options() -> dict:
 
 @router.get("/bots/new", response_class=HTMLResponse)
 async def admin_bot_new(request: Request):
+    from types import SimpleNamespace
     from app.agent.bots import list_bots as _list_bots
     from app.services.harness import harness_service
+    from sqlalchemy import select as sa_select
     async with async_session() as db:
         all_skills = (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
         all_sandbox_profiles = list((await db.execute(select(SandboxProfile).where(SandboxProfile.enabled == True).order_by(SandboxProfile.name))).scalars().all())  # noqa: E712
+        tool_names = (await db.execute(
+            sa_select(ToolEmbedding.tool_name).distinct().order_by(ToolEmbedding.tool_name)
+        )).scalars().all()
+    from app.tools.packs import get_tool_packs
+    packs = get_tool_packs()
+    completions = (
+        [{"value": f"skill:{s.id}", "label": f"skill:{s.id} — {s.name}"} for s in all_skills]
+        + [{"value": f"tool:{t}", "label": f"tool:{t}"} for t in tool_names]
+        + [{"value": f"tool-pack:{k}", "label": f"tool-pack:{k} — {len(v)} tools"} for k, v in sorted(packs.items())]
+    )
     tool_options, model_groups = await asyncio.gather(_get_tool_options(), _get_available_models())
-    return templates.TemplateResponse("admin/bot_new.html", {
+    empty_bot = SimpleNamespace(
+        id="", name="", model="", system_prompt="",
+        local_tools=[], mcp_servers=[], client_tools=[], pinned_tools=[],
+        skills=[], docker_sandbox_profiles=[],
+        tool_retrieval=True, tool_similarity_threshold=None,
+        tool_result_config={},
+        persona=False, context_compaction=True,
+        compaction_interval=None, compaction_keep_turns=None,
+        compaction_model=None, memory_knowledge_compaction_prompt=None,
+        audio_input="transcribe",
+        memory_config={}, knowledge_config={},
+        filesystem_indexes=[], host_exec_config={"enabled": False},
+        filesystem_access=[],
+        display_name=None, avatar_url=None, integration_config={},
+        knowledge_max_inject_chars=None, memory_max_inject_chars=None,
+        delegation_config={},
+        model_provider_id=None,
+        updated_at=None,
+    )
+    return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
+        "bot": empty_bot,
+        "is_new": True,
         "all_skills": all_skills,
         "all_sandbox_profiles": all_sandbox_profiles,
         "model_groups": model_groups,
         "all_bots": _list_bots(),
         "all_harnesses": harness_service.list_harnesses(),
+        "persona_content": "",
+        "completions_json": json.dumps(completions),
+        "knowledge_for_bot": [],
+        "default_knowledge_similarity": settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
         **tool_options,
     })
 
@@ -92,10 +131,9 @@ async def admin_bot_create(
     memory_similarity_threshold: str = Form(""),
     memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
-    knowledge_similarity_threshold: str = Form(""),
-    slack_display_name: str = Form(""),
-    slack_icon_emoji: str = Form(""),
-    slack_icon_url: str = Form(""),
+    display_name: str = Form(""),
+    avatar_url: str = Form(""),
+    integration_config_json: str = Form(default="{}"),
     filesystem_indexes_json: str = Form("[]"),
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
@@ -150,7 +188,6 @@ async def admin_bot_create(
         delegation_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
-    know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
 
     now = datetime.now(timezone.utc)
     row = BotRow(
@@ -181,14 +218,13 @@ async def admin_bot_create(
         },
         knowledge_config={
             "enabled": knowledge_enabled.lower() == "true",
-            "similarity_threshold": know_sim,
         },
         filesystem_indexes=fs_indexes,
         host_exec_config=host_exec_config,
         filesystem_access=filesystem_access,
-        slack_display_name=slack_display_name.strip() or None,
-        slack_icon_emoji=slack_icon_emoji.strip() or None,
-        slack_icon_url=slack_icon_url.strip() or None,
+        display_name=display_name.strip() or None,
+        avatar_url=avatar_url.strip() or None,
+        integration_config=json.loads(integration_config_json or "{}"),
         tool_result_config=tool_result_config,
         knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
@@ -305,8 +341,11 @@ async def admin_bot_edit(request: Request, bot_id: str):
             for k, v in sorted(packs.items())
         ]
     )
-    tool_options, model_groups, persona_content = await asyncio.gather(
-        _get_tool_options(), _get_available_models(), get_persona(bot_id)
+    tool_options, model_groups, persona_content, knowledge_for_bot = await asyncio.gather(
+        _get_tool_options(),
+        _get_available_models(),
+        get_persona(bot_id),
+        list_knowledge_candidates_for_bot(bot_id),
     )
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
@@ -318,6 +357,8 @@ async def admin_bot_edit(request: Request, bot_id: str):
         "all_harnesses": harness_service.list_harnesses(),
         "persona_content": persona_content or "",
         "completions_json": json.dumps(completions),
+        "knowledge_for_bot": knowledge_for_bot,
+        "default_knowledge_similarity": settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
         **tool_options,
     })
 
@@ -347,10 +388,9 @@ async def admin_bot_update(
     memory_similarity_threshold: str = Form(""),
     memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
-    knowledge_similarity_threshold: str = Form(""),
-    slack_display_name: str = Form(""),
-    slack_icon_emoji: str = Form(""),
-    slack_icon_url: str = Form(""),
+    display_name: str = Form(""),
+    avatar_url: str = Form(""),
+    integration_config_json: str = Form(default="{}"),
     filesystem_indexes_json: str = Form("[]"),
     audio_input: str = Form("transcribe"),
     memory_knowledge_compaction_prompt: str = Form(""),
@@ -401,7 +441,6 @@ async def admin_bot_update(
         delegation_config = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
-    know_sim = _float_or_none(knowledge_similarity_threshold) or 0.45
 
     async with async_session() as db:
         row = await db.get(BotRow, bot_id)
@@ -437,14 +476,13 @@ async def admin_bot_update(
         }
         row.knowledge_config = {
             "enabled": knowledge_enabled.lower() == "true",
-            "similarity_threshold": know_sim,
         }
         row.filesystem_indexes = fs_indexes
         row.host_exec_config = host_exec_config
         row.filesystem_access = filesystem_access
-        row.slack_display_name = slack_display_name.strip() or None
-        row.slack_icon_emoji = slack_icon_emoji.strip() or None
-        row.slack_icon_url = slack_icon_url.strip() or None
+        row.display_name = display_name.strip() or None
+        row.avatar_url = avatar_url.strip() or None
+        row.integration_config = json.loads(integration_config_json or "{}")
         row.tool_result_config = tool_result_config
         row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)

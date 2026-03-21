@@ -12,6 +12,7 @@ conflict in the raw API payload.
 """
 import logging
 import re
+import uuid
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ async def resolve_tags(
     bot_client_tools: list[str],
     bot_id: str,
     client_id: str | None,
+    session_id: uuid.UUID | None = None,
 ) -> list[ResolvedTag]:
     """Parse @tags from a message and resolve each to skill/knowledge/tool/bot.
 
@@ -102,6 +104,8 @@ async def resolve_tags(
             known_names = set(await list_knowledge_bases(
                 bot_id=bot_id,
                 client_id=client_id,
+                session_id=session_id,
+                ignore_session_scope=True,
             ))
             for raw, name in knowledge_candidates:
                 if name in known_names:

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, ForeignKey, Integer, Text, text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, Text, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -190,12 +190,14 @@ class BotKnowledge(Base):
     embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)    # NULL = cross-bot
     client_id: Mapped[str | None] = mapped_column(Text, nullable=True) # NULL = cross-client
-    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-    __table_args__ = (
-        UniqueConstraint("name", "bot_id", "client_id", name="uq_knowledge_name_scope"),
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
     )
+    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
+    similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
 class KnowledgePin(Base):
@@ -253,9 +255,15 @@ class KnowledgeWrite(Base):
     __tablename__ = "knowledge_writes"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bot_knowledge_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bot_knowledge.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     knowledge_name: Mapped[str] = mapped_column(Text, nullable=False)
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -391,9 +399,9 @@ class Bot(Base):
     filesystem_indexes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     host_exec_config: Mapped[dict] = mapped_column(JSONB, server_default=text('\'{"enabled": false}\'::jsonb'))
     filesystem_access: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    slack_display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    slack_icon_emoji: Mapped[str | None] = mapped_column(Text, nullable=True)
-    slack_icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    integration_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
@@ -417,16 +425,6 @@ class Skill(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
-
-class SlackChannelConfig(Base):
-    __tablename__ = "slack_channel_configs"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    channel_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
 class IntegrationChannelConfig(Base):

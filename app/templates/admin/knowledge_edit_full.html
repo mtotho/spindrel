@@ -20,72 +20,98 @@
 <div class="flex items-center gap-3 mb-6">
   <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm">← Knowledge</a>
 </div>
-<h1 class="text-2xl font-bold mb-6">{{ entry.name }}</h1>
+<h1 class="text-2xl font-bold mb-2">{{ entry.name }}</h1>
+<p class="text-sm text-gray-400 mb-1">Recorded as written by bot <span class="text-gray-200 font-mono">{{ entry.created_by_bot }}</span>.</p>
+<p class="text-xs text-gray-500 mb-6">
+  <code class="text-gray-400">@{{ entry.name }}</code> always resolves this document for the same bot + client below (ignores chat session).
+  Automatic semantic RAG uses bot, client, <em>and</em> chat session as described in the help box.
+</p>
 
-{% set cur_scope = 'global' if (not entry.bot_id and not entry.client_id)
-                   else ('bot' if (entry.bot_id and not entry.client_id)
-                   else ('channel' if (not entry.bot_id and entry.client_id)
-                   else 'private')) %}
-
-<div class="flex gap-6"
-  x-data="{
-    scope: '{{ cur_scope }}',
-    botId: '{{ entry.bot_id or '' }}',
-    clientId: '{{ entry.client_id or '' }}',
-    get effectiveBotId() { return (this.scope === 'channel' || this.scope === 'global') ? '' : this.botId; },
-    get effectiveClientId() { return (this.scope === 'bot' || this.scope === 'global') ? '' : this.clientId; },
-  }">
-
-  <!-- Left: editor -->
+<div class="flex gap-6">
   <div class="flex-1 min-w-0">
     <form method="post" action="/admin/knowledge/{{ entry.id }}/save" class="space-y-5">
 
-      <!-- Scope selector -->
-      <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Scope — who can access this document</div>
-        <div class="grid grid-cols-4 gap-2">
-          {% for val, label, desc, color in [
-            ('channel', 'Channel', 'Any bot in this channel (recommended default)', 'indigo'),
-            ('global',  'Global',  'Any bot in any channel', 'purple'),
-            ('bot',     'Bot',     'This bot only, across all channels', 'green'),
-            ('private', 'Private', 'This bot in this channel only', 'gray'),
-          ] %}
-          <label class="flex flex-col gap-1 p-2 rounded-lg border cursor-pointer transition-colors"
-            :class="scope === '{{ val }}' ? 'border-{{ color }}-500 bg-{{ color }}-900/20' : 'border-gray-700 hover:border-gray-500'">
-            <input type="radio" name="_scope_radio" value="{{ val }}" x-model="scope" class="sr-only" />
-            <span class="text-xs font-semibold text-{{ color }}-400">{{ label }}</span>
-            <span class="text-xs text-gray-500">{{ desc }}</span>
-          </label>
-          {% endfor %}
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-4">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Where this document applies</div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Bot</label>
+          <select name="bot_id"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="" {% if not entry.bot_id %}selected{% endif %}>Any bot — broader sharing</option>
+            {% if orphan_bot_id %}
+            <option value="{{ orphan_bot_id }}" selected>{{ orphan_bot_id }} (not in current bot list)</option>
+            {% endif %}
+            {% for bot in bots %}
+            <option value="{{ bot.id }}" {% if entry.bot_id == bot.id and not orphan_bot_id %}selected{% endif %}>{{ bot.name }} — {{ bot.id }}</option>
+            {% endfor %}
+          </select>
+          <p class="text-xs text-gray-600 mt-1">Keyed under this bot for retrieval. “Any bot” leaves <span class="font-mono text-gray-500">bot_id</span> empty.</p>
         </div>
 
-        <div class="grid grid-cols-2 gap-3" x-show="scope === 'private' || scope === 'bot'">
-          <div>
-            <label class="text-xs text-gray-400 block mb-1">Bot ID</label>
-            <input type="text" x-model="botId" placeholder="my_bot"
-              class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Client / channel ID</label>
+          <input type="text" name="client_id" value="{{ entry.client_id or '' }}" placeholder="e.g. slack:C012345 — leave empty for “any client”"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono"
+            list="distinct-clients" />
+          <datalist id="distinct-clients">
+            {% for c in distinct_clients %}<option value="{{ c }}">{% endfor %}
+          </datalist>
+          <p class="text-xs text-gray-600 mt-1">
+            Integration channels use stable IDs like <span class="text-gray-400 font-mono">slack:C…</span>.
+            {% if is_integration_client %}
+            For this client, the server uses <strong class="text-gray-400">one fixed chat session UUID</strong> per channel (see below).
+            {% endif %}
+          </p>
         </div>
-        <div class="grid grid-cols-2 gap-3" x-show="scope === 'private' || scope === 'channel'">
-          <div>
-            <label class="text-xs text-gray-400 block mb-1">Client / Channel ID</label>
-            <input type="text" x-model="clientId" placeholder="slack:C123456"
-              class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono"
-              list="distinct-clients" />
-            <datalist id="distinct-clients">
-              {% for c in distinct_clients %}<option value="{{ c }}">{% endfor %}
-            </datalist>
-          </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Chat session</label>
+          <select name="session_id"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono">
+            <option value="" {% if not entry.session_id %}selected{% endif %}>Not tied to a specific chat — legacy pool only for automatic RAG</option>
+            {% for sid, label in session_options %}
+            <option value="{{ sid }}" {% if entry.session_id and (entry.session_id | string) == sid %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if entry.session_id %}
+          <p class="text-xs mt-2">
+            <a href="/admin/sessions/{{ entry.session_id }}/detail" class="text-indigo-400 hover:text-indigo-200">Open this session in admin →</a>
+          </p>
+          {% endif %}
+          <p class="text-xs text-gray-600 mt-2">
+            If the chat row is deleted, this link is cleared automatically but the knowledge row stays — pick the channel’s session again here to re-attach.
+            Choosing the integration option creates the session row if it did not exist yet.
+          </p>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Semantic similarity threshold (automatic RAG)</label>
+          <input type="number" name="knowledge_similarity_threshold" step="0.01" min="0" max="1"
+            value="{% if entry.similarity_threshold is not none %}{{ entry.similarity_threshold }}{% endif %}"
+            placeholder="Empty = use server default ({{ default_knowledge_similarity }})"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          <p class="text-xs text-gray-600 mt-1">
+            Only affects semantic retrieval for this document. Leave empty to use the default (<span class="font-mono text-gray-500">{{ default_knowledge_similarity }}</span>).
+            <code class="text-gray-500">@{{ entry.name }}</code> resolution is unchanged.
+          </p>
         </div>
       </div>
 
-      <!-- Hidden scope fields submitted with form -->
-      <input type="hidden" name="bot_id" :value="effectiveBotId" />
-      <input type="hidden" name="client_id" :value="effectiveClientId" />
+      <details class="bg-gray-900/50 border border-gray-700 rounded-xl p-4 text-sm text-gray-400">
+        <summary class="cursor-pointer text-gray-300 font-medium">How bot / client / session combine (legacy “scope” cheatsheet)</summary>
+        <ul class="mt-3 space-y-2 list-disc pl-4 text-xs leading-relaxed">
+          <li><strong class="text-gray-300">Both bot and client empty</strong> — visible everywhere (global legacy).</li>
+          <li><strong class="text-gray-300">Client set, bot empty</strong> — any bot for that client/channel.</li>
+          <li><strong class="text-gray-300">Bot set, client empty</strong> — that bot across all clients.</li>
+          <li><strong class="text-gray-300">Both set</strong> — that bot in that channel only (typical Slack: <span class="font-mono">slack_bot</span> + <span class="font-mono">slack:C…</span>).</li>
+          <li><strong class="text-gray-300">Chat session</strong> — extra filter for <em>automatic</em> knowledge search in that thread only; legacy rows (session unset) still appear in every chat. Explicit <code class="text-gray-500">@tags</code> ignore session.</li>
+        </ul>
+      </details>
 
       <textarea name="content" required
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono resize-y"
-        style="min-height: calc(100vh - 28rem);">{{ entry.content }}</textarea>
+        style="min-height: calc(100vh - 32rem);">{{ entry.content }}</textarea>
 
       <div class="flex items-center gap-3">
         <button type="submit"
@@ -97,17 +123,11 @@
     </form>
   </div>
 
-  <!-- Right sidebar -->
   <div class="w-72 shrink-0 space-y-4">
-
-    <!-- Pins -->
     <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
       <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Always-On Pins</div>
       <p class="text-xs text-gray-500 mb-3 leading-relaxed">
-        Normally, a document is only injected into context when semantically relevant to the user's message.
-        A <span class="text-yellow-400 font-medium">pin</span> overrides this — the document is
-        <em>always</em> injected for that bot/channel, regardless of relevance.
-        Use for things like formatting rules or always-needed reference docs.
+        Pins force a document into context for a bot/channel regardless of semantic similarity. Session rules above still apply to how the doc is looked up by name.
       </p>
       <div hx-get="/admin/knowledge/{{ entry.id }}/pins"
            hx-trigger="load"
@@ -116,7 +136,6 @@
       </div>
     </div>
 
-    <!-- Write history -->
     <div class="bg-gray-800 border border-gray-700 rounded-xl p-4"
          hx-get="/admin/knowledge/{{ entry.id }}/history"
          hx-trigger="load"

@@ -47,15 +47,15 @@
 
 <!-- Bot display names -->
 <div class="bg-gray-800 rounded-xl border border-gray-700 p-5 mb-6">
-  <h2 class="text-base font-semibold text-gray-200 mb-1">Bot Slack Display Names</h2>
+  <h2 class="text-base font-semibold text-gray-200 mb-1">Bot Display Names</h2>
   <p class="text-xs text-gray-500 mb-4">Requires <code>chat:write.customize</code> scope on the Slack app token.</p>
   <div class="divide-y divide-gray-700">
     {% for bot in all_bots %}
     <div class="flex items-center gap-3 py-2.5">
       <span class="text-sm font-mono text-gray-400 w-36 truncate">{{ bot.id }}</span>
-      <span class="text-sm text-gray-300">{{ bot.slack_display_name or bot.name }}</span>
-      {% if bot.slack_icon_emoji %}
-      <span class="text-gray-400 text-sm">{{ bot.slack_icon_emoji }}</span>
+      <span class="text-sm text-gray-300">{{ bot.display_name or bot.name }}</span>
+      {% if bot.avatar_url %}
+      <img src="{{ bot.avatar_url }}" class="w-5 h-5 rounded-full" alt="" />
       {% endif %}
       <a href="/admin/bots/{{ bot.id }}/edit"
          class="ml-auto text-xs text-indigo-400 hover:text-indigo-300">Edit →</a>

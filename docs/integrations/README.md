@@ -1,194 +1,305 @@
-# Integrations
+# Creating an Integration
 
-Integrations connect external services (Gmail, GitHub, webhooks, etc.) to the agent server without touching core code. Each integration lives in its own folder under `integrations/` and is auto-discovered at startup.
+This guide explains how to create a new integration — a self-contained module that
+connects an external service (GitHub, Gmail, webhooks, etc.) to the agent server without
+touching core code.
 
-## Architecture
+> **Architecture decisions, design philosophy, and known debt** → see [DESIGN.md](DESIGN.md)
+
+---
+
+## Folder Structure
+
+Each integration lives under `integrations/<name>/`. The auto-discovery system scans
+this directory at startup. All files are optional except your integration must have at
+least one of `router.py` or `dispatcher.py` to do anything useful.
 
 ```
 integrations/
-├── __init__.py          # auto-discovery (scans */router.py)
-├── base.py              # optional IntegrationBase class
+├── __init__.py          # auto-discovery (don't edit)
 ├── utils.py             # helpers: ingest_document, inject_message, etc.
-└── gmail/               # your integration
-    ├── __init__.py      # id, name, version metadata
-    └── router.py        # FastAPI APIRouter — registered at /integrations/gmail/
+└── mygithub/            # your integration folder
+    ├── __init__.py      # optional: id, name, version metadata
+    ├── router.py        # HTTP endpoints → registered at /integrations/mygithub/
+    ├── dispatcher.py    # task result delivery → called by the task worker
+    └── process.py       # background process → auto-started by dev-server.sh
 ```
 
-Integrations interact with the agent server through two surfaces:
+### What each file does
 
-1. **Public REST API** (`/api/v1/`) — call from anywhere with a Bearer token
-2. **Python helpers** (`integrations/utils.py`) — use inside router handlers (have a DB session)
+| File | Auto-loaded? | Purpose |
+|---|---|---|
+| `router.py` | Yes — registered at `/integrations/<name>/` | Receive webhooks, expose config endpoints |
+| `dispatcher.py` | Yes — imported to trigger `register()` | Deliver completed task results to your service |
+| `process.py` | Via `dev-server.sh` | Declare a background process (e.g. a Bolt app) |
+| `__init__.py` | Yes (as package) | Optional metadata: `id`, `name`, `version` |
 
-## Creating an Integration
+---
+
+## Quickstart
 
 ### 1. Create the folder
 
 ```bash
-mkdir integrations/mygmail
-touch integrations/mygmail/__init__.py integrations/mygmail/router.py
+mkdir integrations/mygithub
+touch integrations/mygithub/__init__.py
 ```
 
-### 2. Add metadata (`__init__.py`)
+### 2. Add optional metadata (`__init__.py`)
 
 ```python
-id = "gmail"
-name = "Gmail Integration"
+id = "mygithub"
+name = "GitHub Integration"
 version = "0.1.0"
 ```
 
-### 3. Add the router (`router.py`)
+### 3. Add a router (`router.py`)
+
+The router is a standard FastAPI `APIRouter`. It's registered at `/integrations/<name>/`
+automatically — no changes to `app/main.py` needed.
 
 ```python
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.dependencies import get_db, verify_auth
+from fastapi import APIRouter, Request
 from integrations import utils
 
 router = APIRouter()
 
 @router.post("/webhook")
-async def gmail_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Receive Gmail push notifications."""
+async def github_webhook(request: Request):
     data = await request.json()
+    event = request.headers.get("X-GitHub-Event")
 
-    # 1. Ingest the email as a searchable document
-    doc_id = await utils.ingest_document(
-        integration_id="gmail",
-        title=data["subject"],
-        content=data["body"],
-        metadata={"from": data["from"], "thread_id": data["threadId"]},
-        db=db,
-    )
+    if event == "pull_request":
+        pr = data["pull_request"]
 
-    # 2. Inject a message into a session (fans out to Slack if that session is a Slack channel)
-    result = await utils.inject_message(
-        session_id=...,      # your integration's session UUID
-        content=f"New email from {data['from']}: {data['subject']}",
-        source="gmail",
-        run_agent=True,      # have the agent process and respond
-        notify=True,         # fan-out to Slack / dispatch_config
-        db=db,
-    )
+        # 1. Get or create a session for this repo
+        from app.db.engine import async_session
+        async with async_session() as db:
+            session_id = await utils.get_or_create_session(
+                client_id=f"github:{data['repository']['full_name']}",
+                bot_id="code_review_bot",
+                db=db,
+            )
 
-    return {"ok": True, "doc_id": str(doc_id), "task_id": result["task_id"]}
+            # 2. Inject a message — agent runs and result is dispatched
+            result = await utils.inject_message(
+                session_id=session_id,
+                content=f"PR #{pr['number']} opened: {pr['title']}\n{pr['html_url']}",
+                source="github",
+                run_agent=True,
+                notify=True,
+                db=db,
+            )
+
+    return {"ok": True}
 ```
 
-The router is registered at `/integrations/gmail/` automatically. No changes to `app/main.py` needed.
+### 4. Add a dispatcher (`dispatcher.py`)
 
-## Session Fan-out
-
-When `notify=True` is passed to `inject_message()`, the agent server fans out to the session's dispatch targets:
-
-- **Slack** — if the session's `client_id` starts with `slack:{channel_id}`, a message is posted to that channel using the configured `SLACK_BOT_TOKEN`. Alternatively, a full `dispatch_config` (with token, channel_id, thread_ts) can be stored on the session.
-- **Future** — additional fan-out targets can be added by extending `_fanout()` in `app/routers/api_v1_sessions.py`.
-
-### Storing dispatch_config on a session
-
-When creating a session for an integration that should fan-out to Slack (or another target):
+A dispatcher is called by the task worker after an agent run completes. It delivers
+the result to your service. Add one only if your integration has its own delivery channel
+(e.g. posting to a different chat platform, calling a specific API).
 
 ```python
-session_id = await utils.get_or_create_session(
-    client_id="gmail:user@example.com",
-    bot_id="my_bot",
-    dispatch_config={
-        "type": "slack",
-        "channel_id": "C12345678",
-        "thread_ts": None,          # None = channel root
-        "token": "xoxb-...",        # optional — falls back to SLACK_BOT_TOKEN
-    },
-    db=db,
-)
+import logging
+from app.agent.dispatchers import register
+
+logger = logging.getLogger(__name__)
+
+
+class MyDispatcher:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+        cfg = task.dispatch_config or {}
+        target_url = cfg.get("webhook_url")
+        if not target_url:
+            return
+        # ... post result to your service ...
+
+
+# Register at import time — this is what makes it pluggable
+register("mygithub", MyDispatcher())
 ```
 
-## Public REST API (`/api/v1/`)
+The dispatcher is called when a task has `dispatch_type="mygithub"`. To create such a
+task, set `dispatch_type` and `dispatch_config` when calling `utils.inject_message()`.
 
+### 5. Add a background process (`process.py`)
+
+If your integration needs a long-running process (e.g. a bot framework using socket mode),
+declare it here. `dev-server.sh` will auto-start it when all required env vars are set.
+
+```python
+DESCRIPTION = "GitHub webhook listener"
+CMD = ["python", "integrations/mygithub/listener.py"]
+REQUIRED_ENV = ["GITHUB_WEBHOOK_SECRET", "GITHUB_TOKEN"]
+```
+
+`CMD` is a list of strings (passed to `shlex.join` for the shell). The process is
+only started if every var in `REQUIRED_ENV` is set in the environment.
+
+---
+
+## APIs Available to Integrations
+
+### Option A: Python helpers (`integrations/utils.py`)
+
+Use these inside router handlers (they take an open `AsyncSession`):
+
+```python
+from integrations import utils
+from app.db.engine import async_session
+
+async with async_session() as db:
+    # Ingest + embed a document (searchable by agents via RAG)
+    doc_id = await utils.ingest_document(
+        integration_id="mygithub",
+        title="PR #42: Add dark mode",
+        content="...",
+        session_id=None,           # optional: scope to a session
+        metadata={"pr_number": 42},
+        db=db,
+    )
+
+    # Semantic search across ingested documents
+    docs = await utils.search_documents(
+        q="dark mode css changes",
+        integration_id="mygithub",
+        limit=5,
+        db=db,
+    )
+
+    # Get or create a persistent session for a user/channel/resource
+    session_id = await utils.get_or_create_session(
+        client_id="github:owner/repo",   # unique identifier for this integration entity
+        bot_id="my_bot",
+        dispatch_config={               # optional: where to deliver results
+            "type": "slack",
+            "channel_id": "C12345",
+            "token": "xoxb-...",
+        },
+        db=db,
+    )
+
+    # Inject a message into a session
+    result = await utils.inject_message(
+        session_id=session_id,
+        content="New PR from alice: Add dark mode",
+        source="github",
+        run_agent=True,    # True → runs agent, creates a task, returns task_id
+        notify=True,       # True → fans out result to dispatch_config target
+        db=db,
+    )
+    # result = {"message_id": "uuid", "session_id": "uuid", "task_id": "uuid-or-null"}
+```
+
+### Option B: Public REST API (`/api/v1/`)
+
+Use this from external processes (your integration's background process, tests, etc.).
 All endpoints require `Authorization: Bearer <API_KEY>`.
 
-### Tasks
+#### Documents
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/tasks/{id}` | Poll a task's status and result |
-
-Use this to poll after `run_agent=true` on message injection returns a `task_id`. Status values: `pending`, `running`, `complete`, `failed`.
-
-### Documents
-
-| Method | Path | Description |
-|--------|------|-------------|
+|---|---|---|
 | `POST` | `/api/v1/documents` | Ingest + embed a document |
 | `GET` | `/api/v1/documents/search?q=...` | Semantic search |
-| `GET` | `/api/v1/documents/{id}` | Fetch by ID |
-| `DELETE` | `/api/v1/documents/{id}` | Delete |
+| `GET` | `/api/v1/documents/{id}` | Fetch a document |
+| `DELETE` | `/api/v1/documents/{id}` | Delete a document |
 
-**POST /api/v1/documents**
 ```json
+// POST /api/v1/documents
 {
-  "title": "Email: Q1 Review",
+  "title": "PR #42: Add dark mode",
   "content": "...",
-  "integration_id": "gmail",
-  "session_id": "uuid-or-null",
-  "metadata": {"thread_id": "..."}
+  "integration_id": "mygithub",
+  "session_id": null,
+  "metadata": {"pr_number": 42}
 }
 ```
 
-**GET /api/v1/documents/search**
 ```
-?q=quarterly+review&integration_id=gmail&session_id=uuid&limit=10
+// GET /api/v1/documents/search
+?q=dark+mode&integration_id=mygithub&limit=5
 ```
 
-### Sessions
+#### Sessions
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/sessions` | Create/get a session |
+|---|---|---|
+| `POST` | `/api/v1/sessions` | Create or get a session |
 | `POST` | `/api/v1/sessions/{id}/messages` | Inject a message |
 | `GET` | `/api/v1/sessions/{id}/messages` | List messages |
 
-**POST /api/v1/sessions**
 ```json
+// POST /api/v1/sessions
 {
-  "bot_id": "default",
-  "client_id": "gmail:user@example.com",
-  "dispatch_config": {"type": "slack", "channel_id": "C123", "token": "xoxb-..."}
+  "bot_id": "my_bot",
+  "client_id": "github:owner/repo",
+  "dispatch_config": {
+    "type": "slack",
+    "channel_id": "C12345",
+    "token": "xoxb-..."
+  }
 }
+// → {"session_id": "uuid"}
 ```
 
-**POST /api/v1/sessions/{id}/messages**
 ```json
+// POST /api/v1/sessions/{id}/messages
 {
-  "content": "New email from alice@example.com: meeting at 3pm",
-  "source": "gmail",
+  "content": "New PR from alice: Add dark mode",
+  "source": "github",
   "run_agent": true,
   "notify": true
 }
+// → {"message_id": "uuid", "session_id": "uuid", "task_id": "uuid-or-null"}
 ```
 
-Returns:
+#### Tasks
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/tasks/{id}` | Poll a task's status and result |
+
+Poll this after `run_agent=true` returns a `task_id`. Status: `pending`, `running`, `complete`, `failed`.
+
+---
+
+## Dispatch Config
+
+When a task completes, the task worker looks up the dispatcher for `task.dispatch_type`
+and calls `dispatcher.deliver(task, result)`. The dispatcher reads `task.dispatch_config`
+for its delivery parameters.
+
+Standard shapes:
+
 ```json
-{"message_id": "uuid", "session_id": "uuid", "task_id": "uuid-or-null"}
+// dispatch_type = "slack"
+{"channel_id": "C123", "token": "xoxb-...", "thread_ts": "1234.56", "reply_in_thread": true}
+
+// dispatch_type = "webhook"
+{"url": "https://myservice.example.com/hook"}
+
+// dispatch_type = "internal"  (injects result back into a session as a user message)
+{"session_id": "uuid"}
+
+// dispatch_type = "none"  (result stays in DB; caller polls /api/v1/tasks/{id})
+{}
 ```
 
-## Available Helpers (`integrations/utils.py`)
+For a custom dispatch type, add a `dispatcher.py` (see step 4 above).
 
-```python
-# Embed and store a document
-await utils.ingest_document(integration_id, title, content, *, session_id=None, metadata=None, db)
+---
 
-# Semantic search
-await utils.search_documents(q, *, integration_id=None, session_id=None, limit=10, db)
+## Example
 
-# Get or create a session (locked=True, for integrations)
-await utils.get_or_create_session(client_id, bot_id, *, dispatch_config=None, db)
+See [example.md](example.md) for the minimal `integrations/example/` scaffold.
 
-# Inject a message (store + optional fan-out + optional agent run)
-await utils.inject_message(session_id, content, source, *, run_agent=False, notify=True, db)
-```
+---
 
-## Examples
+## What Integration Code Must Not Do
 
-- [Example integration scaffold](example.md)
+- Import from `app/agent/`, `app/services/`, or `app/tools/` directly (except `app/agent/dispatchers` for `register()` and `app/agent/bots` for `get_bot()` in dispatchers)
+- Duplicate Slack API call logic — use `app/services/slack_uploads.py` for file uploads
+- Add new columns to core models (`Bot`, `Task`, `Session`) for integration-specific data — use `dispatch_config`, `integration_config` JSONB fields, or add your own table
+- Edit `app/main.py`, `app/agent/tasks.py`, or `app/agent/dispatchers.py` (unless adding a core delivery mechanism)

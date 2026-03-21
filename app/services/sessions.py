@@ -17,6 +17,16 @@ from app.db.models import IntegrationChannelConfig, Message, Session
 logger = logging.getLogger(__name__)
 
 
+_INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:")
+
+
+def is_integration_client_id(client_id: str | None) -> bool:
+    """True when client_id is an external integration channel (stable derived session)."""
+    if not client_id:
+        return False
+    return any(client_id.startswith(p) for p in _INTEGRATION_CLIENT_PREFIXES)
+
+
 def derive_integration_session_id(client_id: str) -> uuid.UUID:
     """Derive a stable session_id from client_id alone (channel-scoped, bot-independent)."""
     return uuid.uuid5(uuid.NAMESPACE_DNS, client_id)

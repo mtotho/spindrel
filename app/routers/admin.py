@@ -11,11 +11,17 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, or_, select, text
 
+from app.config import settings
 from app.agent.bots import get_bot, list_bots
 from app.agent.knowledge import upsert_knowledge, update_knowledge_entry
 from app.agent.persona import get_persona, write_persona
 from app.agent.tools import index_local_tools, warm_mcp_tool_index_for_all_bots
 from app.db.engine import async_session
+from app.services.sessions import (
+    derive_integration_session_id,
+    is_integration_client_id,
+    upsert_integration_session,
+)
 from app.db.models import (
     BotKnowledge,
     KnowledgePin,
@@ -296,7 +302,6 @@ async def admin_compact_session(request: Request, session_id: uuid.UUID):
 
 @router.delete("/sessions/{session_id}", response_class=HTMLResponse)
 async def admin_delete_session(session_id: uuid.UUID):
-    from app.config import settings
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if not session:
@@ -550,21 +555,73 @@ async def admin_delete_memory(memory_id: uuid.UUID):
 # Knowledge
 # ---------------------------------------------------------------------------
 
+def _knowledge_session_filter_label(sess: Session | None, sid: uuid.UUID) -> str:
+    if sess and (sess.title or "").strip():
+        t = (sess.title or "").strip()
+        if len(t) > 52:
+            t = t[:51] + "…"
+        return f"{t} · {sid}"
+    return str(sid)
+
+
 @router.get("/knowledge", response_class=HTMLResponse)
 async def admin_knowledge(
     request: Request,
     bot_id: Optional[str] = None,
     client_id: Optional[str] = None,
+    session_filter: Optional[str] = None,
 ):
+    """List knowledge rows with optional filters (bot, client, session)."""
+    sf_raw = (session_filter or "").strip()
     async with async_session() as db:
         stmt = select(BotKnowledge).order_by(BotKnowledge.updated_at.desc())
         if bot_id:
             stmt = stmt.where(BotKnowledge.bot_id == bot_id)
         if client_id:
             stmt = stmt.where(BotKnowledge.client_id == client_id)
+        if sf_raw == "__none__":
+            stmt = stmt.where(BotKnowledge.session_id.is_(None))
+        elif sf_raw:
+            try:
+                stmt = stmt.where(BotKnowledge.session_id == uuid.UUID(sf_raw))
+            except ValueError:
+                pass
         entries = (await db.execute(stmt)).scalars().all()
         bot_ids = (await db.execute(select(BotKnowledge.bot_id).distinct())).scalars().all()
         client_ids = (await db.execute(select(BotKnowledge.client_id).distinct())).scalars().all()
+        distinct_session_ids = list(
+            (await db.execute(
+                select(BotKnowledge.session_id).distinct().where(BotKnowledge.session_id.isnot(None))
+            )).scalars().all()
+        )
+        session_by_id: dict[uuid.UUID, Session] = {}
+        session_filter_choices: list[dict[str, str]] = []
+        if distinct_session_ids:
+            sess_rows = (
+                await db.execute(
+                    select(Session)
+                    .where(Session.id.in_(distinct_session_ids))
+                    .order_by(Session.last_active.desc())
+                )
+            ).scalars().all()
+            session_by_id = {s.id: s for s in sess_rows}
+            distinct_set = set(distinct_session_ids)
+            ordered_sids: list[uuid.UUID] = []
+            seen: set[uuid.UUID] = set()
+            for s in sess_rows:
+                if s.id in distinct_set and s.id not in seen:
+                    ordered_sids.append(s.id)
+                    seen.add(s.id)
+            for sid in sorted(distinct_session_ids, key=str):
+                if sid not in seen:
+                    ordered_sids.append(sid)
+            for sid in ordered_sids:
+                session_filter_choices.append(
+                    {
+                        "value": str(sid),
+                        "label": _knowledge_session_filter_label(session_by_id.get(sid), sid),
+                    }
+                )
     return templates.TemplateResponse(
         "admin/knowledge.html",
         {
@@ -574,13 +631,19 @@ async def admin_knowledge(
             "client_ids": sorted(filter(None, client_ids)),
             "bot_filter": bot_id,
             "client_filter": client_id,
+            "session_filter": sf_raw,
+            "session_by_id": session_by_id,
+            "session_filter_choices": session_filter_choices,
         },
     )
 
 
 @router.get("/knowledge/new", response_class=HTMLResponse)
 async def admin_knowledge_new_form(request: Request):
-    return templates.TemplateResponse("admin/knowledge_new.html", {"request": request})
+    return templates.TemplateResponse(
+        "admin/knowledge_new.html",
+        {"request": request, "bots": list_bots()},
+    )
 
 
 @router.post("/knowledge", response_class=HTMLResponse)
@@ -622,13 +685,68 @@ async def admin_knowledge_edit_full(request: Request, entry_id: uuid.UUID):
         distinct_clients = [c for c in (await db.execute(
             select(Session.client_id).distinct().order_by(Session.client_id)
         )).scalars().all() if c]
+        sessions_same_client: list[Session] = []
+        if entry.client_id:
+            sessions_same_client = list(
+                (await db.execute(
+                    select(Session)
+                    .where(Session.client_id == entry.client_id)
+                    .order_by(Session.last_active.desc())
+                )).scalars().all()
+            )
+    derived_session_str: str | None = None
+    if is_integration_client_id(entry.client_id):
+        derived_session_str = str(derive_integration_session_id(entry.client_id))
+
+    seen_ids: set[str] = set()
+    session_options: list[tuple[str, str]] = []
+    if derived_session_str:
+        session_options.append(
+            (
+                derived_session_str,
+                "This channel’s chat session (integration — one stable UUID per client_id)",
+            )
+        )
+        seen_ids.add(derived_session_str)
+    for s in sessions_same_client:
+        sid = str(s.id)
+        if sid in seen_ids:
+            continue
+        seen_ids.add(sid)
+        title = (s.title or "").strip()
+        if title:
+            label = f"{title[:48]}{'…' if len(title) > 48 else ''} · {sid[:8]}…"
+        else:
+            label = f"Session {sid[:8]}… (same client_id)"
+        session_options.append((sid, label))
+
+    if entry.session_id:
+        es = str(entry.session_id)
+        if es not in seen_ids:
+            session_options.insert(0, (es, f"Current binding · {es[:8]}…"))
+            seen_ids.add(es)
+
+    _bots = list_bots()
+    _known_bot_ids = {b.id for b in _bots}
+    orphan_bot_id = (
+        entry.bot_id
+        if entry.bot_id and entry.bot_id not in _known_bot_ids
+        else None
+    )
+
     return templates.TemplateResponse(
-        "admin/knowledge_edit_full.html", {
+        "admin/knowledge_edit_full.html",
+        {
             "request": request,
             "entry": entry,
-            "bots": list_bots(),
+            "bots": _bots,
+            "orphan_bot_id": orphan_bot_id,
             "distinct_clients": distinct_clients,
-        }
+            "derived_session_str": derived_session_str,
+            "session_options": session_options,
+            "is_integration_client": derived_session_str is not None,
+            "default_knowledge_similarity": settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
+        },
     )
 
 
@@ -648,6 +766,7 @@ async def admin_knowledge_update(
             content=content,
             bot_id=entry.bot_id,
             client_id=entry.client_id,
+            session_id=entry.session_id,
         )
         entry = await db.get(BotKnowledge, entry_id)
     return templates.TemplateResponse(
@@ -662,13 +781,46 @@ async def admin_knowledge_save_full(
     content: str = Form(...),
     bot_id: str = Form(""),
     client_id: str = Form(""),
+    session_id: str = Form(""),
+    knowledge_similarity_threshold: str = Form(""),
 ):
     """Full-page save (browser form POST, redirects back to list)."""
+    async with async_session() as db:
+        _entry = await db.get(BotKnowledge, entry_id)
+        if not _entry:
+            raise HTTPException(status_code=404, detail="Not found")
+    b = bot_id.strip() or None
+    c = client_id.strip() or None
+    _raw_sid = (session_id or "").strip()
+    _new_sid: uuid.UUID | None = None
+    if _raw_sid:
+        try:
+            _new_sid = uuid.UUID(_raw_sid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid session UUID")
+        async with async_session() as db:
+            existing_sess = await db.get(Session, _new_sid)
+            if existing_sess is None:
+                if c and is_integration_client_id(c) and derive_integration_session_id(c) == _new_sid:
+                    await upsert_integration_session(db, c, b or "default")
+                else:
+                    raise HTTPException(status_code=400, detail="Session not found")
+    _sim_raw = (knowledge_similarity_threshold or "").strip()
+    _sim: float | None
+    if not _sim_raw:
+        _sim = None
+    else:
+        try:
+            _sim = float(_sim_raw)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid similarity threshold")
     ok = await update_knowledge_entry(
         entry_id=entry_id,
         content=content,
-        bot_id=bot_id.strip() or None,
-        client_id=client_id.strip() or None,
+        bot_id=b,
+        client_id=c,
+        session_id=_new_sid,
+        similarity_threshold=_sim,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
@@ -979,22 +1131,18 @@ async def admin_session_correlations(request: Request, session_id: uuid.UUID):
 
 @router.get("/knowledge/{entry_id}/history", response_class=HTMLResponse)
 async def admin_knowledge_history(request: Request, entry_id: uuid.UUID):
+    """Write audit for this ``bot_knowledge`` row (FK ``knowledge_writes.bot_knowledge_id``)."""
     async with async_session() as db:
         entry = await db.get(BotKnowledge, entry_id)
         if not entry:
             return HTMLResponse("<div class='text-red-400 p-4'>Not found.</div>", status_code=404)
-        writes = (
-            await db.execute(
-                select(KnowledgeWrite)
-                .where(
-                    KnowledgeWrite.knowledge_name == entry.name,
-                    KnowledgeWrite.bot_id == entry.bot_id,
-                    KnowledgeWrite.client_id == entry.client_id,
-                )
-                .order_by(KnowledgeWrite.created_at.desc())
-                .limit(50)
-            )
-        ).scalars().all()
+        _ws = (
+            select(KnowledgeWrite)
+            .where(KnowledgeWrite.bot_knowledge_id == entry_id)
+            .order_by(KnowledgeWrite.created_at.desc())
+            .limit(200)
+        )
+        writes = (await db.execute(_ws)).scalars().all()
     return templates.TemplateResponse(
         "admin/knowledge_history.html",
         {"request": request, "entry": entry, "writes": writes},

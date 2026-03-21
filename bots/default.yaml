@@ -58,7 +58,6 @@ memory_knowledge_compaction_prompt: |
 knowledge:
   enabled: true
   cross_bot: true
-  similarity_threshold: 0.45
 memory:
   enabled: true
   cross_session: true

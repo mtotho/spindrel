@@ -389,10 +389,23 @@ async def run_agent_tool_loop(
                         )
                     elif name in ("update_persona", "append_to_persona"):
                         result = await call_persona_tool(name, args or "{}", bot.id)
-                    elif name in ("upsert_knowledge", "get_knowledge", "search_knowledge", "list_knowledge_bases", "append_to_knowledge", "pin_knowledge", "unpin_knowledge") and client_id:
+                    elif name in (
+                        "upsert_knowledge",
+                        "get_knowledge",
+                        "search_knowledge",
+                        "list_knowledge_bases",
+                        "append_to_knowledge",
+                        "pin_knowledge",
+                        "unpin_knowledge",
+                        "set_knowledge_similarity_threshold",
+                    ) and client_id:
                         result = await call_knowledge_tool(
-                            name, args or "{}", bot.id, client_id,
-                            bot.knowledge.similarity_threshold,
+                            name,
+                            args or "{}",
+                            bot.id,
+                            client_id,
+                            session_id=session_id,
+                            fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
                         )
                     else:
                         result = await call_local_tool(name, args)
@@ -649,6 +662,7 @@ async def run_stream(
         bot_client_tools=bot.client_tools,
         bot_id=bot.id,
         client_id=client_id,
+        session_id=session_id,
     )
     _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
     _tagged_knowledge_names = [t.name for t in _tagged if t.tag_type == "knowledge"]
@@ -675,7 +689,13 @@ async def run_stream(
             from app.agent.knowledge import get_knowledge_by_name
             _tagged_know_chunks: list[str] = []
             for _kname in _tagged_knowledge_names:
-                _doc = await get_knowledge_by_name(_kname, bot.id, client_id)
+                _doc = await get_knowledge_by_name(
+                    _kname,
+                    bot.id,
+                    client_id,
+                    session_id=session_id,
+                    ignore_session_scope=True,
+                )
                 if _doc:
                     _tagged_know_chunks.append(_doc)
                 else:
@@ -830,7 +850,9 @@ async def run_stream(
 
     if client_id:
         from app.agent.knowledge import get_pinned_knowledge_docs
-        pinned_docs, pinned_names = await get_pinned_knowledge_docs(bot.id, client_id)
+        pinned_docs, pinned_names = await get_pinned_knowledge_docs(
+            bot.id, client_id, session_id=session_id
+        )
         if pinned_docs:
             _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
             pinned_docs = [
@@ -860,7 +882,8 @@ async def run_stream(
             query=user_message,
             bot_id=bot.id,
             client_id=client_id,
-            similarity_threshold=bot.knowledge.similarity_threshold,
+            fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
+            session_id=session_id,
         )
         if chunks:
             _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS

@@ -1,4 +1,5 @@
-<td colspan="5" class="px-4 py-4 bg-gray-900">
+<td colspan="6" class="px-4 py-4 bg-gray-900">
+  <p class="text-xs text-gray-500 mb-2">Quick edit: content only. For bot, client, or chat session use <a href="/admin/knowledge/{{ entry.id }}/edit-full" class="text-indigo-400 hover:text-indigo-200">full editor</a>.</p>
   <form
     hx-put="/admin/knowledge/{{ entry.id }}"
     hx-target="#knowledge-row-{{ entry.id }}"

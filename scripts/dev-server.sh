@@ -31,17 +31,20 @@ until docker compose exec postgres pg_isready -U agent -d agentdb -q 2>/dev/null
     sleep 1
 done
 
-SLACK_PID=""
+PIDS=()
 cleanup() {
-    [ -n "$SLACK_PID" ] && kill "$SLACK_PID" 2>/dev/null || true
+    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT INT TERM
 
-if [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_APP_TOKEN:-}" ]; then
-    echo "Starting Slack bot..."
-    python slack-integration/slack_bot.py &
-    SLACK_PID=$!
-fi
+# Auto-discover and start integration background processes
+while IFS= read -r line; do
+    [[ "$line" == \#* ]] && { echo "$line"; continue; }
+    [ -z "$line" ] && continue
+    echo "Starting: $line"
+    eval "$line" &
+    PIDS+=($!)
+done < <(python scripts/list_integration_processes.py 2>/dev/null)
 
 echo "Starting server with --reload..."
 uvicorn app.main:app --host 0.0.0.0 --reload --reload-include '*.py' --reload-include '*.yaml' --reload-exclude '.venv'

@@ -5,7 +5,11 @@
 <div class="flex items-center gap-3 mb-6">
   <a href="/admin/knowledge" class="text-gray-400 hover:text-gray-200 text-sm">← Knowledge</a>
 </div>
-<h1 class="text-2xl font-bold mb-6">New Knowledge Entry</h1>
+<h1 class="text-2xl font-bold mb-2">New Knowledge Entry</h1>
+<p class="text-sm text-gray-500 max-w-3xl mb-4">
+  You are creating an <strong class="text-gray-400">admin</strong> row: it is not tied to a chat session until you open the full editor after save and pick a session (e.g. the fixed UUID for a Slack channel).
+  The presets below only set which <span class="text-gray-400">bot_id</span> / <span class="text-gray-400">client_id</span> columns are stored — they are not Slack “assignments”.
+</p>
 
 <form method="post" action="/admin/knowledge" class="space-y-5 max-w-4xl"
   x-data="{
@@ -22,27 +26,31 @@
         class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
     </div>
     <div>
-      <label class="text-xs text-gray-400 block mb-1.5">Scope</label>
+      <label class="text-xs text-gray-400 block mb-1.5">Starting preset</label>
       <select x-model="scope" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-        <option value="private">private — bot + client</option>
-        <option value="bot">bot — this bot, all clients</option>
-        <option value="channel">channel — all bots, this client</option>
-        <option value="global">global — all bots, all clients</option>
+        <option value="private">Bot + client (typical Slack)</option>
+        <option value="bot">Bot only (all clients)</option>
+        <option value="channel">Client only (all bots)</option>
+        <option value="global">Global (no bot, no client)</option>
       </select>
     </div>
     <div x-show="scope === 'private' || scope === 'bot'">
-      <label class="text-xs text-gray-400 block mb-1.5">Bot ID <span class="text-gray-600">(blank = any)</span></label>
-      <input type="text" x-model="botId" placeholder="my_bot"
-        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      <label class="text-xs text-gray-400 block mb-1.5">Bot</label>
+      <select x-model="botId"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+        <option value="">— choose —</option>
+        {% for bot in bots %}
+        <option value="{{ bot.id }}">{{ bot.name }} — {{ bot.id }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div x-show="scope === 'private' || scope === 'channel'" class="col-start-3">
-      <label class="text-xs text-gray-400 block mb-1.5">Client ID <span class="text-gray-600">(blank = any)</span></label>
+      <label class="text-xs text-gray-400 block mb-1.5">Client ID</label>
       <input type="text" x-model="clientId" placeholder="slack:C123456"
-        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
     </div>
   </div>
 
-  <!-- Hidden fields that carry the effective values -->
   <input type="hidden" name="bot_id" :value="effectiveBotId" />
   <input type="hidden" name="client_id" :value="effectiveClientId" />
 

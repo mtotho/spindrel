@@ -278,13 +278,14 @@ class DelegationService:
         if reply_in_thread and thread_ts:
             payload["thread_ts"] = thread_ts
 
-        username = bot.slack_display_name or bot.name
+        username = bot.display_name or bot.name
         if username:
             payload["username"] = username
-        if bot.slack_icon_emoji:
-            payload["icon_emoji"] = bot.slack_icon_emoji
-        elif bot.slack_icon_url:
-            payload["icon_url"] = bot.slack_icon_url
+        slack_cfg = bot.integration_config.get("slack", {})
+        if slack_cfg.get("icon_emoji"):
+            payload["icon_emoji"] = slack_cfg["icon_emoji"]
+        elif bot.avatar_url:
+            payload["icon_url"] = bot.avatar_url
 
         try:
             r = await _http.post(

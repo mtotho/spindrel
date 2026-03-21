@@ -15,6 +15,15 @@ integrations/example/
 - `GET /integrations/example/ping` — health check, returns `{"status": "ok", "integration": "example"}`
 - `POST /integrations/example/ingest` — ingest a document into the integration_documents store
 
+## Optional files you can add
+
+| File | Purpose |
+|---|---|
+| `dispatcher.py` | Deliver task results to your service — calls `register("example", ...)` |
+| `process.py` | Declare a background process auto-started by `dev-server.sh` |
+
+See [README.md](README.md) for full documentation on each file.
+
 ## Removing this example
 
 Delete `integrations/example/` and restart the server. No other changes needed.

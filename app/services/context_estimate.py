@@ -100,10 +100,7 @@ async def estimate_bot_context(
         mem_max = settings.MEMORY_MAX_INJECT_CHARS
 
     know_enabled = bool(draft.get("knowledge_enabled"))
-    try:
-        know_sim = float(draft.get("knowledge_similarity_threshold", 0.45))
-    except (TypeError, ValueError):
-        know_sim = 0.45
+    know_sim = settings.KNOWLEDGE_SIMILARITY_THRESHOLD
     try:
         know_max = int(draft.get("knowledge_max_inject_chars") or settings.KNOWLEDGE_MAX_INJECT_CHARS)
     except (TypeError, ValueError):
@@ -299,7 +296,7 @@ async def estimate_bot_context(
         # retrieve_knowledge limits to 3 docs
         est_k = int(3 * know_max * 0.45 * kh)
         wrap = len("Relevant knowledge:\n\n---\n\n")
-        lines.append(EstimateLine("sys:knowledge (typical)", wrap + est_k, "up to 3 docs; threshold affects hits"))
+        lines.append(EstimateLine("sys:knowledge (typical)", wrap + est_k, "up to 3 docs; per-doc similarity overrides"))
 
     lines.append(
         EstimateLine(

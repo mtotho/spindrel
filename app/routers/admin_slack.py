@@ -247,9 +247,9 @@ async def api_slack_config(request: Request):
     }
     bots = {
         row.id: {
-            "display_name": row.slack_display_name or row.name,
-            "icon_emoji": row.slack_icon_emoji or None,
-            "icon_url": row.slack_icon_url or None,
+            "display_name": row.display_name or row.name,
+            "icon_emoji": (row.integration_config or {}).get("slack", {}).get("icon_emoji") or None,
+            "icon_url": row.avatar_url or None,
         }
         for row in bot_rows
     }

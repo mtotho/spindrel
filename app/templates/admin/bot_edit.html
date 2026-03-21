@@ -1,5 +1,5 @@
 {% extends "admin/_base.html" %}
-{% block title %}Edit: {{ bot.name }}{% endblock %}
+{% block title %}{% if is_new %}New Bot{% else %}Edit: {{ bot.name }}{% endif %}{% endblock %}
 
 {% block content %}
 
@@ -38,7 +38,6 @@ function collectContextDraft() {
     memory_enabled: hv('memory_enabled') === 'true',
     memory_similarity_threshold: nums('memory_similarity_threshold'),
     knowledge_enabled: hv('knowledge_enabled') === 'true',
-    knowledge_similarity_threshold: nums('knowledge_similarity_threshold'),
     memory_max_inject_chars: nums('memory_max_inject_chars'),
     knowledge_max_inject_chars: nums('knowledge_max_inject_chars'),
     filesystem_indexes: j('filesystem_indexes_json', []),
@@ -93,7 +92,7 @@ function botContextEstimatePanel(botId) {
 }
 </script>
 
-{% if request.query_params.get('saved') %}
+{% if not is_new and request.query_params.get('saved') %}
 <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
   x-transition:enter="transition ease-out duration-200"
   x-transition:enter-start="opacity-0 translate-y-1"
@@ -109,21 +108,35 @@ function botContextEstimatePanel(botId) {
 
 <div class="flex items-center gap-3 mb-6">
   <a href="/admin/bots" class="text-gray-400 hover:text-gray-200 text-sm">← Bots</a>
+  {% if not is_new %}
   <a href="/admin/bots/{{ bot.id }}" class="text-gray-500 hover:text-gray-300 text-sm ml-auto">View →</a>
+  {% endif %}
 </div>
+{% if is_new %}
+<h1 class="text-2xl font-bold mb-6">New Bot</h1>
+{% else %}
 <h1 class="text-2xl font-bold mb-1">{{ bot.name }}</h1>
 <div class="text-xs text-gray-500 mb-6">id: <span class="font-mono">{{ bot.id }}</span> · updated {{ bot.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>
+{% endif %}
 
-<form id="bot-edit-form" method="post" action="/admin/bots/{{ bot.id }}" class="max-w-3xl space-y-8">
+<form id="bot-edit-form" method="post"
+  action="{% if is_new %}/admin/bots{% else %}/admin/bots/{{ bot.id }}{% endif %}"
+  class="max-w-3xl space-y-8">
 
   <!-- Identity -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Identity</h2>
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-xs text-gray-400 mb-1">Bot ID</label>
+        <label class="block text-xs text-gray-400 mb-1">Bot ID{% if is_new %} <span class="text-red-400">*</span>{% endif %}</label>
+        {% if is_new %}
+        <input name="id" required placeholder="my_bot"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+        <p class="text-xs text-gray-500 mt-1">Unique slug, cannot be changed after creation.</p>
+        {% else %}
         <input value="{{ bot.id }}" disabled
           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-400 font-mono cursor-not-allowed" />
+        {% endif %}
       </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1">Display Name</label>
@@ -501,38 +514,77 @@ function botContextEstimatePanel(botId) {
         <label for="knowledge_enabled" class="text-sm text-gray-300">Enable Knowledge</label>
       </div>
       <div>
-        <label class="block text-xs text-gray-400 mb-1">Similarity Threshold</label>
-        <input name="knowledge_similarity_threshold" type="number" step="0.01"
-          value="{{ know.get('similarity_threshold', 0.45) }}"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div>
         <label class="block text-xs text-gray-400 mb-1">Max Inject Chars <span class="text-gray-600">(per doc, default 8000)</span></label>
         <input name="knowledge_max_inject_chars" type="number" value="{{ bot.knowledge_max_inject_chars or '' }}" placeholder="default"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>
     </div>
-    <p class="text-xs text-gray-500 mt-2">Sharing scope (global/bot/channel/private) is set per knowledge document, not per bot.</p>
+    <p class="text-xs text-gray-500 mt-2">
+      Semantic similarity cutoff is <strong class="text-gray-400">per knowledge document</strong> (full editor on <a href="/admin/knowledge" class="text-indigo-400 hover:text-indigo-200">/admin/knowledge</a>).
+      Server default when unset: <span class="font-mono text-gray-400">{{ default_knowledge_similarity }}</span> (<code class="text-gray-600">KNOWLEDGE_SIMILARITY_THRESHOLD</code>).
+    </p>
+    {% if not is_new and knowledge_for_bot %}
+    <div class="mt-4 border border-gray-700 rounded-xl overflow-hidden">
+      <div class="px-3 py-2 bg-gray-900/80 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        Knowledge rows this bot can match <span class="text-gray-600 font-normal normal-case">(bot_id = {{ bot.id }} or cross-bot)</span>
+      </div>
+      <div class="max-h-64 overflow-y-auto">
+        <table class="w-full text-xs">
+          <thead class="text-gray-500 border-b border-gray-700">
+            <tr>
+              <th class="text-left px-3 py-2">Name</th>
+              <th class="text-left px-3 py-2">bot_id</th>
+              <th class="text-left px-3 py-2">client</th>
+              <th class="text-left px-3 py-2">sim ≥</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700/80">
+            {% for k in knowledge_for_bot %}
+            <tr class="text-gray-300 hover:bg-gray-800/50">
+              <td class="px-3 py-1.5"><a href="/admin/knowledge/{{ k.id }}/edit-full" class="text-indigo-400 hover:text-indigo-200 font-medium">{{ k.name }}</a></td>
+              <td class="px-3 py-1.5 font-mono text-gray-500">{{ k.bot_id or '—' }}</td>
+              <td class="px-3 py-1.5 font-mono text-gray-500 truncate max-w-[10rem]" title="{{ k.client_id or '' }}">{{ k.client_id or '—' }}</td>
+              <td class="px-3 py-1.5 text-gray-400">{% if k.similarity_threshold is not none %}{{ k.similarity_threshold }}{% else %}default{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% elif not is_new %}
+    <p class="text-xs text-gray-600 mt-3">No knowledge documents in scope for this bot yet.</p>
+    {% endif %}
   </section>
 
-  <!-- Slack -->
-  <section>
-    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Slack</h2>
+  <!-- Display -->
+  <section x-data="{ ic: {{ (bot.integration_config or {}) | tojson }} }">
+    <input type="hidden" name="integration_config_json" :value="JSON.stringify(ic)" />
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Display</h2>
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-xs text-gray-400 mb-1">Display Name</label>
-        <input name="slack_display_name" value="{{ bot.slack_display_name or '' }}" placeholder="{{ bot.name }}"
+        <input name="display_name" value="{{ bot.display_name or '' }}" placeholder="{{ bot.name }}"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>
       <div>
-        <label class="block text-xs text-gray-400 mb-1">Icon Emoji</label>
-        <input name="slack_icon_emoji" value="{{ bot.slack_icon_emoji or '' }}" placeholder=":robot_face:"
+        <label class="block text-xs text-gray-400 mb-1">Avatar URL</label>
+        <input name="avatar_url" value="{{ bot.avatar_url or '' }}" placeholder="https://..."
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Icon URL</label>
-        <input name="slack_icon_url" value="{{ bot.slack_icon_url or '' }}" placeholder="https://..."
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+    <!-- Integration-specific display config. Future: render per registered integration. -->
+    <div class="mt-4 pt-3 border-t border-gray-700/60">
+      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Slack</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Icon Emoji</label>
+          <input type="text"
+            :value="ic.slack?.icon_emoji || ''"
+            @input="ic = {...ic, slack: {...(ic.slack||{}), icon_emoji: $event.target.value || undefined}}"
+            placeholder=":robot_face:"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          <p class="text-xs text-gray-600 mt-1">Slack-specific. Overrides Avatar URL in Slack. Requires <code class="bg-gray-700 px-1 rounded">chat:write.customize</code>.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -976,9 +1028,11 @@ function botContextEstimatePanel(botId) {
   <div class="flex items-center gap-3 pt-4">
     <button type="submit"
       class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-6 py-2 text-sm font-medium">
-      Save Changes
+      {% if is_new %}Create Bot{% else %}Save Changes{% endif %}
     </button>
-    <a href="/admin/bots/{{ bot.id }}" class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+    <a href="{% if is_new %}/admin/bots{% else %}/admin/bots/{{ bot.id }}{% endif %}"
+      class="text-sm text-gray-400 hover:text-gray-200">Cancel</a>
+    {% if not is_new %}
     <button type="button"
       hx-delete="/admin/bots/{{ bot.id }}"
       hx-confirm="Delete bot {{ bot.id }}? This cannot be undone."
@@ -987,9 +1041,11 @@ function botContextEstimatePanel(botId) {
       class="ml-auto text-sm text-red-400 hover:text-red-300">
       Delete Bot
     </button>
+    {% endif %}
   </div>
 </form>
 
+{% if not is_new %}
 <aside
   class="mt-10 w-full max-w-3xl flex flex-col rounded-xl border border-indigo-800/50 bg-gray-950/95 text-xs shadow-lg backdrop-blur-md overflow-hidden
     2xl:fixed 2xl:top-24 2xl:right-6 2xl:mt-0 2xl:w-80 2xl:max-w-[min(20rem,calc(100vw-13rem-3rem))]
@@ -1036,5 +1092,6 @@ function botContextEstimatePanel(botId) {
     </template>
   </div>
 </aside>
+{% endif %}
 
 {% endblock %}
