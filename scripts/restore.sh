@@ -16,13 +16,6 @@ BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:?Error: RCLONE_REMOTE is not set. Example: export RCLONE_REMOTE=:s3:your-bucket-name}"
 RESTORE_DIR="${REPO_DIR}/restore"
 
-# ── S3 credentials via env vars (no rclone config file needed) ───────────
-export RCLONE_S3_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:?Error: AWS_ACCESS_KEY_ID not set}"
-export RCLONE_S3_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:?Error: AWS_SECRET_ACCESS_KEY not set}"
-export RCLONE_S3_REGION="${AWS_REGION:-us-east-1}"
-export RCLONE_S3_PROVIDER="AWS"
-export RCLONE_S3_ENV_AUTH="false"
-
 usage() {
   echo "Usage: $0 [path-to-archive.tar.gz]"
   echo ""
@@ -45,6 +38,11 @@ else
   echo "[restore] Pulling latest backup from ${RCLONE_REMOTE} …"
   mkdir -p "$BACKUP_DIR"
   rclone copy "$RCLONE_REMOTE/" "$BACKUP_DIR/" \
+    --s3-provider AWS \
+    --s3-access-key-id "$AWS_ACCESS_KEY_ID" \
+    --s3-secret-access-key "$AWS_SECRET_ACCESS_KEY" \
+    --s3-region "${AWS_REGION:-us-east-1}" \
+    --s3-no-check-bucket \
     --include "agent-backup-*.tar.gz" \
     --max-depth 1
   # shellcheck disable=SC2012
