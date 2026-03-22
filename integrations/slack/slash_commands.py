@@ -2,6 +2,7 @@
 
 from agent_client import (
     compact_session,
+    ensure_channel,
     fetch_session_plans,
     fetch_session_context,
     list_bots,
@@ -58,6 +59,8 @@ def register_slash_commands(app):
 
         if not arg:
             state = get_channel_state(channel)
+            # Ensure Channel row exists on the server
+            await ensure_channel(slack_client_id(channel), state["bot_id"])
             await respond(f"Current bot: `{state['bot_id']}`")
             return
 
@@ -68,6 +71,8 @@ def register_slash_commands(app):
             return
 
         set_channel_state(channel, bot_id=arg)
+        # Ensure Channel row exists on the server for this Slack channel
+        await ensure_channel(slack_client_id(channel), arg)
         await respond(f"Switched to `{arg}`.")
 
     @app.command("/bots")
