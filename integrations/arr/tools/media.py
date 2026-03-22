@@ -1,3 +1,13 @@
+"""Media tools — read-only agent tools that surface *arr stack data.
+
+Auto-discovered by app/tools/loader.py (integrations/*/tools/*.py pattern)
+and attributed as source_integration="arr".
+
+NOTE: These tools still use the core @register decorator because that is the
+existing integration-tool discovery mechanism (see app/tools/loader.py L56-69).
+If a dedicated integration-tool registration API is added later, migrate to it.
+"""
+
 import json
 import logging
 import re
@@ -8,7 +18,7 @@ from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "media"
+_DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "media"
 
 _STALE_SECONDS = 2 * 3600  # 2 hours
 
@@ -59,7 +69,7 @@ def _load_file(filename: str) -> tuple[list | dict | None, str | None]:
 
 
 def _no_data_msg(script_name: str) -> str:
-    return f"No data yet — run scripts/media/{script_name} first."
+    return f"No data yet — run integrations/arr/scripts/{script_name} first."
 
 
 @register({

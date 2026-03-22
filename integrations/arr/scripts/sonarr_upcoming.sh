@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 if [ -f "$REPO_DIR/.env" ]; then
   set -a

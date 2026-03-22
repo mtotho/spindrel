@@ -6,11 +6,11 @@ Lightweight cron scripts that fetch data from media APIs and write JSON to `data
 
 | Script | Source | Output |
 |--------|--------|--------|
-| `scripts/media/sonarr_today.sh` | Sonarr `/api/v3/calendar` (today) | `data/media/sonarr_today.json` |
-| `scripts/media/sonarr_upcoming.sh` | Sonarr `/api/v3/calendar` (7 days) | `data/media/sonarr_upcoming.json` |
-| `scripts/media/radarr_recent.sh` | Radarr `/api/v3/movie` (recent) | `data/media/radarr_recent.json` |
-| `scripts/media/qbit_status.sh` | qBittorrent `/api/v2/torrents/info` | `data/media/qbit_status.json` |
-| `scripts/media/jellyseerr_pending.sh` | Jellyseerr `/api/v1/request?filter=pending` | `data/media/jellyseerr_pending.json` |
+| `integrations/arr/scripts/sonarr_today.sh` | Sonarr `/api/v3/calendar` (today) | `data/media/sonarr_today.json` |
+| `integrations/arr/scripts/sonarr_upcoming.sh` | Sonarr `/api/v3/calendar` (7 days) | `data/media/sonarr_upcoming.json` |
+| `integrations/arr/scripts/radarr_recent.sh` | Radarr `/api/v3/movie` (recent) | `data/media/radarr_recent.json` |
+| `integrations/arr/scripts/qbit_status.sh` | qBittorrent `/api/v2/torrents/info` | `data/media/qbit_status.json` |
+| `integrations/arr/scripts/jellyseerr_pending.sh` | Jellyseerr `/api/v1/request?filter=pending` | `data/media/jellyseerr_pending.json` |
 
 Each script writes atomically (`.tmp` then `mv`) and wraps output as `{"fetched_at": "...", "data": [...]}`.
 
@@ -18,11 +18,11 @@ Each script writes atomically (`.tmp` then `mv`) and wraps output as `{"fetched_
 
 ```cron
 # Media data collection — adjust paths to your repo root
-*/30 * * * * /opt/thoth/agent-server/scripts/media/sonarr_today.sh
-0 */6 * * *  /opt/thoth/agent-server/scripts/media/sonarr_upcoming.sh
-0 */6 * * *  /opt/thoth/agent-server/scripts/media/radarr_recent.sh
-*/15 * * * * /opt/thoth/agent-server/scripts/media/qbit_status.sh
-0 * * * *    /opt/thoth/agent-server/scripts/media/jellyseerr_pending.sh
+*/30 * * * * /opt/thoth/agent-server/integrations/arr/scripts/sonarr_today.sh
+0 */6 * * *  /opt/thoth/agent-server/integrations/arr/scripts/sonarr_upcoming.sh
+0 */6 * * *  /opt/thoth/agent-server/integrations/arr/scripts/radarr_recent.sh
+*/15 * * * * /opt/thoth/agent-server/integrations/arr/scripts/qbit_status.sh
+0 * * * *    /opt/thoth/agent-server/integrations/arr/scripts/jellyseerr_pending.sh
 ```
 
 ## Environment Variables
@@ -43,7 +43,7 @@ JELLYSEERR_API_KEY=your-jellyseerr-api-key
 
 ## Agent Tools
 
-Tools are registered in `app/tools/local/media.py` and auto-discovered at startup:
+Tools are registered in `integrations/arr/tools/media.py` and auto-discovered at startup via the `integrations/*/tools/` loader:
 
 | Tool | Description |
 |------|-------------|
