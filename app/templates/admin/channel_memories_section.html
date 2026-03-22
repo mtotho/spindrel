@@ -1,0 +1,27 @@
+{% if memories %}
+<div id="memories-list" class="space-y-2">
+  {% for m in memories %}
+  <div class="bg-gray-900 rounded-lg px-3 py-2">
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex-1 min-w-0">
+        {% if m.bot_id %}
+        <span class="inline-block text-[10px] font-medium bg-gray-700 text-gray-300 rounded px-1.5 py-0.5 mb-1">{{ m.bot_id }}</span>
+        {% endif %}
+        <div class="text-xs text-gray-300 line-clamp-3">{{ m.content[:200] }}{% if m.content|length > 200 %}...{% endif %}</div>
+        <div class="text-[10px] text-gray-600 mt-1">{{ m.created_at | fmt_dt }}</div>
+      </div>
+      <button
+        hx-delete="/admin/channels/{{ channel.id }}/memories/{{ m.id }}"
+        hx-target="#memories-list"
+        hx-swap="outerHTML"
+        hx-confirm="Delete this memory?"
+        class="text-red-400 hover:text-red-300 text-[10px] shrink-0 mt-1">Delete</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div id="memories-list">
+  <p class="text-xs text-gray-600 italic">No memories.</p>
+</div>
+{% endif %}

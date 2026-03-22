@@ -40,7 +40,6 @@ class ChannelOut(BaseModel):
     active_session_id: Optional[uuid.UUID]
     require_mention: bool
     passive_memory: bool
-    rag_on_all: bool
     created_at: datetime
     updated_at: datetime
 
@@ -52,7 +51,6 @@ class ChannelUpdate(BaseModel):
     bot_id: Optional[str] = None
     require_mention: Optional[bool] = None
     passive_memory: Optional[bool] = None
-    rag_on_all: Optional[bool] = None
 
 
 class MessageInject(BaseModel):
@@ -169,8 +167,6 @@ async def update_channel(
         channel.require_mention = body.require_mention
     if body.passive_memory is not None:
         channel.passive_memory = body.passive_memory
-    if body.rag_on_all is not None:
-        channel.rag_on_all = body.rag_on_all
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()

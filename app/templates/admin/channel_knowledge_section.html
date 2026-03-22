@@ -1,0 +1,71 @@
+{# Current entries #}
+{% if entries %}
+<div class="space-y-2 mb-4">
+  {% for e in entries %}
+  <div class="flex items-center justify-between gap-2 bg-gray-900 rounded-lg px-3 py-2">
+    <div class="flex-1 min-w-0">
+      <a href="/admin/knowledge/{{ e.knowledge_id }}/edit-full"
+         class="text-sm text-indigo-400 hover:underline truncate block">
+        {{ e.knowledge.name if e.knowledge else '?' }}
+      </a>
+    </div>
+    <form hx-put="/admin/channels/{{ channel.id }}/knowledge/{{ e.id }}/mode"
+          hx-target="#knowledge-section"
+          hx-swap="innerHTML"
+          class="flex items-center gap-2 shrink-0">
+      <select name="mode" onchange="this.form.requestSubmit()"
+        class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+        <option value="rag" {% if e.mode == 'rag' %}selected{% endif %}>rag</option>
+        <option value="pinned" {% if e.mode == 'pinned' %}selected{% endif %}>pinned</option>
+        <option value="tag_only" {% if e.mode == 'tag_only' %}selected{% endif %}>tag only</option>
+      </select>
+    </form>
+    <form hx-put="/admin/channels/{{ channel.id }}/knowledge/{{ e.id }}/threshold"
+          hx-target="#knowledge-section"
+          hx-swap="innerHTML"
+          class="flex items-center gap-1 shrink-0">
+      <label class="text-[10px] text-gray-500">sim &ge;</label>
+      <input type="number" name="similarity_threshold" step="0.01" min="0" max="1"
+        value="{% if e.knowledge and e.knowledge.similarity_threshold is not none %}{{ e.knowledge.similarity_threshold }}{% endif %}"
+        placeholder="default"
+        onchange="this.form.requestSubmit()"
+        class="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-[11px] text-gray-300 focus:outline-none focus:border-indigo-500" />
+    </form>
+    <button
+      hx-delete="/admin/channels/{{ channel.id }}/knowledge/{{ e.id }}"
+      hx-target="#knowledge-section"
+      hx-swap="innerHTML"
+      hx-confirm="Remove knowledge access?"
+      class="text-red-400 hover:text-red-300 text-xs shrink-0">Remove</button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-gray-600 italic mb-4">No knowledge scoped to this channel.</p>
+{% endif %}
+
+{# Add form #}
+{% if available %}
+<form hx-post="/admin/channels/{{ channel.id }}/knowledge/add"
+      hx-target="#knowledge-section"
+      hx-swap="innerHTML"
+      class="flex items-end gap-2">
+  <div class="flex-1">
+    <label class="block text-xs text-gray-500 mb-1">Add knowledge</label>
+    <select name="knowledge_id" required
+      class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+      {% for k in available %}
+      <option value="{{ k.id }}">{{ k.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <select name="mode"
+    class="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+    <option value="rag">rag</option>
+    <option value="pinned">pinned</option>
+    <option value="tag_only">tag only</option>
+  </select>
+  <button type="submit"
+    class="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-3 py-1.5 text-xs">Add</button>
+</form>
+{% endif %}

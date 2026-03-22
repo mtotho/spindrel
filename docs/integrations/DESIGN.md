@@ -172,7 +172,6 @@ The admin UI's bot edit page has a Slack subsection under Display for `icon_emoj
 | `bot_id` | Which bot handles this channel |
 | `require_mention` | Whether bot needs `@mention` to respond |
 | `passive_memory` | Whether bot silently reads all messages for memory |
-| `rag_on_all` | Whether RAG runs on every message |
 
 `SlackChannelConfig` (`slack_channel_configs`) was dead code and has been dropped
 (migration 033).

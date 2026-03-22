@@ -1,0 +1,114 @@
+<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Settings</h2>
+{% if saved is defined and saved %}
+<div class="mb-3 text-xs text-green-400">Settings saved.</div>
+{% endif %}
+<form hx-post="/admin/channels/{{ channel.id }}/settings"
+      hx-target="#settings-section"
+      hx-swap="innerHTML"
+      class="space-y-5">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Display Name</label>
+      <input type="text" name="name" value="{{ channel.name }}"
+        class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      <p class="text-xs text-gray-600 mt-0.5">Label shown in admin. Does not affect routing or client_id.</p>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Bot</label>
+      <select name="bot_id" required
+        class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+        {% for bot in all_bots %}
+        <option value="{{ bot.id }}" {% if channel.bot_id == bot.id %}selected{% endif %}>
+          {{ bot.name }} ({{ bot.id }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="space-y-2">
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input type="checkbox" name="require_mention" value="true"
+        {% if channel.require_mention %}checked{% endif %}
+        class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+      <div>
+        <span class="text-xs text-gray-300">Require @mention</span>
+        <p class="text-xs text-gray-600 mt-0.5">Only @mentions trigger the bot; other messages stored as context.</p>
+      </div>
+    </label>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input type="checkbox" name="passive_memory" value="true"
+        {% if channel.passive_memory %}checked{% endif %}
+        class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+      <div>
+        <span class="text-xs text-gray-300">Passive memory</span>
+        <p class="text-xs text-gray-600 mt-0.5">Include passive messages in memory compaction.</p>
+      </div>
+    </label>
+  </div>
+
+  {# Compaction #}
+  <div x-data="{ compactionOn: {{ 'true' if channel.context_compaction else 'false' }} }">
+    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-2 border-t border-gray-700 pt-4">Compaction</h3>
+    <p class="text-xs text-gray-600 mb-3">Auto-summarizes old turns so the context window never fills up. During compaction the bot gets a "last chance" to save memories/knowledge before the conversation is compressed.</p>
+    <input type="hidden" name="context_compaction" :value="compactionOn ? 'true' : 'false'" />
+    <label class="flex items-start gap-2 cursor-pointer mb-3">
+      <input type="checkbox" x-model="compactionOn"
+        class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+      <span class="text-xs text-gray-300">Enable auto-compaction</span>
+    </label>
+    <div x-show="compactionOn" x-cloak class="space-y-3">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Compaction Interval <span class="text-gray-600">(user turns)</span></label>
+          <input name="compaction_interval" type="number" min="1"
+            value="{{ channel.compaction_interval or '' }}" placeholder="default ({{ settings_compaction_interval }})"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+          <p class="text-xs text-gray-600 mt-0.5">Compact after this many user turns since last compaction.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Keep Turns</label>
+          <input name="compaction_keep_turns" type="number" min="1"
+            value="{{ channel.compaction_keep_turns or '' }}" placeholder="default ({{ settings_compaction_keep_turns }})"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+          <p class="text-xs text-gray-600 mt-0.5">Keep the most recent N turns un-summarized.</p>
+        </div>
+      </div>
+      <div x-data="promptEditor()" x-init="$nextTick(() => _updateHighlight())">
+        <label class="block text-xs text-gray-400 mb-1">Memory/Knowledge Compaction Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
+        <div class="relative">
+          <div x-ref="mirror" aria-hidden="true"
+            class="absolute inset-0 px-3 py-2 text-sm font-mono bg-gray-900 rounded-lg pointer-events-none overflow-hidden"
+            style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
+          <textarea name="memory_knowledge_compaction_prompt" rows="5"
+            x-ref="ta"
+            @input="onInput"
+            @scroll.passive="$refs.mirror && ($refs.mirror.scrollTop = $event.target.scrollTop)"
+            @keydown="onKeydown"
+            @blur="setTimeout(() => show = false, 150)"
+            placeholder="Leave blank to use the global default prompt…"
+            class="w-full font-mono border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-y"
+            style="background:transparent;color:transparent;caret-color:#e5e7eb;position:relative;z-index:1;">{{ channel.memory_knowledge_compaction_prompt or '' }}</textarea>
+          <div x-show="show && filtered.length > 0" x-cloak
+            class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
+            style="max-height: 180px; top: 100%; margin-top: 2px;">
+            <template x-for="(item, i) in filtered" :key="item.value">
+              <div @mousedown.prevent="select(item)"
+                :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
+                @mouseenter="activeIdx = i"
+                class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
+                <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
+                <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <p class="text-xs text-gray-600 mt-0.5">Given to the bot before summarization. Tags like <code class="text-gray-500">@tool:save_memory</code> auto-pin those tools during the memory phase.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex justify-end">
+    <button type="submit"
+      class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm">Save</button>
+  </div>
+</form>

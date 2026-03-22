@@ -15,7 +15,7 @@ from app.agent.loop import run_agent_tool_loop
 from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Message, Session
+from app.db.models import Channel, Message, Session
 from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,9 @@ def _stringify_message_content(content: Any) -> str:
         return content
     return str(content)
 
-def _get_compaction_model(bot: BotConfig) -> str:
+def _get_compaction_model(bot: BotConfig, channel: Channel | None = None) -> str:
+    if channel and channel.compaction_model:
+        return channel.compaction_model
     if bot.compaction_model:
         return bot.compaction_model
     if settings.COMPACTION_MODEL:
@@ -52,16 +54,32 @@ def _get_compaction_model(bot: BotConfig) -> str:
     return bot.model
 
 
-def _get_compaction_interval(bot: BotConfig) -> int:
+def _get_compaction_interval(bot: BotConfig, channel: Channel | None = None) -> int:
+    if channel and channel.compaction_interval is not None:
+        return channel.compaction_interval
     if bot.compaction_interval is not None:
         return bot.compaction_interval
     return settings.COMPACTION_INTERVAL
 
 
-def _get_compaction_keep_turns(bot: BotConfig) -> int:
+def _get_compaction_keep_turns(bot: BotConfig, channel: Channel | None = None) -> int:
+    if channel and channel.compaction_keep_turns is not None:
+        return channel.compaction_keep_turns
     if bot.compaction_keep_turns is not None:
         return bot.compaction_keep_turns
     return settings.COMPACTION_KEEP_TURNS
+
+
+def _get_compaction_prompt(bot: BotConfig, channel: Channel | None = None) -> str:
+    if channel and channel.memory_knowledge_compaction_prompt:
+        return channel.memory_knowledge_compaction_prompt
+    return (bot.memory_knowledge_compaction_prompt or settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT).strip()
+
+
+def _is_compaction_enabled(bot: BotConfig, channel: Channel | None = None) -> bool:
+    if channel is not None:
+        return channel.context_compaction
+    return bot.context_compaction
 
 
 def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
@@ -95,14 +113,13 @@ async def _run_compaction_memory_phase(
     bot: BotConfig,
     memory_phase_messages: list[dict],
     correlation_id: uuid.UUID | None = None,
+    channel: Channel | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run the shared agent tool loop with the 'last chance to save' prompt only.
     Model decides what to store in memory/knowledge/persona and uses tools; _generate_summary does the actual summary separately.
     Yields events with compaction=True.
     """
-    system_content = (
-        (bot.memory_knowledge_compaction_prompt or settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT).strip()
-    )
+    system_content = _get_compaction_prompt(bot, channel)
     transcript = "\n".join(
         f"[{m['role'].upper()}]: {m['content']}" for m in memory_phase_messages
     )
@@ -147,7 +164,7 @@ async def _run_compaction_memory_phase(
     else:
         run_bot = bot
 
-    model = _get_compaction_model(bot)
+    model = _get_compaction_model(bot, channel)
     async for event in run_agent_tool_loop(
         messages,
         run_bot,
@@ -243,10 +260,19 @@ async def run_compaction_stream(
     Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
     If compaction is not due, yields nothing.
     """
-    if not bot.context_compaction:
+    # Load channel (if any) for channel-level compaction settings
+    channel: Channel | None = None
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return
+        if session.channel_id:
+            channel = await db.get(Channel, session.channel_id)
+
+    if not _is_compaction_enabled(bot, channel):
         return
 
-    interval = _get_compaction_interval(bot)
+    interval = _get_compaction_interval(bot, channel)
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
@@ -293,10 +319,10 @@ async def run_compaction_stream(
         bot_id=bot.id,
         client_id=client_id,
         event_type="compaction_start",
-        data={"interval": _get_compaction_interval(bot), "keep_turns": _get_compaction_keep_turns(bot)},
+        data={"interval": _get_compaction_interval(bot, channel), "keep_turns": _get_compaction_keep_turns(bot, channel)},
     ))
 
-    keep_turns = _get_compaction_keep_turns(bot)
+    keep_turns = _get_compaction_keep_turns(bot, channel)
     turns_to_summarize = interval - keep_turns
     conversation = _messages_for_summary(messages)
     user_count = 0
@@ -327,11 +353,11 @@ async def run_compaction_stream(
                     break
             memory_phase_messages.append(m)
         yield {"type": "compaction_start", "phase": "memory"}
-        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id):
+        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id, channel=channel):
             yield event
 
     try:
-        model = _get_compaction_model(bot)
+        model = _get_compaction_model(bot, channel)
         title, summary = await _generate_summary(to_summarize, model, existing_summary, provider_id=bot.model_provider_id)
 
         async with async_session() as db:
@@ -446,6 +472,11 @@ async def run_compaction_forced(
     if session is None:
         raise ValueError("Session not found")
 
+    # Load channel for channel-level compaction settings
+    channel: Channel | None = None
+    if session.channel_id:
+        channel = await db.get(Channel, session.channel_id)
+
     client_id = session.client_id
     existing_summary = session.summary
     correlation_id = uuid.uuid4()
@@ -456,7 +487,7 @@ async def run_compaction_forced(
         bot_id=bot.id,
         client_id=client_id,
         event_type="compaction_start",
-        data={"forced": True, "interval": _get_compaction_interval(bot), "keep_turns": _get_compaction_keep_turns(bot)},
+        data={"forced": True, "interval": _get_compaction_interval(bot, channel), "keep_turns": _get_compaction_keep_turns(bot, channel)},
     ))
 
     result = await db.execute(
@@ -489,15 +520,14 @@ async def run_compaction_forced(
     if run_memory_phase:
         memory_phase_messages = _messages_for_memory_phase(messages)
         async for _ in _run_compaction_memory_phase(
-            session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id
+            session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id, channel=channel
         ):
             pass
 
-    model = _get_compaction_model(bot)
+    model = _get_compaction_model(bot, channel)
     title, summary = await _generate_summary(conversation, model, existing_summary, provider_id=bot.model_provider_id)
 
-
-    keep_turns = _get_compaction_keep_turns(bot)
+    keep_turns = _get_compaction_keep_turns(bot, channel)
     recent_user_msgs = await db.execute(
         select(Message.id)
         .where(Message.session_id == session_id)

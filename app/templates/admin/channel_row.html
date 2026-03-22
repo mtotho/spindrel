@@ -5,13 +5,13 @@
       {% set slack_id = channel.client_id[6:] %}
       {% set slack_name = slack_names.get(slack_id) if slack_names else None %}
       {% if slack_name %}
-      <span class="text-sm text-gray-200">#{{ slack_name }}</span>
+      <a href="/admin/channels/{{ channel.id }}/detail" class="text-sm text-gray-200 hover:text-indigo-300">#{{ slack_name }}</a>
       {% else %}
-      <span class="text-sm text-gray-300">{{ channel.name }}</span>
+      <a href="/admin/channels/{{ channel.id }}/detail" class="text-sm text-gray-300 hover:text-indigo-300">{{ channel.name }}</a>
       {% endif %}
       <div class="text-xs text-gray-600 font-mono mt-0.5">{{ slack_id }}</div>
     {% else %}
-      <span class="text-sm text-gray-300">{{ channel.name }}</span>
+      <a href="/admin/channels/{{ channel.id }}/detail" class="text-sm text-gray-300 hover:text-indigo-300">{{ channel.name }}</a>
     {% endif %}
     <div class="text-xs text-gray-600 font-mono mt-0.5">{{ channel.id | string | truncate(12, True, '...') }}</div>
   </td>
@@ -40,9 +40,6 @@
       {% if channel.passive_memory %}
       <span class="text-xs text-gray-500 bg-gray-700 rounded px-1.5 py-0.5">passive-mem</span>
       {% endif %}
-      {% if channel.rag_on_all %}
-      <span class="text-xs text-yellow-600 bg-gray-700 rounded px-1.5 py-0.5">rag-all</span>
-      {% endif %}
     </div>
   </td>
   <td class="px-5 py-2.5">
@@ -53,19 +50,7 @@
     {% endif %}
   </td>
   <td class="px-5 py-2.5 text-right">
-    <div class="flex items-center justify-end gap-2">
-      <button
-        hx-post="/admin/channels/{{ channel.id }}/reset"
-        hx-confirm="Reset session for {{ channel.name }}? Old session is preserved but inactive."
-        hx-target="closest td"
-        hx-swap="innerHTML"
-        class="text-xs text-yellow-400 hover:text-yellow-300">Reset</button>
-      <button
-        hx-get="/admin/channels/{{ channel.id }}/edit-form"
-        hx-target="#channel-edit-{{ channel.id }} td"
-        hx-swap="innerHTML"
-        class="text-xs text-indigo-400 hover:text-indigo-300">Edit</button>
-    </div>
+    <a href="/admin/channels/{{ channel.id }}/detail"
+      class="text-xs text-indigo-400 hover:text-indigo-300">Detail</a>
   </td>
 </tr>
-<tr id="channel-edit-{{ channel.id }}"><td colspan="6" class="p-0"></td></tr>

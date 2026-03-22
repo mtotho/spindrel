@@ -67,17 +67,11 @@
     {% set is_file_managed = entry.source_type in ('file', 'integration') %}
     <div class="flex flex-wrap items-center gap-2">
       {% if is_file_managed %}
-      <span class="text-xs text-gray-600" title="Managed by file — edit the source file instead">Quick edit</span>
-      <span class="text-xs text-gray-600" title="Managed by file — edit the source file instead">Full editor</span>
+      <span class="text-xs text-gray-600" title="Managed by file — edit the source file instead">Edit</span>
       <span class="text-xs text-gray-600" title="Managed by file — delete the source file instead">Delete</span>
       {% else %}
-      <button
-        hx-get="/admin/knowledge/{{ entry.id }}/edit"
-        hx-target="#knowledge-edit-{{ entry.id }}"
-        hx-swap="innerHTML"
-        class="text-xs text-indigo-400 hover:text-indigo-300">Quick edit</button>
       <a href="/admin/knowledge/{{ entry.id }}/edit-full"
-         class="text-xs text-indigo-300 hover:text-indigo-100">Full editor</a>
+         class="text-xs text-indigo-400 hover:text-indigo-300">Edit</a>
       <button
         hx-delete="/admin/knowledge/{{ entry.id }}"
         hx-target="#knowledge-row-{{ entry.id }}"
@@ -88,4 +82,3 @@
     </div>
   </td>
 </tr>
-<tr id="knowledge-edit-{{ entry.id }}"></tr>

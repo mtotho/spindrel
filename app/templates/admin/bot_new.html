@@ -262,25 +262,12 @@
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Features</h2>
     <div class="grid grid-cols-2 gap-4">
-      {% for field, label, default in [('persona','Persona','false'),('context_compaction','Context Compaction','true')] %}
       <div class="flex items-center gap-3">
-        <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
-          {% if default == 'true' %}checked{% endif %}
+        <input type="checkbox" name="persona" id="persona" value="true"
           class="rounded text-indigo-500"
-          onchange="this.form.querySelector('[name={{ field }}][type=hidden]').value = this.checked ? 'true' : 'false'" />
-        <input type="hidden" name="{{ field }}" value="{{ default }}" />
-        <label for="{{ field }}" class="text-sm text-gray-300">{{ label }}</label>
-      </div>
-      {% endfor %}
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Compaction Interval (turns)</label>
-        <input name="compaction_interval" type="number" placeholder="default"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Compaction Keep Turns</label>
-        <input name="compaction_keep_turns" type="number" placeholder="default"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+          onchange="this.form.querySelector('[name=persona][type=hidden]').value = this.checked ? 'true' : 'false'" />
+        <input type="hidden" name="persona" value="false" />
+        <label for="persona" class="text-sm text-gray-300">Persona</label>
       </div>
     </div>
   </section>
@@ -552,16 +539,6 @@
           <option value="transcribe">transcribe</option>
           <option value="native">native</option>
         </select>
-      </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Compaction Model</label>
-        <input name="compaction_model" placeholder="default"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-      </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Memory/Knowledge Compaction Prompt</label>
-        <textarea name="memory_knowledge_compaction_prompt" rows="3"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y"></textarea>
       </div>
       <div class="col-span-2">
         <label class="block text-xs text-gray-400 mb-1">Filesystem Indexes (JSON)</label>

@@ -528,7 +528,7 @@ function botContextEstimatePanel(botId) {
   <!-- Features -->
   <section x-data="{ personaOn: {{ 'true' if bot.persona else 'false' }} }">
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Features</h2>
-    <p class="text-xs text-gray-500 mb-4">Persona injects a persistent personality/tone file as a separate system message (distinct from the system prompt — edit it here when enabled). Context Compaction auto-summarizes old turns so the context window never fills up.</p>
+    <p class="text-xs text-gray-500 mb-4">Persona injects a persistent personality/tone file as a separate system message (distinct from the system prompt — edit it here when enabled).</p>
     <div class="grid grid-cols-2 gap-4">
       <div class="flex items-center gap-3">
         <input type="checkbox" name="persona" id="persona" value="true"
@@ -539,14 +539,6 @@ function botContextEstimatePanel(botId) {
         <input type="hidden" name="persona" value="{{ 'true' if bot.persona else 'false' }}" />
         <label for="persona" class="text-sm text-gray-300">Persona</label>
       </div>
-      <div class="flex items-center gap-3">
-        <input type="checkbox" name="context_compaction" id="context_compaction" value="true"
-          {% if bot.context_compaction %}checked{% endif %}
-          class="rounded text-indigo-500"
-          onchange="this.form.querySelector('[name=context_compaction][type=hidden]').value = this.checked ? 'true' : 'false'" />
-        <input type="hidden" name="context_compaction" value="{{ 'true' if bot.context_compaction else 'false' }}" />
-        <label for="context_compaction" class="text-sm text-gray-300">Context Compaction</label>
-      </div>
       <div class="col-span-2" x-show="personaOn" x-cloak>
         <label class="block text-xs text-gray-400 mb-1">Persona Content</label>
         <textarea name="persona_content" rows="5"
@@ -554,23 +546,13 @@ function botContextEstimatePanel(botId) {
           placeholder="Describe the bot's personality, tone, and style…">{{ persona_content }}</textarea>
         <p class="text-xs text-gray-500 mt-1">Injected as a [PERSONA] system message. Separate from the system prompt — use this for personality/tone.</p>
       </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Compaction Interval (turns)</label>
-        <input name="compaction_interval" type="number" value="{{ bot.compaction_interval or '' }}" placeholder="default"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Compaction Keep Turns</label>
-        <input name="compaction_keep_turns" type="number" value="{{ bot.compaction_keep_turns or '' }}" placeholder="default"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-      </div>
     </div>
   </section>
 
   <!-- Memory -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Memory</h2>
-    <p class="text-xs text-gray-500 mb-4">Short facts stored between turns. At compaction the bot decides what to save (via save_memory tool) using the compaction prompt. On each new turn, relevant memories are retrieved by semantic similarity and injected into context. Cross-session shares all memories across conversations; otherwise scoped to the current session.</p>
+    <p class="text-xs text-gray-500 mb-4">Short facts stored between turns. On each new turn, relevant memories are retrieved by semantic similarity and injected into context. Cross-session shares memories across all sessions for this client+bot (recommended for channels — memories survive session resets).</p>
     {% set mem = bot.memory_config or {} %}
     <div class="grid grid-cols-2 gap-4">
       {% for field, label, val in [
@@ -1100,77 +1082,10 @@ function botContextEstimatePanel(botId) {
   }
   </script>
 
-  <!-- Prompt @-tagger (used by memory_knowledge_compaction_prompt) -->
-  <script>
-  function promptEditor() {
-    const completions = {{ completions_json | safe }};
-    function _score(val, lbl, q) {
-      const v = val.toLowerCase();
-      const l = lbl.toLowerCase();
-      const name = v.includes(':') ? v.split(':').slice(1).join(':') : v;
-      if (v.startsWith(q)) return 4;
-      if (name.startsWith(q)) return 3;
-      if (v.includes(q) || l.includes(q)) return 2;
-      // fuzzy: all chars of q appear in order anywhere in v
-      let hi = 0;
-      for (let i = 0; i < q.length; i++) {
-        const idx = v.indexOf(q[i], hi);
-        if (idx === -1) return 0;
-        hi = idx + 1;
-      }
-      return 1;
-    }
-    return {
-      show: false,
-      atStart: -1,
-      filtered: [],
-      activeIdx: 0,
-      onInput() {
-        const ta = this.$refs.ta;
-        const pos = ta.selectionStart;
-        const text = ta.value.substring(0, pos);
-        const atIdx = text.lastIndexOf('@');
-        if (atIdx === -1 || (atIdx > 0 && /\w/.test(text[atIdx - 1]))) {
-          this.show = false; return;
-        }
-        const q = text.substring(atIdx + 1);
-        if (/\s/.test(q)) { this.show = false; return; }
-        this.atStart = atIdx;
-        const ql = q.toLowerCase();
-        this.filtered = completions
-          .map(c => ({ c, s: _score(c.value, c.label, ql) }))
-          .filter(x => x.s > 0)
-          .sort((a, b) => b.s - a.s)
-          .map(x => x.c)
-          .slice(0, 10);
-        this.activeIdx = 0;
-        this.show = this.filtered.length > 0;
-      },
-      onKeydown(e) {
-        if (!this.show) return;
-        if (e.key === 'ArrowDown') { e.preventDefault(); this.activeIdx = Math.min(this.activeIdx + 1, this.filtered.length - 1); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); this.activeIdx = Math.max(this.activeIdx - 1, 0); }
-        else if (e.key === 'Enter' || e.key === 'Tab') { if (this.filtered.length > 0) { e.preventDefault(); this.select(this.filtered[this.activeIdx]); } }
-        else if (e.key === 'Escape') { this.show = false; }
-      },
-      select(item) {
-        const ta = this.$refs.ta;
-        const before = ta.value.substring(0, this.atStart);
-        const after = ta.value.substring(ta.selectionStart);
-        ta.value = before + '@' + item.value + ' ' + after;
-        const cursor = this.atStart + 1 + item.value.length + 1;
-        ta.setSelectionRange(cursor, cursor);
-        ta.focus();
-        this.show = false;
-      },
-    };
-  }
-  </script>
-
   <!-- Advanced -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Advanced</h2>
-    <p class="text-xs text-gray-500 mb-4">Audio input mode, compaction model/prompt overrides, and filesystem indexing for semantic search over local codebases.</p>
+    <p class="text-xs text-gray-500 mb-4">Audio input mode and filesystem indexing for semantic search over local codebases. Compaction settings are configured per-channel.</p>
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-xs text-gray-400 mb-1">Audio Input</label>
@@ -1180,38 +1095,6 @@ function botContextEstimatePanel(botId) {
           <option value="native" {% if bot.audio_input == 'native' %}selected{% endif %}>native</option>
         </select>
         <p class="text-xs text-gray-600 mt-1">transcribe: Whisper STT → text. native: audio passed directly to multimodal models (e.g. Gemini).</p>
-      </div>
-      <div class="col-span-2">
-        <label class="block text-xs text-gray-400 mb-1">Compaction Model</label>
-        <input name="compaction_model" value="{{ bot.compaction_model or '' }}" placeholder="default"
-          list="litellm-models"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-        <p class="text-xs text-gray-600 mt-1">Model used to generate conversation summaries. Leave blank to use this bot's main model.</p>
-      </div>
-      <div class="col-span-2" x-data="promptEditor()">
-        <label class="block text-xs text-gray-400 mb-1">Memory/Knowledge Compaction Prompt <span class="text-gray-600">(type @ to insert skill/tool tags)</span></label>
-        <div class="relative">
-          <textarea name="memory_knowledge_compaction_prompt" rows="6"
-            x-ref="ta"
-            @input="onInput"
-            @keydown="onKeydown"
-            @blur="setTimeout(() => show = false, 150)"
-            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 resize-y">{{ bot.memory_knowledge_compaction_prompt or '' }}</textarea>
-          <div x-show="show && filtered.length > 0" x-cloak
-            class="absolute z-50 left-0 right-0 bg-gray-900 border border-gray-600 rounded-lg shadow-xl overflow-y-auto text-sm"
-            style="max-height: 180px; top: 100%; margin-top: 2px;">
-            <template x-for="(item, i) in filtered" :key="item.value">
-              <div @mousedown.prevent="select(item)"
-                :class="i === activeIdx ? 'bg-gray-700' : 'hover:bg-gray-800'"
-                @mouseenter="activeIdx = i"
-                class="px-3 py-1.5 cursor-pointer flex items-baseline gap-2">
-                <span class="font-mono text-indigo-300 text-xs" x-text="'@' + item.value"></span>
-                <span x-show="item.label !== item.value" class="text-gray-500 text-xs truncate" x-text="item.label.slice(item.value.length)"></span>
-              </div>
-            </template>
-          </div>
-        </div>
-        <p class="text-xs text-gray-600 mt-1">Instruction given to the bot before summarization — it decides what to save to memory/knowledge/persona. Leave blank for the server default.</p>
       </div>
       <div class="col-span-2" x-data="fsIndexData()">
         <input type="hidden" name="filesystem_indexes_json" :value="JSON.stringify(entries)" />

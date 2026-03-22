@@ -683,18 +683,6 @@ async def admin_knowledge_create(
     return RedirectResponse("/admin/knowledge", status_code=303)
 
 
-@router.get("/knowledge/{entry_id}/edit", response_class=HTMLResponse)
-async def admin_knowledge_edit_form(request: Request, entry_id: uuid.UUID):
-    """Inline partial (used by knowledge_row "Edit" button)."""
-    async with async_session() as db:
-        entry = await db.get(BotKnowledge, entry_id)
-        if not entry:
-            return HTMLResponse("<div class='text-red-400 p-4'>Not found.</div>", status_code=404)
-    return templates.TemplateResponse(
-        "admin/knowledge_edit.html", {"request": request, "entry": entry}
-    )
-
-
 @router.get("/knowledge/{entry_id}/edit-full", response_class=HTMLResponse)
 async def admin_knowledge_edit_full(request: Request, entry_id: uuid.UUID):
     """Full-page editor."""
@@ -767,30 +755,6 @@ async def admin_knowledge_edit_full(request: Request, entry_id: uuid.UUID):
             "is_integration_client": derived_session_str is not None,
             "default_knowledge_similarity": settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
         },
-    )
-
-
-@router.put("/knowledge/{entry_id}", response_class=HTMLResponse)
-async def admin_knowledge_update(
-    request: Request,
-    entry_id: uuid.UUID,
-    content: str = Form(...),
-):
-    """HTMX inline update — returns updated row partial."""
-    async with async_session() as db:
-        entry = await db.get(BotKnowledge, entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail="Not found")
-        await upsert_knowledge(
-            name=entry.name,
-            content=content,
-            bot_id=entry.bot_id,
-            client_id=entry.client_id,
-            session_id=entry.session_id,
-        )
-        entry = await db.get(BotKnowledge, entry_id)
-    return templates.TemplateResponse(
-        "admin/knowledge_row.html", {"request": request, "entry": entry}
     )
 
 

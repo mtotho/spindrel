@@ -28,7 +28,11 @@ class Channel(Base):
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     require_mention: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     passive_memory: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    rag_on_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    context_compaction: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    compaction_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compaction_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
@@ -507,7 +511,6 @@ class IntegrationChannelConfig(Base):
     require_mention: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     passive_memory: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    rag_on_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )

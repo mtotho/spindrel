@@ -88,7 +88,7 @@ def _get_default_bot() -> str:
 
 
 def get_channel_config(channel_id: str) -> dict:
-    """Return full config for a channel: bot_id, require_mention, passive_memory, rag_on_all."""
+    """Return full config for a channel: bot_id, require_mention, passive_memory."""
     cfg = get_slack_config()
     channels = cfg.get("channels", {})
     ch = channels.get(channel_id, {})
@@ -98,7 +98,6 @@ def get_channel_config(channel_id: str) -> dict:
             "bot_id": ch.get("bot_id") or default_bot,
             "require_mention": ch.get("require_mention", True),
             "passive_memory": ch.get("passive_memory", True),
-            "rag_on_all": ch.get("rag_on_all", False),
         }
     # Legacy: ch is a bot_id string
     bot_id = ch if ch else default_bot
@@ -106,7 +105,6 @@ def get_channel_config(channel_id: str) -> dict:
         "bot_id": bot_id,
         "require_mention": True,
         "passive_memory": True,
-        "rag_on_all": False,
     }
 
 

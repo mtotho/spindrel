@@ -1,0 +1,100 @@
+{% if plans %}
+<div id="plans-list" class="space-y-3">
+  {% for p in plans %}
+  <div class="bg-gray-900 rounded-lg px-4 py-3" x-data="{ open: {{ 'true' if p.status == 'active' else 'false' }} }">
+    {# Plan header #}
+    <div class="flex items-center gap-2 mb-1">
+      <button @click="open = !open" class="text-gray-500 hover:text-gray-300 shrink-0 w-4 text-center">
+        <span x-text="open ? '\u25BC' : '\u25B6'" class="text-[10px]"></span>
+      </button>
+      {% if p.status == 'active' %}
+      <span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-900/50 text-blue-300 shrink-0">active</span>
+      {% elif p.status == 'complete' %}
+      <span class="px-1.5 py-0.5 rounded text-[10px] bg-green-900/50 text-green-300 shrink-0">complete</span>
+      {% else %}
+      <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-700 text-gray-400 shrink-0">{{ p.status }}</span>
+      {% endif %}
+      <span class="text-sm text-gray-200 flex-1 min-w-0 truncate">{{ p.title }}</span>
+      {% if p.items %}
+      {% set done = p.items | selectattr('status', 'equalto', 'done') | list | length %}
+      {% set total = p.items | length %}
+      <span class="text-[10px] text-gray-500 shrink-0">{{ done }}/{{ total }}</span>
+      {% endif %}
+    </div>
+
+    {# Actions row #}
+    <div class="flex items-center gap-3 ml-6 mb-2">
+      {% if p.status == 'active' %}
+      <form hx-put="/admin/channels/{{ channel.id }}/plans/{{ p.id }}/status"
+            hx-target="#plans-list" hx-swap="outerHTML" class="inline">
+        <input type="hidden" name="status" value="complete">
+        <button type="submit" class="text-green-400 hover:text-green-300 text-[10px]">Mark Complete</button>
+      </form>
+      <span class="text-gray-700">|</span>
+      <form hx-put="/admin/channels/{{ channel.id }}/plans/{{ p.id }}/status"
+            hx-target="#plans-list" hx-swap="outerHTML" class="inline">
+        <input type="hidden" name="status" value="abandoned">
+        <button type="submit" class="text-yellow-400 hover:text-yellow-300 text-[10px]">Abandon</button>
+      </form>
+      {% else %}
+      <form hx-put="/admin/channels/{{ channel.id }}/plans/{{ p.id }}/status"
+            hx-target="#plans-list" hx-swap="outerHTML" class="inline">
+        <input type="hidden" name="status" value="active">
+        <button type="submit" class="text-blue-400 hover:text-blue-300 text-[10px]">Reactivate</button>
+      </form>
+      {% endif %}
+      <span class="text-gray-700">|</span>
+      <button
+        hx-delete="/admin/channels/{{ channel.id }}/plans/{{ p.id }}"
+        hx-target="#plans-list" hx-swap="outerHTML"
+        hx-confirm="Delete this plan and all its items?"
+        class="text-red-400 hover:text-red-300 text-[10px]">Delete</button>
+    </div>
+
+    {# Description #}
+    {% if p.description %}
+    <div x-show="open" x-cloak class="ml-6 mb-2 text-xs text-gray-400 leading-relaxed">{{ p.description }}</div>
+    {% endif %}
+
+    {# Plan items #}
+    {% if p.items %}
+    <div x-show="open" x-cloak class="ml-6 space-y-1.5">
+      {% for item in p.items | sort(attribute='position') %}
+      <div class="flex items-start gap-2 text-xs leading-relaxed">
+        {% if item.status == 'done' %}
+        <span class="text-green-400 shrink-0 mt-0.5 w-4 text-center">&#10003;</span>
+        <span class="text-gray-500 line-through">{{ item.content }}</span>
+        {% elif item.status == 'in_progress' %}
+        <span class="text-blue-400 shrink-0 mt-0.5 w-4 text-center">&#9654;</span>
+        <span class="text-blue-300">{{ item.content }}</span>
+        {% elif item.status == 'skipped' %}
+        <span class="text-gray-600 shrink-0 mt-0.5 w-4 text-center">&mdash;</span>
+        <span class="text-gray-600 line-through">{{ item.content }}</span>
+        {% else %}
+        <span class="text-gray-600 shrink-0 mt-0.5 w-4 text-center">&#9675;</span>
+        <span class="text-gray-300">{{ item.content }}</span>
+        {% endif %}
+      </div>
+      {% if item.notes %}
+      <div class="ml-6 text-[10px] text-gray-500 italic">{{ item.notes }}</div>
+      {% endif %}
+      {% endfor %}
+    </div>
+
+    {# Progress bar #}
+    {% set done = p.items | selectattr('status', 'equalto', 'done') | list | length %}
+    {% set total = p.items | length %}
+    <div class="flex items-center gap-2 mt-3 ml-6">
+      <div class="flex-1 bg-gray-800 rounded-full h-1.5">
+        <div class="bg-indigo-500 h-1.5 rounded-full" style="width: {{ (done / total * 100) if total else 0 }}%"></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div id="plans-list">
+  <p class="text-xs text-gray-600 italic">No plans.</p>
+</div>
+{% endif %}
