@@ -81,4 +81,6 @@ If a `.md` file is **deleted** from disk:
 - Manual knowledge rows (created by tools) are never deleted by the file sync system.
 
 
-test 
+## Commit, Merge Request, Notify
+
+After any changes, please commit the change, push for review and notify the channel.

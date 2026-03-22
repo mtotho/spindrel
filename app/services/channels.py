@@ -12,7 +12,7 @@ from app.db.models import Channel, Session
 
 logger = logging.getLogger(__name__)
 
-_INTEGRATION_PREFIXES = ("slack:", "discord:", "teams:")
+INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:")
 
 
 def derive_channel_id(client_id: str) -> uuid.UUID:
@@ -27,7 +27,7 @@ def derive_channel_id(client_id: str) -> uuid.UUID:
 def is_integration_client_id(client_id: str | None) -> bool:
     if not client_id:
         return False
-    return any(client_id.startswith(p) for p in _INTEGRATION_PREFIXES)
+    return any(client_id.startswith(p) for p in INTEGRATION_CLIENT_PREFIXES)
 
 
 async def get_or_create_channel(

@@ -300,6 +300,6 @@ See [example.md](example.md) for the minimal `integrations/example/` scaffold.
 ## What Integration Code Must Not Do
 
 - Import from `app/agent/`, `app/services/`, or `app/tools/` directly (except `app/agent/dispatchers` for `register()` and `app/agent/bots` for `get_bot()` in dispatchers)
-- Duplicate Slack API call logic — use `app/services/slack_uploads.py` for file uploads
+- Duplicate Slack API call logic — use `integrations/slack/client.py` for messages and `integrations/slack/uploads.py` for file uploads
 - Add new columns to core models (`Bot`, `Task`, `Session`) for integration-specific data — use `dispatch_config`, `integration_config` JSONB fields, or add your own table
 - Edit `app/main.py`, `app/agent/tasks.py`, or `app/agent/dispatchers.py` (unless adding a core delivery mechanism)

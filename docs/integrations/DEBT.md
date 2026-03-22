@@ -445,3 +445,5 @@ Item 5 (Slack queue) is the next highest impact. The HTTP API race fix is correc
 - [x] Knowledge session scoping + per-row similarity thresholds
 - [x] `KnowledgeWrite.bot_knowledge_id` FK for audit integrity
 - [x] `Task.callback_config` JSONB added (migrations 039+040) — orchestration separated from delivery config
+- [x] `_post_to_slack()` consolidated — Slack HTTP calls moved to `integrations/slack/client.py`; `app/services/slack_uploads.py` moved to `integrations/slack/uploads.py`; delegation.py and api_v1_sessions.py no longer contain Slack API calls
+- [x] `_fanout()` driven through dispatcher registry — no hardcoded Slack logic in core; `post_message()` added to Dispatcher protocol

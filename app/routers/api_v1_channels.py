@@ -210,7 +210,7 @@ async def inject_channel_message(
             channel_id=channel_id,
             prompt=body.content,
             status="pending",
-            dispatch_type="slack" if channel.integration == "slack" else "none",
+            dispatch_type=channel.integration or "none",
             dispatch_config=channel.dispatch_config or {},
             created_at=datetime.now(timezone.utc),
         )

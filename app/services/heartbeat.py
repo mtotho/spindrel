@@ -41,13 +41,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         dispatch_type = "none"
         dispatch_config = None
         if hb.dispatch_results and channel.dispatch_config:
-            # Derive dispatch type from channel integration
-            if channel.integration == "slack":
-                dispatch_type = "slack"
-            elif channel.integration:
-                dispatch_type = channel.integration
-            else:
-                dispatch_type = "none"
+            dispatch_type = channel.integration or "none"
             dispatch_config = dict(channel.dispatch_config)
             # Heartbeats should post as top-level channel messages, not thread replies
             dispatch_config.pop("thread_ts", None)

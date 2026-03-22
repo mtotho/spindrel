@@ -21,6 +21,8 @@ _http = httpx.AsyncClient(timeout=30.0)
 @runtime_checkable
 class Dispatcher(Protocol):
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None: ...
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool: ...
 
 
 _registry: dict[str, Dispatcher] = {}
@@ -42,6 +44,10 @@ class _NoneDispatcher:
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
         pass  # result stored in DB only; caller polls get_task
 
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool:
+        return False
+
 
 class _WebhookDispatcher:
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
@@ -55,6 +61,10 @@ class _WebhookDispatcher:
             r.raise_for_status()
         except Exception:
             logger.exception("WebhookDispatcher.deliver failed for task %s", task.id)
+
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool:
+        return False
 
 
 class _InternalDispatcher:
@@ -85,6 +95,10 @@ class _InternalDispatcher:
                 await db.commit()
         except Exception:
             logger.exception("InternalDispatcher.deliver failed for task %s", task.id)
+
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool:
+        return False
 
 
 # Register core dispatchers at module import time

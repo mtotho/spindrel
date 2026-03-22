@@ -7,14 +7,10 @@ from __future__ import annotations
 
 import logging
 
-import httpx
-
-from app.agent.bots import get_bot
 from app.agent.dispatchers import register
+from integrations.slack.client import bot_attribution, post_message
 
 logger = logging.getLogger(__name__)
-
-_http = httpx.AsyncClient(timeout=30.0)
 
 
 class SlackDispatcher:
@@ -28,48 +24,24 @@ class SlackDispatcher:
             return
 
         reply_in_thread = cfg.get("reply_in_thread", True)
-        payload: dict = {
-            "channel": channel_id,
-            "text": result,
-        }
-        if thread_ts and reply_in_thread:
-            payload["thread_ts"] = thread_ts
+        attrs = bot_attribution(task.bot_id)
 
-        # Display name / icon overrides (requires chat:write.customize scope)
-        try:
-            bot_config = get_bot(task.bot_id)
-            username = bot_config.display_name or bot_config.name or None
-            if username:
-                payload["username"] = username
-            slack_cfg = bot_config.integration_config.get("slack", {})
-            if slack_cfg.get("icon_emoji"):
-                payload["icon_emoji"] = slack_cfg["icon_emoji"]
-            elif bot_config.avatar_url:
-                payload["icon_url"] = bot_config.avatar_url
-        except Exception:
-            pass  # bot not found or no display config — use Slack app defaults
-
-        try:
-            r = await _http.post(
-                "https://slack.com/api/chat.postMessage",
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            r.raise_for_status()
-            data = r.json()
-            if not data.get("ok"):
-                logger.error("Slack API error for task %s: %s", task.id, data.get("error"))
-                return
-            from app.services.sessions import store_slack_echo_as_passive
-            await store_slack_echo_as_passive(
-                task.session_id, task.client_id, task.bot_id, result,
-            )
-        except Exception:
-            logger.exception("SlackDispatcher.deliver failed for task %s", task.id)
+        ok = await post_message(
+            token, channel_id, result,
+            thread_ts=thread_ts,
+            reply_in_thread=reply_in_thread,
+            **attrs,
+        )
+        if not ok:
             return
 
+        from app.services.sessions import store_dispatch_echo
+        await store_dispatch_echo(
+            task.session_id, task.client_id, task.bot_id, result,
+        )
+
         # Upload any images generated during the task
-        from app.services.slack_uploads import upload_image
+        from integrations.slack.uploads import upload_image
         for action in (client_actions or []):
             if action.get("type") == "upload_image":
                 await upload_image(
@@ -79,6 +51,24 @@ class SlackDispatcher:
                     reply_in_thread=reply_in_thread,
                     action=action,
                 )
+
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool:
+        """Post a message to Slack via the shared client, optionally with bot attribution."""
+        channel_id = dispatch_config.get("channel_id")
+        thread_ts = dispatch_config.get("thread_ts")
+        token = dispatch_config.get("token")
+        if not channel_id or not token:
+            logger.warning("SlackDispatcher.post_message: missing channel_id or token")
+            return False
+
+        attrs = bot_attribution(bot_id) if bot_id else {}
+        return await post_message(
+            token, channel_id, text,
+            thread_ts=thread_ts,
+            reply_in_thread=reply_in_thread,
+            **attrs,
+        )
 
 
 register("slack", SlackDispatcher())

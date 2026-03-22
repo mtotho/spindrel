@@ -20,9 +20,8 @@ don't re-litigate these decisions or re-introduce the same slop.
 
 **Rule**: `/app` must not import from `/integrations`. `/app` must not contain integration
 brand names (like "slack") in business logic. The word "slack" is allowed only in:
-- `app/services/slack_uploads.py` — Slack HTTP calls
-- `app/routers/admin_slack.py` — admin UI for Slack channel config
-- `app/routers/api_v1_sessions.py` — `_fanout()` fallback
+- `app/routers/admin_channels.py` — admin UI for Slack channel config display
+- `app/config.py` — `SLACK_BOT_TOKEN`/`SLACK_DEFAULT_BOT` env var config (used by admin)
 
 ---
 
@@ -70,8 +69,8 @@ integrations/
 
 The `SlackDispatcher` handles `chat.postMessage` + file uploads for the task path.
 It is allowed to know about Slack — it's explicitly scoped to `dispatch_type="slack"`.
-All its HTTP calls go through `app/services/slack_uploads.py` (for files) and direct
-httpx (for messages). The goal is eventually to consolidate into `app/services/slack_client.py`.
+All its HTTP calls go through `integrations/slack/client.py` (for messages) and
+`integrations/slack/uploads.py` (for files).
 
 ---
 
@@ -102,20 +101,18 @@ done < <(python scripts/list_integration_processes.py)
 
 ---
 
-## `app/services/slack_uploads.py`
+## `integrations/slack/client.py` and `integrations/slack/uploads.py`
 
-Canonical place for Slack file upload HTTP calls (files.getUploadURLExternal → upload →
-completeUploadExternal). Called by `integrations/slack/dispatcher.py` for the task path.
+All Slack HTTP calls live in `integrations/slack/`:
+
+- **`client.py`** — `post_message()` and `bot_attribution()`: single source of truth for
+  `chat.postMessage`. Used by `SlackDispatcher.deliver()`, `SlackDispatcher.post_message()`,
+  and indirectly by `_fanout()` and `delegation.post_child_response()` via the dispatcher registry.
+- **`uploads.py`** — file upload flow (files.getUploadURLExternal → upload →
+  completeUploadExternal). Called by `SlackDispatcher.deliver()`.
 
 **Known bug that was fixed**: `files.getUploadURLExternal` requires form-encoded body
 (`data=`), NOT JSON (`json=`). Using `json=` silently fails with `missing_filename`.
-
-**TODO**: There is still a `_post_to_slack()` duplicated in multiple places:
-- `app/services/delegation.py`
-- `app/routers/admin_slack.py`
-- `app/routers/api_v1_sessions.py` (`_fanout()`)
-
-These should be consolidated into `app/services/slack_client.py`.
 
 ---
 
@@ -150,34 +147,33 @@ The admin UI's bot edit page has a Slack subsection under Display for `icon_emoj
 {"session_id": "uuid"}
 ```
 
-**What does NOT belong in `dispatch_config`** (known debt):
+**What does NOT belong in `dispatch_config`** (resolved):
 
-- Delegation bookkeeping (`_notify_parent`, `_parent_session_id`, `_parent_bot_id`,
-  `_parent_client_id`) — these are internal task orchestration state. **TODO**: move
-  to a `Task.callback_config` JSONB column.
+- Delegation bookkeeping (`notify_parent`, `parent_session_id`, `parent_bot_id`,
+  `parent_client_id`) — moved to `Task.callback_config` JSONB (migrations 039+040).
 
 - Harness execution config (`harness_name`, `working_directory`, `sandbox_instance_id`) —
-  these are execution parameters, not delivery targets. **TODO**: move to `Task.metadata` JSONB.
+  moved to `Task.callback_config` JSONB.
 
 ---
 
 ## Channel Config — Single Source of Truth
 
-**Use `IntegrationChannelConfig` (`integration_channel_configs` table). Full stop.**
+**Use `Channel` (`channels` table, migration 043).** `IntegrationChannelConfig` is a legacy
+table kept for backwards compatibility but no longer read by core code.
 
 | Column | Purpose |
 |---|---|
-| `client_id` | Primary key. Format: `"slack:C123456"` |
+| `id` | UUID primary key (derived from `client_id` via `derive_channel_id()`) |
+| `client_id` | Format: `"slack:C123456"` |
 | `integration` | `"slack"` (allows future: `"teams"`, `"discord"`) |
 | `bot_id` | Which bot handles this channel |
 | `require_mention` | Whether bot needs `@mention` to respond |
 | `passive_memory` | Whether bot silently reads all messages for memory |
-
-`SlackChannelConfig` (`slack_channel_configs`) was dead code and has been dropped
-(migration 033).
+| `dispatch_config` | JSONB delivery target (channel_id, token, thread_ts) |
 
 The Slack integration reads channel config via `/api/slack/config` (60s TTL cache),
-served by `app/routers/admin_slack.py`. It does NOT query the DB directly.
+served by `app/routers/admin_channels.py`. It does NOT query the DB directly.
 
 ---
 
@@ -188,19 +184,7 @@ see [`DEBT.md`](DEBT.md).
 
 ### Remaining issues
 
-- [ ] `_post_to_slack()` still duplicated in `app/services/delegation.py` and
-  `app/routers/api_v1_sessions.py` and `integrations/slack/dispatcher.py`
-  **Fix**: consolidate into `app/services/slack_client.py`
-
-- [ ] `dispatch_config` polluted with delegation bookkeeping (`_notify_parent`, `_parent_*`)
-  and harness execution params (`harness_name`, `working_directory`, etc.)
-  **Fix**: add `Task.callback_config` JSONB column (migration 039); move those keys there
-
-- [ ] `Task.trigger_rag_loop` boolean column is Slack-specific on a generic model
-  **Fix**: move to `callback_config`; drop the column (migration 040)
-
-- [ ] `_fanout()` in `api_v1_sessions.py` has hardcoded `startswith("slack:")` check
-  **Fix**: drive fan-out through dispatcher registry (depends on `slack_client.py` being done)
+_(None — all known integration boundary violations have been resolved.)_
 
 ### Completed
 
@@ -210,9 +194,16 @@ see [`DEBT.md`](DEBT.md).
 - [x] `Bot.slack_display_name/icon_emoji/icon_url` → `display_name`, `avatar_url`, `integration_config`
   (migration 033 + 034)
 - [x] `SlackChannelConfig` table dropped (migration 033)
-- [x] `app/services/slack_uploads.py` created — canonical file upload, form-encoding bug fixed
+- [x] `integrations/slack/uploads.py` — canonical file upload (moved from `app/services/slack_uploads.py`)
 - [x] Integration process discovery — `process.py` convention, `dev-server.sh` auto-starts
 - [x] Knowledge session scoping + per-row similarity thresholds (migrations 035–038)
+- [x] `_post_to_slack()` consolidated — `integrations/slack/client.py` is single source of truth
+- [x] `_fanout()` driven through dispatcher registry — `post_message()` on Dispatcher protocol
+- [x] `Task.callback_config` JSONB added (migrations 039+040) — orchestration separated from delivery
+- [x] Delegation `_post_to_slack()` removed — uses dispatcher registry via `post_child_response()`
+- [x] `store_slack_echo_as_passive` renamed to `store_dispatch_echo` — integration-agnostic
+- [x] Hardcoded `dispatch_type == "slack"` checks replaced with `channel.integration or "none"`
+- [x] `_INTEGRATION_PREFIXES` deduplicated — exported from `channels.py`
 
 ---
 
@@ -221,7 +212,7 @@ see [`DEBT.md`](DEBT.md).
 - Agent loop (`app/agent/loop.py`) — clean, no integration coupling
 - RAG system — clean
 - Tool registry + discovery — clean
-- Delegation framework (`app/services/delegation.py`) — good design, just uses bad delivery mechanism
+- Delegation framework (`app/services/delegation.py`) — clean, routes through dispatcher registry
 - Provider abstraction — clean
 - `/api/v1/` public API — reasonable
 - `app/agent/dispatchers.py` — clean registry pattern

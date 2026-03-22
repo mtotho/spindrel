@@ -11,13 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import BotConfig, get_bot
 from app.agent.persona import get_persona
 from app.db.engine import async_session
-from app.db.models import IntegrationChannelConfig, Message, Session
+from app.db.models import Message, Session
 
 
 logger = logging.getLogger(__name__)
 
 
-_INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:")
+from app.services.channels import INTEGRATION_CLIENT_PREFIXES as _INTEGRATION_CLIENT_PREFIXES
 
 
 def is_integration_client_id(client_id: str | None) -> bool:
@@ -285,47 +285,55 @@ async def persist_turn(
     await db.commit()
 
 
-async def store_slack_echo_as_passive(
+async def store_dispatch_echo(
     session_id: uuid.UUID | None,
     client_id: str | None,
     posting_bot_id: str,
     text: str,
 ) -> None:
-    """Mirror a bot-authored Slack line into the channel session for the next agent load.
+    """Mirror a bot-authored message into the channel session for the next agent load.
 
-    Socket Mode ignores ``bot_id`` message events, so ``chat.postMessage`` results (e.g. delegated
-    bots) never flow through ``store_passive_message`` from the Slack integration. This writes
-    the same shape of row as human passive traffic: ``metadata.passive`` so it appears in the
-    channel-context system block on load.
+    Dispatchers (Slack, etc.) post messages that bypass the inbound message handler, so
+    ``chat.postMessage`` results (e.g. delegated bots) never flow through
+    ``store_passive_message``.  This writes the same shape of row as human passive traffic:
+    ``metadata.passive`` so it appears in the channel-context system block on load.
     """
     stripped = (text or "").strip()
     if session_id is None or not client_id or not stripped:
         return
 
     ch_label = client_id.split(":", 1)[-1] if ":" in client_id else client_id
-    content = f"[Slack channel:{ch_label} bot:{posting_bot_id}] {stripped}"
+    content = f"[channel:{ch_label} bot:{posting_bot_id}] {stripped}"
 
+    source = client_id.split(":")[0] if ":" in client_id else "unknown"
     include_in_memory = True
     try:
         async with async_session() as db:
-            if client_id.startswith("slack:"):
-                row = await db.get(IntegrationChannelConfig, client_id)
-                if row is not None:
-                    if not row.passive_memory:
+            # Check channel passive_memory setting
+            from app.db.models import Channel
+            from app.services.channels import is_integration_client_id
+            if is_integration_client_id(client_id):
+                from sqlalchemy import select
+                result = await db.execute(
+                    select(Channel).where(Channel.client_id == client_id)
+                )
+                channel = result.scalar_one_or_none()
+                if channel is not None:
+                    if not channel.passive_memory:
                         return
-                    include_in_memory = row.passive_memory
+                    include_in_memory = channel.passive_memory
             metadata = {
                 "passive": True,
                 "include_in_memory": include_in_memory,
                 "trigger_rag": False,
-                "source": "slack",
+                "source": source,
                 "sender_type": "bot",
                 "sender_id": f"bot:{posting_bot_id}",
             }
             await store_passive_message(db, session_id, content, metadata)
     except Exception:
         logger.exception(
-            "store_slack_echo_as_passive failed session=%s client_id=%s",
+            "store_dispatch_echo failed session=%s client_id=%s",
             session_id,
             client_id,
         )
