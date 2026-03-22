@@ -1,4 +1,7 @@
 """Transform agent output and timestamps for Slack."""
+from __future__ import annotations
+
+import json
 import re
 from datetime import datetime, timezone
 
@@ -41,3 +44,44 @@ def format_response_for_slack(response: str) -> str:
     if not formatted:
         return "_(no response)_"
     return formatted
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate *text* to *limit* chars, breaking at a word boundary."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return cut.rstrip() + "…"
+
+
+def format_tool_status(tool: str, raw_args: str | None = None) -> str:
+    """Return a short Slack status string describing a tool invocation."""
+    parsed: dict = {}
+    if raw_args:
+        try:
+            val = json.loads(raw_args)
+            if isinstance(val, dict):
+                parsed = val
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if tool in ("exec_command", "exec_sandbox"):
+        cmd = parsed.get("command")
+        if cmd:
+            return f"🔧 {tool} → `{_truncate(cmd, 100)}`"
+
+    if tool == "delegate_to_harness":
+        harness = parsed.get("harness", "harness")
+        prompt = (parsed.get("prompt") or "").split("\n", 1)[0]
+        if prompt:
+            return f"🤖 {harness} → {_truncate(prompt, 80)}"
+        return f"🤖 {harness}"
+
+    if tool == "delegate_to_agent":
+        bot_id = parsed.get("bot_id", "agent")
+        prompt = (parsed.get("prompt") or "").split("\n", 1)[0]
+        if prompt:
+            return f"🤖 {bot_id} → {_truncate(prompt, 80)}"
+        return f"🤖 {bot_id}"
+
+    return f"🔧 _{tool}..._"

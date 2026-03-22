@@ -11,7 +11,7 @@ from agent_client import (
     update_plan_item_status,
     update_plan_status,
 )
-from formatting import format_last_active, format_response_for_slack
+from formatting import format_last_active, format_response_for_slack, format_tool_status
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, set_channel_state
@@ -177,10 +177,11 @@ def register_slash_commands(app):
                 etype = event.get("type")
                 if etype == "tool_start":
                     tool = event.get("tool", "tool")
+                    status = format_tool_status(tool, event.get("args"))
                     await client.chat_update(
                         channel=thinking_channel,
                         ts=thinking_ts,
-                        text=f"🔧 _{tool}..._",
+                        text=status,
                         **identity,
                     )
                 elif etype == "queued":
