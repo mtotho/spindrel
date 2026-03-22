@@ -91,6 +91,9 @@ async def admin_sandboxes(request: Request):
             select(SandboxInstance).order_by(SandboxInstance.created_at.desc())
         )).scalars().all())
 
+        # Hide auto-created bot-local profiles (implementation detail, managed via bot edit page)
+        profiles_raw = [p for p in profiles_raw if not p.name.startswith("bot-local:")]
+
         profile_names = {p.id: p.name for p in profiles_raw}
 
     # Live Docker status for all instances (concurrent)

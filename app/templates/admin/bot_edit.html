@@ -723,9 +723,11 @@ function botContextEstimatePanel(botId) {
         network: bsInit.network || 'none',
         env: bsInit.env || {},
         ports: bsInit.ports || [],
+        mounts: bsInit.mounts || [],
       },
       newDir: '', newCmd: '', newCmdSubs: '', newBlocked: '', newEnvPass: '',
       newSbEnvKey: '', newSbEnvVal: '', newHostPort: '', newContainerPort: '',
+      newMountHost: '', newMountContainer: '', newMountMode: 'rw',
       get sandboxActive() { return this.bs.enabled; },
       get commandsUnrestricted() { return this.bs.enabled && this.bs.unrestricted; },
       addDir() { if (this.newDir.trim()) { this.he.working_dirs = [...this.he.working_dirs, this.newDir.trim()]; this.newDir = ''; } },
@@ -740,6 +742,8 @@ function botContextEstimatePanel(botId) {
       removeSbEnv(k) { const e = {...this.bs.env}; delete e[k]; this.bs.env = e; },
       addPort() { if (this.newContainerPort.trim()) { this.bs.ports = [...this.bs.ports, {host_port: this.newHostPort.trim(), container_port: this.newContainerPort.trim()}]; this.newHostPort = ''; this.newContainerPort = ''; } },
       removePort(i) { this.bs.ports = this.bs.ports.filter((_, j) => j !== i); },
+      addMount() { if (this.newMountHost.trim() && this.newMountContainer.trim()) { this.bs.mounts = [...this.bs.mounts, {host_path: this.newMountHost.trim(), container_path: this.newMountContainer.trim(), mode: this.newMountMode}]; this.newMountHost = ''; this.newMountContainer = ''; this.newMountMode = 'rw'; } },
+      removeMount(i) { this.bs.mounts = this.bs.mounts.filter((_, j) => j !== i); },
     };
   }
   </script>
@@ -934,6 +938,31 @@ function botContextEstimatePanel(botId) {
               <input x-model="newContainerPort" type="text" placeholder="container"
                 class="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
               <button type="button" @click="addPort()"
+                class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
+            </div>
+          </div>
+          <!-- Volume Mounts -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Volume Mounts</div>
+            <template x-for="(mt, idx) in bs.mounts" :key="idx">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-mono text-xs text-gray-300 flex-1 truncate" x-text="mt.host_path + ' : ' + mt.container_path + ' : ' + (mt.mode || 'rw')"></span>
+                <button type="button" @click="removeMount(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">&#10005;</button>
+              </div>
+            </template>
+            <div class="flex items-center gap-2 mt-1.5">
+              <input x-model="newMountHost" type="text" placeholder="host path"
+                class="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono" />
+              <span class="text-gray-600 text-xs">:</span>
+              <input x-model="newMountContainer" type="text" placeholder="container path"
+                class="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono" />
+              <span class="text-gray-600 text-xs">:</span>
+              <select x-model="newMountMode"
+                class="w-16 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                <option value="rw">rw</option>
+                <option value="ro">ro</option>
+              </select>
+              <button type="button" @click="addMount()"
                 class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
             </div>
           </div>

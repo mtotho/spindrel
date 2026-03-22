@@ -534,26 +534,42 @@ class SandboxService:
         profile_uuid = uuid.UUID(bytes=_hashlib.sha256(f"bot-sandbox:{bot_id}".encode()).digest()[:16])
         async with async_session() as db:
             profile = await db.get(SandboxProfile, profile_uuid)
+            target_image = config.image or "python:3.12-slim"
+            target_network = config.network or "none"
+            target_env = config.env or {}
+            target_mounts = config.mounts or []
+            target_ports = config.ports or []
             if profile is None:
                 profile = SandboxProfile(
                     id=profile_uuid,
                     name=f"bot-local:{bot_id}",
                     description=f"Auto-created bot-local sandbox for bot '{bot_id}'",
-                    image=config.image or "python:3.12-slim",
+                    image=target_image,
                     scope_mode="bot",
-                    network_mode=config.network or "none",
-                    env=config.env or {},
+                    network_mode=target_network,
+                    env=target_env,
+                    mount_specs=target_mounts,
+                    port_mappings=target_ports,
                 )
                 db.add(profile)
                 await db.commit()
             else:
-                # Update image/network in case config changed
+                # Sync all fields from bot config
                 changed = False
-                if profile.image != (config.image or "python:3.12-slim"):
-                    profile.image = config.image or "python:3.12-slim"
+                if profile.image != target_image:
+                    profile.image = target_image
                     changed = True
-                if profile.network_mode != (config.network or "none"):
-                    profile.network_mode = config.network or "none"
+                if profile.network_mode != target_network:
+                    profile.network_mode = target_network
+                    changed = True
+                if profile.env != target_env:
+                    profile.env = target_env
+                    changed = True
+                if profile.mount_specs != target_mounts:
+                    profile.mount_specs = target_mounts
+                    changed = True
+                if profile.port_mappings != target_ports:
+                    profile.port_mappings = target_ports
                     changed = True
                 if changed:
                     await db.commit()
@@ -601,17 +617,19 @@ class SandboxService:
             await db.commit()
             await db.refresh(instance)
 
-        # Build docker run args
-        run_args = ["docker", "run", "-d", "--name", container_name, "--network", config.network or "none"]
-        for k, v in (config.env or {}).items():
-            run_args += ["-e", f"{k}={v}"]
-        for pm in (config.ports or []):
-            host_port = pm.get("host_port", 0)
-            container_port = pm.get("container_port")
-            if container_port:
-                mapping = f"{host_port}:{container_port}" if host_port else str(container_port)
-                run_args += ["-p", mapping]
-        run_args += [config.image or "python:3.12-slim", "sleep", "infinity"]
+        # Build docker run args (reuse shared helper for mount validation + DRY)
+        _validate_mount_specs(config.mounts or [])
+        run_args = _build_docker_run_args(
+            image=config.image or "python:3.12-slim",
+            container_name=container_name,
+            network_mode=config.network or "none",
+            read_only_root=False,
+            create_options={},
+            env=config.env or {},
+            labels={},
+            mount_specs=config.mounts or [],
+            port_mappings=config.ports or [],
+        )
 
         container_id, error = await self._docker_run(run_args)
         async with async_session() as db:
