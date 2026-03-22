@@ -13,12 +13,45 @@ class Base(DeclarativeBase):
     pass
 
 
+class Channel(Base):
+    __tablename__ = "channels"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    integration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    require_mention: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    passive_memory: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    rag_on_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="channel",
+        foreign_keys="Session.channel_id",
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
     bot_id: Mapped[str] = mapped_column(Text, nullable=False, default="default")
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
@@ -49,6 +82,10 @@ class Session(Base):
     locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    channel: Mapped["Channel | None"] = relationship(
+        back_populates="sessions",
+        foreign_keys=[channel_id],
+    )
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Message.created_at"
     )
@@ -130,6 +167,11 @@ class Memory(Base):
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
         nullable=True,
     )
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
@@ -256,6 +298,23 @@ class TraceEvent(Base):
     )
 
 
+class KnowledgeAccess(Base):
+    __tablename__ = "knowledge_access"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    knowledge_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bot_knowledge.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)  # 'channel' | 'bot' | 'global'
+    scope_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # channel UUID or bot_id or NULL
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'rag'"))  # 'rag' | 'pinned' | 'tag_only'
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    knowledge: Mapped["BotKnowledge"] = relationship("BotKnowledge", backref="access_entries")
+
+
 class KnowledgeWrite(Base):
     __tablename__ = "knowledge_writes"
 
@@ -269,6 +328,11 @@ class KnowledgeWrite(Base):
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -466,6 +530,11 @@ class Task(Base):
     bot_id: Mapped[str] = mapped_column(Text, nullable=False)
     client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -486,6 +555,11 @@ class Plan(Base):
     bot_id: Mapped[str] = mapped_column(Text, nullable=False)
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

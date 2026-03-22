@@ -197,6 +197,7 @@ async def inject_message(
             bot_id=session.bot_id,
             client_id=session.client_id,
             session_id=session_id,
+            channel_id=session.channel_id,
             prompt=body.content,
             status="pending",
             dispatch_type=(session.dispatch_config or {}).get("type") or "none",

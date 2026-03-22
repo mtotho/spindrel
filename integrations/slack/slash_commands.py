@@ -68,8 +68,7 @@ def register_slash_commands(app):
             return
 
         set_channel_state(channel, bot_id=arg)
-        session_id = _resolve_session_id(channel)
-        await respond(f"Switched to `{arg}`. Session unchanged: `{session_id[:8]}…`")
+        await respond(f"Switched to `{arg}`.")
 
     @app.command("/bots")
     async def cmd_bots(ack, command, respond):
@@ -124,7 +123,6 @@ def register_slash_commands(app):
             return
 
         client_id = slack_client_id(channel)
-        session_id = derive_session_id(client_id)
 
         msg_metadata = {
             "passive": False,
@@ -166,7 +164,6 @@ def register_slash_commands(app):
                 message=full_message,
                 bot_id=target_bot_id,
                 client_id=client_id,
-                session_id=session_id,
                 dispatch_type="slack",
                 dispatch_config=dispatch_config,
                 msg_metadata=msg_metadata,

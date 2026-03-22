@@ -3,7 +3,7 @@ import base64
 
 from agent_client import http, store_passive_message_http, stream_chat
 from formatting import format_response_for_slack
-from session_helpers import derive_session_id, slack_client_id
+from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_state
 
@@ -95,7 +95,6 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     full_message = payload["full_message"]
     bot_id = payload["bot_id"]
     client_id = payload["client_id"]
-    session_id = payload["session_id"]
     attachments = payload["attachments"]
     dispatch_config = payload["dispatch_config"]
     thread_ts = payload["thread_ts"]
@@ -125,7 +124,6 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             message=full_message,
             bot_id=bot_id,
             client_id=client_id,
-            session_id=session_id,
             attachments=attachments if attachments else None,
             dispatch_type="slack",
             dispatch_config=dispatch_config,
@@ -219,7 +217,6 @@ async def dispatch(
     state = get_channel_state(channel)
     bot_id = state["bot_id"] or config["bot_id"]
     client_id = slack_client_id(channel)
-    session_id = derive_session_id(client_id)
 
     appended, attachments = await _process_slack_files(files or [])
 
@@ -252,7 +249,6 @@ async def dispatch(
         # Store message without running agent
         try:
             await store_passive_message_http(
-                session_id=session_id,
                 client_id=client_id,
                 bot_id=bot_id,
                 content=full_message,
@@ -272,7 +268,6 @@ async def dispatch(
         "full_message": full_message,
         "bot_id": bot_id,
         "client_id": client_id,
-        "session_id": session_id,
         "attachments": attachments,
         "dispatch_config": dispatch_config,
         "thread_ts": thread_ts,

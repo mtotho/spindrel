@@ -251,6 +251,7 @@ async def call_knowledge_tool(
     client_id: str,
     *,
     session_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
     fallback_threshold: float = 0.45,
 ) -> str:
     try:
@@ -268,7 +269,7 @@ async def call_knowledge_tool(
         if not session_id:
             return "Cannot save knowledge without an active session."
         # Guard: reject writes to file-managed entries
-        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True)
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if existing_row and not existing_row.editable_from_tool:
             return json.dumps({"error": "This knowledge entry is file-managed and cannot be modified by tools."})
         raw_sim = args.get("similarity_threshold")
@@ -286,6 +287,7 @@ async def call_knowledge_tool(
             bot_id=bot_id,
             client_id=client_id,
             session_id=session_id,
+            channel_id=channel_id,
             created_by_bot=bot_id,
             similarity_threshold=sim_thr,
         )
@@ -298,12 +300,12 @@ async def call_knowledge_tool(
         if not doc_name:
             return "No name provided."
         result = await get_knowledge_by_name(
-            doc_name, bot_id, client_id, session_id=session_id
+            doc_name, bot_id, client_id, session_id=session_id, channel_id=channel_id,
         )
         return result if result else f"No knowledge document found with name '{doc_name}'."
 
     if name == "list_knowledge_bases":
-        result = await list_knowledge_bases(bot_id, client_id, session_id=session_id)
+        result = await list_knowledge_bases(bot_id, client_id, session_id=session_id, channel_id=channel_id)
         if not result:
             return "No knowledge bases found."
         lines = []
@@ -326,11 +328,11 @@ async def call_knowledge_tool(
         if not session_id:
             return "Cannot append knowledge without an active session."
         # Guard: reject writes to file-managed entries
-        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True)
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if existing_row and not existing_row.editable_from_tool:
             return json.dumps({"error": "This knowledge entry is file-managed and cannot be modified by tools."})
         ok, err = await append_to_knowledge(
-            doc_name, content, bot_id, client_id, session_id=session_id
+            doc_name, content, bot_id, client_id, session_id=session_id, channel_id=channel_id,
         )
         if ok:
             return f"Content appended to knowledge document '{doc_name}'."
@@ -346,6 +348,7 @@ async def call_knowledge_tool(
             client_id=client_id,
             fallback_threshold=fallback_threshold,
             session_id=session_id,
+            channel_id=channel_id,
         )
         if not chunks:
             return "No relevant knowledge found."
@@ -365,7 +368,7 @@ async def call_knowledge_tool(
         if not session_id:
             return "No active session."
         ok, err = await set_knowledge_similarity_for_match(
-            doc_name, bot_id, client_id, session_id, thr
+            doc_name, bot_id, client_id, session_id, thr, channel_id=channel_id,
         )
         if ok:
             return f"Knowledge {doc_name!r} similarity threshold set to {thr}."
@@ -378,7 +381,7 @@ async def call_knowledge_tool(
             return "No name provided."
         pin_bot_id = bot_id if scope in ("bot", "bot_channel") else None
         pin_client_id = client_id if scope in ("channel", "bot_channel") else None
-        ok, err = await create_knowledge_pin(doc_name, pin_bot_id, pin_client_id)
+        ok, err = await create_knowledge_pin(doc_name, pin_bot_id, pin_client_id, channel_id=channel_id)
         if ok:
             return f"Knowledge '{doc_name}' pinned (scope={scope})."
         return f"Failed to pin: {err}" if err else "Failed to pin."
@@ -390,7 +393,7 @@ async def call_knowledge_tool(
             return "No name provided."
         pin_bot_id = bot_id if scope in ("bot", "bot_channel") else None
         pin_client_id = client_id if scope in ("channel", "bot_channel") else None
-        removed = await delete_knowledge_pin(doc_name, pin_bot_id, pin_client_id)
+        removed = await delete_knowledge_pin(doc_name, pin_bot_id, pin_client_id, channel_id=channel_id)
         return f"Knowledge '{doc_name}' unpinned." if removed else f"No matching pin found for '{doc_name}' (scope={scope})."
 
     return json.dumps({"error": f"Unknown knowledge tool: {name}"})

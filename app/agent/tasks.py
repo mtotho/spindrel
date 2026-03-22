@@ -46,6 +46,7 @@ async def _schedule_next_occurrence(task: Task) -> None:
             bot_id=task.bot_id,
             client_id=task.client_id,
             session_id=task.session_id,
+            channel_id=task.channel_id,
             prompt=task.prompt,
             scheduled_at=next_run,
             status="pending",
@@ -282,6 +283,7 @@ async def run_task(task: Task) -> None:
                     id=child_session_id,
                     client_id=task.client_id or "task",
                     bot_id=task.bot_id,
+                    channel_id=task.channel_id,
                     parent_session_id=parent_for_delegation,
                     root_session_id=delegation_root_id,
                     depth=delegation_depth,
@@ -313,6 +315,7 @@ async def run_task(task: Task) -> None:
             correlation_id=correlation_id,
             dispatch_type=task.dispatch_type,
             dispatch_config=task.dispatch_config,
+            channel_id=task.channel_id,
         )
         result_text = run_result.response
 

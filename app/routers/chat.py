@@ -18,10 +18,9 @@ from app.agent.pending import resolve_pending
 from app.db.models import Task as TaskModel
 from app.dependencies import get_db, verify_auth
 from app.services import session_locks
+from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id
 from app.services.compaction import maybe_compact
 from app.services.sessions import (
-    derive_integration_session_id,
-    is_integration_client_id,
     load_or_create,
     persist_turn,
     store_passive_message,
@@ -43,7 +42,8 @@ class Attachment(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = ""
-    session_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None  # Preferred for channel targeting
+    session_id: Optional[uuid.UUID] = None  # backward compat; resolves to channel
     client_id: str = "default"
     bot_id: str = "default"
     audio_data: Optional[str] = None  # base64-encoded audio
@@ -65,6 +65,37 @@ class ChatResponse(BaseModel):
 
 def _is_integration_client(client_id: str) -> bool:
     return is_integration_client_id(client_id)
+
+
+async def _resolve_channel_and_session(
+    db: AsyncSession,
+    req: ChatRequest,
+) -> tuple[uuid.UUID | None, uuid.UUID, list[dict], bool]:
+    """Resolve channel + session from the request. Returns (channel_id, session_id, messages, is_integration)."""
+    is_integration = _is_integration_client(req.client_id)
+
+    # Resolve channel
+    channel = await get_or_create_channel(
+        db,
+        channel_id=req.channel_id,
+        client_id=req.client_id,
+        bot_id=req.bot_id,
+        dispatch_config=req.dispatch_config if is_integration else None,
+    )
+
+    # Resolve session: explicit session_id takes precedence
+    resolved_session_id = req.session_id
+    if resolved_session_id is None:
+        resolved_session_id = await ensure_active_session(db, channel)
+        await db.commit()
+
+    session_id, messages = await load_or_create(
+        db, resolved_session_id, req.client_id, req.bot_id,
+        locked=is_integration,
+        channel_id=channel.id,
+    )
+
+    return channel.id, session_id, messages, is_integration
 
 
 @router.get("/bots")
@@ -135,22 +166,13 @@ async def chat(
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
-    is_integration = _is_integration_client(req.client_id)
-    # For integration sessions, derive stable session_id from client_id
-    resolved_session_id = req.session_id
-    if is_integration and resolved_session_id is None:
-        resolved_session_id = derive_integration_session_id(req.client_id)
-
-    logger.info("POST /chat  bot=%s  session=%s  passive=%s  message=%r",
-                req.bot_id, resolved_session_id, req.passive, message[:80])
-
     try:
-        session_id, messages = await load_or_create(
-            db, resolved_session_id, req.client_id, req.bot_id,
-            locked=is_integration,
-        )
+        channel_id, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  message=%r",
+                req.bot_id, channel_id, session_id, req.passive, message[:80])
 
     # Passive path: store message without running agent
     if req.passive:
@@ -172,6 +194,7 @@ async def chat(
             correlation_id=correlation_id,
             dispatch_type=req.dispatch_type,
             dispatch_config=req.dispatch_config,
+            channel_id=channel_id,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -238,21 +261,13 @@ async def chat_stream(
 
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
-    is_integration = _is_integration_client(req.client_id)
-    resolved_session_id = req.session_id
-    if is_integration and resolved_session_id is None:
-        resolved_session_id = derive_integration_session_id(req.client_id)
-
-    logger.info("POST /chat/stream  bot=%s  session=%s  passive=%s  message=%r",
-                req.bot_id, resolved_session_id, req.passive, message[:80])
-
     try:
-        session_id, messages = await load_or_create(
-            db, resolved_session_id, req.client_id, req.bot_id,
-            locked=is_integration,
-        )
+        channel_id, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  message=%r",
+                req.bot_id, channel_id, session_id, req.passive, message[:80])
 
     # Passive path: store message and return empty stream
     if req.passive:
@@ -279,6 +294,7 @@ async def chat_stream(
             bot_id=req.bot_id,
             client_id=req.client_id,
             session_id=session_id,
+            channel_id=channel_id,
             prompt=message,
             status="pending",
             dispatch_type=req.dispatch_type,
@@ -312,6 +328,7 @@ async def chat_stream(
                 client_id=req.client_id,
                 bot_id=bot.id,
                 correlation_id=correlation_id,
+                channel_id=channel_id,
                 memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
                 memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
                 memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
@@ -327,6 +344,7 @@ async def chat_stream(
                 correlation_id=correlation_id,
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
+                channel_id=channel_id,
             )
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():

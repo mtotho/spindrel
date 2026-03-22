@@ -1,0 +1,71 @@
+{% set row_id = "channel-row-" ~ channel.id %}
+<tr class="border-b border-gray-700 hover:bg-gray-750" id="{{ row_id }}">
+  <td class="px-5 py-2.5">
+    {% if channel.integration == "slack" and channel.client_id %}
+      {% set slack_id = channel.client_id[6:] %}
+      {% set slack_name = slack_names.get(slack_id) if slack_names else None %}
+      {% if slack_name %}
+      <span class="text-sm text-gray-200">#{{ slack_name }}</span>
+      {% else %}
+      <span class="text-sm text-gray-300">{{ channel.name }}</span>
+      {% endif %}
+      <div class="text-xs text-gray-600 font-mono mt-0.5">{{ slack_id }}</div>
+    {% else %}
+      <span class="text-sm text-gray-300">{{ channel.name }}</span>
+    {% endif %}
+    <div class="text-xs text-gray-600 font-mono mt-0.5">{{ channel.id | string | truncate(12, True, '...') }}</div>
+  </td>
+  <td class="px-5 py-2.5">
+    <span class="text-indigo-400 text-xs font-mono">{{ channel.bot_id }}</span>
+  </td>
+  <td class="px-5 py-2.5">
+    {% if channel.integration %}
+    <span class="text-xs px-2 py-0.5 rounded-full
+      {% if channel.integration == 'slack' %}bg-purple-900 text-purple-300
+      {% elif channel.integration == 'discord' %}bg-blue-900 text-blue-300
+      {% else %}bg-gray-700 text-gray-300{% endif %}">
+      {{ channel.integration }}
+    </span>
+    {% else %}
+    <span class="text-xs text-gray-600">--</span>
+    {% endif %}
+  </td>
+  <td class="px-5 py-2.5">
+    <div class="flex gap-1.5 flex-wrap">
+      {% if channel.require_mention %}
+      <span class="text-xs text-gray-500 bg-gray-700 rounded px-1.5 py-0.5">mention-only</span>
+      {% else %}
+      <span class="text-xs text-green-600 bg-gray-700 rounded px-1.5 py-0.5">all messages</span>
+      {% endif %}
+      {% if channel.passive_memory %}
+      <span class="text-xs text-gray-500 bg-gray-700 rounded px-1.5 py-0.5">passive-mem</span>
+      {% endif %}
+      {% if channel.rag_on_all %}
+      <span class="text-xs text-yellow-600 bg-gray-700 rounded px-1.5 py-0.5">rag-all</span>
+      {% endif %}
+    </div>
+  </td>
+  <td class="px-5 py-2.5">
+    {% if channel.active_session_id %}
+    <span class="text-xs text-gray-500 font-mono">{{ channel.active_session_id | string | truncate(12, True, '...') }}</span>
+    {% else %}
+    <span class="text-xs text-gray-600 italic">none</span>
+    {% endif %}
+  </td>
+  <td class="px-5 py-2.5 text-right">
+    <div class="flex items-center justify-end gap-2">
+      <button
+        hx-post="/admin/channels/{{ channel.id }}/reset"
+        hx-confirm="Reset session for {{ channel.name }}? Old session is preserved but inactive."
+        hx-target="closest td"
+        hx-swap="innerHTML"
+        class="text-xs text-yellow-400 hover:text-yellow-300">Reset</button>
+      <button
+        hx-get="/admin/channels/{{ channel.id }}/edit-form"
+        hx-target="#channel-edit-{{ channel.id }} td"
+        hx-swap="innerHTML"
+        class="text-xs text-indigo-400 hover:text-indigo-300">Edit</button>
+    </div>
+  </td>
+</tr>
+<tr id="channel-edit-{{ channel.id }}"><td colspan="6" class="p-0"></td></tr>

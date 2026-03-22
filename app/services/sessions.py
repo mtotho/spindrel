@@ -115,6 +115,7 @@ async def load_or_create(
     client_id: str,
     bot_id: str,
     locked: bool = False,
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[uuid.UUID, list[dict]]:
     if session_id is not None:
         existing = await db.get(Session, session_id)
@@ -133,7 +134,10 @@ async def load_or_create(
         session_id = uuid.uuid4()
 
     bot = get_bot(bot_id)
-    session = Session(id=session_id, client_id=client_id, bot_id=bot_id, locked=locked)
+    session = Session(
+        id=session_id, client_id=client_id, bot_id=bot_id,
+        locked=locked, channel_id=channel_id,
+    )
     db.add(session)
 
     system_content = _effective_system_prompt(bot)

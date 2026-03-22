@@ -48,11 +48,11 @@ from app.routers.admin_knowledge_pins import router as _pins_router  # noqa: E40
 from app.routers.admin_sandbox import router as _sandbox_router  # noqa: E402
 from app.routers.admin_bots import router as _bots_router  # noqa: E402
 from app.routers.admin_skills import router as _skills_router  # noqa: E402
-from app.routers.admin_slack import router as _slack_router  # noqa: E402
+from app.routers.admin_channels import router as _channels_router  # noqa: E402
 from app.routers.admin_providers import router as _providers_router  # noqa: E402
 router.include_router(_bots_router)
 router.include_router(_skills_router)
-router.include_router(_slack_router)
+router.include_router(_channels_router)
 router.include_router(_tasks_router)
 router.include_router(_fs_router)
 router.include_router(_pins_router)
@@ -591,9 +591,10 @@ async def admin_knowledge(
     session_filter: Optional[str] = None,
 ):
     """List knowledge rows with optional filters (bot, client, session)."""
+    from sqlalchemy.orm import selectinload
     sf_raw = (session_filter or "").strip()
     async with async_session() as db:
-        stmt = select(BotKnowledge).order_by(BotKnowledge.updated_at.desc())
+        stmt = select(BotKnowledge).options(selectinload(BotKnowledge.access_entries)).order_by(BotKnowledge.updated_at.desc())
         if bot_id:
             stmt = stmt.where(BotKnowledge.bot_id == bot_id)
         if client_id:

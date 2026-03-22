@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.agent.context import (
     current_bot_id,
+    current_channel_id,
     current_client_id,
     current_dispatch_config,
     current_dispatch_type,
@@ -133,6 +134,7 @@ async def create_task(
     effective_bot_id = bot_id or current_bot_id.get() or "default"
     effective_client_id = current_client_id.get()
     effective_session_id = current_session_id.get()
+    effective_channel_id = current_channel_id.get()
     dispatch_type = current_dispatch_type.get() or "none"
     dispatch_config = dict(current_dispatch_config.get() or {})
     if dispatch_type == "slack":
@@ -143,6 +145,7 @@ async def create_task(
         bot_id=effective_bot_id,
         client_id=effective_client_id,
         session_id=effective_session_id,
+        channel_id=effective_channel_id,
         prompt=prompt,
         scheduled_at=scheduled,
         status="pending",
@@ -182,13 +185,20 @@ async def create_task(
 })
 async def list_my_tasks() -> str:
     session_id = current_session_id.get()
-    if not session_id:
-        return "No session context available."
+    channel_id = current_channel_id.get()
+    if not session_id and not channel_id:
+        return "No session or channel context available."
 
     async with async_session() as db:
+        from sqlalchemy import or_ as _or
+        filters = []
+        if channel_id:
+            filters.append(Task.channel_id == channel_id)
+        if session_id:
+            filters.append(Task.session_id == session_id)
         stmt = (
             select(Task)
-            .where(Task.session_id == session_id)
+            .where(_or(*filters))
             .order_by(Task.created_at.desc())
             .limit(20)
         )

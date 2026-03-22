@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 
-from app.agent.context import current_bot_id, current_session_id
+from app.agent.context import current_bot_id, current_channel_id, current_session_id
 from app.db.engine import async_session
 from app.db.models import Plan, PlanItem
 from app.tools.registry import register
@@ -44,11 +44,13 @@ from app.tools.registry import register
 async def create_plan(title: str, items: list[str], description: str | None = None) -> str:
     bot_id = current_bot_id.get() or "unknown"
     session_id = current_session_id.get()
+    channel_id = current_channel_id.get()
 
     now = datetime.now(timezone.utc)
     plan = Plan(
         bot_id=bot_id,
         session_id=session_id,
+        channel_id=channel_id,
         title=title,
         description=description,
         status="active",

@@ -19,52 +19,49 @@
   </div>
 </div>
 
-<details class="mb-6 border border-indigo-500/30 rounded-xl bg-gray-900/40 open:ring-1 open:ring-indigo-500/20">
-  <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-indigo-200/95 hover:text-indigo-100 list-none [&::-webkit-details-marker]:hidden flex items-center gap-2">
-    <span class="text-indigo-400 text-xs shrink-0" aria-hidden="true">▶</span>
-    <span>How knowledge scoping works (bot, client, session, integrations)</span>
+<details class=”mb-6 border border-indigo-500/30 rounded-xl bg-gray-900/40 open:ring-1 open:ring-indigo-500/20”>
+  <summary class=”cursor-pointer select-none px-4 py-3 text-sm font-medium text-indigo-200/95 hover:text-indigo-100 list-none [&::-webkit-details-marker]:hidden flex items-center gap-2”>
+    <span class=”text-indigo-400 text-xs shrink-0” aria-hidden=”true”>▶</span>
+    <span>How knowledge scoping works (channel, bot, global)</span>
   </summary>
-  <div class="px-4 pb-4 pt-0 text-sm text-gray-400 space-y-4 border-t border-gray-700/80">
-    <p class="pt-3 leading-relaxed">
-      Each knowledge row is matched using <strong class="text-gray-300">name</strong> (for <code class="text-gray-500">@tags</code>),
-      plus <strong class="text-gray-300">bot</strong>, <strong class="text-gray-300">client</strong>, and optionally <strong class="text-gray-300">chat session</strong>
-      for automatic semantic retrieval (RAG). Empty bot or client means “any” for that axis.
+  <div class=”px-4 pb-4 pt-0 text-sm text-gray-400 space-y-4 border-t border-gray-700/80”>
+    <p class=”pt-3 leading-relaxed”>
+      Knowledge documents are scoped via <strong class=”text-gray-300”>knowledge_access</strong> entries.
+      Each entry defines a <strong class=”text-gray-300”>scope</strong> (channel, bot, or global)
+      and a <strong class=”text-gray-300”>mode</strong> (rag, pinned, or tag_only).
     </p>
 
     <div>
-      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Client ID vs session ID</h3>
-      <ul class="space-y-2 text-xs leading-relaxed list-disc pl-4">
-        <li><strong class="text-gray-300">Client ID</strong> — Stable string for where the conversation lives (e.g. web client id, or integration channel id like <code class="text-amber-500/90">slack:C01234567</code>). It does not change when you open a new browser tab; for Slack it is one id per channel.</li>
-        <li><strong class="text-gray-300">Session ID</strong> — UUID of a row in <code class="text-gray-500">sessions</code>. That row ties messages, compaction, and (for integrations) is often created to mirror the channel. Automatic knowledge search can require the <em>current</em> chat session to match the row’s session, or include rows with <strong class="text-gray-300">no session</strong> (legacy pool) so they appear in every thread for that bot+client.</li>
+      <h3 class=”text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2”>Scope types</h3>
+      <ul class=”space-y-2 text-xs leading-relaxed list-disc pl-4”>
+        <li><strong class=”text-teal-300”>Channel</strong> — Visible only in a specific channel. Knowledge persists across session resets.</li>
+        <li><strong class=”text-indigo-300”>Bot</strong> — Visible to a specific bot across all channels.</li>
+        <li><strong class=”text-green-300”>Global</strong> — Visible to all bots in all channels.</li>
       </ul>
     </div>
 
     <div>
-      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Integrations (Slack, Discord, Teams, …)</h3>
-      <p class="text-xs leading-relaxed mb-2">
-        Integration <code class="text-gray-500">client_id</code> values use a prefix (<code class="text-gray-500">slack:</code>, <code class="text-gray-500">discord:</code>, <code class="text-gray-500">teams:</code>, …).
-        The server derives a <strong class="text-gray-300">stable session UUID</strong> from the client id alone (same channel → same UUID every time), so channel-scoped knowledge can pin to that session.
-        Use the full editor on a row to attach or change session; the list shows the session title when the session row has one.
+      <h3 class=”text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2”>Retrieval modes</h3>
+      <ul class=”space-y-1.5 text-xs leading-relaxed list-disc pl-4”>
+        <li><strong class=”text-cyan-300”>RAG</strong> — Participates in automatic semantic similarity search. Retrieved when the query is relevant.</li>
+        <li><strong class=”text-yellow-300”>Pinned</strong> — Always injected into context, regardless of similarity.</li>
+        <li><strong class=”text-gray-400”>Tag only</strong> — Only accessible via explicit <code class=”text-gray-500”>@document_name</code> reference. Never auto-retrieved.</li>
+      </ul>
+    </div>
+
+    <div>
+      <h3 class=”text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2”><code class=”text-gray-500”>@name</code> references</h3>
+      <p class=”text-xs leading-relaxed”>
+        Explicit <code class=”text-gray-500”>@document_name</code> references work for all modes — even tag_only documents.
+        The reference resolves by name within the accessible scope.
       </p>
-    </div>
-
-    <div>
-      <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2"><code class="text-gray-500">@name</code> vs semantic RAG</h3>
-      <ul class="space-y-1.5 text-xs leading-relaxed list-disc pl-4">
-        <li><strong class="text-gray-300">Explicit <code class="text-gray-500">@document_name</code></strong> — Resolves by name for the same bot + client; session is not used for that lookup.</li>
-        <li><strong class="text-gray-300">Automatic retrieval</strong> — Uses bot + client + session rules above; legacy rows (session unset) still participate for that bot+client in every chat.</li>
-      </ul>
-    </div>
-
-    <div class="rounded-lg border border-gray-700 bg-gray-800/60 p-3 text-xs text-gray-500">
-      <strong class="text-gray-400">Filters on this page</strong> — The bot, client, and session dropdowns only narrow the table. They do not edit rows. Use <strong class="text-gray-400">Full editor</strong> to change scope or similarity per document.
     </div>
   </div>
 </details>
 
 <p class="text-sm text-gray-500 mb-4 max-w-3xl">
-  Rows are keyed by <strong class="text-gray-400">name + bot + client + optional session</strong>.
-  Open the panel above for client vs session and integration behavior.
+  Knowledge documents with their scope and retrieval mode.
+  Open the panel above for details on how scoping works.
 </p>
 
 <!-- Filters: narrow the table only (does not edit rows) -->
@@ -111,9 +108,8 @@
     <thead>
       <tr class="border-b border-gray-700 text-gray-400 text-xs uppercase tracking-wider">
         <th class="px-4 py-3 text-left">Name</th>
-        <th class="px-4 py-3 text-left">Bot</th>
-        <th class="px-4 py-3 text-left">Client</th>
-        <th class="px-4 py-3 text-left">Chat session</th>
+        <th class="px-4 py-3 text-left">Scope</th>
+        <th class="px-4 py-3 text-left">Mode</th>
         <th class="px-4 py-3 text-left">Source</th>
         <th class="px-4 py-3 text-left">Updated</th>
         <th class="px-4 py-3 text-left">Actions</th>
@@ -123,7 +119,7 @@
       {% for entry in entries %}
       {% include "admin/knowledge_row.html" %}
       {% else %}
-      <tr><td colspan="7" class="px-4 py-6 text-gray-500 text-center">No knowledge entries. Drop <code>.md</code> files in <code>knowledge/</code> and click Sync Files (or restart).</td></tr>
+      <tr><td colspan="6" class="px-4 py-6 text-gray-500 text-center">No knowledge entries. Drop <code>.md</code> files in <code>knowledge/</code> and click Sync Files (or restart).</td></tr>
       {% endfor %}
     </tbody>
   </table>

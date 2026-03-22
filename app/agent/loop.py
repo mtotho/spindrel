@@ -414,6 +414,7 @@ async def run_agent_tool_loop(
                             bot.id,
                             client_id,
                             session_id=session_id,
+                            channel_id=channel_id,
                             fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
                         )
                     else:
@@ -612,6 +613,7 @@ async def run_stream(
     correlation_id: uuid.UUID | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -645,6 +647,7 @@ async def run_stream(
         client_id=client_id,
         bot_id=bot.id,
         correlation_id=correlation_id,
+        channel_id=channel_id,
         memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
         memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
         memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
@@ -869,7 +872,7 @@ async def run_stream(
     if client_id:
         from app.agent.knowledge import get_pinned_knowledge_docs
         pinned_docs, pinned_names = await get_pinned_knowledge_docs(
-            bot.id, client_id, session_id=session_id
+            bot.id, client_id, session_id=session_id, channel_id=channel_id,
         )
         if pinned_docs:
             _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
@@ -895,13 +898,14 @@ async def run_stream(
                 "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
             })
 
-    if bot.knowledge.enabled and session_id and client_id:
+    if bot.knowledge.enabled and client_id:
         chunks, know_sim = await retrieve_knowledge(
             query=user_message,
             bot_id=bot.id,
             client_id=client_id,
             fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
             session_id=session_id,
+            channel_id=channel_id,
         )
         if chunks:
             _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
@@ -925,15 +929,20 @@ async def run_stream(
                 ))
             messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
 
-    # Inject active plans for the current session (always, no bot config flag)
-    if session_id:
+    # Inject active plans for the current session or channel
+    if session_id or channel_id:
         from app.db.models import Plan as _Plan, PlanItem as _PlanItem
         from app.db.engine import async_session as _async_session_plans
-        from sqlalchemy import select as _sa_select_plans
+        from sqlalchemy import select as _sa_select_plans, or_ as _sa_or
         async with _async_session_plans() as _pdb:
+            _plan_filters = []
+            if session_id:
+                _plan_filters.append(_Plan.session_id == session_id)
+            if channel_id:
+                _plan_filters.append(_Plan.channel_id == channel_id)
             _plan_rows = (await _pdb.execute(
                 _sa_select_plans(_Plan)
-                .where(_Plan.session_id == session_id, _Plan.status == "active")
+                .where(_sa_or(*_plan_filters), _Plan.status == "active")
                 .order_by(_Plan.created_at)
             )).scalars().all()
         if _plan_rows:
@@ -1128,6 +1137,7 @@ async def run(
     correlation_id: uuid.UUID | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1139,6 +1149,7 @@ async def run(
         correlation_id=correlation_id,
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
+        channel_id=channel_id,
     ):
         if event["type"] == "response":
             result.response = event["text"]

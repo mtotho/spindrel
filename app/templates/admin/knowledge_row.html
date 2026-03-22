@@ -7,31 +7,50 @@
     {% endif %}
   </td>
   <td class="px-4 py-3 text-xs">
+    {% if entry.access_entries is defined and entry.access_entries %}
+    <div class="space-y-1">
+      {% for ac in entry.access_entries %}
+      <div class="flex items-center gap-1.5">
+        {% if ac.scope_type == 'channel' %}
+        <span class="px-1.5 py-0.5 rounded bg-teal-900/50 text-teal-300 text-[11px]">channel</span>
+        <span class="font-mono text-gray-400 text-[11px]">{{ ac.scope_key[:12] if ac.scope_key else '—' }}…</span>
+        {% elif ac.scope_type == 'bot' %}
+        <span class="px-1.5 py-0.5 rounded bg-indigo-900/50 text-indigo-300 text-[11px]">bot</span>
+        <span class="font-mono text-gray-400 text-[11px]">{{ ac.scope_key or '—' }}</span>
+        {% elif ac.scope_type == 'global' %}
+        <span class="px-1.5 py-0.5 rounded bg-green-900/50 text-green-300 text-[11px]">global</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    {# Fallback to legacy columns #}
     {% if entry.bot_id %}
-    <a href="/admin/bots/{{ entry.bot_id }}" class="text-indigo-400 hover:text-indigo-200 font-mono">{{ entry.bot_id }}</a>
-    {% else %}
+    <span class="px-1.5 py-0.5 rounded bg-indigo-900/50 text-indigo-300 text-[11px]">bot: {{ entry.bot_id }}</span>
+    {% endif %}
+    {% if entry.client_id %}
+    <div class="font-mono text-gray-500 text-[11px] mt-0.5">{{ entry.client_id }}</div>
+    {% endif %}
+    {% if not entry.bot_id and not entry.client_id %}
     <span class="text-gray-600">—</span>
     {% endif %}
-  </td>
-  <td class="px-4 py-3 text-xs font-mono text-gray-400 break-all max-w-[14rem]">
-    {% if entry.client_id %}{{ entry.client_id }}{% else %}<span class="text-gray-600">—</span>{% endif %}
-  </td>
-  <td class="px-4 py-3 text-xs max-w-[22rem]">
-    {% set _sb = session_by_id|default({}) %}
-    {% if entry.session_id %}
-    {% set sess = _sb.get(entry.session_id) %}
-    {% if sess and sess.title and sess.title.strip() %}
-    <div class="text-gray-200 font-medium leading-snug mb-1 truncate max-w-[20rem]" title="{{ sess.title.strip() | e }}">{{ sess.title.strip() }}</div>
     {% endif %}
-    <a href="/admin/sessions/{{ entry.session_id }}/detail"
-       class="text-amber-400/90 hover:text-amber-200 font-mono text-[11px] break-all block"
-       title="Open session in admin">{{ entry.session_id }}</a>
-    {% if not sess and _sb %}
-    <div class="text-[10px] text-gray-600 mt-0.5">No matching session row (re-bind in full editor if needed)</div>
-    {% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if entry.access_entries is defined and entry.access_entries %}
+    <div class="space-y-1">
+      {% for ac in entry.access_entries %}
+      {% if ac.mode == 'pinned' %}
+      <span class="px-1.5 py-0.5 rounded bg-yellow-900/50 text-yellow-300 text-[11px]">pinned</span>
+      {% elif ac.mode == 'tag_only' %}
+      <span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 text-[11px]">tag only</span>
+      {% else %}
+      <span class="px-1.5 py-0.5 rounded bg-cyan-900/50 text-cyan-300 text-[11px]">rag</span>
+      {% endif %}
+      {% endfor %}
+    </div>
     {% else %}
-    <span class="text-gray-600">—</span>
-    <div class="text-[10px] text-gray-600 mt-0.5">Legacy pool (any thread, bot+client match)</div>
+    <span class="px-1.5 py-0.5 rounded bg-cyan-900/50 text-cyan-300 text-[11px]">rag</span>
     {% endif %}
   </td>
   <td class="px-4 py-3">

@@ -6,6 +6,9 @@ from dataclasses import dataclass
 current_session_id: ContextVar[uuid.UUID | None] = ContextVar(
     "current_session_id", default=None
 )
+current_channel_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "current_channel_id", default=None
+)
 current_correlation_id: ContextVar[uuid.UUID | None] = ContextVar(
     "current_correlation_id", default=None
 )
@@ -51,6 +54,7 @@ def set_agent_context(
     bot_id: str | None = None,
     correlation_id: uuid.UUID | None = None,
     *,
+    channel_id: uuid.UUID | None = None,
     memory_cross_session: bool | None = None,
     memory_cross_client: bool | None = None,
     memory_cross_bot: bool | None = None,
@@ -62,6 +66,7 @@ def set_agent_context(
 ) -> None:
     """Set the current agent context. Call at the start of run_stream."""
     current_session_id.set(session_id)
+    current_channel_id.set(channel_id)
     current_client_id.set(client_id)
     current_bot_id.set(bot_id)
     current_correlation_id.set(correlation_id)
@@ -91,6 +96,7 @@ class AgentContextSnapshot:
     """Full copy of agent ContextVars for save/restore around nested runs (e.g. delegation)."""
 
     session_id: uuid.UUID | None
+    channel_id: uuid.UUID | None
     correlation_id: uuid.UUID | None
     client_id: str | None
     bot_id: str | None
@@ -108,6 +114,7 @@ class AgentContextSnapshot:
 def snapshot_agent_context() -> AgentContextSnapshot:
     return AgentContextSnapshot(
         session_id=current_session_id.get(),
+        channel_id=current_channel_id.get(),
         correlation_id=current_correlation_id.get(),
         client_id=current_client_id.get(),
         bot_id=current_bot_id.get(),
@@ -125,6 +132,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
 
 def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_session_id.set(snap.session_id)
+    current_channel_id.set(snap.channel_id)
     current_correlation_id.set(snap.correlation_id)
     current_client_id.set(snap.client_id)
     current_bot_id.set(snap.bot_id)

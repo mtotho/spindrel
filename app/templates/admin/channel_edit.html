@@ -1,0 +1,67 @@
+<div class="px-5 py-4 bg-gray-900 space-y-3">
+  <div class="text-xs text-gray-400">
+    Channel: <span class="font-mono text-gray-300">{{ channel.name }}</span>
+    {% if channel.integration %}
+    <span class="ml-1 px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">{{ channel.integration }}</span>
+    {% endif %}
+  </div>
+  <form hx-post="/admin/channels/{{ channel.id }}"
+        hx-target="#channel-edit-{{ channel.id }} td"
+        hx-swap="innerHTML"
+        class="space-y-3">
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Name</label>
+        <input type="text" name="name" value="{{ channel.name }}"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Bot</label>
+        <select name="bot_id" required
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          {% for bot in all_bots %}
+          <option value="{{ bot.id }}" {% if channel.bot_id == bot.id %}selected{% endif %}>
+            {{ bot.name }} ({{ bot.id }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="space-y-2">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" name="require_mention" value="true"
+          {% if channel.require_mention %}checked{% endif %}
+          class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+        <div>
+          <span class="text-xs text-gray-300">Require @mention</span>
+          <p class="text-xs text-gray-600 mt-0.5">Only @mentions trigger the bot; other messages stored as context.</p>
+        </div>
+      </label>
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" name="passive_memory" value="true"
+          {% if channel.passive_memory %}checked{% endif %}
+          class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+        <div>
+          <span class="text-xs text-gray-300">Passive memory</span>
+          <p class="text-xs text-gray-600 mt-0.5">Include passive messages in memory compaction.</p>
+        </div>
+      </label>
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" name="rag_on_all" value="true"
+          {% if channel.rag_on_all %}checked{% endif %}
+          class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+        <div>
+          <span class="text-xs text-gray-300">RAG on all messages</span>
+          <p class="text-xs text-gray-600 mt-0.5">Run RAG retrieval on every message, not just @mentions.</p>
+        </div>
+      </label>
+    </div>
+    <div class="flex justify-end gap-3">
+      <button type="button"
+        onclick="document.querySelector('#channel-edit-{{ channel.id }} td').innerHTML = ''"
+        class="px-4 py-1.5 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+      <button type="submit"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm">Save</button>
+    </div>
+  </form>
+</div>

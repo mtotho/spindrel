@@ -35,7 +35,7 @@ async def post_chat(
     message: str,
     bot_id: str,
     client_id: str,
-    session_id: str,
+    session_id: str | None = None,
     attachments: list[dict] | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
@@ -45,8 +45,9 @@ async def post_chat(
         "message": message,
         "bot_id": bot_id,
         "client_id": client_id,
-        "session_id": session_id,
     }
+    if session_id:
+        payload["session_id"] = session_id
     if attachments:
         payload["attachments"] = attachments
     if dispatch_type:
@@ -66,21 +67,22 @@ async def post_chat(
 
 
 async def store_passive_message_http(
-    session_id: str,
     client_id: str,
     bot_id: str,
     content: str,
     metadata: dict,
+    session_id: str | None = None,
 ) -> None:
     """POST to /chat with passive=True to store a message without running the agent."""
     payload: dict = {
         "message": content,
         "bot_id": bot_id,
         "client_id": client_id,
-        "session_id": session_id,
         "passive": True,
         "msg_metadata": metadata,
     }
+    if session_id:
+        payload["session_id"] = session_id
     async with httpx.AsyncClient(timeout=10.0) as sc:
         r = await sc.post(
             f"{AGENT_BASE_URL}/chat",
@@ -144,7 +146,7 @@ async def stream_chat(
     message: str,
     bot_id: str,
     client_id: str,
-    session_id: str,
+    session_id: str | None = None,
     attachments: list[dict] | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
@@ -155,8 +157,9 @@ async def stream_chat(
         "message": message,
         "bot_id": bot_id,
         "client_id": client_id,
-        "session_id": session_id,
     }
+    if session_id:
+        payload["session_id"] = session_id
     if attachments:
         payload["attachments"] = attachments
     if dispatch_type:

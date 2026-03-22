@@ -102,7 +102,7 @@ app = FastAPI(
 
 # Register routers
 from app.routers import admin, chat, sessions, transcribe  # noqa: E402
-from app.routers.admin_slack import api_router as _slack_api_router  # noqa: E402
+from app.routers.admin_channels import api_router as _slack_api_router  # noqa: E402
 from app.routers.api_v1 import router as _api_v1_router  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
