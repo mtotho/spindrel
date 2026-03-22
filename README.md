@@ -810,6 +810,22 @@ Include dispatch fields in `POST /chat` to control where task results are delive
 }
 ```
 
+### Heartbeat Quiet Hours
+
+Heartbeats can be slowed down or disabled during configurable time windows (e.g. overnight) to reduce noise and resource usage.
+
+**Config** (in `.env`):
+
+```
+HEARTBEAT_QUIET_HOURS=23:00-07:00          # local time window (HH:MM-HH:MM); empty = no quiet hours
+HEARTBEAT_QUIET_INTERVAL_MINUTES=60        # interval during quiet hours (0 = disabled entirely)
+HEARTBEAT_ACTIVE_INTERVAL_MINUTES=5        # default active interval (per-heartbeat DB value takes precedence)
+```
+
+- `HEARTBEAT_QUIET_HOURS` — a time range in local time (uses `TIMEZONE`). Supports midnight-wrapping ranges like `23:00-07:00`. Leave empty to disable quiet hours.
+- `HEARTBEAT_QUIET_INTERVAL_MINUTES` — during quiet hours, heartbeats use `max(configured_interval, this_value)` as their interval. Set to `0` to disable heartbeats entirely during quiet hours.
+- `HEARTBEAT_ACTIVE_INTERVAL_MINUTES` — the default active-hours interval. Individual heartbeats can override this with their own `interval_minutes` in the DB.
+
 ## Bot-to-Bot Delegation
 
 One bot can delegate work to another bot — either synchronously (immediate mode, result returned in the same turn) or as a background task (deferred mode).
