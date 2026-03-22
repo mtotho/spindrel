@@ -44,6 +44,7 @@ def _get_scope():
     }
 })
 async def create_todo(content: str, priority: int = 0) -> str:
+    priority = int(priority)
     bot_id, channel_id, err = _get_scope()
     if err:
         return err
@@ -197,6 +198,7 @@ async def update_todo(todo_id: str, content: str | None = None,
         if content is not None:
             todo.content = content
         if priority is not None:
+            priority = int(priority)
             todo.priority = priority
         if status is not None:
             todo.status = status
