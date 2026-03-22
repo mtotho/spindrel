@@ -29,55 +29,20 @@ summary: >
 │  Proxmox Node A (Thoth VM)           │     │  Proxmox Node B (Media Server VM)    │
 │                                      │     │                                      │
 │  thoth.service (agent-server)        │────▶│  Sonarr       :8989  (TV)            │
-│    └─ media bot (media_bot.yaml)     │ API │  Radarr       :7878  (Movies)        │
-│       └─ integrations/sonarr/        │     │  Prowlarr     :9696  (Indexers)      │
-│       └─ integrations/radarr/        │     │  Jellyfin     :8096  (Streaming)     │
-│       └─ integrations/jellyfin/      │     │  Jellyseerr   :5055  (Requests)      │
-│       └─ integrations/qbittorrent/   │     │  qBittorrent  :8080  (Downloads)     │
-│       └─ integrations/bazarr/        │     │  Bazarr       :6767  (Subtitles)     │
-│       └─ integrations/jellyseerr/    │     │                                      │
-│       └─ integrations/prowlarr/      │     │  SSH :22 (VM maintenance)            │
+│    └─ media bot (DB-configured)      │ API │  Radarr       :7878  (Movies)        │
+│       └─ integrations/ (layout TBD)  │     │  Prowlarr     :9696  (Indexers)      │
+│                                      │     │  Jellyfin     :8096  (Streaming)     │
+│                                      │     │  Jellyseerr   :5055  (Requests)      │
+│                                      │     │  qBittorrent  :8080  (Downloads)     │
+│                                      │     │  Bazarr       :6767  (Subtitles)     │
+│                                      │     │                                      │
+│                                      │     │  SSH :22 (VM maintenance)            │
 └──────────────────────────────────────┘     └──────────────────────────────────────┘
 ```
 
 ### Bot Config
 
-```yaml
-# bots/media_bot.yaml
-id: media_bot
-name: "Media Bot"
-model: gemini/gemini-2.5-flash
-system_prompt: |
-  You are the media server assistant. You help Michael manage his home media stack:
-  Sonarr (TV), Radarr (movies), Jellyfin (streaming), Jellyseerr (requests),
-  qBittorrent (downloads), Bazarr (subtitles), and Prowlarr (indexers).
-
-  When reporting download status, be concise — use tables or bullet lists.
-  When something is wrong (stuck torrent, failed grab, missing episode), lead with the problem.
-local_tools:
-  - sonarr_today
-  - sonarr_upcoming
-  - sonarr_search_missing
-  - radarr_recent
-  - radarr_search_missing
-  - qbittorrent_list
-  - qbittorrent_manage
-  - jellyseerr_pending
-  - jellyseerr_request
-  - jellyfin_manage_user
-  - bazarr_status
-  - media_health_check
-  - media_disk_usage
-pinned_tools:
-  - sonarr_today
-  - qbittorrent_list
-tool_retrieval: true
-context_compaction: true
-compaction_interval: 10
-memory:
-  enabled: true
-  cross_channel: false
-```
+Bot configuration is DB-first — create the media bot via the admin UI. YAML bot configs are not used.
 
 ### Heartbeat Cadence
 
@@ -121,50 +86,13 @@ MEDIA_SERVER_SSH_KEY_PATH=/opt/thoth/.ssh/media_server_ed25519
 
 ### Integration Folder Structure
 
-```
-integrations/
-├── sonarr/
-│   ├── __init__.py
-│   ├── client.py          # SonarrClient — thin wrapper around REST API
-│   └── tools.py           # @register'd tools: sonarr_today, sonarr_upcoming, sonarr_search_missing
-├── radarr/
-│   ├── __init__.py
-│   ├── client.py           # RadarrClient
-│   └── tools.py            # radarr_recent, radarr_search_missing
-├── qbittorrent/
-│   ├── __init__.py
-│   ├── client.py           # QBittorrentClient (handles cookie auth)
-│   └── tools.py            # qbittorrent_list, qbittorrent_manage
-├── jellyfin/
-│   ├── __init__.py
-│   ├── client.py           # JellyfinClient
-│   └── tools.py            # jellyfin_manage_user
-├── jellyseerr/
-│   ├── __init__.py
-│   ├── client.py           # JellyseerrClient
-│   └── tools.py            # jellyseerr_pending, jellyseerr_request
-├── bazarr/
-│   ├── __init__.py
-│   ├── client.py           # BazarrClient
-│   └── tools.py            # bazarr_status
-├── prowlarr/
-│   ├── __init__.py
-│   ├── client.py           # ProwlarrClient
-│   └── tools.py            # (Phase 3 — indexer health)
-└── media_common/
-    ├── __init__.py
-    └── health.py           # media_health_check, media_disk_usage (SSH-based)
-```
-
-Each `client.py` follows the same pattern — an async class using `httpx.AsyncClient` with base URL and API key from config. Each `tools.py` registers tools via `@register(openai_schema)` that call the client.
+Each service gets a `client.py` (async `httpx.AsyncClient` wrapper) and a `tools.py` (`@register(openai_schema)`). Grouping under `integrations/arr/` (for the *arr apps that share an API pattern) or similar subfolders is an option, but the exact organization is TBD. A `media_common/` module holds shared utilities like SSH-based health checks.
 
 ---
 
 ## Phase 1 — Core Query Tools
 
 *Highest value, lowest effort. Read-only API calls, no side effects.*
-
-**Effort: ~2-3 days**
 
 ### Sonarr
 
@@ -250,12 +178,12 @@ Subtitle status — wanted vs. available, any failed downloads.
 
 ### Phase 1 Deliverables
 
-- [ ] `integrations/sonarr/client.py` + `tools.py`
-- [ ] `integrations/radarr/client.py` + `tools.py`
-- [ ] `integrations/qbittorrent/client.py` + `tools.py`
-- [ ] `integrations/jellyseerr/client.py` + `tools.py`
-- [ ] `integrations/bazarr/client.py` + `tools.py`
-- [ ] `bots/media_bot.yaml`
+- [ ] Sonarr client + tools
+- [ ] Radarr client + tools
+- [ ] qBittorrent client + tools
+- [ ] Jellyseerr client + tools
+- [ ] Bazarr client + tools
+- [ ] Media bot created via admin UI
 - [ ] `.env` additions documented
 - [ ] Basic smoke tests for each client
 
@@ -264,8 +192,6 @@ Subtitle status — wanted vs. available, any failed downloads.
 ## Phase 2 — Action Tools
 
 *Write operations. Require more care — confirm destructive actions with the user.*
-
-**Effort: ~2-3 days**
 
 ### Jellyseerr
 
@@ -331,85 +257,15 @@ Pause, resume, or delete a torrent by hash.
 
 ---
 
-## Phase 3 — Proactive Heartbeat Monitoring
+## Phase 3 — Scheduling & Periodic Checks
 
-*The bot checks things on a schedule and alerts in `#media` when something needs attention.*
-
-**Effort: ~2-3 days**
-
-### Alert Conditions
-
-| Condition | Check | Severity |
-|-----------|-------|----------|
-| Today's expected shows haven't downloaded by 8 PM | Sonarr calendar + `hasFile` check | High |
-| Torrent stuck >24h (stalledDL, no progress) | qBittorrent torrent list + `last_activity` | Medium |
-| Sonarr/Radarr failed grab | Sonarr/Radarr `/api/v3/history?eventType=grabbed` with `data.downloadClient` failures | High |
-| Disk usage >90% on media drives | SSH `df -h` or Sonarr `/api/v3/diskspace` | High |
-| Service unreachable | HTTP health check on each service URL | Critical |
-| Prowlarr indexer down | Prowlarr `/api/v1/indexerstatus` | Medium |
-
-### Evening Check (8:00 PM)
-
-```
-🎬 Evening Media Check — March 22
-
-TV:
-  ✓ Severance S02E10 — downloaded, subtitles ready
-  ✗ The Last of Us S02E04 — NOT DOWNLOADED (aired 3h ago)
-    → Triggered search via Sonarr
-
-Movies:
-  ✓ No pending downloads
-
-Torrents:
-  2 active, 0 stuck
-
-Disk: /media — 62% used (1.8 TB free)
-```
-
-### Weekly Summary (Sunday 10:00 AM)
-
-```
-📊 Weekly Media Summary — March 16-22
-
-Downloaded this week:
-  TV: 12 episodes across 5 shows
-  Movies: 2 (Dune: Part Three, The Brutalist)
-  Subtitles: 14 fetched, 1 still missing
-
-Failed/Retried:
-  1 failed grab (Reacher S03E05 — retried successfully)
-
-Pending Requests:
-  2 movie requests awaiting processing
-
-Storage:
-  /media — 62% (1.8 TB free), +48 GB this week
-  Estimated weeks until 90%: ~11
-```
-
-### Implementation Notes
-
-- Heartbeat checks use the existing `heartbeat_worker` infrastructure in `app/services/heartbeat.py`
-- The media bot's heartbeat config in its YAML defines the schedule
-- Each check is a tool call the heartbeat invokes on schedule
-- Alerts post to `#media` with appropriate severity formatting
-
-### Phase 3 Deliverables
-
-- [ ] Heartbeat schedule config in `media_bot.yaml`
-- [ ] Evening check routine (8 PM)
-- [ ] Weekly summary routine (Sunday 10 AM)
-- [ ] Alert formatting (severity levels, thread details)
-- [ ] `integrations/prowlarr/` client + indexer health tool
+The existing schedule task system is sufficient for prompt-driven periodic checks — no new code required. Bind skills to scheduled tasks via the admin UI. Deterministic ingestion tasks (e.g. nightly data fetches) run outside the app via cron. No new heartbeat infrastructure needed.
 
 ---
 
 ## Phase 4 — VM Maintenance
 
 *SSH-based checks on the media server host. Secondary priority — nice to have for the weekly summary.*
-
-**Effort: ~1-2 days**
 
 ### Tools
 
@@ -448,7 +304,7 @@ Check for pending apt updates on the media server.
 
 ### Phase 4 Deliverables
 
-- [ ] `integrations/media_common/health.py` — SSH-based health tools
+- [ ] SSH-based health tools (media_common module)
 - [ ] SSH key setup documentation
 - [ ] `media_health_check` tool
 - [ ] `media_disk_usage` tool
@@ -574,41 +430,36 @@ Prowlarr uses API v1, not v3 like Sonarr/Radarr. The `ArrClient` base class shou
 ### Recommended Order
 
 ```
-Phase 1a: Foundation + Sonarr + qBittorrent          ~1 day
+Phase 1a: Foundation + Sonarr + qBittorrent
   ├─ media_common/ base client
-  ├─ integrations/sonarr/ (client + tools)
-  ├─ integrations/qbittorrent/ (client + tools)
-  └─ bots/media_bot.yaml (minimal)
+  ├─ Sonarr client + tools
+  ├─ qBittorrent client + tools
+  └─ media bot created via admin UI
 
-Phase 1b: Radarr + Jellyseerr + Bazarr               ~1 day
-  ├─ integrations/radarr/ (client + tools)
-  ├─ integrations/jellyseerr/ (client + tools)
-  └─ integrations/bazarr/ (client + tools)
+Phase 1b: Radarr + Jellyseerr + Bazarr
+  ├─ Radarr client + tools
+  ├─ Jellyseerr client + tools
+  └─ Bazarr client + tools
 
-Phase 2a: Action tools (Sonarr/Radarr search)        ~1 day
+Phase 2a: Action tools (Sonarr/Radarr search)
   ├─ sonarr_search_missing
   ├─ radarr_search_missing
   └─ qbittorrent_manage (pause/resume/delete)
 
-Phase 2b: Jellyseerr requests + Jellyfin users        ~1 day
+Phase 2b: Jellyseerr requests + Jellyfin users
   ├─ jellyseerr_request (search + confirm + submit)
   └─ jellyfin_manage_user (create/delete/reset)
 
-Phase 3: Heartbeat + proactive alerts                 ~2-3 days
-  ├─ Heartbeat schedule wiring
-  ├─ Evening check routine
-  ├─ Weekly summary routine
-  ├─ Alert formatting
-  └─ integrations/prowlarr/ (indexer health)
+Phase 3: Scheduling — config only, no new code
+  └─ Bind skills to scheduled tasks via admin UI
 
-Phase 4: VM maintenance (SSH)                         ~1-2 days
+Phase 4: VM maintenance (SSH)
   ├─ SSH client setup (asyncssh)
   ├─ media_health_check
   ├─ media_disk_usage
   └─ media_apt_updates
 ```
 
-**Total estimate: ~7-10 days**
 
 ### Start With
 
