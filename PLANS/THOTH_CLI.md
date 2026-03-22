@@ -1,13 +1,11 @@
 ---
-status: draft
+status: active
 last_updated: 2026-03-22
 owner: mtoth
 summary: >
   Thoth is the official name for the agent-server project.
-  Plan covers: production VM architecture (app runs native on host, backing
-  services in Docker), a thoth CLI entry point, systemd service registration,
-  and a first-time install wizard. Docker mode remains optional for users who
-  prefer it.
+  Phase 1 complete: shell dispatcher (./thoth), systemd unit, install-service.sh.
+  Phase 2 (backup wired into CLI) complete. Phase 3 (Python Click rewrite) pending.
 ---
 
 # Thoth: Production Architecture & CLI
