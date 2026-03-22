@@ -87,7 +87,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -110,7 +110,7 @@ class TestLlmCall:
         mock_client.chat.completions.create = AsyncMock(side_effect=rate_err)
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_settings.LLM_RATE_LIMIT_RETRIES = 2
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -132,7 +132,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -157,7 +157,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 10
@@ -224,11 +224,11 @@ class TestToolDispatchRouting:
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
              patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
-             patch("app.agent.loop.is_client_tool", return_value=False), \
-             patch("app.agent.loop.is_local_tool", return_value=True), \
-             patch("app.agent.loop.is_mcp_tool", return_value=False), \
-             patch("app.agent.loop.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_call, \
-             patch("app.agent.loop._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_call, \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
             events = []
             async for event in run_agent_tool_loop(
@@ -261,12 +261,12 @@ class TestToolDispatchRouting:
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
              patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
-             patch("app.agent.loop.is_client_tool", return_value=False), \
-             patch("app.agent.loop.is_local_tool", return_value=False), \
-             patch("app.agent.loop.is_mcp_tool", return_value=True), \
-             patch("app.agent.loop.get_mcp_server_for_tool", return_value="my_server"), \
-             patch("app.agent.loop.call_mcp_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_call, \
-             patch("app.agent.loop._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.get_mcp_server_for_tool", return_value="my_server"), \
+             patch("app.agent.tool_dispatch.call_mcp_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_call, \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
             events = []
             async for event in run_agent_tool_loop(
@@ -295,10 +295,10 @@ class TestToolDispatchRouting:
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
              patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
-             patch("app.agent.loop.is_client_tool", return_value=False), \
-             patch("app.agent.loop.is_local_tool", return_value=False), \
-             patch("app.agent.loop.is_mcp_tool", return_value=False), \
-             patch("app.agent.loop._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
             events = []
             async for event in run_agent_tool_loop(
@@ -367,10 +367,10 @@ class TestRunAgentToolLoop:
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
              patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
-             patch("app.agent.loop.is_client_tool", return_value=False), \
-             patch("app.agent.loop.is_local_tool", return_value=True), \
-             patch("app.agent.loop.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
-             patch("app.agent.loop._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop.settings") as mock_settings:
             mock_settings.AGENT_MAX_ITERATIONS = 3
