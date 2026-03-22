@@ -30,6 +30,7 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "aiosqlite",
 ]
 
 [tool.setuptools.packages.find]

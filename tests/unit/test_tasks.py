@@ -30,6 +30,7 @@ class TestScheduleNextOccurrence:
         task.recurrence = "+1h"
 
         db = AsyncMock()
+        db.add = MagicMock()
         cm = AsyncMock()
         cm.__aenter__ = AsyncMock(return_value=db)
         cm.__aexit__ = AsyncMock(return_value=False)
@@ -81,6 +82,7 @@ class TestRunTask:
     def _mock_db_session(self, task_obj):
         """Create a mock async_session that returns task_obj on db.get()."""
         db = AsyncMock()
+        db.add = MagicMock()
         db.get = AsyncMock(return_value=task_obj)
         cm = AsyncMock()
         cm.__aenter__ = AsyncMock(return_value=db)
