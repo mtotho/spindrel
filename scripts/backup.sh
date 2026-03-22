@@ -4,7 +4,7 @@ set -euo pipefail
 # ── Config ──────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
-RCLONE_REMOTE="${RCLONE_REMOTE:-s3:thoth-backups}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-s3:thoth-server-backups}"
 LOCAL_KEEP="${LOCAL_KEEP:-7}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 DUMP_FILE="agentdb_${STAMP}.dump"

@@ -25,7 +25,7 @@ region = us-east-1
 Create the bucket:
 
 ```bash
-aws s3 mb s3://thoth-backups --region us-east-1
+aws s3 mb s3://thoth-server-backups --region us-east-1
 ```
 
 Verify it works:
@@ -69,7 +69,7 @@ rclone lsd gdrive:
 This will:
 1. `pg_dump` the database via `docker compose exec`
 2. Bundle the dump with `.env`, `bots/`, `skills/`, `mcp.yaml`, and `config/searxng/settings.yml`
-3. Upload the tarball to the rclone remote (default: `s3:thoth-backups`)
+3. Upload the tarball to the rclone remote (default: `s3:thoth-server-backups`)
 4. Prune local backups to the most recent 7
 
 ### 3. Set up cron (daily at 2 AM)
@@ -117,7 +117,7 @@ Both scripts support environment variable overrides:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKUP_DIR` | `./backups` | Local directory for backup archives |
-| `RCLONE_REMOTE` | `s3:thoth-backups` | rclone remote and path |
+| `RCLONE_REMOTE` | `s3:thoth-server-backups` | rclone remote and path |
 | `LOCAL_KEEP` | `7` | Number of local backups to retain (backup.sh only) |
 
 To use Google Drive instead of S3, configure a gdrive remote in rclone and set:
