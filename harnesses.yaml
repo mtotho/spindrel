@@ -1,7 +1,7 @@
 harnesses:
   claude-code:
     command: claude
-    args: ["--print", "{prompt}"]
+    args: ["--print", "{prompt}", "--dangerously-skip-permissions"]
     working_directory: "{working_directory}"
     timeout: 1800
 
