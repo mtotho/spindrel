@@ -4,7 +4,8 @@ from pydantic_settings import BaseSettings
 class GithubConfig(BaseSettings):
     GITHUB_WEBHOOK_SECRET: str = ""
     GITHUB_TOKEN: str = ""
-    AGENT_SESSION_ID: str = ""
+    SLACK_CHANNEL_ID: str = ""
+    SLACK_BOT_TOKEN: str = ""
 
     model_config = {"env_prefix": ""}
 
