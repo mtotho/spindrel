@@ -2,7 +2,7 @@
 status: active
 last_updated: 2026-03-22
 owner: mtoth
-summary: |
+summary: >
   4-layer security pipeline for ingesting external content (email, webhooks, etc.)
   into the agent. Integrations are isolated SQLite-backed plugins that cross into
   the agent only via HTTP to /api/v1/. Gmail is the first integration.
@@ -17,7 +17,7 @@ copy `integrations/gmail/`, set a few env vars, and have it running with zero
 knowledge of agent-server internals.
 
 Rules:
-- **SQLite only** — each integration owns `store.db` for quarantine, audit, processed IDs
+- **SQLite only** — each integration owns `store.db` for quarantine, audit, processed IDs. No PostgreSQL, pgvector, or Alembic.
 - **No `/app` imports** — cross the boundary only via HTTP calls to `/api/v1/`
 - **No Alembic migrations** — integrations manage their own SQLite schema on startup
 - **Pydantic models** throughout (not dataclasses)
@@ -56,19 +56,19 @@ Rules:
 - Size truncation (configurable max bytes)
 - Output: plain text + structured metadata
 
-### Layer 2 — Deterministic Injection Filter (deterministic)
+### Layer 2 — Deterministic Injection Filter (regex + zero-width only)
 - Regex pattern matching against known injection phrases
 - Zero-width character detection (`\u200b`, `\u200c`, `\u200d`, `\ufeff`, etc.)
 - NFKC normalization
-- Homoglyph detection: **deferred** — high false-positive risk on internationalized content
+- Homoglyph detection: **deferred** — high false-positive risk on internationalized content; revisit once we have real-world data
 - Output: `list[str]` of matched pattern names (empty = clean)
 
 ### Layer 3 — AI Safety Classifier (isolated HTTP call)
-- Plain `httpx` POST to configurable LLM endpoint
+- Plain `httpx.AsyncClient.post()` to configurable LLM endpoint
 - Default: agent-server's LiteLLM proxy (`INGESTION_CLASSIFIER_URL`)
 - Hardcoded system prompt, no tools, no memory, no SDK imports
 - Strict JSON output parsing: `{"safe": bool, "reason": str, "risk_level": "low|medium|high"}`
-- **Fails closed** — timeout or parse error = quarantine
+- **Fails closed** — timeout, non-200 response, or JSON parse failure = quarantine
 - Timeout: configurable, default 15s
 
 ### Layer 4 — Typed Envelope (Pydantic validation)
@@ -98,7 +98,7 @@ class ExternalMessage(BaseModel):
 
 ## Integration-Local SQLite Schema
 
-Each integration initializes its own `store.db` on startup:
+Each integration initializes its own `store.db` on startup (no Alembic — `CREATE TABLE IF NOT EXISTS` is sufficient):
 
 ```sql
 CREATE TABLE IF NOT EXISTS processed_ids (
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 ```
 
 **GDPR Note:** `quarantine.raw_content` may contain personal email content.
-Default retention = 90 days, configurable via `INGESTION_QUARANTINE_RETENTION_DAYS`.
+Default retention = **90 days**, configurable via `INGESTION_QUARANTINE_RETENTION_DAYS`.
 Purge runs on each integration startup and can be triggered manually.
 
 ---
@@ -159,7 +159,6 @@ class IngestionConfig(BaseSettings):
 integrations/
   ingestion/              # shared pipeline (not an integration itself)
     __init__.py
-    PLAN.md               # this file
     config.py             # IngestionConfig (Pydantic Settings)
     envelope.py           # RawMessage, RiskMetadata, ExternalMessage
     filters.py            # Layer 2 deterministic filters
@@ -190,7 +189,7 @@ docs/integrations/
 4. `integrations/ingestion/filters.py` — Layer 2
 5. `integrations/ingestion/classifier.py` — Layer 3 (httpx, fails closed)
 6. `integrations/ingestion/pipeline.py` — orchestrator
-7. `app/api/v1/embed.py` — embedding endpoint (optional but recommended)
+7. Server-side: `POST /api/v1/embed` endpoint — optional but recommended for integrations needing RAG
 8. `integrations/gmail/` — Gmail adapter, poller, CLI
 9. `docs/integrations/CREATING_INTEGRATION.md` — pattern guide
 
