@@ -265,21 +265,22 @@ Step-by-step for a fresh Ubuntu 24.04 LTS VM.
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Python 3.12
-sudo apt install -y python3.12 python3.12-venv python3-pip
+# System dependencies (everything except Docker)
+sudo apt install -y git python3.12 python3.12-venv rclone
 
-# Docker
+# Docker — via official script (includes compose plugin)
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER
+newgrp docker
 
-# Git
-sudo apt install -y git
+# Verify Docker install
+docker --version && docker compose version
 
-# rclone
-curl https://rclone.org/install.sh | sudo bash
+# rclone (if not available via apt on your distro)
+# curl https://rclone.org/install.sh | sudo bash
 
-# AWS CLI (optional, for S3 bucket management)
-sudo apt install -y awscli
+# AWS CLI (optional — for S3 bucket management)
+# sudo apt install -y awscli
 ```
 
 ### 2. Clone Repo
