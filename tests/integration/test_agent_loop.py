@@ -94,7 +94,7 @@ class TestLlmCall:
             patch("app.agent.llm.settings") as mock_settings,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
+            mock_settings.LLM_MAX_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
             from app.agent.loop import _llm_call
             result = await _llm_call("test/model", [{"role": "user", "content": "hi"}], None, None)
@@ -116,8 +116,8 @@ class TestLlmCall:
             patch("app.agent.llm.settings") as mock_settings,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
-            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 2
+            mock_settings.LLM_MAX_RETRIES = 3
+            mock_settings.LLM_RETRY_INITIAL_WAIT = 2
             from app.agent.loop import _llm_call
             result = await _llm_call("test/model", [], None, None)
 
@@ -139,8 +139,9 @@ class TestLlmCall:
             patch("app.agent.llm.settings") as mock_settings,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 2
+            mock_settings.LLM_MAX_RETRIES = 2
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
+            mock_settings.LLM_FALLBACK_MODEL = None
             from app.agent.loop import _llm_call
             with pytest.raises(openai.RateLimitError):
                 await _llm_call("test/model", [], None, None)
@@ -167,7 +168,7 @@ class TestLlmCall:
             patch("app.agent.llm.settings") as mock_settings,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
+            mock_settings.LLM_MAX_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 5
             from app.agent.loop import _llm_call
             await _llm_call("test/model", [], None, None)
