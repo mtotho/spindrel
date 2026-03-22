@@ -1161,12 +1161,10 @@ class TestRunCompactionForced:
 class TestRunCompactionForcedBugs:
     @pytest.mark.asyncio
     async def test_forced_with_no_user_messages_crashes(self, factory):
-        """BUG: run_compaction_forced does not guard against empty user_msg_ids.
+        """run_compaction_forced raises ValueError when session has no user messages.
 
-        Unlike run_compaction_stream (which checks `if not user_msg_ids`),
-        run_compaction_forced accesses user_msg_ids[-1] unconditionally on line 541.
-        If there are no user messages (e.g., only assistant messages in history),
-        this will raise IndexError.
+        Previously this was an unguarded IndexError on user_msg_ids[-1].
+        Now mirrors the guard in run_compaction_stream.
         """
         bot = _make_bot(compaction_interval=3, compaction_keep_turns=1)
         sid = uuid.uuid4()
@@ -1193,8 +1191,7 @@ class TestRunCompactionForcedBugs:
                 patch("app.services.providers.get_llm_client", return_value=mock_client),
                 patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
             ):
-                # This WILL raise IndexError — documenting the bug
-                with pytest.raises(IndexError):
+                with pytest.raises(ValueError, match="No user messages found"):
                     await run_compaction_forced(sid, bot, db)
 
 
