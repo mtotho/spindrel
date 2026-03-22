@@ -148,10 +148,14 @@ function botContextEstimatePanel(botId) {
         {% if model_groups %}
         <select id="model-picker-edit"
           onchange="(function(sel){
-            var opt=sel.options[sel.selectedIndex];
             var v=sel.value;
-            if(v && v!=='__other__') document.getElementById('model-input-edit').value=v;
-            document.getElementById('model-provider-id-edit').value=opt.dataset.providerId||'';
+            if(!v || v==='__other__') return;
+            var sep=v.indexOf('@@');
+            var modelId=sep>=0?v.substring(0,sep):v;
+            var provId=sep>=0?v.substring(sep+2):'';
+            document.getElementById('model-input-edit').value=modelId;
+            document.getElementById('model-provider-id-edit').value=provId;
+            var opt=sel.options[sel.selectedIndex];
             var info=document.getElementById('model-info-edit');
             var ctx=opt.dataset.ctx, inp=opt.dataset.inp, out=opt.dataset.out;
             if(info){ info.textContent=(ctx||inp||out)?[ctx?ctx+'k ctx':'',inp&&out?inp+' in / '+out+' out /1M':''].filter(Boolean).join(' · '):''; }
@@ -161,12 +165,13 @@ function botContextEstimatePanel(botId) {
           {% for group in model_groups %}
           <optgroup label="{{ group.provider_name }} ({{ group.provider_type }})">
             {% for m in group.models %}
-            <option value="{{ m.id }}"
-              data-provider-id="{{ group.provider_id or '' }}"
+            {% set opt_val = m.id ~ '@@' ~ (group.provider_id or '') %}
+            {% set cur_val = (bot.model or '') ~ '@@' ~ (bot.model_provider_id or '') %}
+            <option value="{{ opt_val }}"
               data-ctx="{{ (m.max_tokens // 1000) if m.max_tokens else '' }}"
               data-inp="{{ m.input_cost_per_1m or '' }}"
               data-out="{{ m.output_cost_per_1m or '' }}"
-              {{ 'selected' if m.id == bot.model and (group.provider_id or '') == (bot.model_provider_id or '') else '' }}>{{ m.display }}</option>
+              {{ 'selected' if opt_val == cur_val else '' }}>{{ m.display }}</option>
             {% endfor %}
           </optgroup>
           {% endfor %}
