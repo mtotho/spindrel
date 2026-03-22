@@ -9,61 +9,30 @@ Automated Postgres dumps + config file backups, uploaded to S3 (or any rclone-su
 
 ## Setup
 
-### 1a. Configure rclone with S3 (recommended)
+### 1. Configure S3 credentials
 
-Add to `~/.config/rclone/rclone.conf` (or run `rclone config`):
+No rclone config file needed — the scripts pass credentials via environment variables. Add these to your `.env` or export them in your shell:
 
-```ini
-[s3]
-type = s3
-provider = AWS
-access_key_id = YOUR_ACCESS_KEY_ID
-secret_access_key = YOUR_SECRET_ACCESS_KEY
-region = us-east-1
+```bash
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+AWS_REGION=us-east-1
+RCLONE_REMOTE=:s3:your-bucket-name
 ```
 
-Create the bucket:
+> **Note:** The `:s3:` prefix is rclone's [connection string syntax](https://rclone.org/docs/#connection-strings) — it tells rclone to use the S3 backend without a named config entry.
+
+Create the bucket if it doesn't exist:
 
 ```bash
 aws s3 mb s3://your-bucket-name --region us-east-1
 ```
 
-Then export the remote so the backup/restore scripts can find it:
-
-```bash
-export RCLONE_REMOTE=s3:your-bucket-name
-```
-
 Verify it works:
 
 ```bash
-rclone lsd s3:
-```
-
-### 1b. Alternative: Configure rclone with Google Drive
-
-```bash
-rclone config
-```
-
-Follow the interactive setup:
-- **n** (new remote)
-- Name: `gdrive`
-- Storage: `drive` (Google Drive)
-- Leave client_id/secret blank (uses rclone's defaults)
-- Scope: `drive` (full access) or `drive.file` (only rclone-created files)
-- Complete the OAuth flow in your browser
-
-Then set the remote override:
-
-```bash
-export RCLONE_REMOTE=gdrive:agent-backups
-```
-
-Verify it works:
-
-```bash
-rclone lsd gdrive:
+export AWS_ACCESS_KEY_ID=your-key AWS_SECRET_ACCESS_KEY=your-secret RCLONE_REMOTE=:s3:your-bucket-name
+rclone lsd "$RCLONE_REMOTE"
 ```
 
 ### 2. Run a manual backup
@@ -122,15 +91,12 @@ Both scripts support environment variable overrides:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AWS_ACCESS_KEY_ID` | *(required)* | AWS access key for S3 |
+| `AWS_SECRET_ACCESS_KEY` | *(required)* | AWS secret key for S3 |
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `RCLONE_REMOTE` | *(required)* | rclone remote path (e.g. `:s3:your-bucket-name`) |
 | `BACKUP_DIR` | `./backups` | Local directory for backup archives |
-| `RCLONE_REMOTE` | *(required)* | rclone remote and path (e.g. `s3:your-bucket-name`) |
 | `LOCAL_KEEP` | `7` | Number of local backups to retain (backup.sh only) |
-
-To use Google Drive instead of S3, configure a gdrive remote in rclone and set:
-
-```bash
-RCLONE_REMOTE=gdrive:agent-backups ./scripts/backup.sh
-```
 
 ## What's backed up
 
@@ -146,7 +112,7 @@ RCLONE_REMOTE=gdrive:agent-backups ./scripts/backup.sh
 ## Migration to a new server
 
 1. On old host: `./scripts/backup.sh`
-2. On new host: clone repo, install Docker + rclone, configure the same rclone remote
+2. On new host: clone repo, install Docker + rclone, set the same AWS/rclone env vars
 3. Run `./scripts/restore.sh`
 4. Review `.env` for host-specific values (`LITELLM_BASE_URL`, paths, etc.)
 5. Set up cron on the new host
