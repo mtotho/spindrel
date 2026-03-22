@@ -36,7 +36,9 @@ class TestBuildExecScript:
         script = build_exec_script("python", ["run.py"], None, "/tmp/out.log")
         assert "mkdir -p" in script
         assert "tee /tmp/out.log" in script
-        assert "PIPESTATUS" in script
+        # Portable exit-code capture via temp file (no bash-only PIPESTATUS)
+        assert ".exit_code" in script
+        assert "PIPESTATUS" not in script
 
     def test_with_working_directory_and_stream_to(self):
         script = build_exec_script("npm", ["test"], "/app", "/tmp/exec-output/abc.log")
