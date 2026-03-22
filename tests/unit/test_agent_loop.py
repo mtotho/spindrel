@@ -87,7 +87,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -110,7 +110,7 @@ class TestLlmCall:
         mock_client.chat.completions.create = AsyncMock(side_effect=rate_err)
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_settings.LLM_RATE_LIMIT_RETRIES = 2
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -132,7 +132,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
@@ -157,7 +157,7 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.loop.settings") as mock_settings, \
+             patch("app.agent.llm.settings") as mock_settings, \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             mock_settings.LLM_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 10
