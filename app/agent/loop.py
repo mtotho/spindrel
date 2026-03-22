@@ -15,6 +15,8 @@ from app.agent.message_utils import (
     _extract_client_actions,
     _extract_transcript,
 )
+from app.agent.elevation import classify_turn
+from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
 from app.agent.llm import _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
 from app.agent.tool_dispatch import dispatch_tool_call
@@ -84,6 +86,7 @@ async def run_agent_tool_loop(
 
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
+    tool_calls_made: list[str] = []  # track tool names for elevation classifier
 
     try:
         for iteration in range(settings.AGENT_MAX_ITERATIONS):
@@ -133,7 +136,40 @@ async def run_agent_tool_loop(
                 )
                 await asyncio.sleep(_wait)
 
-            response = await _llm_call(model, messages, tools_param, tool_choice, provider_id=provider_id)
+            # --- Model elevation ---
+            if settings.MODEL_ELEVATION_ENABLED and not compaction:
+                decision = classify_turn(
+                    messages, model,
+                    settings.MODEL_ELEVATED_MODEL,
+                    settings.MODEL_ELEVATION_THRESHOLD,
+                    tool_calls_made,
+                )
+                effective_model = decision.model
+                _elev_log_id = await log_elevation(
+                    decision, turn_id=correlation_id,
+                    bot_id=bot.id, channel_id=channel_id,
+                )
+                if decision.was_elevated:
+                    logger.info(
+                        "Elevation: %s → %s (score=%.2f, rules=%s)",
+                        model, effective_model, decision.score, decision.rules_fired,
+                    )
+            else:
+                effective_model = model
+                _elev_log_id = None
+
+            import time as _time
+            _llm_t0 = _time.monotonic()
+            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id)
+            _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
+
+            # Backfill elevation log with outcome data
+            if _elev_log_id is not None:
+                _tokens = response.usage.total_tokens if response.usage else None
+                asyncio.create_task(backfill_elevation_log(
+                    _elev_log_id, tokens_used=_tokens, latency_ms=_llm_latency_ms,
+                ))
+
             msg = response.choices[0].message
             msg_dict = msg.model_dump(exclude_none=True)
             messages.append(msg_dict)
@@ -267,6 +303,7 @@ async def run_agent_tool_loop(
                     compaction=compaction,
                 )
 
+                tool_calls_made.append(name)
                 for pre_event in tc_result.pre_events:
                     yield pre_event
                 if tc_result.embedded_client_action is not None:

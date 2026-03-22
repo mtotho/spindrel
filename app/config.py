@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     KNOWLEDGE_SIMILARITY_THRESHOLD: float = 0.45
     MEMORY_MAX_INJECT_CHARS: int = 3000      # per memory item injected into context
 
+    # Model elevation
+    MODEL_ELEVATION_ENABLED: bool = False
+    MODEL_ELEVATION_THRESHOLD: float = 0.4
+    MODEL_ELEVATED_MODEL: str = "claude-sonnet-4-5"
+    MODEL_ELEVATION_DEFAULT_MODEL: str = ""  # empty = use bot.model as default
+
     # Heartbeat schedule control
     HEARTBEAT_QUIET_HOURS: str = ""  # e.g. "23:00-07:00" — local time window where heartbeats slow/stop
     HEARTBEAT_QUIET_INTERVAL_MINUTES: int = 60  # interval during quiet hours (0 = disabled entirely)
