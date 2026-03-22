@@ -55,6 +55,22 @@ def _mock_tool_call(name="test_tool", args='{}', tc_id="tc_1"):
 # _llm_call tests
 # ---------------------------------------------------------------------------
 
+def _default_mock_settings(**overrides):
+    """Return a mock settings object with defaults for LLM retry/fallback."""
+    s = MagicMock()
+    defaults = dict(
+        LLM_MAX_RETRIES=3,
+        LLM_RATE_LIMIT_INITIAL_WAIT=1,
+        LLM_RETRY_INITIAL_WAIT=1,
+        LLM_FALLBACK_MODEL="",
+        AGENT_TRACE=False,
+    )
+    defaults.update(overrides)
+    for k, v in defaults.items():
+        setattr(s, k, v)
+    return s
+
+
 class TestLlmCall:
     @pytest.mark.asyncio
     async def test_success_first_attempt(self):
@@ -87,11 +103,8 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.llm.settings") as mock_settings, \
+             patch("app.agent.llm.settings", _default_mock_settings()), \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
-            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
-            mock_settings.AGENT_TRACE = False
             result = await _llm_call("gpt-4", [], None, None)
             assert result is mock_resp
             assert mock_client.chat.completions.create.await_count == 2
@@ -110,11 +123,8 @@ class TestLlmCall:
         mock_client.chat.completions.create = AsyncMock(side_effect=rate_err)
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.agent.llm.settings") as mock_settings, \
+             patch("app.agent.llm.settings", _default_mock_settings(LLM_MAX_RETRIES=2)), \
              patch("asyncio.sleep", new_callable=AsyncMock):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 2
-            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
-            mock_settings.AGENT_TRACE = False
             with pytest.raises(openai.RateLimitError):
                 await _llm_call("gpt-4", [], None, None)
             assert mock_client.chat.completions.create.await_count == 3  # initial + 2 retries
@@ -132,11 +142,8 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.llm.settings") as mock_settings, \
+             patch("app.agent.llm.settings", _default_mock_settings()), \
              patch("asyncio.sleep", new_callable=AsyncMock):
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
-            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 1
-            mock_settings.AGENT_TRACE = False
             result = await _llm_call("gpt-4", [], None, None)
             assert result is mock_resp
 
@@ -157,15 +164,162 @@ class TestLlmCall:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
-             patch("app.agent.llm.settings") as mock_settings, \
+             patch("app.agent.llm.settings", _default_mock_settings(LLM_RATE_LIMIT_INITIAL_WAIT=10)), \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            mock_settings.LLM_RATE_LIMIT_RETRIES = 3
-            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 10
-            mock_settings.AGENT_TRACE = False
             await _llm_call("gpt-4", [], None, None)
             # First retry: 10 * 2^0 = 10, second: 10 * 2^1 = 20
             assert mock_sleep.await_args_list[0].args == (10,)
             assert mock_sleep.await_args_list[1].args == (20,)
+
+    @pytest.mark.asyncio
+    async def test_retries_on_5xx_server_error(self):
+        """5xx errors (InternalServerError) should be retried with shorter backoff."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        server_err = openai.InternalServerError(
+            message="internal server error",
+            response=MagicMock(status_code=500),
+            body=None,
+        )
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[server_err, mock_resp]
+        )
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings(LLM_RETRY_INITIAL_WAIT=2)), \
+             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            result = await _llm_call("gpt-4", [], None, None)
+            assert result is mock_resp
+            assert mock_client.chat.completions.create.await_count == 2
+            mock_sleep.assert_awaited_once_with(2)  # 2 * 2^0
+
+    @pytest.mark.asyncio
+    async def test_retries_on_connection_error(self):
+        """APIConnectionError should be retried."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        conn_err = openai.APIConnectionError(request=MagicMock())
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[conn_err, mock_resp]
+        )
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings()), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _llm_call("gpt-4", [], None, None)
+            assert result is mock_resp
+
+    @pytest.mark.asyncio
+    async def test_fallback_model_triggered_after_max_retries(self):
+        """After primary model exhausts retries, fallback model should be tried."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("fallback ok")
+        rate_err = openai.RateLimitError(
+            message="rate limited",
+            response=MagicMock(status_code=429),
+            body=None,
+        )
+
+        call_count = 0
+        async def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("model") == "gpt-4":
+                raise rate_err
+            return mock_resp
+
+        mock_client.chat.completions.create = AsyncMock(side_effect=side_effect)
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings(
+                 LLM_MAX_RETRIES=1,
+                 LLM_FALLBACK_MODEL="gpt-3.5-turbo",
+             )), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _llm_call("gpt-4", [], None, None)
+            assert result is mock_resp
+            # primary: 1 initial + 1 retry = 2, then fallback: 1 call
+            assert mock_client.chat.completions.create.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_permanent_error_raised_after_all_attempts(self):
+        """If both primary and fallback fail, the error should propagate."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        rate_err = openai.RateLimitError(
+            message="rate limited",
+            response=MagicMock(status_code=429),
+            body=None,
+        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=rate_err)
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.agent.llm.settings", _default_mock_settings(
+                 LLM_MAX_RETRIES=1,
+                 LLM_FALLBACK_MODEL="gpt-3.5-turbo",
+             )), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(openai.RateLimitError):
+                await _llm_call("gpt-4", [], None, None)
+            # primary: 2 attempts, fallback: 2 attempts
+            assert mock_client.chat.completions.create.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_no_fallback_when_not_configured(self):
+        """With no LLM_FALLBACK_MODEL, error should raise immediately after retries."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        server_err = openai.InternalServerError(
+            message="server error",
+            response=MagicMock(status_code=500),
+            body=None,
+        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=server_err)
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.agent.llm.settings", _default_mock_settings(
+                 LLM_MAX_RETRIES=1,
+                 LLM_FALLBACK_MODEL="",
+             )), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(openai.InternalServerError):
+                await _llm_call("gpt-4", [], None, None)
+            # Only primary attempts: 1 initial + 1 retry = 2
+            assert mock_client.chat.completions.create.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_fallback_when_same_as_primary(self):
+        """Fallback should be skipped when it's the same model as primary."""
+        from app.agent.loop import _llm_call
+
+        mock_client = AsyncMock()
+        server_err = openai.InternalServerError(
+            message="server error",
+            response=MagicMock(status_code=500),
+            body=None,
+        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=server_err)
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.agent.llm.settings", _default_mock_settings(
+                 LLM_MAX_RETRIES=1,
+                 LLM_FALLBACK_MODEL="gpt-4",
+             )), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(openai.InternalServerError):
+                await _llm_call("gpt-4", [], None, None)
+            assert mock_client.chat.completions.create.await_count == 2
 
 
 # ---------------------------------------------------------------------------
