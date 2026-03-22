@@ -66,10 +66,11 @@ async def post_chat(
     return r.json()
 
 
-async def ensure_channel(client_id: str, bot_id: str) -> None:
+async def ensure_channel(client_id: str, bot_id: str) -> dict | None:
     """Ensure a Channel row exists on the agent server for this client_id.
 
     Calls POST /api/v1/channels which is idempotent (get-or-create).
+    Returns the channel dict (including active_session_id) or None on failure.
     """
     payload = {"client_id": client_id, "bot_id": bot_id}
     try:
@@ -80,8 +81,21 @@ async def ensure_channel(client_id: str, bot_id: str) -> None:
             timeout=5.0,
         )
         r.raise_for_status()
+        return r.json()
     except Exception:
-        pass  # Best-effort; channel will be created on first message
+        return None
+
+
+async def get_channel_session_id(channel_id: str, bot_id: str) -> str | None:
+    """Get the active session_id for a Slack channel from the server.
+
+    Returns the session_id string or None if the channel has no active session.
+    """
+    client_id = slack_client_id(channel_id)
+    data = await ensure_channel(client_id, bot_id)
+    if data and data.get("active_session_id"):
+        return data["active_session_id"]
+    return None
 
 
 async def store_passive_message_http(

@@ -123,7 +123,8 @@ async def ensure_active_session(
         if session is not None:
             return session.id
 
-    # Create new session for this channel
+    # Create new session for this channel — flush the session row first
+    # so the FK from channels.active_session_id → sessions.id is satisfied.
     session_id = uuid.uuid4()
     session = Session(
         id=session_id,
@@ -133,6 +134,7 @@ async def ensure_active_session(
         locked=channel.integration is not None,
     )
     db.add(session)
+    await db.flush()
 
     channel.active_session_id = session_id
     channel.updated_at = datetime.now(timezone.utc)
@@ -158,6 +160,7 @@ async def reset_channel_session(
         locked=channel.integration is not None,
     )
     db.add(session)
+    await db.flush()
 
     channel.active_session_id = session_id
     channel.updated_at = datetime.now(timezone.utc)

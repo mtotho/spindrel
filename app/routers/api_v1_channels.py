@@ -108,6 +108,7 @@ async def create_channel(
         integration=body.integration,
         dispatch_config=body.dispatch_config,
     )
+    await ensure_active_session(db, channel)
     await db.commit()
     return ChannelOut.from_orm(channel)
 
