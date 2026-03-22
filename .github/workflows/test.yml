@@ -1,0 +1,18 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'integrations/**'
+      - 'Dockerfile.test'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test image
+        run: docker build -f Dockerfile.test -t agent-test .
+      - name: Run tests
+        run: docker run --rm agent-test
