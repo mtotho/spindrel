@@ -1,6 +1,6 @@
 # Backup & Restore
 
-Automated Postgres dumps + config file backups, uploaded to Google Drive (or any rclone-supported remote).
+Automated Postgres dumps + config file backups, uploaded to S3 (or any rclone-supported remote like Google Drive).
 
 ## Prerequisites
 
@@ -9,7 +9,32 @@ Automated Postgres dumps + config file backups, uploaded to Google Drive (or any
 
 ## Setup
 
-### 1. Configure rclone with Google Drive
+### 1a. Configure rclone with S3 (recommended)
+
+Add to `~/.config/rclone/rclone.conf` (or run `rclone config`):
+
+```ini
+[s3]
+type = s3
+provider = AWS
+access_key_id = YOUR_ACCESS_KEY_ID
+secret_access_key = YOUR_SECRET_ACCESS_KEY
+region = us-east-1
+```
+
+Create the bucket:
+
+```bash
+aws s3 mb s3://thoth-backups --region us-east-1
+```
+
+Verify it works:
+
+```bash
+rclone lsd s3:
+```
+
+### 1b. Alternative: Configure rclone with Google Drive
 
 ```bash
 rclone config
@@ -22,6 +47,12 @@ Follow the interactive setup:
 - Leave client_id/secret blank (uses rclone's defaults)
 - Scope: `drive` (full access) or `drive.file` (only rclone-created files)
 - Complete the OAuth flow in your browser
+
+Then set the remote override:
+
+```bash
+export RCLONE_REMOTE=gdrive:agent-backups
+```
 
 Verify it works:
 
@@ -38,10 +69,10 @@ rclone lsd gdrive:
 This will:
 1. `pg_dump` the database via `docker compose exec`
 2. Bundle the dump with `.env`, `bots/`, `skills/`, `mcp.yaml`, and `config/searxng/settings.yml`
-3. Upload the tarball to `gdrive:agent-backups/`
+3. Upload the tarball to the rclone remote (default: `s3:thoth-backups`)
 4. Prune local backups to the most recent 7
 
-### 3. Set up cron (daily at 3 AM)
+### 3. Set up cron (daily at 2 AM)
 
 ```bash
 crontab -e
@@ -50,10 +81,8 @@ crontab -e
 Add:
 
 ```cron
-0 3 * * * cd /path/to/agent-server && ./scripts/backup.sh >> logs/backup.log 2>&1
+0 2 * * * /path/to/scripts/backup.sh >> /var/log/thoth-backup.log 2>&1
 ```
-
-Create the logs directory if needed: `mkdir -p /path/to/agent-server/logs`
 
 ## Restore
 
@@ -88,13 +117,13 @@ Both scripts support environment variable overrides:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKUP_DIR` | `./backups` | Local directory for backup archives |
-| `RCLONE_REMOTE` | `gdrive:agent-backups` | rclone remote and path |
+| `RCLONE_REMOTE` | `s3:thoth-backups` | rclone remote and path |
 | `LOCAL_KEEP` | `7` | Number of local backups to retain (backup.sh only) |
 
-To use S3 instead of Google Drive, configure an S3 remote in rclone and set:
+To use Google Drive instead of S3, configure a gdrive remote in rclone and set:
 
 ```bash
-RCLONE_REMOTE=s3:agent-backups ./scripts/backup.sh
+RCLONE_REMOTE=gdrive:agent-backups ./scripts/backup.sh
 ```
 
 ## What's backed up
