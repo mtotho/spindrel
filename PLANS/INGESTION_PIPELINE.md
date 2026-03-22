@@ -201,3 +201,29 @@ docs/integrations/
 - [ ] Should `POST /api/v1/embed` be authenticated? (Yes — same API key as other routes)
 - [ ] Rate limiting on Layer 3 classifier calls?
 - [ ] Bot YAML field to opt into `retrieve_external` tool?
+
+---
+
+## Testing Plan
+
+### Structure
+```
+integrations/ingestion/tests/
+  __init__.py
+  test_filters.py       # Layer 2 unit tests
+  test_classifier.py    # Layer 3 — mock httpx, test fail-closed behavior  
+  test_pipeline.py      # end-to-end with mocked classifier
+  test_store.py         # SQLite store, in-memory DB
+integrations/gmail/tests/
+  test_adapter.py       # Gmail API response → RawMessage
+```
+
+### GitHub Actions
+- `Dockerfile.test` at repo root: python:3.12-slim, install deps, run pytest
+- `.github/workflows/test.yml`: build + run on PR touching `integrations/`
+- No external services needed — classifier mocked, SQLite in-memory
+
+### Implementation Steps (for Claude Code)
+1. Create `Dockerfile.test`
+2. Create `.github/workflows/test.yml`
+3. Write tests for filters, classifier (mock httpx), pipeline e2e, store
