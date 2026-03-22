@@ -22,7 +22,7 @@ _registry: dict[str, "BotConfig"] = {}
 @dataclass
 class MemoryConfig:
     enabled: bool = False
-    cross_session: bool = False
+    cross_channel: bool = False
     cross_client: bool = False
     cross_bot: bool = False
     prompt: str | None = None
@@ -129,7 +129,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
     mem = row.memory_config or {}
     memory_cfg = MemoryConfig(
         enabled=mem.get("enabled", False),
-        cross_session=mem.get("cross_session", False),
+        cross_channel=mem.get("cross_channel", False),
         cross_client=mem.get("cross_client", False),
         cross_bot=mem.get("cross_bot", False),
         prompt=mem.get("prompt"),
@@ -269,7 +269,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "audio_input": data.get("audio_input", "transcribe"),
         "memory_config": {
             "enabled": mem_data.get("enabled", False),
-            "cross_session": mem_data.get("cross_session", False),
+            "cross_channel": mem_data.get("cross_channel", False),
             "cross_client": mem_data.get("cross_client", False),
             "cross_bot": mem_data.get("cross_bot", False),
             "prompt": mem_data.get("prompt"),

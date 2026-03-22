@@ -32,7 +32,7 @@
         </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-36 shrink-0">Memory</dt>
-          <dd class="text-gray-300 text-sm">{% if bot.memory.enabled %}enabled{% if bot.memory.cross_session %}, cross-session{% endif %}{% if bot.memory.cross_client %}, cross-client{% endif %}{% else %}disabled{% endif %}</dd>
+          <dd class="text-gray-300 text-sm">{% if bot.memory.enabled %}enabled{% if bot.memory.cross_channel %}, cross-channel{% endif %}{% if bot.memory.cross_client %}, cross-client{% endif %}{% else %}disabled{% endif %}</dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-36 shrink-0">Knowledge</dt>

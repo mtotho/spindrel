@@ -656,7 +656,7 @@ async def run_stream(
         bot_id=bot.id,
         correlation_id=correlation_id,
         channel_id=channel_id,
-        memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
+        memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
         memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
         memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
         memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
@@ -843,10 +843,11 @@ async def run_stream(
             session_id=session_id,
             client_id=client_id,
             bot_id=bot.id,
-            cross_session=bot.memory.cross_session,
+            cross_channel=bot.memory.cross_channel,
             cross_client=bot.memory.cross_client,
             cross_bot=bot.memory.cross_bot,
             similarity_threshold=bot.memory.similarity_threshold,
+            channel_id=channel_id,
         )
         if memories:
             _mem_limit = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS

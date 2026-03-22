@@ -20,8 +20,8 @@ current_bot_id: ContextVar[str | None] = ContextVar(
 )
 
 # Used by search_memories tool; set when memory.enabled so retrieval uses bot's scope/threshold.
-current_memory_cross_session: ContextVar[bool | None] = ContextVar(
-    "current_memory_cross_session", default=None
+current_memory_cross_channel: ContextVar[bool | None] = ContextVar(
+    "current_memory_cross_channel", default=None
 )
 current_memory_cross_client: ContextVar[bool | None] = ContextVar(
     "current_memory_cross_client", default=None
@@ -55,7 +55,7 @@ def set_agent_context(
     correlation_id: uuid.UUID | None = None,
     *,
     channel_id: uuid.UUID | None = None,
-    memory_cross_session: bool | None = None,
+    memory_cross_channel: bool | None = None,
     memory_cross_client: bool | None = None,
     memory_cross_bot: bool | None = None,
     memory_similarity_threshold: float | None = None,
@@ -70,8 +70,8 @@ def set_agent_context(
     current_client_id.set(client_id)
     current_bot_id.set(bot_id)
     current_correlation_id.set(correlation_id)
-    if memory_cross_session is not None:
-        current_memory_cross_session.set(memory_cross_session)
+    if memory_cross_channel is not None:
+        current_memory_cross_channel.set(memory_cross_channel)
     if memory_cross_client is not None:
         current_memory_cross_client.set(memory_cross_client)
     if memory_similarity_threshold is not None:
@@ -100,7 +100,7 @@ class AgentContextSnapshot:
     correlation_id: uuid.UUID | None
     client_id: str | None
     bot_id: str | None
-    memory_cross_session: bool | None
+    memory_cross_channel: bool | None
     memory_cross_client: bool | None
     memory_similarity_threshold: float | None
     memory_cross_bot: bool | None
@@ -118,7 +118,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         correlation_id=current_correlation_id.get(),
         client_id=current_client_id.get(),
         bot_id=current_bot_id.get(),
-        memory_cross_session=current_memory_cross_session.get(),
+        memory_cross_channel=current_memory_cross_channel.get(),
         memory_cross_client=current_memory_cross_client.get(),
         memory_similarity_threshold=current_memory_similarity_threshold.get(),
         memory_cross_bot=current_memory_cross_bot.get(),
@@ -136,7 +136,7 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_correlation_id.set(snap.correlation_id)
     current_client_id.set(snap.client_id)
     current_bot_id.set(snap.bot_id)
-    current_memory_cross_session.set(snap.memory_cross_session)
+    current_memory_cross_channel.set(snap.memory_cross_channel)
     current_memory_cross_client.set(snap.memory_cross_client)
     current_memory_similarity_threshold.set(snap.memory_similarity_threshold)
     current_memory_cross_bot.set(snap.memory_cross_bot)

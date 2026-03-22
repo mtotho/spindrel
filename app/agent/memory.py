@@ -61,25 +61,33 @@ def memory_scope_where(
     client_id: str,
     bot_id: str,
     *,
-    cross_session: bool,
+    cross_channel: bool,
     cross_client: bool,
     cross_bot: bool,
+    channel_id: uuid.UUID | None = None,
 ):
     """SQLAlchemy filter for memories visible under the same rules as retrieval.
 
     Returns None when no row filter is needed (widest / global scope).
     """
-    if not cross_session and not cross_client and not cross_bot:
-        return Memory.session_id == session_id
-    if cross_session and not cross_client and not cross_bot:
+    if not cross_channel:
+        # Narrowest scope: same channel + same bot
+        if channel_id is not None:
+            return and_(Memory.channel_id == channel_id, Memory.bot_id == bot_id)
+        # Fallback when channel_id unknown: use session_id
+        return and_(Memory.session_id == session_id, Memory.bot_id == bot_id)
+    if cross_channel and not cross_client and not cross_bot:
         return and_(Memory.client_id == client_id, Memory.bot_id == bot_id)
-    if cross_session and cross_client and not cross_bot:
+    if cross_channel and cross_client and not cross_bot:
         return Memory.bot_id == bot_id
-    if cross_session and not cross_client and cross_bot:
+    if cross_channel and not cross_client and cross_bot:
         return Memory.client_id == client_id
-    if cross_session and cross_client and cross_bot:
+    if cross_channel and cross_client and cross_bot:
         return None
-    return Memory.session_id == session_id
+    # Fallback
+    if channel_id is not None:
+        return and_(Memory.channel_id == channel_id, Memory.bot_id == bot_id)
+    return and_(Memory.session_id == session_id, Memory.bot_id == bot_id)
 
 
 def _apply_memory_scope(
@@ -88,15 +96,17 @@ def _apply_memory_scope(
     client_id: str,
     bot_id: str,
     *,
-    cross_session: bool,
+    cross_channel: bool,
     cross_client: bool,
     cross_bot: bool,
+    channel_id: uuid.UUID | None = None,
 ):
     clause = memory_scope_where(
         session_id, client_id, bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
+        channel_id=channel_id,
     )
     if clause is not None:
         return stmt.where(clause)
@@ -108,10 +118,11 @@ async def retrieve_memory_matches(
     session_id: uuid.UUID,
     client_id: str,
     bot_id: str,
-    cross_session: bool = False,
+    cross_channel: bool = False,
     cross_client: bool = False,
     cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[list[tuple[uuid.UUID, str, datetime | None, float]], float]:
     """Vector search; returns (memory_id, raw_content, created_at, similarity) per hit, plus best similarity."""
     try:
@@ -128,9 +139,10 @@ async def retrieve_memory_matches(
     )
     stmt = _apply_memory_scope(
         stmt, session_id, client_id, bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
+        channel_id=channel_id,
     )
 
     try:
@@ -173,6 +185,7 @@ async def write_memory(
     message_range_end=None,
     message_count: int | None = None,
     correlation_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[bool, str | None]:
     """Embed content and write it to the memories table.
 
@@ -188,6 +201,7 @@ async def write_memory(
 
     memory = Memory(
         session_id=session_id,
+        channel_id=channel_id,
         client_id=client_id,
         bot_id=bot_id,
         content=summary_text,
@@ -217,18 +231,18 @@ async def retrieve_memories(
     session_id: uuid.UUID,
     client_id: str,
     bot_id: str,
-    cross_session: bool = False,
+    cross_channel: bool = False,
     cross_client: bool = False,
     cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
-
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[list[str], float]:
     """Search the memories table for relevant past summaries.
 
-    By default, scoped to the current session. 
-    If cross_session is True, widens to all sessions for this client_id.
+    By default, scoped to the current channel.
+    If cross_channel is True, widens to all channels for this client_id.
 
-    Note: setting MEMORY_SIMILARITY_THRESHOLD higher will make memory retrieval stricter 
+    Note: setting MEMORY_SIMILARITY_THRESHOLD higher will make memory retrieval stricter
     (only highly similar memories will be returned), while setting it lower will recall more loosely-related memories.
 
     """
@@ -237,10 +251,11 @@ async def retrieve_memories(
         session_id=session_id,
         client_id=client_id,
         bot_id=bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
         similarity_threshold=similarity_threshold,
+        channel_id=channel_id,
     )
     chunks = [
         _format_memory_for_context(content, created_at)
@@ -255,17 +270,19 @@ async def delete_memory_scoped(
     client_id: str,
     bot_id: str,
     *,
-    cross_session: bool,
+    cross_channel: bool,
     cross_client: bool,
     cross_bot: bool,
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[bool, str | None]:
     """Delete one memory row if it exists and falls under the given scope."""
     stmt = delete(Memory).where(Memory.id == memory_id)
     clause = memory_scope_where(
         session_id, client_id, bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
+        channel_id=channel_id,
     )
     if clause is not None:
         stmt = stmt.where(clause)
@@ -289,10 +306,11 @@ async def merge_memories_scoped(
     client_id: str,
     bot_id: str,
     *,
-    cross_session: bool,
+    cross_channel: bool,
     cross_client: bool,
     cross_bot: bool,
     correlation_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> tuple[bool, str | None, uuid.UUID | None]:
     """Replace several memories with one new row (re-embedded). Order follows memory_ids."""
     unique_ids = list(dict.fromkeys(memory_ids))
@@ -300,9 +318,10 @@ async def merge_memories_scoped(
         return False, "Provide at least two distinct memory ids to merge.", None
 
     scope_kw = dict(
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
+        channel_id=channel_id,
     )
     stmt = select(Memory).where(Memory.id.in_(unique_ids))
     clause = memory_scope_where(session_id, client_id, bot_id, **scope_kw)
@@ -339,6 +358,7 @@ async def merge_memories_scoped(
     new_row = Memory(
         id=new_id,
         session_id=session_id,
+        channel_id=channel_id,
         client_id=client_id,
         bot_id=bot_id,
         content=text,

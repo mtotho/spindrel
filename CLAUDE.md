@@ -103,7 +103,7 @@ compaction_interval: 10              # turns between compactions
 compaction_keep_turns: 4
 memory:
   enabled: true
-  cross_session: true
+  cross_channel: true
 knowledge:
   enabled: true
 persona: true

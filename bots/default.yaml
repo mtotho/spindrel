@@ -71,7 +71,7 @@ knowledge:
   cross_bot: true
 memory:
   enabled: true
-  cross_session: true
+  cross_channel: true
   cross_client: true
   cross_bot: true
   wipe_on_session_delete: false

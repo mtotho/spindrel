@@ -276,7 +276,7 @@
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Memory</h2>
     <div class="grid grid-cols-2 gap-4">
-      {% for field, label in [('memory_enabled','Enable Memory'),('memory_cross_session','Cross-Session')] %}
+      {% for field, label in [('memory_enabled','Enable Memory'),('memory_cross_channel','Cross-Channel')] %}
       <div class="flex items-center gap-3">
         <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
           class="rounded text-indigo-500"

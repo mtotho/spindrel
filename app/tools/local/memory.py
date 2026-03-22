@@ -6,12 +6,13 @@ import uuid
 from typing import TYPE_CHECKING
 
 from app.agent.context import (
+    current_channel_id,
     current_client_id,
     current_bot_id,
     current_correlation_id,
     current_memory_cross_client,
     current_memory_cross_bot,
-    current_memory_cross_session,
+    current_memory_cross_channel,
     current_memory_similarity_threshold,
     current_session_id,
 )
@@ -112,9 +113,9 @@ async def search_memories(query: str) -> str:
     query = (query or "").strip()
     if not query:
         return "No search query provided."
-    cross_session = current_memory_cross_session.get()
-    if cross_session is None:
-        cross_session = True
+    cross_channel = current_memory_cross_channel.get()
+    if cross_channel is None:
+        cross_channel = True
     cross_client = current_memory_cross_client.get()
     if cross_client is None:
         cross_client = False
@@ -124,16 +125,18 @@ async def search_memories(query: str) -> str:
     threshold = current_memory_similarity_threshold.get()
     if threshold is None:
         threshold = settings.MEMORY_SIMILARITY_THRESHOLD
+    channel_id_val = current_channel_id.get()
 
     matches, _ = await retrieve_memory_matches(
         query=query,
         session_id=session_id,
         client_id=client_id,
         bot_id=bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
         similarity_threshold=threshold,
+        channel_id=channel_id_val,
     )
     if not matches:
         return "No relevant memories found."
@@ -169,6 +172,7 @@ async def save_memory(content: str) -> str:
     if not content:
         return "No content provided; nothing was saved."
     correlation_id = current_correlation_id.get()
+    channel_id_val = current_channel_id.get()
     ok, err = await write_memory(
         summary_text=content,
         client_id=client_id,
@@ -178,6 +182,7 @@ async def save_memory(content: str) -> str:
         message_range_end=None,
         message_count=None,
         correlation_id=correlation_id,
+        channel_id=channel_id_val,
     )
     if ok:
         return "Memory saved."
@@ -287,10 +292,11 @@ async def search_memories_impl(
     client_id: str,
     bot_id: str,
     *,
-    cross_session: bool = True,
+    cross_channel: bool = True,
     cross_client: bool = False,
     cross_bot: bool = True,
     similarity_threshold: float | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> str:
     """Search memories; caller passes session_id, client_id, and scope."""
     query = (query or "").strip()
@@ -302,10 +308,11 @@ async def search_memories_impl(
         session_id=session_id,
         client_id=client_id,
         bot_id=bot_id,
-        cross_session=cross_session,
+        cross_channel=cross_channel,
         cross_client=cross_client,
         cross_bot=cross_bot,
         similarity_threshold=threshold,
+        channel_id=channel_id,
     )
     if not matches:
         return "No relevant memories found."
@@ -318,6 +325,7 @@ async def save_memory_impl(
     session_id: uuid.UUID,
     client_id: str,
     bot_id: str,
+    channel_id: uuid.UUID | None = None,
 ) -> str:
     """Save a memory; caller passes session_id and client_id."""
     content = (content or "").strip()
@@ -331,6 +339,7 @@ async def save_memory_impl(
         message_range_start=None,
         message_range_end=None,
         message_count=None,
+        channel_id=channel_id,
     )
     if ok:
         return "Memory saved."
@@ -352,7 +361,7 @@ async def purge_memory_impl(
         session_id,
         client_id,
         bot_id,
-        cross_session=memory_config.cross_session,
+        cross_channel=memory_config.cross_channel,
         cross_client=memory_config.cross_client,
         cross_bot=memory_config.cross_bot,
     )
@@ -379,7 +388,7 @@ async def merge_memories_impl(
         session_id,
         client_id,
         bot_id,
-        cross_session=memory_config.cross_session,
+        cross_channel=memory_config.cross_channel,
         cross_client=memory_config.cross_client,
         cross_bot=memory_config.cross_bot,
         correlation_id=correlation_id,
@@ -425,7 +434,7 @@ async def promote_memories_to_knowledge_impl(
 
     # Fetch memory rows
     scope_kw = dict(
-        cross_session=memory_config.cross_session,
+        cross_channel=memory_config.cross_channel,
         cross_client=memory_config.cross_client,
         cross_bot=memory_config.cross_bot,
     )
@@ -518,13 +527,14 @@ async def call_memory_tool(
             session_id,
             client_id,
             bot_id,
-            cross_session=memory_config.cross_session,
+            cross_channel=memory_config.cross_channel,
             cross_client=memory_config.cross_client,
             cross_bot=memory_config.cross_bot,
             similarity_threshold=memory_config.similarity_threshold,
+            channel_id=channel_id,
         )
     if name == "save_memory":
-        return await save_memory_impl(args.get("content", ""), session_id, client_id, bot_id)
+        return await save_memory_impl(args.get("content", ""), session_id, client_id, bot_id, channel_id=channel_id)
     if name == "purge_memory":
         return await purge_memory_impl(
             str(args.get("memory_id", "")),

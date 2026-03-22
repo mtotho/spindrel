@@ -173,7 +173,7 @@ async def admin_bot_create(
     compaction_keep_turns: str = Form(""),
     compaction_model: str = Form(""),
     memory_enabled: str = Form("false"),
-    memory_cross_session: str = Form("false"),
+    memory_cross_channel: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
     memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
@@ -264,7 +264,7 @@ async def admin_bot_create(
         audio_input=audio_input.strip() or "transcribe",
         memory_config={
             "enabled": memory_enabled.lower() == "true",
-            "cross_session": memory_cross_session.lower() == "true",
+            "cross_channel": memory_cross_channel.lower() == "true",
             "similarity_threshold": mem_sim,
             "prompt": memory_prompt.strip() or None,
         },
@@ -437,7 +437,7 @@ async def admin_bot_update(
     compaction_keep_turns: str = Form(""),
     compaction_model: str = Form(""),
     memory_enabled: str = Form("false"),
-    memory_cross_session: str = Form("false"),
+    memory_cross_channel: str = Form("false"),
     memory_similarity_threshold: str = Form(""),
     memory_prompt: str = Form(""),
     knowledge_enabled: str = Form("false"),
@@ -529,7 +529,7 @@ async def admin_bot_update(
         row.audio_input = audio_input.strip() or "transcribe"
         row.memory_config = {
             "enabled": memory_enabled.lower() == "true",
-            "cross_session": memory_cross_session.lower() == "true",
+            "cross_channel": memory_cross_channel.lower() == "true",
             "similarity_threshold": mem_sim,
             "prompt": memory_prompt.strip() or None,
         }

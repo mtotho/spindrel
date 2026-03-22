@@ -329,7 +329,7 @@ async def chat_stream(
                 bot_id=bot.id,
                 correlation_id=correlation_id,
                 channel_id=channel_id,
-                memory_cross_session=bot.memory.cross_session if bot.memory.enabled else None,
+                memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
                 memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
                 memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
                 memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,

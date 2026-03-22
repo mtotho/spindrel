@@ -78,7 +78,7 @@ Memories work best when:
 ### Scoping
 | Scope flag | Effect |
 |-----------|--------|
-| `cross_session: true` | Recall memories from other sessions |
+| `cross_channel: true` | Recall memories from other channels |
 | `cross_client: false` | Only recall memories from this same client |
 | `cross_bot: false` | Only recall memories saved by this same bot |
 

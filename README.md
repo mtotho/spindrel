@@ -79,7 +79,7 @@ context_compaction: true
 # compaction_model: gpt-4o-mini  # optional cheaper model for summaries
 memory:
   enabled: true              # log compaction summaries to memory KB + retrieve on each turn
-  cross_session: false       # widen retrieval to other sessions for this client
+  cross_channel: false       # widen retrieval to other channels for this client
 voice:
   piper_model: en_US-amy-medium    # Python client TTS voice
   android_voice: en-US-default     # Android client TTS voice (expo-speech)
@@ -488,8 +488,8 @@ This is designed for long-lived sessions (weeks/months). Compaction keeps the ac
 ```yaml
 memory:
   enabled: true          # log compaction summaries + retrieve relevant memories
-  cross_session: false   # default: search only current session's memories
-                         # true: search all sessions for this client
+  cross_channel: false   # default: search only current channel's memories
+                         # true: search all channels for this client
   prompt: |              # optional: filter what gets stored in memory
     Only store information that reveals something new about the user: their
     preferences, projects, setup, people they mention, or decisions they made.

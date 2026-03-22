@@ -557,7 +557,7 @@ function botContextEstimatePanel(botId) {
     <div class="grid grid-cols-2 gap-4">
       {% for field, label, val in [
         ('memory_enabled','Enable Memory', mem.get('enabled', False)),
-        ('memory_cross_session','Cross-Session', mem.get('cross_session', False)),
+        ('memory_cross_channel','Cross-Channel', mem.get('cross_channel', False)),
       ] %}
       <div class="flex items-center gap-3">
         <input type="checkbox" name="{{ field }}" id="{{ field }}" value="true"
