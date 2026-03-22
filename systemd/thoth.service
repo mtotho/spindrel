@@ -1,0 +1,22 @@
+[Unit]
+Description=Thoth Agent Server
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=thoth
+Group=thoth
+WorkingDirectory=/opt/thoth
+EnvironmentFile=/opt/thoth/.env
+ExecStartPre=/usr/bin/docker compose -f /opt/thoth/docker-compose.yml up -d postgres searxng playwright
+ExecStartPre=/opt/thoth/venv/bin/alembic upgrade head
+ExecStart=/opt/thoth/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=thoth
+
+[Install]
+WantedBy=multi-user.target

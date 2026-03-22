@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Thoth CLI ────────────────────────────────────────────────────────────────
+# Thin shell dispatcher for managing the Thoth agent server.
+# Phase 1: start, stop, restart, pull, backup, restore, status, logs
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMPOSE_FILE="${REPO_DIR}/docker-compose.yml"
+SERVICE_NAME="thoth"
+BACKING_SERVICES="postgres searxng playwright"
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+usage() {
+    cat <<EOF
+Usage: thoth <command> [options]
+
+Commands:
+  start       Start backing services and the Thoth app
+  stop        Stop the Thoth app and backing services
+  restart     Restart the Thoth app (and optionally backing services)
+  pull        Git pull + reinstall deps + restart
+  backup      Run database backup
+  restore     Restore database from backup
+  status      Show status of all services
+  logs        Tail application or service logs
+
+Run 'thoth <command> --help' for details on a specific command.
+EOF
+}
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+compose() {
+    docker compose -f "$COMPOSE_FILE" "$@"
+}
+
+wait_for_postgres() {
+    echo "Waiting for postgres to be healthy..."
+    local retries=30
+    while [ $retries -gt 0 ]; do
+        if compose exec -T postgres pg_isready -U agent -d agentdb >/dev/null 2>&1; then
+            echo "Postgres is ready."
+            return 0
+        fi
+        retries=$((retries - 1))
+        sleep 1
+    done
+    die "Postgres failed to become healthy"
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_start() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth start
+
+Start Docker backing services (postgres, searxng, playwright),
+wait for postgres health check, then start the Thoth app via systemd.
+EOF
+        return 0
+    fi
+
+    echo "Starting backing services..."
+    compose up -d $BACKING_SERVICES
+    wait_for_postgres
+
+    echo "Starting Thoth app service..."
+    sudo systemctl start "$SERVICE_NAME"
+    echo "Thoth started."
+}
+
+cmd_stop() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth stop
+
+Stop the Thoth app service, then stop Docker backing services.
+EOF
+        return 0
+    fi
+
+    echo "Stopping Thoth app service..."
+    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+
+    echo "Stopping backing services..."
+    compose down
+    echo "Thoth stopped."
+}
+
+cmd_restart() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth restart
+
+Restart the Thoth app service. Backing services are not restarted
+unless they are not running.
+EOF
+        return 0
+    fi
+
+    # Ensure backing services are up
+    compose up -d $BACKING_SERVICES
+    wait_for_postgres
+
+    echo "Restarting Thoth app service..."
+    sudo systemctl restart "$SERVICE_NAME"
+    echo "Thoth restarted."
+}
+
+cmd_pull() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth pull
+
+Git pull latest changes, reinstall Python dependencies, run database
+migrations, and restart the Thoth app.
+EOF
+        return 0
+    fi
+
+    echo "Pulling latest changes..."
+    git -C "$REPO_DIR" pull --rebase origin master
+
+    echo "Installing dependencies..."
+    pip install -e "$REPO_DIR" >/dev/null
+
+    echo "Running migrations..."
+    compose up -d postgres
+    wait_for_postgres
+    alembic -c "$REPO_DIR/alembic.ini" upgrade head
+
+    echo "Restarting Thoth..."
+    sudo systemctl restart "$SERVICE_NAME"
+    echo "Pull complete."
+}
+
+cmd_backup() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth backup
+
+Run the database backup script (scripts/backup.sh).
+Creates a compressed archive and uploads to the configured S3 remote.
+EOF
+        return 0
+    fi
+
+    exec "$REPO_DIR/scripts/backup.sh"
+}
+
+cmd_restore() {
+    local archive=""
+    local yes_flag=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --help)
+                cat <<EOF
+Usage: thoth restore [archive] [--yes]
+
+Restore database from a backup archive. If no archive is specified,
+the latest backup is pulled from the S3 remote.
+
+Options:
+  --yes    Skip confirmation prompt
+EOF
+                return 0
+                ;;
+            --yes|-y)
+                yes_flag=true
+                shift
+                ;;
+            *)
+                archive="$1"
+                shift
+                ;;
+        esac
+    done
+
+    local args=()
+    if [ -n "$archive" ]; then
+        args+=("$archive")
+    fi
+    if [ "$yes_flag" = true ]; then
+        args+=("--yes")
+    fi
+
+    exec "$REPO_DIR/scripts/restore.sh" "${args[@]}"
+}
+
+cmd_status() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: thoth status
+
+Show the status of the Thoth app service and all backing services.
+EOF
+        return 0
+    fi
+
+    echo "Thoth Status"
+    echo "─────────────────────────────"
+
+    # App service
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        local since
+        since=$(systemctl show "$SERVICE_NAME" --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
+        echo "App service:    ● active (running) since ${since}"
+    else
+        echo "App service:    ○ inactive"
+    fi
+
+    # Backing services
+    for svc in postgres searxng playwright; do
+        local state
+        state=$(compose ps --format '{{.State}}' "$svc" 2>/dev/null || echo "not found")
+        if [ "$state" = "running" ]; then
+            echo "${svc}:$(printf '%*s' $((16 - ${#svc})) '')● ${state}"
+        else
+            echo "${svc}:$(printf '%*s' $((16 - ${#svc})) '')○ ${state}"
+        fi
+    done
+}
+
+cmd_logs() {
+    local follow=false
+    local service=""
+    local lines=50
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --help)
+                cat <<EOF
+Usage: thoth logs [--follow] [--service NAME] [--lines N]
+
+Tail logs for the Thoth app or a specific backing service.
+
+Options:
+  -f, --follow           Stream logs continuously
+  -s, --service NAME     Show logs for a backing service (postgres, searxng, playwright)
+  -n, --lines N          Number of lines to show (default: 50)
+EOF
+                return 0
+                ;;
+            -f|--follow)
+                follow=true
+                shift
+                ;;
+            -s|--service)
+                service="$2"
+                shift 2
+                ;;
+            -n|--lines)
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                die "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    if [ -n "$service" ]; then
+        # Docker compose logs for backing service
+        local args=("--tail" "$lines")
+        if [ "$follow" = true ]; then
+            args+=("-f")
+        fi
+        compose logs "${args[@]}" "$service"
+    else
+        # Journalctl for the app service
+        local args=("-u" "$SERVICE_NAME" "-n" "$lines" "--no-pager")
+        if [ "$follow" = true ]; then
+            args+=("-f")
+        fi
+        journalctl "${args[@]}"
+    fi
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+if [ $# -eq 0 ]; then
+    usage
+    exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+    start)   cmd_start "$@" ;;
+    stop)    cmd_stop "$@" ;;
+    restart) cmd_restart "$@" ;;
+    pull)    cmd_pull "$@" ;;
+    backup)  cmd_backup "$@" ;;
+    restore) cmd_restore "$@" ;;
+    status)  cmd_status "$@" ;;
+    logs)    cmd_logs "$@" ;;
+    --help|-h|help)
+        usage
+        ;;
+    *)
+        die "Unknown command: $command. Run 'thoth --help' for usage."
+        ;;
+esac
