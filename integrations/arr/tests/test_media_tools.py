@@ -1,4 +1,4 @@
-"""Tests for media tools (app/tools/local/media.py)."""
+"""Tests for media tools (integrations/arr/tools/media.py)."""
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.tools.local.media import (
+from integrations.arr.tools.media import (
     _DATA_DIR,
     _sanitize,
     media_today,
@@ -20,7 +20,7 @@ from app.tools.local.media import (
 @pytest.fixture
 def media_data_dir(tmp_path):
     """Patch _DATA_DIR to use a temp directory."""
-    with patch("app.tools.local.media._DATA_DIR", tmp_path):
+    with patch("integrations.arr.tools.media._DATA_DIR", tmp_path):
         yield tmp_path
 
 
