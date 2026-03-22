@@ -175,37 +175,53 @@ async def create_task(
     "type": "function",
     "function": {
         "name": "list_my_tasks",
-        "description": "List recent tasks for the current session.",
+        "description": (
+            "List tasks for the current session. By default only shows pending/running "
+            "(future) tasks. Set include_completed=true to also see completed, failed, "
+            "and cancelled tasks."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "include_completed": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, include completed/failed/cancelled tasks in the listing. "
+                        "Default false (only pending and running tasks)."
+                    ),
+                },
+            },
             "required": [],
         },
     },
 })
-async def list_my_tasks() -> str:
+async def list_my_tasks(include_completed: bool = False) -> str:
     session_id = current_session_id.get()
     channel_id = current_channel_id.get()
     if not session_id and not channel_id:
         return "No session or channel context available."
 
     async with async_session() as db:
-        from sqlalchemy import or_ as _or
-        filters = []
+        from sqlalchemy import or_ as _or, and_ as _and
+        scope_filters = []
         if channel_id:
-            filters.append(Task.channel_id == channel_id)
+            scope_filters.append(Task.channel_id == channel_id)
         if session_id:
-            filters.append(Task.session_id == session_id)
+            scope_filters.append(Task.session_id == session_id)
+        conditions = [_or(*scope_filters)]
+        if not include_completed:
+            conditions.append(Task.status.in_(["pending", "running"]))
         stmt = (
             select(Task)
-            .where(_or(*filters))
+            .where(_and(*conditions))
             .order_by(Task.created_at.desc())
             .limit(20)
         )
         tasks = list((await db.execute(stmt)).scalars().all())
 
     if not tasks:
-        return "No tasks found for this session."
+        label = "No tasks found for this session." if include_completed else "No pending/running tasks found."
+        return label
 
     lines = []
     for t in tasks:
