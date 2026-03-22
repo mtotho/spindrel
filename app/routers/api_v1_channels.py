@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.db.models import Channel, KnowledgeAccess, Message, Session, Task
 from app.dependencies import get_db, verify_auth
 from app.services.channels import get_or_create_channel, ensure_active_session, reset_channel_session
 from app.services.sessions import store_passive_message
+from app.tools.local.search_history import _build_query, _serialize_messages
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,16 @@ class KnowledgeAccessOut(BaseModel):
     scope_type: str
     scope_key: Optional[str]
     mode: str
+
+    model_config = {"from_attributes": True}
+
+
+class HistoryMessageOut(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    role: str
+    content_preview: str
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -278,3 +289,35 @@ async def list_channel_knowledge(
             mode=e.mode,
         ))
     return result
+
+
+@router.get("/{channel_id}/messages/search", response_model=list[HistoryMessageOut])
+async def search_channel_messages(
+    channel_id: uuid.UUID,
+    q: Optional[str] = Query(None, description="Keyword to search for"),
+    start_date: Optional[str] = Query(None, description="ISO 8601 start date"),
+    end_date: Optional[str] = Query(None, description="ISO 8601 end date"),
+    role: str = Query("all", description="Filter by role: user, assistant, all"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Search messages across all sessions in a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    stmt = _build_query(
+        channel_id=channel_id,
+        bot_id=channel.bot_id,
+        query=q,
+        start_date=start_date,
+        end_date=end_date,
+        role=role,
+        limit=limit,
+        offset=offset,
+    )
+
+    messages = (await db.execute(stmt)).scalars().all()
+    return [HistoryMessageOut(**m) for m in _serialize_messages(messages)]
