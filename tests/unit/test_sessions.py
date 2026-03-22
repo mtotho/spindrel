@@ -198,6 +198,7 @@ class TestStorePassiveMessage:
         from app.services.sessions import store_passive_message
 
         db = AsyncMock()
+        db.add = MagicMock()
         session_id = uuid.uuid4()
         metadata = {"passive": True}
 
@@ -221,6 +222,7 @@ class TestPersistTurn:
         from app.services.sessions import persist_turn
 
         db = AsyncMock()
+        db.add = MagicMock()
         session_id = uuid.uuid4()
         bot = _make_bot()
         messages = [
@@ -243,6 +245,7 @@ class TestPersistTurn:
         from app.services.sessions import persist_turn
 
         db = AsyncMock()
+        db.add = MagicMock()
         session_id = uuid.uuid4()
         bot = _make_bot()
         messages = [

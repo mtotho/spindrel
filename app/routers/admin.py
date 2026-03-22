@@ -1079,29 +1079,49 @@ async def admin_session_correlations(request: Request, session_id: uuid.UUID):
             )
         ).all()
 
-        # First user message content per correlation
+        # First user message content per correlation (cross-DB: row_number instead of DISTINCT ON)
+        _user_sub = (
+            select(
+                Message.correlation_id,
+                Message.content,
+                func.row_number().over(
+                    partition_by=Message.correlation_id,
+                    order_by=Message.created_at.asc(),
+                ).label("_rn"),
+            )
+            .where(Message.session_id == session_id)
+            .where(Message.correlation_id.is_not(None))
+            .where(Message.role == "user")
+            .subquery()
+        )
         user_msgs = (
             await db.execute(
-                select(Message.correlation_id, Message.content)
-                .where(Message.session_id == session_id)
-                .where(Message.correlation_id.is_not(None))
-                .where(Message.role == "user")
-                .order_by(Message.correlation_id, Message.created_at.asc())
-                .distinct(Message.correlation_id)
+                select(_user_sub.c.correlation_id, _user_sub.c.content)
+                .where(_user_sub.c._rn == 1)
             )
         ).all()
 
         # First assistant message content per correlation
+        _asst_sub = (
+            select(
+                Message.correlation_id,
+                Message.content,
+                func.row_number().over(
+                    partition_by=Message.correlation_id,
+                    order_by=Message.created_at.asc(),
+                ).label("_rn"),
+            )
+            .where(Message.session_id == session_id)
+            .where(Message.correlation_id.is_not(None))
+            .where(Message.role == "assistant")
+            .where(Message.content.is_not(None))
+            .where(Message.content != "")
+            .subquery()
+        )
         asst_msgs = (
             await db.execute(
-                select(Message.correlation_id, Message.content)
-                .where(Message.session_id == session_id)
-                .where(Message.correlation_id.is_not(None))
-                .where(Message.role == "assistant")
-                .where(Message.content.is_not(None))
-                .where(Message.content != "")
-                .order_by(Message.correlation_id, Message.created_at.asc())
-                .distinct(Message.correlation_id)
+                select(_asst_sub.c.correlation_id, _asst_sub.c.content)
+                .where(_asst_sub.c._rn == 1)
             )
         ).all()
 
