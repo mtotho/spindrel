@@ -36,14 +36,8 @@ The media stack spans multiple hosts:
 │  Proxmox — Thoth VM                  │
 │                                      │
 │  thoth.service (agent-server)        │
-│    └─ media bot (media_bot.yaml)     │
-│       └─ integrations/sonarr/        │
-│       └─ integrations/radarr/        │
-│       └─ integrations/jellyfin/      │
-│       └─ integrations/qbittorrent/   │
-│       └─ integrations/bazarr/        │
-│       └─ integrations/jellyseerr/    │
-│       └─ integrations/prowlarr/      │
+│    └─ media bot (DB-configured)      │
+│       └─ integration tools           │
 └───────────┬──────────────────────────┘
             │ REST APIs + SSH
             │
@@ -70,42 +64,7 @@ The media stack spans multiple hosts:
 
 ### Bot Config
 
-```yaml
-# bots/media_bot.yaml
-id: media_bot
-name: "Media Bot"
-model: gemini/gemini-2.5-flash
-system_prompt: |
-  You are the media server assistant. You help Michael manage his home media stack:
-  Sonarr (TV), Radarr (movies), Jellyfin (streaming), Jellyseerr (requests),
-  qBittorrent (downloads), Bazarr (subtitles), and Prowlarr (indexers).
-
-  When reporting download status, be concise — use tables or bullet lists.
-  When something is wrong (stuck torrent, failed grab, missing episode), lead with the problem.
-local_tools:
-  - sonarr_today
-  - sonarr_upcoming
-  - sonarr_search_missing
-  - radarr_recent
-  - radarr_search_missing
-  - qbittorrent_list
-  - qbittorrent_manage
-  - jellyseerr_pending
-  - jellyseerr_request
-  - jellyfin_manage_user
-  - bazarr_status
-  - media_health_check
-  - media_disk_usage
-pinned_tools:
-  - sonarr_today
-  - qbittorrent_list
-tool_retrieval: true
-context_compaction: true
-compaction_interval: 10
-memory:
-  enabled: true
-  cross_channel: false
-```
+Bot configuration is DB-first — create the media bot via the admin UI. Configure model, system prompt, local tools, pinned tools, memory, and compaction settings there.
 
 ### Scheduled Checks
 
@@ -179,52 +138,21 @@ Torrent names, filenames, show/movie titles, and other free-text fields returned
 
 ### Integration Folder Structure
 
-```
-integrations/
-├── sonarr/
-│   ├── __init__.py
-│   ├── client.py          # SonarrClient — thin wrapper around REST API
-│   └── tools.py           # @register'd tools: sonarr_today, sonarr_upcoming, sonarr_search_missing
-├── radarr/
-│   ├── __init__.py
-│   ├── client.py           # RadarrClient
-│   └── tools.py            # radarr_recent, radarr_search_missing
-├── qbittorrent/
-│   ├── __init__.py
-│   ├── client.py           # QBittorrentClient (handles cookie auth)
-│   └── tools.py            # qbittorrent_list, qbittorrent_manage
-├── jellyfin/
-│   ├── __init__.py
-│   ├── client.py           # JellyfinClient
-│   └── tools.py            # jellyfin_manage_user
-├── jellyseerr/
-│   ├── __init__.py
-│   ├── client.py           # JellyseerrClient
-│   └── tools.py            # jellyseerr_pending, jellyseerr_request
-├── bazarr/
-│   ├── __init__.py
-│   ├── client.py           # BazarrClient
-│   └── tools.py            # bazarr_status
-├── prowlarr/
-│   ├── __init__.py
-│   ├── client.py           # ProwlarrClient
-│   └── tools.py            # (Phase 3 — indexer health)
-└── media_common/
-    ├── __init__.py
-    └── health.py           # media_health_check, media_disk_usage (SSH-based)
-```
-
-Each `client.py` follows the same pattern — an async class using `httpx.AsyncClient` with base URL and API key from config. Each `tools.py` registers tools via `@register(openai_schema)` that call the client.
+Grouping under `integrations/arr/` (or similar) is an option, but exact layout is TBD. Each service needs a thin API client and `@register`'d tools. The pattern is consistent: an async class using `httpx.AsyncClient` with base URL and API key from config, paired with tool functions that call the client.
 
 **Tool categorization:** All media tools should be tagged with a `media` category once tool UI categorization is implemented (planned feature, separate todo). This will help manage the growing tool list and allow filtering in the UI.
+
+---
+
+## Lightweight-First Approach
+
+Before building any integration code, prefer cron scripts that hit APIs and write JSON files to `data/` under the repo. The heartbeat reads these files and surfaces anything interesting. Only escalate to first-class integration code when you need bidirectional/real-time interaction or agent actions (not just reads). Files under `data/` are included in the backup process.
 
 ---
 
 ## Phase 1 — Core Query Tools
 
 *Highest value, lowest effort. Read-only API calls, no side effects.*
-
-**Effort: ~2-3 days**
 
 ### Sonarr
 
@@ -310,12 +238,12 @@ Subtitle status — wanted vs. available, any failed downloads.
 
 ### Phase 1 Deliverables
 
-- [ ] `integrations/sonarr/client.py` + `tools.py`
-- [ ] `integrations/radarr/client.py` + `tools.py`
-- [ ] `integrations/qbittorrent/client.py` + `tools.py`
-- [ ] `integrations/jellyseerr/client.py` + `tools.py`
-- [ ] `integrations/bazarr/client.py` + `tools.py`
-- [ ] `bots/media_bot.yaml`
+- [ ] Sonarr client + tools
+- [ ] Radarr client + tools
+- [ ] qBittorrent client + tools
+- [ ] Jellyseerr client + tools
+- [ ] Bazarr client + tools
+- [ ] Media bot created via admin UI
 - [ ] `.env` additions documented
 - [ ] Basic smoke tests for each client
 
@@ -324,8 +252,6 @@ Subtitle status — wanted vs. available, any failed downloads.
 ## Phase 2 — Action Tools
 
 *Write operations. Require more care — confirm destructive actions with the user.*
-
-**Effort: ~2-3 days**
 
 ### Jellyseerr
 
@@ -393,84 +319,13 @@ Pause, resume, or delete a torrent by hash.
 
 ## Phase 3 — Proactive Scheduled Monitoring
 
-*The bot checks things on a schedule (via skills + scheduled tasks) and alerts in `#media` when something needs attention.*
-
-**Effort: ~2-3 days**
-
-### Alert Conditions
-
-| Condition | Check | Severity |
-|-----------|-------|----------|
-| Today's expected shows haven't downloaded by 8 PM | Sonarr calendar + `hasFile` check | High |
-| Torrent stuck >24h (stalledDL, no progress) | qBittorrent torrent list + `last_activity` | Medium |
-| Sonarr/Radarr failed grab | Sonarr/Radarr `/api/v3/history?eventType=grabbed` with `data.downloadClient` failures | High |
-| Disk usage >90% on media drives | SSH `df -h` or Sonarr `/api/v3/diskspace` | High |
-| Service unreachable | HTTP health check on each service URL | Critical |
-| Prowlarr indexer down | Prowlarr `/api/v1/indexerstatus` | Medium |
-
-### Evening Check (8:00 PM)
-
-```
-🎬 Evening Media Check — March 22
-
-TV:
-  ✓ Severance S02E10 — downloaded, subtitles ready
-  ✗ The Last of Us S02E04 — NOT DOWNLOADED (aired 3h ago)
-    → Triggered search via Sonarr
-
-Movies:
-  ✓ No pending downloads
-
-Torrents:
-  2 active, 0 stuck
-
-Disk: /media — 62% used (1.8 TB free)
-```
-
-### Weekly Summary (Sunday 10:00 AM)
-
-```
-📊 Weekly Media Summary — March 16-22
-
-Downloaded this week:
-  TV: 12 episodes across 5 shows
-  Movies: 2 (Dune: Part Three, The Brutalist)
-  Subtitles: 14 fetched, 1 still missing
-
-Failed/Retried:
-  1 failed grab (Reacher S03E05 — retried successfully)
-
-Pending Requests:
-  2 movie requests awaiting processing
-
-Storage:
-  /media — 62% (1.8 TB free), +48 GB this week
-  Estimated weeks until 90%: ~11
-```
-
-### Implementation Notes
-
-- Alert conditions and periodic checks should be implemented as **skills** bound to the existing **scheduled task system** (`create_task` / scheduled tasks already in the codebase)
-- Michael can bind skills to scheduled tasks via the existing UI — no new heartbeat worker code is needed
-- **Do not** write new heartbeat infrastructure or extend `heartbeat_worker` for media checks
-- External cron jobs are appropriate ONLY for deterministic ingestion-type jobs (e.g. a nightly script that syncs data) — NOT for agent-level logic like "check if shows downloaded and decide what to do"
-- Alerts post to `#media` with appropriate severity formatting
-
-### Phase 3 Deliverables
-
-- [ ] Evening check skill (8 PM) — bound to scheduled task
-- [ ] Weekly summary skill (Sunday 10 AM) — bound to scheduled task
-- [ ] Alert conditions implemented as skills, wired to scheduled tasks
-- [ ] Alert formatting (severity levels, thread details)
-- [ ] `integrations/prowlarr/` client + indexer health tool
+The existing schedule task system is sufficient for prompt-driven periodic checks — no new code required. Bind skills to scheduled tasks via the admin UI. Deterministic ingestion tasks run outside the app via cron. No new heartbeat infrastructure needed.
 
 ---
 
 ## Phase 4 — VM Maintenance
 
 *SSH-based checks on the media server host. Secondary priority — nice to have for the weekly summary.*
-
-**Effort: ~1-2 days**
 
 ### Tools
 
@@ -641,50 +496,11 @@ Prowlarr uses API v1, not v3 like Sonarr/Radarr. The `ArrClient` base class shou
 
 ---
 
-## Implementation Order & Effort Estimates
-
-### Recommended Order
-
-```
-Phase 1a: Foundation + Sonarr + qBittorrent          ~1 day
-  ├─ media_common/ base client
-  ├─ integrations/sonarr/ (client + tools)
-  ├─ integrations/qbittorrent/ (client + tools)
-  └─ bots/media_bot.yaml (minimal)
-
-Phase 1b: Radarr + Jellyseerr + Bazarr               ~1 day
-  ├─ integrations/radarr/ (client + tools)
-  ├─ integrations/jellyseerr/ (client + tools)
-  └─ integrations/bazarr/ (client + tools)
-
-Phase 2a: Action tools (Sonarr/Radarr search)        ~1 day
-  ├─ sonarr_search_missing
-  ├─ radarr_search_missing
-  └─ qbittorrent_manage (pause/resume/delete)
-
-Phase 2b: Jellyseerr requests + Jellyfin users        ~1 day
-  ├─ jellyseerr_request (search + confirm + submit)
-  └─ jellyfin_manage_user (create/delete/reset)
-
-Phase 3: Scheduled monitoring + proactive alerts       ~2-3 days
-  ├─ Skills for alert conditions
-  ├─ Evening check skill (bind to scheduled task)
-  ├─ Weekly summary skill (bind to scheduled task)
-  ├─ Alert formatting
-  └─ integrations/prowlarr/ (indexer health)
-
-Phase 4: VM maintenance (SSH)                         ~1-2 days
-  ├─ SSH client setup (asyncssh)
-  ├─ media_health_check
-  ├─ media_disk_usage
-  └─ media_apt_updates
-```
-
-**Total estimate: ~7-10 days**
+## Implementation Order
 
 ### Start With
 
-**Phase 1a (Sonarr + qBittorrent)** — these two alone answer the most common question: "Did my shows download?" Getting `sonarr_today` and `qbittorrent_list` working first gives immediate daily value.
+**Sonarr + qBittorrent** — these two alone answer the most common question: "Did my shows download?" Getting `sonarr_today` and `qbittorrent_list` working first gives immediate daily value.
 
 ### Open Questions
 
