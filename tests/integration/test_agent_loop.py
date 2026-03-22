@@ -242,7 +242,7 @@ class TestRunAgentToolLoop:
             patch("app.agent.loop.get_client_tool_schemas", return_value=[]),
             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=resp),
             patch("app.services.providers.check_rate_limit", return_value=0),
-            patch("app.agent.loop._record_tool_call", new_callable=AsyncMock),
+            patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
         ):
             from app.agent.loop import run_agent_tool_loop
             messages = [{"role": "user", "content": "hi"}]
@@ -268,11 +268,11 @@ class TestRunAgentToolLoop:
             patch("app.agent.loop.get_client_tool_schemas", return_value=[]),
             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=[resp_with_tool, resp_final]),
             patch("app.services.providers.check_rate_limit", return_value=0),
-            patch("app.agent.loop.is_client_tool", return_value=False),
-            patch("app.agent.loop.is_local_tool", return_value=True),
-            patch("app.agent.loop.is_mcp_tool", return_value=False),
-            patch("app.agent.loop.call_local_tool", new_callable=AsyncMock, return_value='{"result": "echoed"}'),
-            patch("app.agent.loop._record_tool_call", new_callable=AsyncMock),
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"result": "echoed"}'),
+            patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
         ):
             from app.agent.loop import run_agent_tool_loop
             messages = [{"role": "user", "content": "echo hi"}]
@@ -310,11 +310,11 @@ class TestRunAgentToolLoop:
             patch("app.agent.loop.get_client_tool_schemas", return_value=[]),
             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=_fake_llm_call),
             patch("app.services.providers.check_rate_limit", return_value=0),
-            patch("app.agent.loop.is_client_tool", return_value=False),
-            patch("app.agent.loop.is_local_tool", return_value=True),
-            patch("app.agent.loop.is_mcp_tool", return_value=False),
-            patch("app.agent.loop.call_local_tool", new_callable=AsyncMock, return_value='"ok"'),
-            patch("app.agent.loop._record_tool_call", new_callable=AsyncMock),
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='"ok"'),
+            patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
             patch("app.agent.loop.settings") as mock_settings,
             patch("app.services.providers.get_llm_client", return_value=mock_client),
         ):
@@ -348,12 +348,12 @@ class TestRunAgentToolLoop:
             patch("app.agent.loop.get_client_tool_schemas", return_value=[]),
             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=[tool_resp, final_resp]),
             patch("app.services.providers.check_rate_limit", return_value=0),
-            patch("app.agent.loop.is_client_tool", return_value=False),
-            patch("app.agent.loop.is_local_tool", return_value=False),
-            patch("app.agent.loop.is_mcp_tool", return_value=True),
-            patch("app.agent.loop.get_mcp_server_for_tool", return_value="homeassistant"),
-            patch("app.agent.loop.call_mcp_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_mcp,
-            patch("app.agent.loop._record_tool_call", new_callable=AsyncMock),
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=True),
+            patch("app.agent.tool_dispatch.get_mcp_server_for_tool", return_value="homeassistant"),
+            patch("app.agent.tool_dispatch.call_mcp_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_mcp,
+            patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
         ):
             from app.agent.loop import run_agent_tool_loop
             messages = [{"role": "user", "content": "turn on lights"}]
@@ -377,10 +377,10 @@ class TestRunAgentToolLoop:
             patch("app.agent.loop.get_client_tool_schemas", return_value=[]),
             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=[tool_resp, final_resp]),
             patch("app.services.providers.check_rate_limit", return_value=0),
-            patch("app.agent.loop.is_client_tool", return_value=False),
-            patch("app.agent.loop.is_local_tool", return_value=False),
-            patch("app.agent.loop.is_mcp_tool", return_value=False),
-            patch("app.agent.loop._record_tool_call", new_callable=AsyncMock),
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
         ):
             from app.agent.loop import run_agent_tool_loop
             messages = [{"role": "user", "content": "use nonexistent"}]
