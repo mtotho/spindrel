@@ -18,4 +18,9 @@ RUN git config --global credential.helper /usr/local/bin/git-credential-github-e
     git config --global user.name "Slack Bot" && \
     git config --global --add safe.directory /workspace
 
+# Run as non-root so claude --dangerously-skip-permissions works
+RUN useradd -m -u 1000 agent && \
+    chown -R agent:agent /workspace
+USER agent
+
 WORKDIR /workspace
