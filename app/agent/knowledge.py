@@ -5,7 +5,7 @@ from typing import Any
 from app.db.engine import async_session
 from app.db.models import BotKnowledge, KnowledgeAccess, KnowledgePin, KnowledgeWrite
 from app.config import settings
-from sqlalchemy import case, delete, or_, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 from datetime import datetime, timezone
@@ -640,15 +640,23 @@ async def get_pinned_knowledge_docs(
 
     async with async_session() as db:
         # Primary: knowledge_access pinned entries
-        ka_stmt = (
-            select(BotKnowledge.name, BotKnowledge.content)
+        _ka_sub = (
+            select(
+                BotKnowledge.name,
+                BotKnowledge.content,
+                func.row_number().over(
+                    partition_by=BotKnowledge.name,
+                    order_by=BotKnowledge.id,
+                ).label("_rn"),
+            )
             .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
             .where(
                 KnowledgeAccess.mode == "pinned",
                 _ka_scope_filter(bot_id, channel_id),
             )
-            .distinct(BotKnowledge.name)
+            .subquery()
         )
+        ka_stmt = select(_ka_sub.c.name, _ka_sub.c.content).where(_ka_sub.c._rn == 1)
         ka_rows = (await db.execute(ka_stmt)).all()
 
         if ka_rows:
@@ -838,7 +846,7 @@ async def list_knowledge_bases(
     async with async_session() as db:
         # Try knowledge_access-based listing first
         if channel_id is not None:
-            stmt = (
+            _ka_sub = (
                 select(
                     BotKnowledge.name,
                     BotKnowledge.source_type,
@@ -846,11 +854,26 @@ async def list_knowledge_bases(
                     KnowledgeAccess.scope_type,
                     KnowledgeAccess.scope_key,
                     KnowledgeAccess.mode,
+                    func.row_number().over(
+                        partition_by=BotKnowledge.name,
+                        order_by=BotKnowledge.name,
+                    ).label("_rn"),
                 )
                 .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
                 .where(_ka_name_scope_filter(bot_id, channel_id))
-                .distinct(BotKnowledge.name)
-                .order_by(BotKnowledge.name)
+                .subquery()
+            )
+            stmt = (
+                select(
+                    _ka_sub.c.name,
+                    _ka_sub.c.source_type,
+                    _ka_sub.c.editable_from_tool,
+                    _ka_sub.c.scope_type,
+                    _ka_sub.c.scope_key,
+                    _ka_sub.c.mode,
+                )
+                .where(_ka_sub.c._rn == 1)
+                .order_by(_ka_sub.c.name)
             )
             result = await db.execute(stmt)
             rows = result.all()
@@ -873,11 +896,23 @@ async def list_knowledge_bases(
             if ignore_session_scope
             else _knowledge_visibility_filter(bot_id, client_id, session_id)
         )
-        stmt = (
-            select(BotKnowledge.name, BotKnowledge.source_type, BotKnowledge.editable_from_tool)
+        _legacy_sub = (
+            select(
+                BotKnowledge.name,
+                BotKnowledge.source_type,
+                BotKnowledge.editable_from_tool,
+                func.row_number().over(
+                    partition_by=BotKnowledge.name,
+                    order_by=BotKnowledge.name,
+                ).label("_rn"),
+            )
             .where(vis)
-            .distinct(BotKnowledge.name)
-            .order_by(BotKnowledge.name)
+            .subquery()
+        )
+        stmt = (
+            select(_legacy_sub.c.name, _legacy_sub.c.source_type, _legacy_sub.c.editable_from_tool)
+            .where(_legacy_sub.c._rn == 1)
+            .order_by(_legacy_sub.c.name)
         )
         result = await db.execute(stmt)
         rows = result.all()

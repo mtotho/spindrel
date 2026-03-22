@@ -353,10 +353,21 @@ async def index_directory(
 
     # Fetch existing content_hashes in bulk for this (bot_id, client_id, root)
     async with async_session() as db:
-        rows = (await db.execute(
-            select(FilesystemChunk.file_path, FilesystemChunk.content_hash)
+        _fs_sub = (
+            select(
+                FilesystemChunk.file_path,
+                FilesystemChunk.content_hash,
+                func.row_number().over(
+                    partition_by=FilesystemChunk.file_path,
+                    order_by=FilesystemChunk.id,
+                ).label("_rn"),
+            )
             .where(*_scope_filter())
-            .distinct(FilesystemChunk.file_path)
+            .subquery()
+        )
+        rows = (await db.execute(
+            select(_fs_sub.c.file_path, _fs_sub.c.content_hash)
+            .where(_fs_sub.c._rn == 1)
         )).all()
     existing_hashes: dict[str, str] = {row.file_path: row.content_hash for row in rows}
 
