@@ -24,6 +24,15 @@ _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
+def _skill_description(content: str, max_len: int = 120) -> str:
+    """Extract a short description from skill content (first non-heading, non-empty line)."""
+    for line in (content or "").strip().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped[:max_len]
+    return ""
+
+
 async def _get_available_models() -> list[dict]:
     """Return model groups from all configured providers (for select optgroups)."""
     try:
@@ -136,11 +145,13 @@ async def admin_bot_new(request: Request):
         model_provider_id=None,
         updated_at=None,
     )
+    skill_descriptions = {s.id: _skill_description(s.content) for s in all_skills}
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": empty_bot,
         "is_new": True,
         "all_skills": all_skills,
+        "skill_descriptions": skill_descriptions,
         "all_sandbox_profiles": all_sandbox_profiles,
         "model_groups": model_groups,
         "all_bots": _list_bots(),
@@ -164,7 +175,7 @@ async def admin_bot_create(
     mcp_servers: list[str] = Form(default=[]),
     client_tools: list[str] = Form(default=[]),
     pinned_tools: list[str] = Form(default=[]),
-    skills: list[str] = Form(default=[]),
+    skills_json: str = Form(default="[]"),
     tool_retrieval: str = Form("true"),
     tool_similarity_threshold: str = Form(""),
     persona: str = Form("false"),
@@ -238,6 +249,12 @@ async def admin_bot_create(
         bot_sandbox = json.loads(bot_sandbox_json or "{}")
     except json.JSONDecodeError:
         bot_sandbox = {}
+
+    from app.agent.bots import _normalize_skill_entry
+    try:
+        skills = [_normalize_skill_entry(e) for e in json.loads(skills_json or "[]")]
+    except json.JSONDecodeError:
+        skills = []
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
 
@@ -400,10 +417,12 @@ async def admin_bot_edit(request: Request, bot_id: str):
         get_persona(bot_id),
         list_knowledge_candidates_for_bot(bot_id),
     )
+    skill_descriptions = {s.id: _skill_description(s.content) for s in all_skills}
     return templates.TemplateResponse("admin/bot_edit.html", {
         "request": request,
         "bot": row,
         "all_skills": all_skills,
+        "skill_descriptions": skill_descriptions,
         "all_sandbox_profiles": all_sandbox_profiles,
         "model_groups": model_groups,
         "all_bots": [b for b in _list_bots() if b.id != bot_id],
@@ -427,7 +446,7 @@ async def admin_bot_update(
     mcp_servers: list[str] = Form(default=[]),
     client_tools: list[str] = Form(default=[]),
     pinned_tools: list[str] = Form(default=[]),
-    skills: list[str] = Form(default=[]),
+    skills_json: str = Form(default="[]"),
     tool_retrieval: str = Form("true"),
     tool_similarity_threshold: str = Form(""),
     persona: str = Form("false"),
@@ -499,6 +518,12 @@ async def admin_bot_update(
     except json.JSONDecodeError:
         bot_sandbox = {}
 
+    from app.agent.bots import _normalize_skill_entry
+    try:
+        skills = [_normalize_skill_entry(e) for e in json.loads(skills_json or "[]")]
+    except json.JSONDecodeError:
+        skills = []
+
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
 
     async with async_session() as db:
@@ -506,8 +531,8 @@ async def admin_bot_update(
         if not row:
             raise HTTPException(status_code=404, detail="Bot not found")
 
-        old_skills = set(row.skills or [])
-        new_skills = set(skills)
+        old_skills = {(e["id"] if isinstance(e, dict) else e) for e in (row.skills or [])}
+        new_skills = {e["id"] for e in skills}
 
         row.name = name.strip()
         row.model = model.strip()

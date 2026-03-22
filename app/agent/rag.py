@@ -16,12 +16,19 @@ _client = AsyncOpenAI(
 )
 
 
-async def retrieve_context(query: str, skill_ids: list[str] | None = None) -> tuple[list[str], float]:
+async def retrieve_context(
+    query: str,
+    skill_ids: list[str] | None = None,
+    similarity_threshold: float | None = None,
+) -> tuple[list[str], float]:
     """Retrieve relevant skill chunks via pgvector cosine similarity search.
 
     If skill_ids is provided, only search those skills.
     If skill_ids is None, search all skill documents.
+    If similarity_threshold is provided, use it instead of RAG_SIMILARITY_THRESHOLD.
     """
+    threshold = similarity_threshold if similarity_threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
+
     try:
         response = await _client.embeddings.create(
             model=settings.EMBEDDING_MODEL,
@@ -32,7 +39,6 @@ async def retrieve_context(query: str, skill_ids: list[str] | None = None) -> tu
         logger.exception("Failed to embed query for retrieval")
         return [], 0.0
 
-    max_distance = 1.0 - settings.RAG_SIMILARITY_THRESHOLD
     distance_expr = Document.embedding.cosine_distance(query_embedding)
 
     stmt = (
@@ -62,13 +68,13 @@ async def retrieve_context(query: str, skill_ids: list[str] | None = None) -> tu
     best_similarity = 1.0 - best_distance
     logger.info(
         "Skill retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
-        best_similarity, settings.RAG_SIMILARITY_THRESHOLD, query[:60],
+        best_similarity, threshold, query[:60],
     )
 
     chunks = []
     for content, distance in rows:
         similarity = 1.0 - distance
-        if similarity >= settings.RAG_SIMILARITY_THRESHOLD:
+        if similarity >= threshold:
             chunks.append(content)
             logger.debug("  chunk (sim=%.3f): %s...", similarity, content[:80])
         else:
@@ -78,7 +84,7 @@ async def retrieve_context(query: str, skill_ids: list[str] | None = None) -> tu
         logger.info("Retrieved %d skill chunk(s)", len(chunks))
     else:
         logger.info("No chunks above threshold (best was %.3f, need %.3f)",
-                     best_similarity, settings.RAG_SIMILARITY_THRESHOLD)
+                     best_similarity, threshold)
 
     return chunks, best_similarity
 

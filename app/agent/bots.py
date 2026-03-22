@@ -35,6 +35,13 @@ class KnowledgeConfig:
 
 
 @dataclass
+class SkillConfig:
+    id: str
+    mode: str = "on_demand"          # "on_demand" | "pinned" | "rag"
+    similarity_threshold: float | None = None  # only used when mode="rag"
+
+
+@dataclass
 class FilesystemIndexConfig:
     root: str
     patterns: list[str] = field(default_factory=lambda: ["**/*.py", "**/*.md", "**/*.yaml"])
@@ -90,8 +97,7 @@ class BotConfig:
     tool_retrieval: bool = True
     tool_similarity_threshold: float | None = None
     client_tools: list[str] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
-    rag: bool = False
+    skills: list[SkillConfig] = field(default_factory=list)
     persona: bool = False
     context_compaction: bool = True
     compaction_interval: int | None = None
@@ -122,6 +128,35 @@ class BotConfig:
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
     # Bot-local execution sandbox
     bot_sandbox: BotSandboxConfig = field(default_factory=BotSandboxConfig)
+
+    @property
+    def skill_ids(self) -> list[str]:
+        return [s.id for s in self.skills]
+
+
+def _parse_skill_entry(entry) -> SkillConfig:
+    """Parse a skill entry (string or dict) into a SkillConfig."""
+    if isinstance(entry, str):
+        return SkillConfig(id=entry)
+    if isinstance(entry, dict):
+        return SkillConfig(
+            id=entry["id"],
+            mode=entry.get("mode", "on_demand"),
+            similarity_threshold=entry.get("similarity_threshold"),
+        )
+    return SkillConfig(id=str(entry))
+
+
+def _normalize_skill_entry(entry) -> dict:
+    """Normalize a skill entry (string or dict) into a dict for DB storage."""
+    if isinstance(entry, str):
+        return {"id": entry, "mode": "on_demand"}
+    if isinstance(entry, dict):
+        result = {"id": entry["id"], "mode": entry.get("mode", "on_demand")}
+        if entry.get("similarity_threshold") is not None:
+            result["similarity_threshold"] = entry["similarity_threshold"]
+        return result
+    return {"id": str(entry), "mode": "on_demand"}
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -197,8 +232,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         tool_retrieval=row.tool_retrieval,
         tool_similarity_threshold=row.tool_similarity_threshold,
         client_tools=row.client_tools or [],
-        skills=row.skills or [],
-        rag=False,
+        skills=[_parse_skill_entry(e) for e in (row.skills or [])],
         persona=row.persona,
         context_compaction=row.context_compaction,
         compaction_interval=row.compaction_interval,
@@ -256,7 +290,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "mcp_servers": data.get("mcp_servers", []),
         "client_tools": data.get("client_tools", []),
         "pinned_tools": data.get("pinned_tools", []),
-        "skills": data.get("skills", []),
+        "skills": [_normalize_skill_entry(e) for e in data.get("skills", [])],
         "docker_sandbox_profiles": data.get("docker_sandbox_profiles", []),
         "tool_retrieval": data.get("tool_retrieval", True),
         "tool_similarity_threshold": data.get("tool_similarity_threshold"),

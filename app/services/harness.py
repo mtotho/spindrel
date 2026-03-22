@@ -1,9 +1,6 @@
 """External harness execution service — run CLI tools (claude, cursor, etc.) as subprocesses."""
-import asyncio
 import logging
-import os
 import shlex
-import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -129,56 +126,67 @@ class HarnessService:
                 timeout=timeout,
             )
 
-        else:
-           raise HarnessError("Harness must be run in a sandbox. Use sandbox_instance_id to run in a sandbox.")
+        if bot.bot_sandbox.enabled:
+            return await self._run_in_bot_sandbox(
+                harness_name=harness_name,
+                cfg=cfg,
+                prompt=prompt,
+                working_directory=working_directory,
+                bot=bot,
+                timeout=timeout,
+            )
 
-        # Host subprocess
-        wd: str | None = None
+        raise HarnessError("Harness must be run in a sandbox. Use sandbox_instance_id or enable bot_sandbox.")
+
+    async def _run_in_bot_sandbox(
+        self,
+        *,
+        harness_name: str,
+        cfg: HarnessConfig,
+        prompt: str,
+        working_directory: str | None,
+        bot: "BotConfig",
+        timeout: int,
+    ) -> HarnessResult:
+        """Run harness inside the bot-local sandbox (bot_sandbox.enabled=True)."""
+        from app.services.sandbox import sandbox_service
+
+        if not bot.bot_sandbox.image:
+            raise HarnessError("Cannot run harness in bot sandbox: bot_sandbox.image is not set.")
+
+        wd_container: str | None = None
         if working_directory:
-            wd = self._validate_working_dir(working_directory)
+            w = working_directory.strip()
+            if "\n" in w or "\x00" in w:
+                raise HarnessWorkingDirError("Invalid working directory (container path).")
+            wd_container = w
         elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
-            wd = self._validate_working_dir(cfg.working_directory)
+            wd_container = cfg.working_directory.strip() or None
 
-        substituted_args = self._substitute_harness_args(cfg, prompt, wd)
+        substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
 
-        logger.info("[harness] %s command=%r working_dir=%r", harness_name, cfg.command, wd)
+        inner = shlex.join([cfg.command] + substituted_args)
+        if wd_container:
+            script = f"cd {shlex.quote(wd_container)} && {inner}"
+        else:
+            script = inner
 
-        start = time.monotonic()
-        proc = await asyncio.create_subprocess_exec(
-            cfg.command,
-            *substituted_args,
-            cwd=wd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        logger.info(
+            "[harness] %s bot_sandbox bot=%s image=%r",
+            harness_name,
+            bot.id,
+            bot.bot_sandbox.image,
         )
 
-        max_output = 65536  # 64 KB per stream
-        try:
-            raw_out, raw_err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            try:
-                proc.kill()
-                await proc.wait()
-            except ProcessLookupError:
-                pass
-            raise HarnessError(f"Harness {harness_name!r} timed out after {timeout}s.")
-
-        duration_ms = int((time.monotonic() - start) * 1000)
-
-        truncated = False
-        if len(raw_out) > max_output:
-            raw_out = raw_out[:max_output]
-            truncated = True
-        if len(raw_err) > max_output:
-            raw_err = raw_err[:max_output]
-            truncated = True
-
+        exec_res = await sandbox_service.exec_bot_local(
+            bot.id, script, bot.bot_sandbox, timeout=timeout,
+        )
         return HarnessResult(
-            stdout=raw_out.decode(errors="replace"),
-            stderr=raw_err.decode(errors="replace"),
-            exit_code=proc.returncode or 0,
-            truncated=truncated,
-            duration_ms=duration_ms,
+            stdout=exec_res.stdout,
+            stderr=exec_res.stderr,
+            exit_code=exec_res.exit_code,
+            truncated=exec_res.truncated,
+            duration_ms=exec_res.duration_ms,
         )
 
     async def _run_in_sandbox(
@@ -242,27 +250,6 @@ class HarnessService:
             duration_ms=exec_res.duration_ms,
         )
 
-    def _validate_working_dir(self, working_dir: str) -> str:
-        """Resolve to realpath and validate against allowlist."""
-        try:
-            real = os.path.realpath(working_dir)
-        except Exception as exc:
-            raise HarnessWorkingDirError(f"Invalid working directory: {exc}") from exc
-
-        if not os.path.isdir(real):
-            raise HarnessWorkingDirError(f"Working directory does not exist: {real!r}")
-
-        server_allowlist = settings.HARNESS_WORKING_DIR_ALLOWLIST
-        if server_allowlist:
-            if not any(
-                real == p or real.startswith(p.rstrip("/") + "/")
-                for p in server_allowlist
-            ):
-                raise HarnessWorkingDirError(
-                    f"Working directory '{real}' is not in the server allowlist."
-                )
-
-        return real
 
 
 harness_service = HarnessService()

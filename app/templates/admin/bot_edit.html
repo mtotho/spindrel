@@ -32,7 +32,7 @@ function collectContextDraft() {
     mcp_servers: fd.getAll('mcp_servers'),
     client_tools: fd.getAll('client_tools'),
     pinned_tools: fd.getAll('pinned_tools'),
-    skills: fd.getAll('skills'),
+    skills: j('skills_json', []),
     tool_retrieval: hv('tool_retrieval') === 'true',
     tool_similarity_threshold: nums('tool_similarity_threshold'),
     memory_enabled: hv('memory_enabled') === 'true',
@@ -509,17 +509,95 @@ function botContextEstimatePanel(botId) {
 
   <!-- Skills -->
   {% if all_skills %}
-  <section>
-    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Skills</h2>
+  <script>
+  function skillsEditor() {
+    const raw = {{ (bot.skills or []) | tojson }};
+    const init = raw.map(e => typeof e === 'string'
+      ? {id: e, mode: 'on_demand', similarity_threshold: null}
+      : {id: e.id, mode: e.mode || 'on_demand', similarity_threshold: e.similarity_threshold || null});
+    return {
+      entries: init,
+      filter: '',
+      isSelected(id) { return this.entries.some(e => e.id === id); },
+      getEntry(id) { return this.entries.find(e => e.id === id); },
+      toggle(id) {
+        if (this.isSelected(id)) {
+          this.entries = this.entries.filter(e => e.id !== id);
+        } else {
+          this.entries = [...this.entries, {id, mode: 'on_demand', similarity_threshold: null}];
+        }
+      },
+      setMode(id, mode) {
+        const e = this.getEntry(id);
+        if (e) { e.mode = mode; if (mode !== 'rag') e.similarity_threshold = null; }
+      },
+      setThreshold(id, val) {
+        const e = this.getEntry(id);
+        if (e) e.similarity_threshold = val ? parseFloat(val) : null;
+      },
+      matchesFilter(id, name, desc) {
+        if (!this.filter) return true;
+        const q = this.filter.toLowerCase();
+        return id.toLowerCase().includes(q) || name.toLowerCase().includes(q) || (desc && desc.toLowerCase().includes(q));
+      },
+    };
+  }
+  </script>
+  <section x-data="skillsEditor()">
+    <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Skills</h2>
+    <p class="text-xs text-gray-500 mb-3">
+      <strong>on_demand</strong>: skill index injected, agent calls get_skill on demand.
+      <strong>pinned</strong>: full content injected every turn.
+      <strong>rag</strong>: semantic similarity retrieval per turn.
+    </p>
+    <input type="hidden" name="skills_json" :value="JSON.stringify(entries)" />
+    {% if all_skills | length > 6 %}
+    <div class="mb-3">
+      <input type="text" x-model="filter" placeholder="Filter skills..."
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+    </div>
+    {% endif %}
     <div class="grid grid-cols-2 gap-2">
       {% for skill in all_skills %}
-      <label class="flex items-center gap-2 p-2 bg-gray-800 rounded-lg border border-gray-700 hover:border-indigo-500 cursor-pointer">
-        <input type="checkbox" name="skills" value="{{ skill.id }}"
-          {% if skill.id in (bot.skills or []) %}checked{% endif %}
-          class="rounded text-indigo-500" />
-        <span class="text-sm text-gray-200">{{ skill.name }}</span>
-        <span class="text-xs text-gray-500 font-mono ml-auto">{{ skill.id }}</span>
-      </label>
+      {% set desc = skill_descriptions.get(skill.id, '') %}
+      <div x-show="matchesFilter('{{ skill.id }}', '{{ skill.name | e }}', '{{ desc | e }}')"
+           class="p-2.5 bg-gray-800 rounded-lg border border-gray-700 transition-colors"
+           :class="isSelected('{{ skill.id }}') ? 'border-indigo-500 bg-gray-750' : 'hover:border-gray-600'">
+        <div class="flex items-start gap-2">
+          <input type="checkbox" class="rounded text-indigo-500 shrink-0 mt-0.5"
+            :checked="isSelected('{{ skill.id }}')"
+            @change="toggle('{{ skill.id }}')" />
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-200 truncate" title="{{ skill.name }}">{{ skill.name }}</span>
+              <span class="text-[10px] text-gray-500 font-mono shrink-0">{{ skill.id }}</span>
+            </div>
+            {% if desc %}
+            <p class="text-xs text-gray-500 mt-0.5 line-clamp-1" title="{{ desc | e }}">{{ desc }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <template x-if="isSelected('{{ skill.id }}')">
+          <div class="flex items-center gap-2 mt-2 ml-6">
+            <select class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+              :value="getEntry('{{ skill.id }}')?.mode || 'on_demand'"
+              @change="setMode('{{ skill.id }}', $event.target.value)">
+              <option value="on_demand">on_demand</option>
+              <option value="pinned">pinned</option>
+              <option value="rag">rag</option>
+            </select>
+            <template x-if="getEntry('{{ skill.id }}')?.mode === 'rag'">
+              <div class="flex items-center gap-1">
+                <label class="text-[10px] text-gray-500">threshold</label>
+                <input type="number" step="0.01" min="0" max="1" placeholder="default"
+                  class="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                  :value="getEntry('{{ skill.id }}')?.similarity_threshold || ''"
+                  @input="setThreshold('{{ skill.id }}', $event.target.value)" />
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
       {% endfor %}
     </div>
   </section>

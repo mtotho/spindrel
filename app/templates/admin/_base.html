@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Admin{% endblock %} — Agent Server</title>
+  <title>{% block title %}Admin{% endblock %} — THOTH Server</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
   <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/admin/static/favicon.svg" />
   <link rel="stylesheet" href="/admin/static/admin.css" />
   <script>
     tailwind.config = {
@@ -27,7 +28,7 @@
   <!-- Sidebar -->
   <nav class="w-52 min-h-screen bg-gray-950 border-r border-gray-800 flex flex-col py-6 px-3 shrink-0">
     <div class="mb-8 px-2">
-      <span class="text-lg font-semibold text-indigo-400">Agent Server</span>
+      <span class="text-lg font-semibold text-indigo-400 tracking-wide">THOTH</span>
       <div class="text-xs text-gray-500 mt-0.5">Admin</div>
     </div>
 

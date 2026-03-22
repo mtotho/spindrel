@@ -44,7 +44,9 @@ _SYS_MSG_PREFIXES: list[tuple[str, str]] = [
     ("Current time:", "sys:datetime"),
     ("Tagged skill context", "sys:tagged_skills"),
     ("Tagged knowledge", "sys:tagged_knowledge"),
+    ("Pinned skill context", "sys:skill_pinned"),
     ("Available skills (use get_skill", "sys:skill_index"),
+    ("Relevant skill context:\n", "sys:skill_rag"),
     ("Relevant context:\n", "sys:skill_context"),
     ("Available sub-agents", "sys:delegate_index"),
     ("Relevant memories from past", "sys:memory"),
@@ -686,7 +688,7 @@ async def run_stream(
     # Resolve @mention tags for explicit context/tool injection
     _tagged = await resolve_tags(
         message=user_message,
-        bot_skills=bot.skills,
+        bot_skills=bot.skill_ids,
         bot_local_tools=bot.local_tools,
         bot_client_tools=bot.client_tools,
         bot_id=bot.id,
@@ -762,57 +764,92 @@ async def run_stream(
             ))
 
     if bot.skills:
-        # Inject a skill index so the bot knows which skills are available.
-        # The bot uses get_skill(skill_id) to retrieve full content on demand.
-        from sqlalchemy import select as _sa_select
-        from app.db.engine import async_session as _async_session
-        from app.db.models import Skill as _SkillRow
-        async with _async_session() as _db:
-            _rows = (await _db.execute(
-                _sa_select(_SkillRow.id, _SkillRow.name)
-                .where(_SkillRow.id.in_(bot.skills))
-            )).all()
-        if _rows:
-            _index_lines = "\n".join(f"- {r.id}: {r.name}" for r in _rows)
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"Available skills (use get_skill to retrieve full content):\n{_index_lines}"
-                ),
-            })
-            yield {"type": "skill_index", "count": len(_rows)}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="skill_index",
-                    count=len(_rows),
-                    data={"skill_ids": [r.id for r in _rows]},
-                ))
-    elif bot.rag:
-        # Legacy pure-RAG mode: semantic similarity retrieval across all skill docs
-        chunks, skill_sim = await retrieve_context(user_message, skill_ids=None)
-        if chunks:
-            _skill_chars = sum(len(c) for c in chunks)
-            _inject_chars["skill_context"] = _skill_chars
-            yield {"type": "skill_context", "count": len(chunks), "chars": _skill_chars}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="skill_context",
-                    count=len(chunks),
-                    data={"preview": chunks[0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
-                ))
-            context = "\n\n---\n\n".join(chunks)
-            messages.append({
-                "role": "system",
-                "content": f"Relevant context:\n\n{context}",
-            })
+        _pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
+        _rag_skills = [s for s in bot.skills if s.mode == "rag"]
+        _on_demand_skills = [s for s in bot.skills if s.mode == "on_demand"]
+
+        # Pinned skills: inject full content every turn
+        if _pinned_skills:
+            _pinned_chunks: list[str] = []
+            for _ps in _pinned_skills:
+                _pinned_chunks.extend(await fetch_skill_chunks_by_id(_ps.id))
+            if _pinned_chunks:
+                _pinned_chars = sum(len(c) for c in _pinned_chunks)
+                _inject_chars["skill_pinned"] = _pinned_chars
+                messages.append({
+                    "role": "system",
+                    "content": "Pinned skill context:\n\n" + "\n\n---\n\n".join(_pinned_chunks),
+                })
+                yield {"type": "skill_pinned_context", "count": len(_pinned_chunks), "chars": _pinned_chars}
+                if correlation_id is not None:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="skill_pinned_context",
+                        count=len(_pinned_chunks),
+                        data={"skill_ids": [s.id for s in _pinned_skills], "chars": _pinned_chars},
+                    ))
+
+        # RAG skills: semantic similarity retrieval
+        if _rag_skills:
+            _rag_ids = [s.id for s in _rag_skills]
+            _thresholds = [s.similarity_threshold for s in _rag_skills if s.similarity_threshold is not None]
+            _min_threshold = min(_thresholds) if _thresholds else None
+            chunks, skill_sim = await retrieve_context(
+                user_message, skill_ids=_rag_ids, similarity_threshold=_min_threshold,
+            )
+            if chunks:
+                _skill_chars = sum(len(c) for c in chunks)
+                _inject_chars["skill_rag"] = _skill_chars
+                yield {"type": "skill_context", "count": len(chunks), "chars": _skill_chars}
+                if correlation_id is not None:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="skill_context",
+                        count=len(chunks),
+                        data={"preview": chunks[0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
+                    ))
+                context = "\n\n---\n\n".join(chunks)
+                messages.append({
+                    "role": "system",
+                    "content": f"Relevant skill context:\n\n{context}",
+                })
+
+        # On-demand skills: inject index, agent uses get_skill()
+        if _on_demand_skills:
+            from sqlalchemy import select as _sa_select
+            from app.db.engine import async_session as _async_session
+            from app.db.models import Skill as _SkillRow
+            _od_ids = [s.id for s in _on_demand_skills]
+            async with _async_session() as _db:
+                _rows = (await _db.execute(
+                    _sa_select(_SkillRow.id, _SkillRow.name)
+                    .where(_SkillRow.id.in_(_od_ids))
+                )).all()
+            if _rows:
+                _index_lines = "\n".join(f"- {r.id}: {r.name}" for r in _rows)
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        f"Available skills (use get_skill to retrieve full content):\n{_index_lines}"
+                    ),
+                })
+                yield {"type": "skill_index", "count": len(_rows)}
+                if correlation_id is not None:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="skill_index",
+                        count=len(_rows),
+                        data={"skill_ids": [r.id for r in _rows]},
+                    ))
 
     # Inject a delegate bot index so the bot knows which agents it can hand off to
     # and their exact IDs (needed for @-tagging and delegate_to_agent tool calls).

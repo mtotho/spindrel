@@ -10,6 +10,8 @@ from typing import Any
 from sqlalchemy import select
 
 from app.config import settings
+from sqlalchemy import func as sa_func
+
 from app.db.engine import async_session
 from app.db.models import Skill as SkillRow, ToolEmbedding
 
@@ -37,6 +39,25 @@ class ContextEstimateResult:
     disclaimer: str
 
 
+def _parse_skill_entries(raw_skills: list) -> tuple[list[dict], list[dict], list[dict]]:
+    """Parse structured skill entries into (pinned, rag, on_demand) lists of dicts."""
+    pinned, rag, on_demand = [], [], []
+    for e in raw_skills:
+        if isinstance(e, str):
+            on_demand.append({"id": e, "mode": "on_demand"})
+        elif isinstance(e, dict):
+            mode = e.get("mode", "on_demand")
+            if mode == "pinned":
+                pinned.append(e)
+            elif mode == "rag":
+                rag.append(e)
+            else:
+                on_demand.append(e)
+        else:
+            on_demand.append({"id": str(e), "mode": "on_demand"})
+    return pinned, rag, on_demand
+
+
 async def _skill_index_chars(db, skill_ids: list[str]) -> tuple[int, int]:
     """Return (chars, n_skills) for the skill index system message."""
     if not skill_ids:
@@ -51,6 +72,19 @@ async def _skill_index_chars(db, skill_ids: list[str]) -> tuple[int, int]:
     header = len("Available skills (use get_skill to retrieve full content):\n")
     body = sum(len(f"- {r.id}: {r.name}\n") for r in rows)
     return header + body, len(rows)
+
+
+async def _pinned_skill_chars(db, skill_ids: list[str]) -> int:
+    """Return estimated chars for pinned skills (full content injected)."""
+    if not skill_ids:
+        return 0
+    result = await db.execute(
+        select(sa_func.sum(sa_func.length(SkillRow.content)))
+        .where(SkillRow.id.in_(skill_ids))
+    )
+    total = result.scalar() or 0
+    wrap = len("Pinned skill context:\n\n") + len("\n\n---\n\n") * max(0, len(skill_ids) - 1)
+    return wrap + total
 
 
 def _rag_retrieval_factor(tool_threshold: float) -> float:
@@ -81,7 +115,7 @@ async def estimate_bot_context(
     mcp_servers = list(draft.get("mcp_servers") or [])
     client_tools = list(draft.get("client_tools") or [])
     pinned_raw = list(draft.get("pinned_tools") or [])
-    skills = list(draft.get("skills") or [])
+    skills_raw = list(draft.get("skills") or [])
     tool_retrieval = bool(draft.get("tool_retrieval", True))
     tool_th = draft.get("tool_similarity_threshold")
     try:
@@ -136,9 +170,29 @@ async def estimate_bot_context(
         lines.append(EstimateLine("sys:persona", len("[PERSONA]\n") + len(persona_content), "injected in session bootstrap"))
 
     async with async_session() as db:
-        sk_chars, sk_n = await _skill_index_chars(db, skills)
+        _pinned_s, _rag_s, _on_demand_s = _parse_skill_entries(skills_raw)
+
+        # Pinned skills: full content every turn
+        if _pinned_s:
+            _pinned_ids = [e["id"] for e in _pinned_s]
+            _p_chars = await _pinned_skill_chars(db, _pinned_ids)
+            if _p_chars:
+                lines.append(EstimateLine("sys:skill_pinned", _p_chars, f"{len(_pinned_ids)} pinned skill(s)"))
+
+        # RAG skills: heuristic
+        if _rag_s:
+            _rag_thresholds = [e.get("similarity_threshold") or settings.RAG_SIMILARITY_THRESHOLD for e in _rag_s]
+            _avg_th = sum(_rag_thresholds) / len(_rag_thresholds)
+            _rag_h = _memory_knowledge_hit_factor(_avg_th)
+            _est_rag = int(settings.RAG_TOP_K * 1200 * 0.45 * _rag_h)
+            _wrap = len("Relevant skill context:\n\n---\n\n")
+            lines.append(EstimateLine("sys:skill_rag", _wrap + _est_rag, f"{len(_rag_s)} RAG skill(s); varies by query"))
+
+        # On-demand skills: index only
+        _od_ids = [e["id"] for e in _on_demand_s]
+        sk_chars, sk_n = await _skill_index_chars(db, _od_ids)
         if sk_chars:
-            lines.append(EstimateLine("sys:skill_index", sk_chars, f"{sk_n} skill(s) listed"))
+            lines.append(EstimateLine("sys:skill_index", sk_chars, f"{sk_n} on-demand skill(s) listed"))
 
         # Tool schema sizes: local + client from live schemas; MCP from tool_embeddings
         by_name: dict[str, dict[str, Any]] = {}
@@ -158,7 +212,7 @@ async def estimate_bot_context(
                 by_name[n] = t
                 tool_server[n] = None
 
-        need_get_skill = bool(skills) and "get_skill" not in by_name
+        need_get_skill = bool(skills_raw) and "get_skill" not in by_name
         if need_get_skill:
             for t in get_local_tool_schemas(["get_skill"]):
                 fn = t.get("function") or {}

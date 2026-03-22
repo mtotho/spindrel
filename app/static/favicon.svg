@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a5b4fc"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0a0a0f"/>
+  <!-- Stylized ibis head profile (Thoth) -->
+  <g transform="translate(32,30)" fill="none" stroke="url(#g)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Curved ibis beak -->
+    <path d="M2,-14 Q8,-14 10,-10 Q13,-4 10,0 Q6,4 0,6 Q-3,7 -5,6" fill="none"/>
+    <!-- Head curve -->
+    <path d="M2,-14 Q-4,-16 -8,-14 Q-14,-10 -14,-2 Q-14,6 -8,12 Q-4,16 0,18" fill="none"/>
+    <!-- Eye -->
+    <circle cx="-4" cy="-6" r="2.5" fill="#818cf8" stroke="none"/>
+    <!-- Eye of knowledge accent (small ankh-like mark below eye) -->
+    <path d="M-4,-2 L-4,4 M-6,1 L-2,1" stroke-width="1.5" opacity="0.5"/>
+  </g>
+</svg>
