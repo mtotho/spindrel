@@ -1,7 +1,6 @@
 # TODOs
 _Simple running list of active work items. Updated every heartbeat._
 _Last updated: 2026-03-22_
-
 1. Refactor/declutter `app/agent/loop.py` — ~1000 lines, needs cleanup and better separation of concerns.
 2. Build backup system — Phase 1: Postgres dump on a schedule, offload to third-party (Google Drive, S3, etc). Phase 2: filesystem/integration state backup (indexed files, vector store, etc).
 3. Test Claude Code async/streaming pattern — launch via raw PID + .jsonl so we can tail live output mid-run. Try on next long Claude Code task.
