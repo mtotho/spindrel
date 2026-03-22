@@ -41,27 +41,31 @@ class TestDispatcher:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_dispatch_workflow_run_failure_injects(self):
-        """workflow_run with conclusion=failure should inject a message."""
+    async def test_dispatch_workflow_run_failure_posts_to_slack(self):
+        """workflow_run with conclusion=failure should post to Slack."""
         db = AsyncMock()
         payload = {
             "workflow_run": {"conclusion": "failure", "name": "CI", "head_branch": "main", "html_url": "https://example.com", "id": 42},
             "repository": {"full_name": "org/repo"},
         }
-        with patch("integrations.github.handlers.github_config") as mock_cfg:
-            mock_cfg.AGENT_SESSION_ID = "00000000-0000-0000-0000-000000000001"
+        with patch("integrations.github.handlers.github_config") as mock_cfg, \
+             patch("integrations.github.handlers.post_message", new_callable=AsyncMock, return_value=True):
+            mock_cfg.SLACK_CHANNEL_ID = "C01ABCDEF"
+            mock_cfg.SLACK_BOT_TOKEN = "xoxb-test"
             result = await dispatch("workflow_run", payload, db)
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_dispatch_check_run_failure_injects(self):
-        """check_run with conclusion=failure should inject a message."""
+    async def test_dispatch_check_run_failure_posts_to_slack(self):
+        """check_run with conclusion=failure should post to Slack."""
         db = AsyncMock()
         payload = {
             "check_run": {"conclusion": "failure", "name": "lint", "html_url": "https://example.com"},
             "repository": {"full_name": "org/repo"},
         }
-        with patch("integrations.github.handlers.github_config") as mock_cfg:
-            mock_cfg.AGENT_SESSION_ID = "00000000-0000-0000-0000-000000000001"
+        with patch("integrations.github.handlers.github_config") as mock_cfg, \
+             patch("integrations.github.handlers.post_message", new_callable=AsyncMock, return_value=True):
+            mock_cfg.SLACK_CHANNEL_ID = "C01ABCDEF"
+            mock_cfg.SLACK_BOT_TOKEN = "xoxb-test"
             result = await dispatch("check_run", payload, db)
         assert result is not None
