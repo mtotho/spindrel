@@ -1,8 +1,14 @@
-"""Unit tests for resolve_bot_id in app.agent.bots."""
+"""Unit tests for resolve_bot_id, get_bot, _bot_row_to_config in app.agent.bots."""
 import pytest
+from unittest.mock import MagicMock
+
+from fastapi import HTTPException
 
 from app.agent import bots
-from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, resolve_bot_id
+from app.agent.bots import (
+    BotConfig, MemoryConfig, KnowledgeConfig,
+    resolve_bot_id, get_bot, _bot_row_to_config,
+)
 
 
 def _bot(id: str, name: str) -> BotConfig:
@@ -62,3 +68,151 @@ class TestResolveBotId:
     def test_none_for_empty_hint(self):
         bots._registry["a"] = _bot("a", "A")
         assert resolve_bot_id("") is None
+
+
+# ---------------------------------------------------------------------------
+# get_bot
+# ---------------------------------------------------------------------------
+
+class TestGetBot:
+    def test_returns_bot_for_known_id(self):
+        bot = _bot("known", "Known Bot")
+        bots._registry["known"] = bot
+        assert get_bot("known") is bot
+
+    def test_raises_404_for_unknown_id(self):
+        with pytest.raises(HTTPException) as exc_info:
+            get_bot("nonexistent_bot_xyz")
+        assert exc_info.value.status_code == 404
+        assert "nonexistent_bot_xyz" in exc_info.value.detail
+
+
+# ---------------------------------------------------------------------------
+# _bot_row_to_config
+# ---------------------------------------------------------------------------
+
+def _make_bot_row(**overrides):
+    """Create a mock BotRow with all fields set to sensible defaults."""
+    row = MagicMock()
+    row.id = overrides.get("id", "test_bot")
+    row.name = overrides.get("name", "Test Bot")
+    row.model = overrides.get("model", "gpt-4")
+    row.system_prompt = overrides.get("system_prompt", "You are helpful.")
+    row.mcp_servers = overrides.get("mcp_servers", ["server1"])
+    row.local_tools = overrides.get("local_tools", ["web_search"])
+    row.pinned_tools = overrides.get("pinned_tools", ["pinned_tool"])
+    row.tool_retrieval = overrides.get("tool_retrieval", True)
+    row.tool_similarity_threshold = overrides.get("tool_similarity_threshold", 0.35)
+    row.client_tools = overrides.get("client_tools", ["shell_exec"])
+    row.skills = overrides.get("skills", ["skill1", {"id": "skill2", "mode": "pinned"}])
+    row.persona = overrides.get("persona", True)
+    row.context_compaction = overrides.get("context_compaction", True)
+    row.compaction_interval = overrides.get("compaction_interval", 10)
+    row.compaction_keep_turns = overrides.get("compaction_keep_turns", 4)
+    row.compaction_model = overrides.get("compaction_model", "gpt-3.5-turbo")
+    row.memory_knowledge_compaction_prompt = overrides.get("memory_knowledge_compaction_prompt", None)
+    row.audio_input = overrides.get("audio_input", "transcribe")
+    row.memory_config = overrides.get("memory_config", {
+        "enabled": True,
+        "cross_channel": True,
+        "cross_bot": False,
+        "prompt": "Remember things.",
+    })
+    row.knowledge_config = overrides.get("knowledge_config", {"enabled": True})
+    row.filesystem_indexes = overrides.get("filesystem_indexes", [])
+    row.docker_sandbox_profiles = overrides.get("docker_sandbox_profiles", ["python-scratch"])
+    row.host_exec_config = overrides.get("host_exec_config", {
+        "enabled": True,
+        "commands": [{"name": "git", "subcommands": ["status", "log"]}],
+    })
+    row.filesystem_access = overrides.get("filesystem_access", [
+        {"path": "/tmp", "mode": "readwrite"},
+    ])
+    row.display_name = overrides.get("display_name", "Test Display")
+    row.avatar_url = overrides.get("avatar_url", "https://example.com/avatar.png")
+    row.integration_config = overrides.get("integration_config", {})
+    row.tool_result_config = overrides.get("tool_result_config", {})
+    row.knowledge_max_inject_chars = overrides.get("knowledge_max_inject_chars", 5000)
+    row.memory_max_inject_chars = overrides.get("memory_max_inject_chars", 3000)
+    row.delegation_config = overrides.get("delegation_config", {
+        "delegate_bots": ["child_bot"],
+        "harness_access": ["harness1"],
+    })
+    row.model_provider_id = overrides.get("model_provider_id", "provider1")
+    row.bot_sandbox = overrides.get("bot_sandbox", {"enabled": True, "image": "node:20"})
+    return row
+
+
+class TestBotRowToConfig:
+    def test_basic_fields_mapped(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.id == "test_bot"
+        assert config.name == "Test Bot"
+        assert config.model == "gpt-4"
+        assert config.system_prompt == "You are helpful."
+
+    def test_memory_config_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.memory.enabled is True
+        assert config.memory.cross_channel is True
+        assert config.memory.prompt == "Remember things."
+
+    def test_knowledge_config_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.knowledge.enabled is True
+
+    def test_skills_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert len(config.skills) == 2
+        assert config.skills[0].id == "skill1"
+        assert config.skills[0].mode == "on_demand"
+        assert config.skills[1].id == "skill2"
+        assert config.skills[1].mode == "pinned"
+
+    def test_host_exec_config_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.host_exec.enabled is True
+        assert len(config.host_exec.commands) == 1
+        assert config.host_exec.commands[0].name == "git"
+        assert config.host_exec.commands[0].subcommands == ["status", "log"]
+
+    def test_filesystem_access_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert len(config.filesystem_access) == 1
+        assert config.filesystem_access[0].path == "/tmp"
+        assert config.filesystem_access[0].mode == "readwrite"
+
+    def test_delegation_config_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.delegate_bots == ["child_bot"]
+        assert config.harness_access == ["harness1"]
+
+    def test_bot_sandbox_parsed(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.bot_sandbox.enabled is True
+        assert config.bot_sandbox.image == "node:20"
+
+    def test_none_delegation_config(self):
+        row = _make_bot_row(delegation_config=None)
+        config = _bot_row_to_config(row)
+        assert config.delegate_bots == []
+        assert config.harness_access == []
+
+    def test_empty_memory_config(self):
+        row = _make_bot_row(memory_config={})
+        config = _bot_row_to_config(row)
+        assert config.memory.enabled is False
+        assert config.memory.cross_channel is False
+
+    def test_model_provider_id(self):
+        row = _make_bot_row()
+        config = _bot_row_to_config(row)
+        assert config.model_provider_id == "provider1"
