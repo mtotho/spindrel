@@ -4,10 +4,19 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold">Knowledge</h1>
-  <a href="/admin/knowledge/new"
-     class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm">
-    + New Entry
-  </a>
+  <div class="flex items-center gap-2">
+    <button
+      hx-post="/admin/file-sync"
+      hx-swap="none"
+      hx-on::after-request="alert('File sync complete')"
+      class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-2 text-sm font-medium">
+      ↻ Sync Files
+    </button>
+    <a href="/admin/knowledge/new"
+       class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm">
+      + New Entry
+    </a>
+  </div>
 </div>
 
 <details class="mb-6 border border-indigo-500/30 rounded-xl bg-gray-900/40 open:ring-1 open:ring-indigo-500/20">
@@ -105,6 +114,7 @@
         <th class="px-4 py-3 text-left">Bot</th>
         <th class="px-4 py-3 text-left">Client</th>
         <th class="px-4 py-3 text-left">Chat session</th>
+        <th class="px-4 py-3 text-left">Source</th>
         <th class="px-4 py-3 text-left">Updated</th>
         <th class="px-4 py-3 text-left">Actions</th>
       </tr>
@@ -113,7 +123,7 @@
       {% for entry in entries %}
       {% include "admin/knowledge_row.html" %}
       {% else %}
-      <tr><td colspan="6" class="px-4 py-6 text-gray-500 text-center">No knowledge entries.</td></tr>
+      <tr><td colspan="7" class="px-4 py-6 text-gray-500 text-center">No knowledge entries. Drop <code>.md</code> files in <code>knowledge/</code> and click Sync Files (or restart).</td></tr>
       {% endfor %}
     </tbody>
   </table>

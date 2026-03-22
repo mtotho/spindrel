@@ -431,7 +431,8 @@ async def list_knowledge_bases(
     session_id: uuid.UUID | None = None,
     *,
     ignore_session_scope: bool = False,
-) -> list[str]:
+) -> list[dict]:
+    """Return list of dicts with name, source_type, editable_from_tool for each accessible knowledge base."""
     async with async_session() as db:
         vis = (
             _knowledge_bot_client_filter(bot_id, client_id)
@@ -439,11 +440,11 @@ async def list_knowledge_bases(
             else _knowledge_visibility_filter(bot_id, client_id, session_id)
         )
         stmt = (
-            select(BotKnowledge.name)
+            select(BotKnowledge.name, BotKnowledge.source_type, BotKnowledge.editable_from_tool)
             .where(vis)
-            .distinct()
+            .distinct(BotKnowledge.name)
             .order_by(BotKnowledge.name)
         )
         result = await db.execute(stmt)
         rows = result.all()
-        return [row.name for row in rows]
+        return [{"name": r.name, "source_type": r.source_type, "editable_from_tool": r.editable_from_tool} for r in rows]

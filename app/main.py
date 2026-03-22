@@ -5,8 +5,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.agent.bots import load_bots, seed_bots_from_yaml
+from app.agent.bots import list_bots, load_bots, seed_bots_from_yaml
 from app.agent.skills import load_skills, seed_skills_from_files
+from app.services import file_sync
 from app.agent.tools import (
     index_local_tools,
     validate_pinned_tools,
@@ -46,17 +47,26 @@ async def lifespan(app: FastAPI):
 
     logger.info("Indexing local tool schemas for retrieval...")
     await index_local_tools()
+    # Warn about deprecated tool name
+    for _bot in list_bots():
+        if "run_host_command" in (_bot.local_tools or []):
+            logger.warning(
+                "Bot '%s' lists 'run_host_command' in local_tools — this tool has been renamed "
+                "to 'exec_command'. Update the bot config to remove this warning.",
+                _bot.id,
+            )
     logger.info("Fetching and indexing MCP tool schemas...")
     await warm_mcp_tool_index_for_all_bots()
     await validate_pinned_tools()
 
-    logger.info("Seeding skills from files (seed-once)...")
-    await seed_skills_from_files()
+    logger.info("Syncing file-sourced skills and knowledge...")
+    await file_sync.sync_all_files()
     logger.info("Loading skills from DB...")
     await load_skills()
+    logger.info("Starting file watcher...")
+    asyncio.create_task(file_sync.watch_files())
 
     logger.info("Indexing configured filesystem directories...")
-    from app.agent.bots import list_bots
     from app.agent.fs_indexer import index_directory
     from app.agent.fs_watcher import start_watchers
     for bot in list_bots():

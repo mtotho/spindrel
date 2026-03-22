@@ -34,21 +34,66 @@ async def _get_available_models() -> list[dict]:
 
 
 async def _get_tool_options() -> dict:
-    """Return available local tool names, MCP server names, and client tool names."""
+    """Return available local tool names, MCP server names, client tool names, and tool_groups.
+
+    tool_groups is a list of dicts:
+      {"label": str, "tools": [{"name": str, "source_integration": str|None, "source_file": str|None}]}
+    """
     from app.tools.mcp import _servers
     from app.tools.client_tools import _client_tools
     from sqlalchemy import select as sa_select
 
     async with async_session() as db:
         tool_rows = (await db.execute(
-            sa_select(ToolEmbedding.tool_name, ToolEmbedding.server_name)
+            sa_select(
+                ToolEmbedding.tool_name,
+                ToolEmbedding.server_name,
+                ToolEmbedding.source_integration,
+                ToolEmbedding.source_file,
+            )
             .order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
         )).all()
 
     local_tools = sorted({r.tool_name for r in tool_rows if r.server_name is None})
     mcp_servers = sorted(_servers.keys())
     client_tools = sorted(_client_tools.keys())
-    return {"local_tools": local_tools, "mcp_servers": mcp_servers, "client_tools": client_tools}
+
+    # Build tool_groups: ALL local tools grouped by Integration → Pack (source_file basename).
+    # Tools with no source_integration go into the synthetic "core" integration.
+    from collections import defaultdict
+    integration_packs: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+
+    for r in tool_rows:
+        if r.server_name is not None:
+            continue  # MCP tools handled separately
+        intg = r.source_integration or "core"
+        pack = (r.source_file or "misc").replace(".py", "")
+        entry = {"name": r.tool_name, "source_integration": r.source_integration, "source_file": r.source_file}
+        integration_packs[intg][pack].append(entry)
+
+    # core first, then other integrations alphabetically
+    ordered_intgs = (["core"] if "core" in integration_packs else []) + sorted(
+        k for k in integration_packs if k != "core"
+    )
+    tool_groups: list[dict] = []
+    for intg_id in ordered_intgs:
+        packs_dict = integration_packs[intg_id]
+        tool_groups.append({
+            "integration": intg_id,
+            "is_core": intg_id == "core",
+            "packs": [
+                {"pack": pn, "tools": sorted(packs_dict[pn], key=lambda t: t["name"])}
+                for pn in sorted(packs_dict)
+            ],
+            "total": sum(len(v) for v in packs_dict.values()),
+        })
+
+    return {
+        "local_tools": local_tools,
+        "mcp_servers": mcp_servers,
+        "client_tools": client_tools,
+        "tool_groups": tool_groups,
+    }
 
 
 @router.get("/bots/new", response_class=HTMLResponse)
@@ -87,6 +132,7 @@ async def admin_bot_new(request: Request):
         display_name=None, avatar_url=None, integration_config={},
         knowledge_max_inject_chars=None, memory_max_inject_chars=None,
         delegation_config={},
+        bot_sandbox={},
         model_provider_id=None,
         updated_at=None,
     )
@@ -145,6 +191,7 @@ async def admin_bot_create(
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
     model_provider_id: str = Form(""),
+    bot_sandbox_json: str = Form(default="{}"),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -186,6 +233,11 @@ async def admin_bot_create(
         delegation_config = json.loads(delegation_config_json or "{}")
     except json.JSONDecodeError:
         delegation_config = {}
+
+    try:
+        bot_sandbox = json.loads(bot_sandbox_json or "{}")
+    except json.JSONDecodeError:
+        bot_sandbox = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
 
@@ -229,6 +281,7 @@ async def admin_bot_create(
         knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         delegation_config=delegation_config,
+        bot_sandbox=bot_sandbox,
         model_provider_id=model_provider_id.strip() or None,
         created_at=now,
         updated_at=now,
@@ -402,6 +455,7 @@ async def admin_bot_update(
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
     model_provider_id: str = Form(""),
+    bot_sandbox_json: str = Form(default="{}"),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -439,6 +493,11 @@ async def admin_bot_update(
         delegation_config = json.loads(delegation_config_json or "{}")
     except json.JSONDecodeError:
         delegation_config = {}
+
+    try:
+        bot_sandbox = json.loads(bot_sandbox_json or "{}")
+    except json.JSONDecodeError:
+        bot_sandbox = {}
 
     mem_sim = _float_or_none(memory_similarity_threshold) or 0.45
 
@@ -487,6 +546,7 @@ async def admin_bot_update(
         row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.delegation_config = delegation_config
+        row.bot_sandbox = bot_sandbox
         row.model_provider_id = model_provider_id.strip() or None
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()

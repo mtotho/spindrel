@@ -243,7 +243,115 @@ function botContextEstimatePanel(botId) {
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Tools</h2>
     <div class="space-y-5">
 
-      {% if local_tools %}
+      {% if tool_groups %}
+      <script>
+      function localToolsData() {
+        return {
+          q: '',
+          _io: {}, _po: {},
+          hit(n) { return !this.q || n.toLowerCase().includes(this.q.toLowerCase()); },
+          packHit(ns) { return !this.q || ns.some(n => this.hit(n)); },
+          intHit(ns) { return !this.q || ns.some(n => this.hit(n)); },
+          intOpen(k) { return this.q ? true : this._io[k] !== false; },
+          togInt(k) { if (!this.q) this._io[k] = !this.intOpen(k); },
+          packOpen(k) { return this.q ? true : this._po[k] !== false; },
+          togPack(k) { if (!this.q) this._po[k] = !this.packOpen(k); },
+        };
+      }
+      </script>
+      <div x-data="localToolsData()">
+        <!-- header + filter row -->
+        <div class="flex items-center gap-2 mb-3 flex-wrap">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider shrink-0">Local Tools</span>
+          <span class="text-xs text-yellow-600 shrink-0" x-show="retrieval" title="📌 = always include, bypasses RAG">📌 pin</span>
+          <span class="text-xs text-orange-400 shrink-0" x-show="showExclude" title="🔇 = skip summarization for this tool">🔇 no-sum</span>
+          <span class="text-xs text-gray-500 shrink-0" x-show="!retrieval">(all always active)</span>
+          <div class="ml-auto flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 focus-within:border-indigo-500 min-w-36">
+            <svg class="w-3 h-3 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input x-model="q" type="text" placeholder="filter…" class="bg-transparent text-xs text-gray-200 placeholder-gray-600 outline-none w-24" />
+            <button x-show="q" @click="q=''" type="button" class="text-gray-500 hover:text-gray-300 text-xs leading-none shrink-0">✕</button>
+          </div>
+        </div>
+        <!-- integration groups -->
+        {% set ns = namespace(tool_idx=0) %}
+        {% for group in tool_groups %}
+        {% set all_names = group.packs | map(attribute='tools') | sum(start=[]) | map(attribute='name') | list %}
+        <div x-show="intHit({{ all_names | tojson }})" class="mb-2 rounded-lg border border-gray-700/80 overflow-hidden">
+          <!-- integration header -->
+          <button type="button" @click="togInt('{{ group.integration }}')"
+            class="w-full flex items-center gap-2 px-3 py-2 bg-gray-800/90 hover:bg-gray-750 text-left select-none">
+            <svg class="w-2.5 h-2.5 text-gray-500 shrink-0 transition-transform duration-150"
+              :class="intOpen('{{ group.integration }}') ? 'rotate-90' : ''"
+              fill="currentColor" viewBox="0 0 6 10"><path d="M1 1l4 4-4 4"/></svg>
+            {% if not group.is_core %}
+            <span class="px-1.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wide bg-orange-900/50 text-orange-300">{{ group.integration }}</span>
+            <span class="text-[10px] text-orange-400/60 font-normal">integration</span>
+            {% else %}
+            <span class="text-xs font-semibold text-gray-300">core</span>
+            {% endif %}
+            <span class="ml-auto text-[10px] text-gray-600">{{ group.total }}</span>
+          </button>
+          <!-- integration body -->
+          <div x-show="intOpen('{{ group.integration }}')" x-collapse>
+            {% for pack_info in group.packs %}
+            {% set pack_names = pack_info.tools | map(attribute='name') | list %}
+            {% set pack_key = group.integration ~ '::' ~ pack_info.pack %}
+            <div x-show="packHit({{ pack_names | tojson }})" class="border-t border-gray-700/50">
+              {% if group.packs | length > 1 %}
+              <!-- pack sub-header -->
+              <button type="button" @click="togPack('{{ pack_key }}')"
+                class="w-full flex items-center gap-2 px-4 py-1.5 bg-gray-900/70 hover:bg-gray-800/70 text-left select-none">
+                <svg class="w-2 h-2 text-gray-600 shrink-0 transition-transform duration-150"
+                  :class="packOpen('{{ pack_key }}') ? 'rotate-90' : ''"
+                  fill="currentColor" viewBox="0 0 6 10"><path d="M1 1l4 4-4 4"/></svg>
+                <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{{ pack_info.pack }}</span>
+                <span class="ml-auto text-[10px] text-gray-700">{{ pack_info.tools | length }}</span>
+              </button>
+              {% endif %}
+              <div {% if group.packs | length > 1 %}x-show="packOpen('{{ pack_key }}')" x-collapse{% endif %}
+                class="p-1.5 grid grid-cols-2 gap-0.5">
+                {% for tool_entry in pack_info.tools %}
+                {% set tool = tool_entry.name %}
+                {% set enabled = tool in (bot.local_tools or []) %}
+                {% set pinned = tool in (bot.pinned_tools or []) %}
+                {% set ns.tool_idx = ns.tool_idx + 1 %}
+                {% set tool_uid = "lt-" ~ ns.tool_idx %}
+                <div x-show="hit('{{ tool }}')"
+                  class="flex items-center gap-1.5 px-2 py-1 rounded border text-xs transition-colors
+                    {% if enabled %}bg-indigo-950/50 border-indigo-700/60{% else %}bg-gray-800/80 border-gray-700/60{% endif %}
+                    hover:border-gray-500">
+                  <input type="checkbox" name="local_tools" value="{{ tool }}"
+                    {% if enabled %}checked{% endif %}
+                    class="text-indigo-500 rounded shrink-0"
+                    onchange="syncPin(this, 'pin-{{ tool_uid }}')" />
+                  <span class="font-mono flex-1 truncate {% if enabled %}text-indigo-200{% else %}text-gray-300{% endif %}"
+                    title="{{ tool }}">{{ tool }}</span>
+                  <label x-show="retrieval" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-yellow-500/80 hover:text-yellow-400"
+                    title="📌 Pin — always pass this tool to the LLM">
+                    <span class="text-[10px]">📌</span>
+                    <input type="checkbox" name="pinned_tools" value="{{ tool }}" id="pin-{{ tool_uid }}"
+                      {% if pinned %}checked{% endif %}
+                      {% if not enabled %}disabled{% endif %}
+                      class="rounded {% if not enabled %}opacity-20{% endif %}" />
+                  </label>
+                  <label x-show="showExclude" class="inline-flex items-center gap-0.5 cursor-pointer shrink-0 text-orange-400/70 hover:text-orange-400"
+                    title="🔇 No-sum — never summarize this tool's output">
+                    <span class="text-[10px]">🔇</span>
+                    <input type="checkbox"
+                      :checked="isExcluded('{{ tool }}')"
+                      @change="toggleExclude('{{ tool }}')"
+                      class="rounded" />
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% elif local_tools %}
       <div>
         <div class="flex items-center gap-3 mb-1.5">
           <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Local Tools</span>
@@ -610,39 +718,55 @@ function botContextEstimatePanel(botId) {
   </section>
   {% endif %}
 
-  <!-- Host Execution -->
+  <!-- Host Execution + Sandbox -->
   <script>
-  function hostExecData() {
-    const init = {{ (bot.host_exec_config or {}) | tojson }};
+  function execSectionData() {
+    const heInit = {{ (bot.host_exec_config or {}) | tojson }};
+    const bsInit = {{ (bot.bot_sandbox or {}) | tojson }};
     return {
       he: {
-        enabled: init.enabled || false,
-        dry_run: init.dry_run || false,
-        working_dirs: init.working_dirs || [],
-        commands: init.commands || [],
-        blocked_patterns: init.blocked_patterns || [],
-        env_passthrough: init.env_passthrough || [],
-        timeout: init.timeout || null,
-        max_output_bytes: init.max_output_bytes || null,
+        enabled: heInit.enabled || false,
+        dry_run: heInit.dry_run || false,
+        working_dirs: heInit.working_dirs || [],
+        commands: heInit.commands || [],
+        blocked_patterns: heInit.blocked_patterns || [],
+        env_passthrough: heInit.env_passthrough || [],
+        timeout: heInit.timeout || null,
+        max_output_bytes: heInit.max_output_bytes || null,
       },
-      newDir: '', newCmd: '', newCmdSubs: '', newBlocked: '', newEnv: '',
-      get config() { return this.he; },
+      bs: {
+        enabled: bsInit.enabled || false,
+        unrestricted: bsInit.unrestricted || false,
+        image: bsInit.image || 'python:3.12-slim',
+        network: bsInit.network || 'none',
+        env: bsInit.env || {},
+        ports: bsInit.ports || [],
+      },
+      newDir: '', newCmd: '', newCmdSubs: '', newBlocked: '', newEnvPass: '',
+      newSbEnvKey: '', newSbEnvVal: '', newHostPort: '', newContainerPort: '',
+      get sandboxActive() { return this.bs.enabled; },
+      get commandsUnrestricted() { return this.bs.enabled && this.bs.unrestricted; },
       addDir() { if (this.newDir.trim()) { this.he.working_dirs = [...this.he.working_dirs, this.newDir.trim()]; this.newDir = ''; } },
       removeDir(i) { this.he.working_dirs = this.he.working_dirs.filter((_, j) => j !== i); },
       addCmd() { if (this.newCmd.trim()) { const subs = this.newCmdSubs.trim() ? this.newCmdSubs.split(',').map(s => s.trim()).filter(Boolean) : []; this.he.commands = [...this.he.commands, {name: this.newCmd.trim(), subcommands: subs}]; this.newCmd = ''; this.newCmdSubs = ''; } },
       removeCmd(i) { this.he.commands = this.he.commands.filter((_, j) => j !== i); },
       addBlocked() { if (this.newBlocked.trim()) { this.he.blocked_patterns = [...this.he.blocked_patterns, this.newBlocked.trim()]; this.newBlocked = ''; } },
       removeBlocked(i) { this.he.blocked_patterns = this.he.blocked_patterns.filter((_, j) => j !== i); },
-      addEnv() { if (this.newEnv.trim()) { this.he.env_passthrough = [...this.he.env_passthrough, this.newEnv.trim()]; this.newEnv = ''; } },
-      removeEnv(i) { this.he.env_passthrough = this.he.env_passthrough.filter((_, j) => j !== i); },
+      addEnvPass() { if (this.newEnvPass.trim()) { this.he.env_passthrough = [...this.he.env_passthrough, this.newEnvPass.trim()]; this.newEnvPass = ''; } },
+      removeEnvPass(i) { this.he.env_passthrough = this.he.env_passthrough.filter((_, j) => j !== i); },
+      addSbEnv() { if (this.newSbEnvKey.trim()) { const e = {...this.bs.env}; e[this.newSbEnvKey.trim()] = this.newSbEnvVal; this.bs.env = e; this.newSbEnvKey = ''; this.newSbEnvVal = ''; } },
+      removeSbEnv(k) { const e = {...this.bs.env}; delete e[k]; this.bs.env = e; },
+      addPort() { if (this.newContainerPort.trim()) { this.bs.ports = [...this.bs.ports, {host_port: this.newHostPort.trim(), container_port: this.newContainerPort.trim()}]; this.newHostPort = ''; this.newContainerPort = ''; } },
+      removePort(i) { this.bs.ports = this.bs.ports.filter((_, j) => j !== i); },
     };
   }
   </script>
-  <section x-data="hostExecData()">
+  <section x-data="execSectionData()">
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Host Execution</h2>
     <p class="text-xs text-gray-500 mb-4">Run shell commands on the host system. Requires <code class="bg-gray-700 px-1 rounded">HOST_EXEC_ENABLED=true</code> server setting.</p>
 
-    <input type="hidden" name="host_exec_config_json" :value="JSON.stringify(config)" />
+    <input type="hidden" name="host_exec_config_json" :value="JSON.stringify(he)" />
+    <input type="hidden" name="bot_sandbox_json" :value="JSON.stringify(bs)" />
 
     <div class="space-y-4">
       <!-- Toggles -->
@@ -672,8 +796,11 @@ function botContextEstimatePanel(botId) {
       </div>
 
       <!-- Working Dirs -->
-      <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Allowed Working Directories</div>
+      <div :class="sandboxActive ? 'opacity-40 pointer-events-none select-none' : ''">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Allowed Working Directories
+          <span x-show="sandboxActive" class="normal-case font-normal text-gray-600 ml-2">(not applicable in sandbox)</span>
+        </div>
         <div class="space-y-1 mb-2">
           <template x-for="(dir, i) in (he.working_dirs||[])" :key="i">
             <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700">
@@ -690,8 +817,11 @@ function botContextEstimatePanel(botId) {
       </div>
 
       <!-- Commands -->
-      <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Allowed Commands</div>
+      <div :class="commandsUnrestricted ? 'opacity-40 pointer-events-none select-none' : ''">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Allowed Commands
+          <span x-show="commandsUnrestricted" class="normal-case font-normal text-gray-600 ml-2">(any command allowed in sandbox)</span>
+        </div>
         <p class="text-xs text-gray-500 mb-2">Use <code class="bg-gray-700 px-1 rounded">*</code> as name to allow any command. Leave subcommands empty to allow all.</p>
         <div class="space-y-1 mb-2">
           <template x-for="(cmd, i) in (he.commands||[])" :key="i">
@@ -730,21 +860,111 @@ function botContextEstimatePanel(botId) {
       </div>
 
       <!-- Env Passthrough -->
-      <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Extra Env Passthrough</div>
+      <div :class="sandboxActive ? 'opacity-40 pointer-events-none select-none' : ''">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Extra Env Passthrough
+          <span x-show="sandboxActive" class="normal-case font-normal text-gray-600 ml-2">(not applicable in sandbox)</span>
+        </div>
         <p class="text-xs text-gray-500 mb-2">Additional env vars to pass through (beyond server defaults like PATH, HOME).</p>
         <div class="flex flex-wrap gap-1 mb-2">
           <template x-for="(v, i) in (he.env_passthrough||[])" :key="i">
             <span class="flex items-center gap-1 bg-gray-700 rounded px-2 py-0.5 text-xs font-mono text-gray-200">
               <span x-text="v"></span>
-              <button type="button" @click="removeEnv(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
+              <button type="button" @click="removeEnvPass(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
             </span>
           </template>
         </div>
         <div class="flex gap-2">
-          <input type="text" x-model="newEnv" @keydown.enter.prevent="addEnv()" placeholder="ENV_VAR_NAME"
+          <input type="text" x-model="newEnvPass" @keydown.enter.prevent="addEnvPass()" placeholder="ENV_VAR_NAME"
             class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <button type="button" @click="addEnv()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+          <button type="button" @click="addEnvPass()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+        </div>
+      </div>
+
+      <!-- Execution Sandbox (subsection) -->
+      <div class="pt-4 mt-2 border-t border-gray-700">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Execution Sandbox</div>
+        <p class="text-xs text-gray-500 mb-3">
+          Route <code class="text-gray-400">exec_command</code> into a per-bot Docker container.
+          The container persists even when disabled — toggle to switch routing without destroying it.
+        </p>
+        <div class="flex flex-wrap items-center gap-6 mb-3">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" class="rounded text-indigo-500" x-model="bs.enabled" />
+            <span class="text-sm text-gray-300">Enable sandbox routing</span>
+          </label>
+          <label x-show="bs.enabled" class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" class="rounded text-green-500" x-model="bs.unrestricted" />
+            <span class="text-sm text-gray-300">Allow any command <span class="text-xs text-gray-500">(ignores command allowlist above)</span></span>
+          </label>
+        </div>
+        <div x-show="bs.enabled" class="space-y-3 pl-4 border-l-2 border-indigo-800/50">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Docker Image</label>
+              <input x-model="bs.image" type="text" placeholder="python:3.12-slim"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
+              <select x-model="bs.network"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="none">none (no network)</option>
+                <option value="bridge">bridge</option>
+                <option value="host">host</option>
+              </select>
+            </div>
+          </div>
+          <!-- Sandbox Env Vars -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Container Environment Variables</div>
+            <template x-for="(val, key) in bs.env" :key="key">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-mono text-xs text-gray-300 w-32 truncate" x-text="key"></span>
+                <span class="text-gray-600">=</span>
+                <span class="font-mono text-xs text-gray-400 flex-1 truncate" x-text="val"></span>
+                <button type="button" @click="removeSbEnv(key)" class="text-xs text-red-400 hover:text-red-300 shrink-0">✕</button>
+              </div>
+            </template>
+            <div class="flex items-center gap-2 mt-1.5">
+              <input x-model="newSbEnvKey" type="text" placeholder="KEY"
+                class="w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <span class="text-gray-600 text-xs">=</span>
+              <input x-model="newSbEnvVal" type="text" placeholder="value"
+                class="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <button type="button" @click="addSbEnv()"
+                class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
+            </div>
+          </div>
+          <!-- Port Mappings -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Port Mappings (optional)</div>
+            <template x-for="(pm, idx) in bs.ports" :key="idx">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-mono text-xs text-gray-300" x-text="pm.host_port ? pm.host_port + ':' + pm.container_port : pm.container_port"></span>
+                <button type="button" @click="removePort(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">✕</button>
+              </div>
+            </template>
+            <div class="flex items-center gap-2 mt-1.5">
+              <input x-model="newHostPort" type="text" placeholder="host (optional)"
+                class="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <span class="text-gray-600 text-xs">:</span>
+              <input x-model="newContainerPort" type="text" placeholder="container"
+                class="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <button type="button" @click="addPort()"
+                class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
+            </div>
+          </div>
+          {% if not is_new %}
+          <div>
+            <button type="button"
+              onclick="if(confirm('Recreate the bot-local container?\nThe container will be stopped and removed; the next exec_command call will auto-create it.')) fetch('/admin/sandboxes/bot/{{ bot.id }}/recreate', {method:'POST'}).then(r => { if(r.ok) window.location.reload(); })"
+              class="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-indigo-300 hover:text-indigo-200 rounded-lg border border-gray-600">
+              ↻ Recreate Container
+            </button>
+            <p class="text-xs text-gray-600 mt-1">Use if the container is in a bad state. It will be rebuilt on next use.</p>
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>

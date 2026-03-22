@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 
@@ -91,6 +91,7 @@ async def admin_skill_edit(request: Request, skill_id: str):
     return templates.TemplateResponse("admin/skill_edit.html", {
         "request": request,
         "skill": row,
+        "is_file_managed": row.source_type in ("file", "integration"),
     })
 
 
@@ -123,7 +124,17 @@ async def admin_skill_delete(skill_id: str):
         row = await db.get(SkillRow, skill_id)
         if not row:
             raise HTTPException(status_code=404, detail="Skill not found")
+        if row.source_type in ("file", "integration"):
+            raise HTTPException(status_code=403, detail="Cannot delete a file-managed skill from the UI. Remove the source file instead.")
         await db.delete(row)
         await db.execute(delete(Document).where(Document.source == f"skill:{skill_id}"))
         await db.commit()
     return HTMLResponse("", status_code=200)
+
+
+@router.post("/file-sync", response_class=JSONResponse)
+async def admin_file_sync():
+    """Trigger a full file sync for skills and knowledge."""
+    from app.services.file_sync import sync_all_files
+    counts = await sync_all_files()
+    return JSONResponse({"ok": True, **counts})

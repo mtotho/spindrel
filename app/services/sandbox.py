@@ -519,4 +519,205 @@ class SandboxService:
             logger.warning("docker rm failed for %s: %s", container_id, e)
 
 
+    # --- Bot-local sandbox (per-bot persistent container) ---
+
+    def _bot_local_container_name(self, bot_id: str) -> str:
+        seg = _sanitize_docker_name_segment(bot_id, 48)
+        return f"agent-sbx-bot-{seg}"
+
+    async def _ensure_bot_local_profile(self, bot_id: str, config: "BotSandboxConfig") -> uuid.UUID:
+        """Get or create a synthetic SandboxProfile row for bot-local sandboxes.
+
+        Returns the profile UUID. The profile name is 'bot-local:{bot_id}'.
+        """
+        import hashlib as _hashlib
+        profile_uuid = uuid.UUID(bytes=_hashlib.sha256(f"bot-sandbox:{bot_id}".encode()).digest()[:16])
+        async with async_session() as db:
+            profile = await db.get(SandboxProfile, profile_uuid)
+            if profile is None:
+                profile = SandboxProfile(
+                    id=profile_uuid,
+                    name=f"bot-local:{bot_id}",
+                    description=f"Auto-created bot-local sandbox for bot '{bot_id}'",
+                    image=config.image or "python:3.12-slim",
+                    scope_mode="bot",
+                    network_mode=config.network or "none",
+                    env=config.env or {},
+                )
+                db.add(profile)
+                await db.commit()
+            else:
+                # Update image/network in case config changed
+                changed = False
+                if profile.image != (config.image or "python:3.12-slim"):
+                    profile.image = config.image or "python:3.12-slim"
+                    changed = True
+                if profile.network_mode != (config.network or "none"):
+                    profile.network_mode = config.network or "none"
+                    changed = True
+                if changed:
+                    await db.commit()
+        return profile_uuid
+
+    async def ensure_bot_local(
+        self,
+        bot_id: str,
+        config: "BotSandboxConfig",
+    ) -> SandboxInstance:
+        """Ensure a long-lived per-bot container exists and is running.
+
+        Uses scope_type='bot', scope_key=bot_id.
+        """
+        container_name = self._bot_local_container_name(bot_id)
+        profile_uuid = await self._ensure_bot_local_profile(bot_id, config)
+
+        async with async_session() as db:
+            stmt = select(SandboxInstance).where(
+                SandboxInstance.scope_type == "bot",
+                SandboxInstance.scope_key == bot_id,
+            )
+            instance = (await db.execute(stmt)).scalar_one_or_none()
+
+            if instance is not None:
+                # Already exists — ensure it's running
+                if instance.status == "stopped" and instance.container_id:
+                    await self._docker_start(instance.container_id)
+                    instance.status = "running"
+                    instance.last_used_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    await db.refresh(instance)
+                return instance
+
+            # Create new DB row
+            instance = SandboxInstance(
+                profile_id=profile_uuid,
+                scope_type="bot",
+                scope_key=bot_id,
+                container_name=container_name,
+                status="creating",
+                created_by_bot=bot_id,
+            )
+            db.add(instance)
+            await db.commit()
+            await db.refresh(instance)
+
+        # Build docker run args
+        run_args = ["docker", "run", "-d", "--name", container_name, "--network", config.network or "none"]
+        for k, v in (config.env or {}).items():
+            run_args += ["-e", f"{k}={v}"]
+        for pm in (config.ports or []):
+            host_port = pm.get("host_port", 0)
+            container_port = pm.get("container_port")
+            if container_port:
+                mapping = f"{host_port}:{container_port}" if host_port else str(container_port)
+                run_args += ["-p", mapping]
+        run_args += [config.image or "python:3.12-slim", "sleep", "infinity"]
+
+        container_id, error = await self._docker_run(run_args)
+        async with async_session() as db:
+            inst = await db.get(SandboxInstance, instance.id)
+            if inst:
+                if error:
+                    inst.status = "dead"
+                    inst.error_message = error
+                else:
+                    inst.container_id = container_id
+                    inst.status = "running"
+                    inst.last_inspected_at = datetime.now(timezone.utc)
+                await db.commit()
+                await db.refresh(inst)
+                if error:
+                    raise SandboxError(f"Failed to create bot-local container '{container_name}': {error}")
+                return inst
+        raise SandboxError("Failed to persist bot-local sandbox instance.")
+
+    async def exec_bot_local(
+        self,
+        bot_id: str,
+        command: str,
+        config: "BotSandboxConfig",
+        timeout: int | None = None,
+        max_bytes: int | None = None,
+    ) -> ExecResult:
+        """Execute a command in the bot-local sandbox container."""
+        instance = await self.ensure_bot_local(bot_id, config)
+
+        if instance.container_id is None:
+            raise SandboxError("Bot-local container has no ID after ensure.")
+
+        timeout_secs = timeout or settings.DOCKER_SANDBOX_DEFAULT_TIMEOUT
+        max_out = max_bytes or settings.DOCKER_SANDBOX_MAX_OUTPUT_BYTES
+        start_ts = datetime.now(timezone.utc).timestamp()
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "exec", "-i", instance.container_id,
+                "sh", "-c", command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=timeout_secs,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
+                return ExecResult(
+                    stdout="",
+                    stderr=f"Command timed out after {timeout_secs}s",
+                    exit_code=-1,
+                    truncated=False,
+                    duration_ms=duration_ms,
+                )
+        except Exception as e:
+            raise SandboxError(f"Failed to exec bot-local command: {e}") from e
+
+        duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
+        truncated = False
+        if len(stdout_bytes) > max_out:
+            stdout_bytes = stdout_bytes[:max_out]
+            truncated = True
+        if len(stderr_bytes) > max_out:
+            stderr_bytes = stderr_bytes[:max_out]
+            truncated = True
+
+        async with async_session() as db:
+            inst = await db.get(SandboxInstance, instance.id)
+            if inst:
+                inst.last_used_at = datetime.now(timezone.utc)
+                await db.commit()
+
+        return ExecResult(
+            stdout=stdout_bytes.decode("utf-8", errors="replace"),
+            stderr=stderr_bytes.decode("utf-8", errors="replace"),
+            exit_code=proc.returncode if proc.returncode is not None else 0,
+            truncated=truncated,
+            duration_ms=duration_ms,
+        )
+
+    async def recreate_bot_local(self, bot_id: str) -> None:
+        """Stop, remove, and delete the DB row for a bot-local sandbox.
+
+        Next exec_command call will auto-recreate via ensure_bot_local.
+        """
+        container_name = self._bot_local_container_name(bot_id)
+        existing_id = await self._get_container_id_by_name(container_name)
+        if existing_id:
+            await self._docker_stop(existing_id)
+            await self._docker_rm(existing_id)
+        async with async_session() as db:
+            stmt = select(SandboxInstance).where(
+                SandboxInstance.scope_type == "bot",
+                SandboxInstance.scope_key == bot_id,
+            )
+            inst = (await db.execute(stmt)).scalar_one_or_none()
+            if inst:
+                await db.delete(inst)
+                await db.commit()
+        logger.info("Recreated bot-local sandbox for bot '%s'", bot_id)
+
+
 sandbox_service = SandboxService()

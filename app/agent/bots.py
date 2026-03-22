@@ -68,6 +68,16 @@ class FilesystemAccessEntry:
 
 
 @dataclass
+class BotSandboxConfig:
+    enabled: bool = False
+    unrestricted: bool = False   # if True, command allowlist is ignored when running in sandbox
+    image: str = "python:3.12-slim"
+    network: str = "none"
+    env: dict = field(default_factory=dict)
+    ports: list = field(default_factory=list)
+
+
+@dataclass
 class BotConfig:
     id: str
     name: str
@@ -109,6 +119,8 @@ class BotConfig:
     harness_access: list[str] = field(default_factory=list)  # allowed harness names
     # Provider
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
+    # Bot-local execution sandbox
+    bot_sandbox: BotSandboxConfig = field(default_factory=BotSandboxConfig)
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -163,6 +175,15 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         )
         for e in fs_access_raw
     ]
+    bs_raw = row.bot_sandbox or {}
+    bot_sandbox_cfg = BotSandboxConfig(
+        enabled=bs_raw.get("enabled", False),
+        unrestricted=bs_raw.get("unrestricted", False),
+        image=bs_raw.get("image", "python:3.12-slim"),
+        network=bs_raw.get("network", "none"),
+        env=bs_raw.get("env", {}),
+        ports=bs_raw.get("ports", []),
+    )
     return BotConfig(
         id=row.id,
         name=row.name,
@@ -198,6 +219,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
         model_provider_id=row.model_provider_id,
+        bot_sandbox=bot_sandbox_cfg,
     )
 
 

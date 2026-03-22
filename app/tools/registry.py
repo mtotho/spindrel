@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -10,6 +11,10 @@ _tools: dict[str, dict[str, Any]] = {}
 
 # Set by loader.py before importing each external tool file so @register picks up the source dir.
 _current_load_source_dir: str | None = None
+# Set by loader.py to the actual .py file path being imported.
+_current_load_source_file: str | None = None
+# Set by loader.py when importing integration tool files.
+_current_source_integration: str | None = None
 
 
 def register(schema: dict, *, source_dir: str | None = None):
@@ -18,18 +23,31 @@ def register(schema: dict, *, source_dir: str | None = None):
     def decorator(func: Callable):
         name = schema["function"]["name"]
         effective_source_dir = source_dir or _current_load_source_dir
-        _tools[name] = {"function": func, "schema": schema, "source_dir": effective_source_dir}
+        source_file = Path(_current_load_source_file).name if _current_load_source_file else None
+        _tools[name] = {
+            "function": func,
+            "schema": schema,
+            "source_dir": effective_source_dir,
+            "source_integration": _current_source_integration,
+            "source_file": source_file,
+        }
         logger.info("Registered local tool: %s", name)
         return func
 
     return decorator
 
 
-def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None]]:
-    """(tool_name, openai_tool_schema_dict, source_dir_or_none) for indexing."""
-    out: list[tuple[str, dict[str, Any], str | None]] = []
+def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str | None, str | None]]:
+    """Yields (tool_name, schema, source_dir, source_integration, source_file) for indexing."""
+    out = []
     for name, entry in _tools.items():
-        out.append((name, entry["schema"], entry.get("source_dir")))
+        out.append((
+            name,
+            entry["schema"],
+            entry.get("source_dir"),
+            entry.get("source_integration"),
+            entry.get("source_file"),
+        ))
     return out
 
 

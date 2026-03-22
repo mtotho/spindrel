@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from openai import AsyncOpenAI
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
@@ -76,6 +76,8 @@ async def _upsert_tool_row(
     tool_name: str,
     server_name: str | None,
     source_dir: str | None,
+    source_integration: str | None = None,
+    source_file: str | None = None,
     schema: dict[str, Any],
     embed_text_value: str,
     embedding: list[float],
@@ -88,6 +90,8 @@ async def _upsert_tool_row(
             tool_name=tool_name,
             server_name=server_name,
             source_dir=source_dir,
+            source_integration=source_integration,
+            source_file=source_file,
             embed_text=embed_text_value,
             content_hash=h,
             embedding=embedding,
@@ -99,6 +103,8 @@ async def _upsert_tool_row(
                 "tool_name": tool_name,
                 "server_name": server_name,
                 "source_dir": source_dir,
+                "source_integration": source_integration,
+                "source_file": source_file,
                 "schema": schema,
                 "embed_text": embed_text_value,
                 "content_hash": h,
@@ -117,7 +123,7 @@ async def index_local_tools() -> None:
     from app.tools.registry import iter_registered_tools
 
     current_tools = list(iter_registered_tools())
-    current_keys = {tool_key_for(None, tool_name) for tool_name, _, _ in current_tools}
+    current_keys = {tool_key_for(None, tool_name) for tool_name, _, _, _, _ in current_tools}
 
     # Fetch existing hashes in one query to avoid re-embedding unchanged tools
     async with async_session() as db:
@@ -137,8 +143,25 @@ async def index_local_tools() -> None:
             await db.commit()
         logger.info("Removed %d stale local tool embedding(s): %s", len(stale_keys), sorted(stale_keys))
 
+    # Update source metadata (source_file, source_integration) for all existing tools
+    # regardless of content hash — these columns are not part of the hash.
+    metadata_updates = []
+    for tool_name, _, _, source_integration, source_file in current_tools:
+        tkey = tool_key_for(None, tool_name)
+        if tkey in existing_hashes:
+            metadata_updates.append((tkey, source_integration, source_file))
+    if metadata_updates:
+        async with async_session() as db:
+            for tkey, si, sf in metadata_updates:
+                await db.execute(
+                    update(ToolEmbedding)
+                    .where(ToolEmbedding.tool_key == tkey)
+                    .values(source_integration=si, source_file=sf)
+                )
+            await db.commit()
+
     skipped = 0
-    for tool_name, schema, source_dir in current_tools:
+    for tool_name, schema, source_dir, source_integration, source_file in current_tools:
         tkey = tool_key_for(None, tool_name)
         embed_txt = build_embed_text(schema, tool_name, None)
         h = content_hash(embed_txt)
@@ -156,6 +179,8 @@ async def index_local_tools() -> None:
                 tool_name=tool_name,
                 server_name=None,
                 source_dir=source_dir,
+                source_integration=source_integration,
+                source_file=source_file,
                 schema=schema,
                 embed_text_value=embed_txt,
                 embedding=emb,

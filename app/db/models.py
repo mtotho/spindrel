@@ -171,6 +171,8 @@ class ToolEmbedding(Base):
     tool_name: Mapped[str] = mapped_column(Text, nullable=False)
     server_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
     schema_: Mapped[dict] = mapped_column("schema", JSONB, nullable=False)
     embed_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
@@ -197,6 +199,9 @@ class BotKnowledge(Base):
     )
     created_by_bot: Mapped[str] = mapped_column(Text, nullable=False)
     similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'tool'"))
+    editable_from_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
@@ -406,6 +411,7 @@ class Bot(Base):
     knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    bot_sandbox: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     model_provider_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("provider_configs.id", ondelete="SET NULL"),
@@ -422,6 +428,8 @@ class Skill(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

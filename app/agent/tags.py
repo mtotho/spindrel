@@ -101,12 +101,12 @@ async def resolve_tags(
     if knowledge_candidates and client_id:
         from app.agent.knowledge import list_knowledge_bases
         try:
-            known_names = set(await list_knowledge_bases(
+            known_names = {e["name"] for e in await list_knowledge_bases(
                 bot_id=bot_id,
                 client_id=client_id,
                 session_id=session_id,
                 ignore_session_scope=True,
-            ))
+            )}
             for raw, name in knowledge_candidates:
                 if name in known_names:
                     resolved.append(ResolvedTag(raw=raw, name=name, tag_type="knowledge"))

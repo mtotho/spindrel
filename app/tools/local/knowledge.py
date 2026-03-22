@@ -7,6 +7,7 @@ from app.agent.knowledge import (
     create_knowledge_pin,
     delete_knowledge_pin,
     get_knowledge_by_name,
+    get_knowledge_row_by_name,
     list_knowledge_bases,
     retrieve_knowledge,
     set_knowledge_similarity_for_match,
@@ -266,6 +267,10 @@ async def call_knowledge_tool(
             return "No content provided; knowledge not saved."
         if not session_id:
             return "Cannot save knowledge without an active session."
+        # Guard: reject writes to file-managed entries
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True)
+        if existing_row and not existing_row.editable_from_tool:
+            return json.dumps({"error": "This knowledge entry is file-managed and cannot be modified by tools."})
         raw_sim = args.get("similarity_threshold")
         sim_thr: float | None = None
         if raw_sim is not None and str(raw_sim).strip() != "":
@@ -301,7 +306,15 @@ async def call_knowledge_tool(
         result = await list_knowledge_bases(bot_id, client_id, session_id=session_id)
         if not result:
             return "No knowledge bases found."
-        return "\n".join(result)
+        lines = []
+        for entry in result:
+            source_note = ""
+            if entry["source_type"] in ("file", "integration"):
+                source_note = f" [source={entry['source_type']}, read-only]"
+            elif not entry["editable_from_tool"]:
+                source_note = " [read-only]"
+            lines.append(f"{entry['name']}{source_note}")
+        return "\n".join(lines)
 
     if name == "append_to_knowledge":
         doc_name = (args.get("name") or "").strip()
@@ -312,6 +325,10 @@ async def call_knowledge_tool(
             return "No content provided."
         if not session_id:
             return "Cannot append knowledge without an active session."
+        # Guard: reject writes to file-managed entries
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True)
+        if existing_row and not existing_row.editable_from_tool:
+            return json.dumps({"error": "This knowledge entry is file-managed and cannot be modified by tools."})
         ok, err = await append_to_knowledge(
             doc_name, content, bot_id, client_id, session_id=session_id
         )

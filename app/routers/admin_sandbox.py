@@ -489,3 +489,17 @@ async def admin_sandbox_clear_lock(instance_id: uuid.UUID):
         inst.locked_operations = []
         await db.commit()
     return RedirectResponse("/admin/sandboxes", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Bot-local sandbox management
+# ---------------------------------------------------------------------------
+
+@router.post("/sandboxes/bot/{bot_id}/recreate", response_class=HTMLResponse)
+async def admin_sandbox_bot_recreate(bot_id: str):
+    """Stop, remove, and delete the DB row for a bot-local sandbox.
+
+    Next exec_command call will auto-recreate it.
+    """
+    await sandbox_service.recreate_bot_local(bot_id)
+    return RedirectResponse("/admin/sandboxes", status_code=303)
