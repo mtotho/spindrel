@@ -2,9 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Copy source first so pip install ".[dev]" can find the app package
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir pydantic pydantic-settings httpx pytest pytest-asyncio fastapi
-
+COPY app/ app/
 COPY integrations/ integrations/
 
-CMD ["pytest", "integrations/", "-v"]
+RUN pip install --no-cache-dir ".[dev]" aiosqlite
+
+COPY tests/ tests/
+COPY bots/ bots/
+COPY skills/ skills/
+COPY migrations/ migrations/
+COPY alembic.ini ./
+
+CMD ["pytest", "tests/", "integrations/", "-v"]
