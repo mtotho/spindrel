@@ -299,3 +299,76 @@ docker compose restart agent-server
 | Backup archive grows too large | Google Drive fills up / costs increase on S3 | Prune to 7 local + 30 remote (add `rclone delete --min-age 30d` to the script) |
 | Migration misses a config value in `.env` | Agent starts but some feature is broken on the new host | The restore script should diff old vs template `.env` and warn about host-specific values |
 | `pg_restore --clean` drops tables that have new migrations | Schema mismatch between backup and current code | Always restore to the same code version as the backup. If upgrading, restore first, then `alembic upgrade head` |
+
+---
+
+## Storage Backend: AWS S3 (Recommended)
+
+### Why S3 over Google Drive
+
+Google Drive was the original recommendation for the localhost phase (free, fast setup), but S3 is the better choice for production:
+
+- **No OAuth refresh headaches** — Google Drive requires periodic OAuth token renewal. If the token expires silently, backups stop uploading with no obvious error. S3 uses static access key + secret key that don't expire unless you rotate them.
+- **Access key + secret** — simple credential pair, easy to store in `.env`, no browser-based auth flow needed on headless servers.
+- **Lifecycle rules** — S3 natively supports expiration policies (e.g., delete objects older than 30 days) without scripting. Set it once in the S3 console or via `aws s3api put-bucket-lifecycle-configuration`.
+- **Cheap** — S3 Standard is ~$0.023/GB/month. For typical agent-server backups (< 1 GB), this is effectively free. S3 Glacier or Backblaze B2 (~$0.005/GB/month) are even cheaper for cold storage.
+- **IAM scoping** — create a dedicated IAM user with write-only access to one bucket. Principle of least privilege, no risk of the credential touching anything else in your AWS account.
+
+### rclone S3 Configuration
+
+Add to `rclone.conf` (or run `rclone config`):
+
+```ini
+[s3]
+type = s3
+provider = AWS
+access_key_id = YOUR_ACCESS_KEY_ID
+secret_access_key = YOUR_SECRET_ACCESS_KEY
+region = us-east-1
+```
+
+Create the bucket:
+
+```bash
+aws s3 mb s3://thoth-backups --region us-east-1
+```
+
+### Updated Default Remote
+
+Update `RCLONE_REMOTE` in `.env` and scripts:
+
+```bash
+# .env
+RCLONE_REMOTE=s3:thoth-backups
+```
+
+The backup and restore scripts use `RCLONE_REMOTE` as the upload/download target. Changing from Google Drive to S3 is a config-only swap:
+
+```bash
+# Before (Google Drive)
+rclone copy "$BACKUP_DIR/$ARCHIVE" gdrive:agent-backups/
+
+# After (S3)
+rclone copy "$BACKUP_DIR/$ARCHIVE" s3:thoth-backups/
+```
+
+### S3 Lifecycle Rule (auto-prune remote backups)
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "expire-old-backups",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "Days": 30 }
+    }
+  ]
+}
+```
+
+Apply: `aws s3api put-bucket-lifecycle-configuration --bucket thoth-backups --lifecycle-configuration file://lifecycle.json`
+
+### Note on Script Compatibility
+
+The existing `scripts/backup.sh` and `scripts/restore.sh` work unchanged — rclone abstracts the backend. The only change is the remote name in the rclone commands. No code changes are needed, only config.
