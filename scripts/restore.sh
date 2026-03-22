@@ -4,7 +4,7 @@ set -euo pipefail
 # ── Config ──────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
-RCLONE_REMOTE="${RCLONE_REMOTE:-s3:thoth-server-backups}"
+RCLONE_REMOTE="${RCLONE_REMOTE:?Error: RCLONE_REMOTE is not set. Example: export RCLONE_REMOTE=s3:your-bucket-name}"
 RESTORE_DIR="${REPO_DIR}/restore"
 
 usage() {
