@@ -49,3 +49,7 @@ slack_state.json
 
 node_modules/
 android-client/node_modules/
+
+# Backups
+backups/
+rclone.conf
