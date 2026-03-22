@@ -197,9 +197,8 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
         "name": "delegate_to_harness",
         "description": (
             "Run an external CLI harness (e.g. claude-code, cursor) with a prompt. "
-            "By default the CLI runs on the agent-server host. "
-            "Pass sandbox_instance_id (from ensure_sandbox) to run the same harness command inside that "
-            "Docker container via docker exec — use a container path for working_directory (e.g. /workspace). "
+            "Runs inside the bot's sandbox (bot_sandbox config) by default. "
+            "Pass sandbox_instance_id to target a specific sandbox instance instead. "
             "Use mode=sync (default) to wait for the result. "
             "Use mode=deferred for background execution; result posts to the channel when done. "
             "Harness must be in harnesses.yaml and the bot must have harness_access."
@@ -223,11 +222,11 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                     ),
                 },
                 "sandbox_instance_id": {
-                    "type": "string", #not sure what the future is here. but i dont want it outside hte sandbox for now
+                    "type": "string",
                     "description": (
-                        "Required for now.If set, run the harness inside this sandbox (UUID from ensure_sandbox). "
-                        "Requires DOCKER_SANDBOX_ENABLED and a profile image that includes the harness CLI "
-                        "(e.g. agent-python with claude). Omit to run on the agent-server host."
+                        "Optional. UUID of a specific sandbox instance (from ensure_sandbox) to run in. "
+                        "If omitted, falls back to the bot's bot_sandbox config when enabled. "
+                        "Use this only when you need to target a specific sandbox instance."
                     ),
                 },
                 "mode": {
@@ -260,14 +259,14 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                     ),
                 },
             },
-            "required": ["harness", "prompt"],
+            "required": ["harness", "prompt"],  # sandbox_instance_id optional; falls back to bot_sandbox
         },
     },
 })
 async def delegate_to_harness(
     harness: str,
     prompt: str,
-    sandbox_instance_id: str,
+    sandbox_instance_id: str | None = None,
     working_directory: str | None = None,
     mode: str = "sync",
     reply_in_thread: bool = False,
