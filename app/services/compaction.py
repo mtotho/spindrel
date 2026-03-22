@@ -538,6 +538,8 @@ async def run_compaction_forced(
         .limit(keep_turns)
     )
     user_msg_ids = recent_user_msgs.scalars().all()
+    if not user_msg_ids:
+        raise ValueError("No user messages found in session")
     oldest_kept = await db.get(Message, user_msg_ids[-1])
     preceding = await db.execute(
         select(Message.id)
