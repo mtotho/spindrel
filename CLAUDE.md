@@ -30,18 +30,25 @@ This is a self-hosted LLM agent server built on FastAPI + PostgreSQL (pgvector).
 
 ### Startup Sequence (app/main.py lifespan)
 1. Run Alembic migrations
-2. Load bot configs from `bots/*.yaml`
-3. Load MCP server config from `mcp.yaml`
-4. Discover and load tool files (`tools/` + `TOOL_DIRS`)
-5. Import `app/tools/local/` to trigger `@register` decorators
-6. Index all tool schemas for retrieval (RAG)
-7. Fetch + index MCP tool schemas (warm cache)
-8. Load skills from `skills/*.md`
+2. Load provider configs from DB
+3. Seed + load bot configs from `bots/*.yaml` (seed-once pattern)
+4. Load MCP server config from `mcp.yaml`
+5. Discover and load tool files (`tools/` + `TOOL_DIRS`)
+6. Import `app/tools/local/` to trigger `@register` decorators
+7. Index all tool schemas for retrieval (RAG)
+8. Fetch + index MCP tool schemas (warm cache)
+9. Validate pinned tools
+10. Sync file-sourced skills/knowledge from `skills/*.md`
+11. Load harness configs from `harnesses.yaml`
+12. Start file watcher + index configured filesystem directories
+13. Warm up STT provider (if enabled)
+14. Start `task_worker` background loop (polls every 5s)
+15. Start `heartbeat_worker` background loop (polls every 30s)
 
-### Request Flow (app/agent/loop.py)
-`run_stream()` → RAG retrieval (skills, memory, knowledge) → tool retrieval → `run_agent_tool_loop()` → LLM → tool calls → LLM → ... → final response
+### Request Flow
+`run_stream()` (loop.py) → `assemble_context()` (context_assembly.py) → `run_agent_tool_loop()` (loop.py) → `_llm_call()` (llm.py) → `dispatch_tool_call()` (tool_dispatch.py) → LLM → ... → final response
 
-The agent loop is iterative: LLM calls tools until it returns a text response (max `AGENT_MAX_ITERATIONS` iterations). Events are streamed as JSON lines.
+The agent loop is iterative: LLM calls tools until it returns a text response (max `AGENT_MAX_ITERATIONS` iterations). Events are streamed as JSON lines. LLM calls have automatic retry with exponential backoff for transient errors and optional fallback model (`LLM_FALLBACK_MODEL`).
 
 ### Configuration Layers
 - **`.env`** → `app/config.py` (Pydantic Settings) — all runtime config
@@ -68,13 +75,19 @@ Three tool types, all passed to the LLM in OpenAI function format:
 | Tool schemas | `tool_embeddings` | All registered tools | Every request (if tool_retrieval enabled) |
 
 ### Key Files
-- `app/agent/loop.py` — Core agent loop logic
+- `app/agent/loop.py` — Core agent loop (iteration skeleton, stream orchestration, `run_stream`/`run`)
+- `app/agent/llm.py` — LLM call infrastructure (retry/backoff, fallback model, tool result summarization)
+- `app/agent/context_assembly.py` — RAG context injection pipeline (skills, memory, knowledge, tools, etc.)
+- `app/agent/tool_dispatch.py` — Tool call routing + execution (local, MCP, client tools)
+- `app/agent/tracing.py` — Trace helpers and system message classification
 - `app/agent/bots.py` — BotConfig dataclass and YAML loader
 - `app/agent/tools.py` — Tool embedding/retrieval (RAG)
 - `app/tools/registry.py` — Local tool registration, `_current_load_source_dir` sentinel for auto-discovery
 - `app/tools/loader.py` — importlib-based tool file discovery
 - `app/tools/mcp.py` — MCP client (60s cache, background re-index on cache miss)
+- `app/tools/local/exec_tool.py` — `delegate_to_exec` tool (raw command execution in sandbox)
 - `app/services/compaction.py` — Context compaction with optional memory-phase (LLM saves memories before summarizing)
+- `app/services/heartbeat.py` — Heartbeat worker with quiet hours support
 - `app/db/models.py` — All SQLAlchemy ORM models
 
 ### Database Notes

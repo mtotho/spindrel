@@ -1,10 +1,10 @@
 ---
-status: draft
+status: complete
 last_updated: 2026-03-22
 owner: mtoth
 summary: >
-  Scheduled Postgres dumps + app state backups, offloaded to Google Drive or S3.
-  Also serves as the migration path for moving the install from localhost to a new server.
+  Scheduled Postgres dumps + app state backups, uploaded to S3 via rclone.
+  Scripts implemented (scripts/backup.sh, scripts/restore.sh). User docs at docs/BACKUP.md.
 ---
 
 # Backup System
@@ -60,7 +60,7 @@ summary: >
 
 ### Verdict
 
-Start with **Google Drive** for the localhost phase (zero cost, fast setup). Switch to **S3/B2** if moving to a cloud server where IAM credentials are cleaner than OAuth tokens. `rclone` abstracts both — changing backends is a config swap, not a code change.
+**S3 was chosen** for production. See the "Storage Backend: AWS S3" section below and `docs/BACKUP.md` for user-facing setup instructions. Google Drive remains a viable alternative — `rclone` abstracts both — but S3 is the default.
 
 ---
 
@@ -268,17 +268,17 @@ docker compose restart agent-server
 ### PR 1: Backup script + docs (this plan)
 
 - [x] Write this plan
-- [ ] Create `scripts/backup.sh` (the script from Option B above)
-- [ ] Create `scripts/restore.sh` (wraps the restore procedure)
-- [ ] Add `backups/` to `.gitignore`
-- [ ] Add `rclone.conf` to `.gitignore`
+- [x] Create `scripts/backup.sh` (the script from Option B above)
+- [x] Create `scripts/restore.sh` (wraps the restore procedure)
+- [x] Add `backups/` to `.gitignore`
+- [x] Add `rclone.conf` to `.gitignore`
 
 ### PR 2: rclone setup + first backup
 
-- [ ] Install rclone on localhost, configure Google Drive remote
-- [ ] Run `scripts/backup.sh` manually, verify the archive on Google Drive
-- [ ] Test `scripts/restore.sh` against a scratch postgres container
-- [ ] Set up cron job
+- [x] Install rclone, configure S3 remote
+- [x] Run `scripts/backup.sh` manually, verify the archive on S3
+- [x] Test `scripts/restore.sh`
+- [x] Set up cron job
 
 ### PR 3 (optional): Backup container alternative
 
@@ -316,40 +316,21 @@ Google Drive was the original recommendation for the localhost phase (free, fast
 
 ### rclone S3 Configuration
 
-Add to `rclone.conf` (or run `rclone config`):
+No `rclone.conf` needed — the scripts pass AWS credentials as explicit rclone flags via env vars. Add to `.env`:
 
-```ini
-[s3]
-type = s3
-provider = AWS
-access_key_id = YOUR_ACCESS_KEY_ID
-secret_access_key = YOUR_SECRET_ACCESS_KEY
-region = us-east-1
+```bash
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+AWS_REGION=us-east-1
+RCLONE_REMOTE=:s3:your-bucket-name
 ```
+
+The `:s3:` prefix is rclone's connection string syntax — it uses the S3 backend without a named config entry.
 
 Create the bucket:
 
 ```bash
-aws s3 mb s3://thoth-backups --region us-east-1
-```
-
-### Updated Default Remote
-
-Update `RCLONE_REMOTE` in `.env` and scripts:
-
-```bash
-# .env
-RCLONE_REMOTE=s3:thoth-backups
-```
-
-The backup and restore scripts use `RCLONE_REMOTE` as the upload/download target. Changing from Google Drive to S3 is a config-only swap:
-
-```bash
-# Before (Google Drive)
-rclone copy "$BACKUP_DIR/$ARCHIVE" gdrive:agent-backups/
-
-# After (S3)
-rclone copy "$BACKUP_DIR/$ARCHIVE" s3:thoth-backups/
+aws s3 mb s3://your-bucket-name --region us-east-1
 ```
 
 ### S3 Lifecycle Rule (auto-prune remote backups)

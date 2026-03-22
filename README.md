@@ -167,6 +167,8 @@ The embedding model is called through your LiteLLM proxy, so any model LiteLLM s
 | `reschedule_task` | Change when a pending task will run. |
 | `delegate_to_agent` | Run another bot as a sub-agent. Immediate mode returns the result synchronously; deferred mode creates a background task. See [docs/delegation.md](docs/delegation.md). |
 | `delegate_to_harness` | Run an external CLI tool (e.g. `claude`, `cursor`) as a subprocess and return its stdout. Requires `harnesses.yaml` and `harness_access` on the bot. See [docs/harness.md](docs/harness.md). |
+| `delegate_to_exec` | Run any command inside a bot's Docker sandbox. Sync (wait for result) or deferred (background task, posts result when done). Supports output streaming via `stream_to`. |
+| `search_history` | Search past messages across sessions by keyword. |
 | `get_trace` | Read the current turn's RAG + tool call trace for self-debugging. |
 | `list_sandbox_profiles` | List Docker sandbox profiles (image/templates) this bot can use. |
 | `ensure_sandbox` | Start a **new** container from a profile; returns `instance_id` (each call adds one until max concurrent). |
@@ -826,6 +828,24 @@ HEARTBEAT_ACTIVE_INTERVAL_MINUTES=5        # default active interval (per-heartb
 - `HEARTBEAT_QUIET_INTERVAL_MINUTES` — during quiet hours, heartbeats use `max(configured_interval, this_value)` as their interval. Set to `0` to disable heartbeats entirely during quiet hours.
 - `HEARTBEAT_ACTIVE_INTERVAL_MINUTES` — the default active-hours interval. Individual heartbeats can override this with their own `interval_minutes` in the DB.
 
+### LLM Retry & Fallback
+
+The agent loop retries transient LLM failures automatically:
+
+- **Rate limits (429):** exponential backoff starting at 90s, up to 3 retries.
+- **Transient errors (timeouts, 5xx, connection errors):** exponential backoff starting at 2s, up to 3 retries.
+- **Fallback model:** if all retries exhaust and `LLM_FALLBACK_MODEL` is set, one final attempt is made with the fallback model before the error surfaces.
+
+**Config** (in `.env`):
+
+```
+LLM_MAX_RETRIES=3                    # retries for transient errors (timeouts, 5xx)
+LLM_RETRY_INITIAL_WAIT=2.0           # initial backoff (seconds) for transient errors
+LLM_RATE_LIMIT_RETRIES=3             # retries for 429 rate limits
+LLM_RATE_LIMIT_INITIAL_WAIT=90       # initial backoff (seconds) for rate limits
+LLM_FALLBACK_MODEL=                  # optional fallback model (LiteLLM alias); empty = disabled
+```
+
 ## Bot-to-Bot Delegation
 
 One bot can delegate work to another bot — either synchronously (immediate mode, result returned in the same turn) or as a background task (deferred mode).
@@ -895,6 +915,54 @@ External services (Gmail, GitHub, webhooks, etc.) can connect to the agent serve
 **Fan-out**: When a message is injected into a session with `notify=true`, it is automatically forwarded to the session's delivery targets. For Slack sessions (client_id starts with `slack:`), the message is posted to the corresponding channel.
 
 → Full details: [docs/integrations/README.md](docs/integrations/README.md)
+
+## Backup & Restore
+
+Automated Postgres dumps + config file backups, uploaded to S3 via rclone.
+
+```bash
+./scripts/backup.sh              # dump DB + bundle configs + upload to S3
+./scripts/restore.sh             # pull latest from S3 and restore
+./scripts/restore.sh ./backups/agent-backup-20260322.tar.gz  # restore specific archive
+```
+
+**Setup:** Install [rclone](https://rclone.org/install/), then add to `.env`:
+
+```
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+AWS_REGION=us-east-1
+RCLONE_REMOTE=:s3:your-bucket-name
+```
+
+**Cron (daily at 2 AM):**
+
+```cron
+0 2 * * * /path/to/scripts/backup.sh >> /var/log/thoth-backup.log 2>&1
+```
+
+**What's backed up:** Postgres database, `.env`, `bots/`, `skills/`, `mcp.yaml`, `config/searxng/settings.yml`.
+
+> Full details: [docs/BACKUP.md](docs/BACKUP.md)
+
+## Thoth CLI
+
+`thoth` is a shell dispatcher for managing the production server (native app on host + Docker backing services).
+
+```bash
+thoth start              # start backing services + app (systemd)
+thoth stop               # graceful shutdown
+thoth restart            # restart app service
+thoth pull               # git pull + pip install + alembic upgrade + restart
+thoth backup             # run scripts/backup.sh
+thoth restore [archive]  # run scripts/restore.sh
+thoth status             # show service status
+thoth logs [--follow]    # tail app logs (journalctl) or service logs (docker compose)
+```
+
+**Install:** Run `./install-service.sh` to create the systemd unit, thoth user, and symlink the CLI to `/usr/local/bin/thoth`.
+
+> Architecture and install guide: [PLANS/THOTH_CLI.md](PLANS/THOTH_CLI.md)
 
 ## API
 
@@ -1026,15 +1094,27 @@ When running in Docker, the `.env` should use Docker service names (`postgres`, 
 ```
 app/              Server application
   agent/          Agent loop, bot config, skills, RAG retrieval
+    loop.py       Core agent loop (iteration skeleton, stream orchestration)
+    llm.py        LLM call infrastructure (retry, backoff, fallback, tool result summarization)
+    context_assembly.py  RAG context injection pipeline
+    tool_dispatch.py     Tool call routing + execution
+    tracing.py    Trace helpers
   db/             SQLAlchemy models + engine
   routers/        FastAPI endpoints (/chat, /chat/stream, /sessions, /transcribe, /health)
-  services/       Session persistence
+  services/       Session persistence, compaction, heartbeat, sandbox, harness
   stt/            Speech-to-text provider abstraction (local whisper, future cloud)
   tools/          Tool registry, MCP proxy, local tools
-    local/        Python tool implementations (web_search, client_action, etc.)
+    local/        Python tool implementations (web_search, delegation, exec_tool, etc.)
 bots/             Bot YAML configs
 skills/           Skill knowledge files (*.md)
 mcp.yaml          MCP server connection config
+thoth             CLI dispatcher (shell script) for production server management
+scripts/          Dev + ops scripts
+  backup.sh       Postgres dump + config bundle + S3 upload
+  restore.sh      Pull from S3 + restore DB + restart stack
+  dev-server.sh   Start Docker services + uvicorn with --reload
+  dev-client.sh   Start the CLI chat client
+  install-service.sh  Create systemd unit for thoth.service
 client/           CLI client (separate installable package)
   agent_client/   Client source (cli, http client, audio, config, state)
 android-client/   React Native (Expo bare workflow) Android client
@@ -1045,10 +1125,13 @@ android-client/   React Native (Expo bare workflow) Android client
   src/voice/      Wake word (Porcupine), recorder (expo-av), TTS (expo-speech)
   src/native/     TypeScript bridge to native foreground service module
   android/        Native Android project (foreground service, native modules)
+integrations/     External service integrations (auto-discovered at startup)
 migrations/       Alembic migrations
-scripts/          Dev helper scripts
 docs/             Feature documentation
+  BACKUP.md       Backup & restore procedures (S3/rclone setup)
   delegation.md   Bot-to-bot delegation (delegate_to_agent)
   harness.md      External CLI harness execution (delegate_to_harness, claude-code setup)
   slack.md        Slack integration (session model, passive messages, channel config)
+  integrations/   Integration framework docs (design, creating integrations, debt)
+PLANS/            Active and archived multi-session plans
 ```

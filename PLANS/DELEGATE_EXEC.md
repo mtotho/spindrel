@@ -1,11 +1,10 @@
 ---
-status: draft
+status: complete
 last_updated: 2026-03-22
 owner: mtoth
 summary: >
-  Implement a generic async exec primitive that runs any shell command
-  with deferred callback on completion and mid-run output tailing.
-  Harnesses become named aliases on top of it.
+  Generic async exec primitive (delegate_to_exec) implemented in
+  app/tools/local/exec_tool.py. Sync + deferred modes, output streaming via tee.
 ---
 
 # delegate_to_exec — Generic Async Exec Primitive

@@ -1,10 +1,10 @@
 ---
-status: draft
+status: complete
 last_updated: 2026-03-22
 owner: mtoth
 summary: >
-  Decompose app/agent/loop.py (1228 lines) into focused modules.
-  No behavior changes — pure structural refactor. All existing tests must pass.
+  Decomposed app/agent/loop.py into focused modules (all 4 phases landed).
+  Extracted: tracing.py, llm.py, tool_dispatch.py, context_assembly.py.
 ---
 
 # Loop Refactor Plan
