@@ -98,12 +98,13 @@ fi
 docker compose -f "$REPO_DIR/docker-compose.yml" exec -T postgres \
   pg_restore -U agent -d agentdb --clean --if-exists --no-owner < "$DUMP_FILE"
 
-# ── 6. Restart the full stack ───────────────────────────────────────────────
-echo "[restore] Starting full stack …"
-docker compose -f "$REPO_DIR/docker-compose.yml" up -d
+# ── 6. Start backing services (agent server runs natively via systemd) ──────
+echo "[restore] Starting backing services …"
+docker compose -f "$REPO_DIR/docker-compose.yml" up -d postgres searxng playwright
+# Agent server runs natively — use 'systemctl start agent-server' or './scripts/install-service.sh' to set it up.
 
 # ── 7. Cleanup ──────────────────────────────────────────────────────────────
 rm -rf "$RESTORE_DIR"
 
 echo "[restore] Done at $(date)"
-echo "[restore] Verify with: docker compose logs agent-server --tail 50"
+echo "[restore] Run ./scripts/install-service.sh to install the agent server as a systemd service."
