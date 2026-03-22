@@ -1,11 +1,10 @@
-name: Integration Tests
+name: Tests
 
 on:
   pull_request:
     branches: [master]
-    paths:
-      - 'integrations/**'
-      - 'Dockerfile.test'
+  push:
+    branches: [master]
 
 jobs:
   test:
