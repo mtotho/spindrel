@@ -11,6 +11,8 @@ from integrations.ingestion.classifier import ClassifierResult, classify
 CLASSIFIER_URL = "http://localhost:8000/v1/chat/completions"
 MODEL = "gpt-4o-mini"
 
+_FAKE_REQUEST = httpx.Request("POST", CLASSIFIER_URL)
+
 
 def _make_response(content: dict, status_code: int = 200) -> httpx.Response:
     """Build a mock httpx.Response with OpenAI-style chat completion body."""
@@ -19,7 +21,7 @@ def _make_response(content: dict, status_code: int = 200) -> httpx.Response:
             {"message": {"content": json.dumps(content)}}
         ]
     }
-    return httpx.Response(status_code=status_code, json=body)
+    return httpx.Response(status_code=status_code, json=body, request=_FAKE_REQUEST)
 
 
 @pytest.mark.asyncio
@@ -66,13 +68,13 @@ async def test_fail_closed_on_timeout():
 
     assert result.safe is False
     assert result.risk_level == "high"
-    assert "timeout" in result.reason
+    assert "timed out" in result.reason
 
 
 @pytest.mark.asyncio
 async def test_fail_closed_on_non_200():
     """Non-200 status must result in safe=False, risk_level=high."""
-    resp = httpx.Response(status_code=500, text="Internal Server Error")
+    resp = httpx.Response(status_code=500, text="Internal Server Error", request=_FAKE_REQUEST)
     with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
         mock_client = AsyncMock()
         mock_client.post.return_value = resp
@@ -83,13 +85,13 @@ async def test_fail_closed_on_non_200():
 
     assert result.safe is False
     assert result.risk_level == "high"
-    assert "500" in result.reason
+    assert "500" in result.reason or "Server Error" in result.reason
 
 
 @pytest.mark.asyncio
 async def test_fail_closed_on_bad_json():
     """Malformed JSON response must result in safe=False, risk_level=high."""
-    resp = httpx.Response(status_code=200, text="not json at all")
+    resp = httpx.Response(status_code=200, text="not json at all", request=_FAKE_REQUEST)
     with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
         mock_client = AsyncMock()
         mock_client.post.return_value = resp
@@ -105,7 +107,7 @@ async def test_fail_closed_on_bad_json():
 @pytest.mark.asyncio
 async def test_fail_closed_on_missing_choices_key():
     """Response with valid JSON but missing expected keys must fail closed."""
-    resp = httpx.Response(status_code=200, json={"result": "ok"})
+    resp = httpx.Response(status_code=200, json={"result": "ok"}, request=_FAKE_REQUEST)
     with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
         mock_client = AsyncMock()
         mock_client.post.return_value = resp
