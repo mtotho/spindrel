@@ -2,6 +2,9 @@
 {% block title %}{% if is_new %}New Bot{% else %}Edit: {{ bot.name }}{% endif %}{% endblock %}
 
 {% block content %}
+{% if not is_new %}
+<div x-data x-init="recordRecent('bots', { id: '{{ bot.id }}', name: '{{ bot.name }}' })"></div>
+{% endif %}
 
 <script>
 function collectContextDraft() {
@@ -108,9 +111,6 @@ function botContextEstimatePanel(botId) {
 
 <div class="flex items-center gap-3 mb-6">
   <a href="/admin/bots" class="text-gray-400 hover:text-gray-200 text-sm">← Bots</a>
-  {% if not is_new %}
-  <a href="/admin/bots/{{ bot.id }}" class="text-gray-500 hover:text-gray-300 text-sm ml-auto">View →</a>
-  {% endif %}
 </div>
 {% if is_new %}
 <h1 class="text-2xl font-bold mb-6">New Bot</h1>
@@ -166,7 +166,7 @@ function botContextEstimatePanel(botId) {
               data-ctx="{{ (m.max_tokens // 1000) if m.max_tokens else '' }}"
               data-inp="{{ m.input_cost_per_1m or '' }}"
               data-out="{{ m.output_cost_per_1m or '' }}"
-              {{ 'selected' if m.id == bot.model else '' }}>{{ m.display }}</option>
+              {{ 'selected' if m.id == bot.model and (group.provider_id or '') == (bot.model_provider_id or '') else '' }}>{{ m.display }}</option>
             {% endfor %}
           </optgroup>
           {% endfor %}

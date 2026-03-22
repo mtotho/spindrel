@@ -12,36 +12,26 @@
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
   {% for bot in bots %}
-  <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <a href="/admin/bots/{{ bot.id }}/edit"
+     class="block bg-gray-800 rounded-xl border border-gray-700 overflow-hidden hover:border-gray-500 hover:bg-gray-750 transition-colors group">
+
     <div class="px-5 py-4 flex items-center justify-between border-b border-gray-700">
-      <a href="/admin/bots/{{ bot.id }}" class="hover:opacity-80">
-        <div class="font-semibold text-gray-100">{{ bot.name }}</div>
+      <div>
+        <div class="font-semibold text-gray-100 group-hover:text-white">{{ bot.name }}</div>
         <div class="text-xs text-gray-400 mt-0.5 font-mono">{{ bot.id }}</div>
-      </a>
-      <div class="flex items-center gap-3">
-        <a href="/admin/bots/{{ bot.id }}" class="text-xs text-indigo-400 hover:text-indigo-300">View →</a>
-        <a href="/admin/bots/{{ bot.id }}/edit" class="text-xs text-gray-400 hover:text-gray-200">Edit</a>
-        <button
-          hx-get="/admin/bots/{{ bot.id }}"
-          hx-target="#bot-detail-{{ bot.id }}"
-          hx-swap="innerHTML"
-          class="text-xs text-gray-500 hover:text-gray-300">
-          Quick ↓
-        </button>
       </div>
     </div>
 
     <div class="px-5 py-3 text-sm grid grid-cols-2 gap-2">
       <div>
         <span class="text-gray-500">Model</span>
-        <div class="text-gray-300 font-mono text-xs mt-0.5">
-          <span>{{ bot.model }}</span>
-        </div>
-        <div class="flex items-center gap-2 mt-0.5">
+        <div class="text-gray-300 font-mono text-xs mt-0.5">{{ bot.model }}</div>
+        <div class="flex items-center gap-2 mt-0.5"
+             onclick="event.preventDefault(); event.stopPropagation();">
           <div hx-get="/admin/bots/{{ bot.id }}/context-estimate-badge"
                hx-trigger="intersect once"
                hx-swap="outerHTML">
-            <span class="text-gray-600 text-xs">…</span>
+            <span class="text-gray-600 text-xs">&hellip;</span>
           </div>
           <div hx-get="/admin/bots/{{ bot.id }}/model-cost-badge"
                hx-trigger="intersect once"
@@ -75,10 +65,7 @@
         </div>
       </div>
     </div>
-
-    <!-- Expandable detail panel -->
-    <div id="bot-detail-{{ bot.id }}" class="border-t border-gray-700"></div>
-  </div>
+  </a>
   {% else %}
   <div class="col-span-2 text-gray-500 text-sm">No bots loaded.</div>
   {% endfor %}

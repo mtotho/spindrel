@@ -312,7 +312,7 @@ async def admin_bot_create(
             return HTMLResponse(f"<div class='text-red-400 p-4'>Error: {exc}</div>", status_code=400)
 
     await reload_bots()
-    return RedirectResponse(f"/admin/bots/{bot_id}", status_code=303)
+    return RedirectResponse(f"/admin/bots/{bot_id}/edit", status_code=303)
 
 
 @router.get("/bots/{bot_id}/model-cost-badge", response_class=HTMLResponse)

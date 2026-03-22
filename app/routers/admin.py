@@ -122,23 +122,10 @@ async def admin_bots(request: Request):
 @router.get("/bots/{bot_id}", response_class=HTMLResponse)
 async def admin_bot_detail(request: Request, bot_id: str):
     try:
-        bot = get_bot(bot_id)
+        get_bot(bot_id)
     except HTTPException:
         return HTMLResponse("<div class='text-red-400 p-4'>Bot not found.</div>", status_code=404)
-    is_htmx = request.headers.get("HX-Request") == "true"
-    if is_htmx:
-        return templates.TemplateResponse("admin/bot_detail.html", {"request": request, "bot": bot})
-    persona = await get_persona(bot_id)
-    async with async_session() as db:
-        distinct_clients = [c for c in (await db.execute(
-            select(Session.client_id).distinct().order_by(Session.client_id)
-        )).scalars().all() if c]
-    return templates.TemplateResponse("admin/bot_page.html", {
-        "request": request,
-        "bot": bot,
-        "persona": persona or "",
-        "distinct_clients": distinct_clients,
-    })
+    return RedirectResponse(f"/admin/bots/{bot_id}/edit", status_code=302)
 
 
 @router.post("/bots/{bot_id}/persona", response_class=HTMLResponse)
