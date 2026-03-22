@@ -115,6 +115,19 @@ class TestCreateTodo:
         assert len(session._added) == 1
         assert session._added[0].priority == 5
 
+    async def test_create_todo_priority_as_string(self):
+        """LLM tool runner may pass priority as a string; verify coercion to int."""
+        from app.tools.local.todos import create_todo
+
+        session = FakeSession()
+        p_bot, p_ch = _patch_context()
+        with p_bot, p_ch, patch("app.tools.local.todos.async_session", return_value=session):
+            result = await create_todo(content="String priority task", priority="5")
+
+        assert len(session._added) == 1
+        assert session._added[0].priority == 5
+        assert isinstance(session._added[0].priority, int)
+
     async def test_create_todo_empty_content(self):
         from app.tools.local.todos import create_todo
 
@@ -236,6 +249,20 @@ class TestUpdateTodo:
             await update_todo(todo_id=str(todo.id), priority=3)
 
         assert todo.priority == 3
+
+    async def test_update_priority_as_string(self):
+        """LLM tool runner may pass priority as a string; verify coercion to int."""
+        from app.tools.local.todos import update_todo
+
+        ch = uuid.uuid4()
+        todo = _make_todo(channel_id=ch, priority=0)
+        session = FakeSession(get_result=todo)
+        p_bot, p_ch = _patch_context(bot_id=todo.bot_id, channel_id=ch)
+        with p_bot, p_ch, patch("app.tools.local.todos.async_session", return_value=session):
+            await update_todo(todo_id=str(todo.id), priority="7")
+
+        assert todo.priority == 7
+        assert isinstance(todo.priority, int)
 
     async def test_update_status(self):
         from app.tools.local.todos import update_todo
