@@ -99,27 +99,14 @@ class FakeBotSandbox:
 @dataclass
 class FakeBot:
     id: str = "test_bot"
-    exec_access: bool = False
     bot_sandbox: FakeBotSandbox = field(default_factory=FakeBotSandbox)
     docker_sandbox_profiles: list = field(default_factory=list)
 
 
 class TestDelegateToExecAccessControl:
     @pytest.mark.asyncio
-    async def test_access_denied_when_exec_access_false(self):
-        bot = FakeBot(exec_access=False)
-        with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.agent.context.current_bot_id") as mock_bot_id:
-            mock_bot_id.get.return_value = "test_bot"
-            from app.tools.local.exec_tool import delegate_to_exec
-            result = await delegate_to_exec(command="ls")
-            data = json.loads(result)
-            assert "error" in data
-            assert "exec_access" in data["error"]
-
-    @pytest.mark.asyncio
     async def test_access_granted_when_exec_access_true(self):
-        bot = FakeBot(exec_access=True, bot_sandbox=FakeBotSandbox(enabled=True))
+        bot = FakeBot(bot_sandbox=FakeBotSandbox(enabled=True))
         mock_exec_res = MagicMock()
         mock_exec_res.stdout = "hello"
         mock_exec_res.stderr = ""
@@ -139,7 +126,7 @@ class TestDelegateToExecAccessControl:
 
     @pytest.mark.asyncio
     async def test_no_sandbox_returns_error(self):
-        bot = FakeBot(exec_access=True, bot_sandbox=FakeBotSandbox(enabled=False))
+        bot = FakeBot(bot_sandbox=FakeBotSandbox(enabled=False))
         with patch("app.agent.bots.get_bot", return_value=bot), \
              patch("app.agent.context.current_bot_id") as mock_bot_id:
             mock_bot_id.get.return_value = "test_bot"
@@ -151,7 +138,7 @@ class TestDelegateToExecAccessControl:
 
     @pytest.mark.asyncio
     async def test_invalid_stream_to_returns_error(self):
-        bot = FakeBot(exec_access=True)
+        bot = FakeBot()
         with patch("app.agent.bots.get_bot", return_value=bot), \
              patch("app.agent.context.current_bot_id") as mock_bot_id:
             mock_bot_id.get.return_value = "test_bot"
@@ -163,7 +150,7 @@ class TestDelegateToExecAccessControl:
 
     @pytest.mark.asyncio
     async def test_sync_mode_with_stream_to(self):
-        bot = FakeBot(exec_access=True, bot_sandbox=FakeBotSandbox(enabled=True))
+        bot = FakeBot(bot_sandbox=FakeBotSandbox(enabled=True))
         mock_exec_res = MagicMock()
         mock_exec_res.stdout = "output"
         mock_exec_res.stderr = ""

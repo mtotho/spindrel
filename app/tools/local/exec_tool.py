@@ -67,7 +67,6 @@ def build_exec_script(
             "Use mode=sync (default) to wait for the result. "
             "Use mode=deferred for background execution; result posts to the channel when done. "
             "Output is written to a log file that can be tailed mid-run via exec_sandbox. "
-            "The bot must have exec_access enabled."
         ),
         "parameters": {
             "type": "object",
@@ -151,9 +150,6 @@ async def delegate_to_exec(
         bot = get_bot(parent_bot_id)
     except Exception as exc:
         return json.dumps({"error": f"Could not load bot: {exc}"})
-
-    if not bot.exec_access:
-        return json.dumps({"error": "exec_access is not enabled for this bot."})
 
     # Validate stream_to if provided
     if stream_to:
