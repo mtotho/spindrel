@@ -2,18 +2,87 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+
+import zoneinfo
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Channel, ChannelHeartbeat, Task
 
 logger = logging.getLogger(__name__)
 
 
+def parse_quiet_hours(spec: str) -> tuple[time, time] | None:
+    """Parse a quiet-hours spec like '23:00-07:00' into (start, end) times.
+
+    Returns None if the spec is empty or invalid.
+    """
+    spec = spec.strip()
+    if not spec:
+        return None
+    try:
+        start_s, end_s = spec.split("-", 1)
+        sh, sm = start_s.strip().split(":")
+        eh, em = end_s.strip().split(":")
+        return (time(int(sh), int(sm)), time(int(eh), int(em)))
+    except (ValueError, TypeError):
+        logger.warning("Invalid HEARTBEAT_QUIET_HOURS format: %r (expected HH:MM-HH:MM)", spec)
+        return None
+
+
+def is_quiet_hours(now_local: datetime, quiet_range: tuple[time, time]) -> bool:
+    """Check whether *now_local* falls inside the quiet window.
+
+    Handles ranges that wrap past midnight (e.g. 23:00-07:00).
+    """
+    start, end = quiet_range
+    current = now_local.time()
+    if start <= end:
+        # Same-day range, e.g. 01:00-05:00
+        return start <= current < end
+    else:
+        # Wraps midnight, e.g. 23:00-07:00
+        return current >= start or current < end
+
+
+def get_effective_interval(hb_interval: int) -> int:
+    """Return the effective interval in minutes, respecting quiet hours."""
+    quiet = parse_quiet_hours(settings.HEARTBEAT_QUIET_HOURS)
+    if quiet is None:
+        return hb_interval
+
+    try:
+        tz = zoneinfo.ZoneInfo(settings.TIMEZONE)
+    except (KeyError, Exception):
+        tz = zoneinfo.ZoneInfo("UTC")
+
+    now_local = datetime.now(tz)
+    if is_quiet_hours(now_local, quiet):
+        quiet_interval = settings.HEARTBEAT_QUIET_INTERVAL_MINUTES
+        if quiet_interval == 0:
+            return 0  # signals "skip"
+        return max(hb_interval, quiet_interval)
+    return hb_interval
+
+
 async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
-    """Return heartbeats that are enabled and due (next_run_at <= now)."""
+    """Return heartbeats that are enabled and due (next_run_at <= now).
+
+    Returns an empty list during quiet hours when the quiet interval is 0
+    (heartbeats disabled).
+    """
+    quiet = parse_quiet_hours(settings.HEARTBEAT_QUIET_HOURS)
+    if quiet is not None:
+        try:
+            tz = zoneinfo.ZoneInfo(settings.TIMEZONE)
+        except (KeyError, Exception):
+            tz = zoneinfo.ZoneInfo("UTC")
+        if is_quiet_hours(datetime.now(tz), quiet) and settings.HEARTBEAT_QUIET_INTERVAL_MINUTES == 0:
+            return []
+
     now = datetime.now(timezone.utc)
     async with async_session() as db:
         stmt = (
@@ -93,18 +162,19 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         )
         db.add(task)
 
-        # Advance schedule
+        # Advance schedule — use effective interval (may be extended during quiet hours)
         heartbeat = await db.get(ChannelHeartbeat, hb.id)
         if heartbeat:
+            effective = get_effective_interval(heartbeat.interval_minutes)
             heartbeat.last_run_at = now
-            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+            heartbeat.next_run_at = now + timedelta(minutes=effective if effective > 0 else heartbeat.interval_minutes)
             heartbeat.updated_at = now
 
         await db.commit()
         logger.info(
             "Heartbeat %s fired: task created for channel %s (bot=%s, next=%s)",
             hb.id, channel.id, channel.bot_id,
-            (now + timedelta(minutes=hb.interval_minutes)).strftime("%H:%M:%S"),
+            heartbeat.next_run_at.strftime("%H:%M:%S") if heartbeat and heartbeat.next_run_at else "?",
         )
 
 

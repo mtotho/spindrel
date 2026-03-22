@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
     LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
     LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)
+    # General transient-error retry (5xx, connection errors, timeouts)
+    LLM_MAX_RETRIES: int = 3                 # additional attempts after first failure
+    LLM_RETRY_INITIAL_WAIT: float = 2.0      # seconds; doubles each retry (2, 4, 8…)
+    LLM_FALLBACK_MODEL: str = ""             # if set, try this model once after all retries exhaust
     # Rate limit retry (task level — reschedules entire task on rate limit failure)
     TASK_RATE_LIMIT_RETRIES: int = 3         # max reschedule attempts before marking failed
 
@@ -118,6 +122,11 @@ class Settings(BaseSettings):
     # Minimum cosine similarity when a knowledge row has no per-row override (0–1)
     KNOWLEDGE_SIMILARITY_THRESHOLD: float = 0.45
     MEMORY_MAX_INJECT_CHARS: int = 3000      # per memory item injected into context
+
+    # Heartbeat schedule control
+    HEARTBEAT_QUIET_HOURS: str = ""  # e.g. "23:00-07:00" — local time window where heartbeats slow/stop
+    HEARTBEAT_QUIET_INTERVAL_MINUTES: int = 60  # interval during quiet hours (0 = disabled entirely)
+    HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
 
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
