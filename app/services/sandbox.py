@@ -115,6 +115,7 @@ def _build_docker_run_args(
 ) -> list[str]:
     args = ["docker", "run", "-d", "--name", container_name]
 
+    args += ["--restart", "unless-stopped"]
     args += ["--network", network_mode or "none"]
 
     if read_only_root:
@@ -595,14 +596,31 @@ class SandboxService:
             instance = (await db.execute(stmt)).scalar_one_or_none()
 
             if instance is not None:
-                # Already exists — ensure it's running
-                if instance.status == "stopped" and instance.container_id:
-                    await self._docker_start(instance.container_id)
-                    instance.status = "running"
-                    instance.last_used_at = datetime.now(timezone.utc)
-                    await db.commit()
-                    await db.refresh(instance)
-                return instance
+                # Check if the container actually exists in Docker
+                container_alive = False
+                if instance.container_id:
+                    existing = await self._get_container_id_by_name(container_name)
+                    container_alive = existing is not None
+
+                if container_alive:
+                    # Container exists — ensure it's running
+                    if instance.status != "running":
+                        await self._docker_start(instance.container_id)
+                        instance.status = "running"
+                        instance.last_used_at = datetime.now(timezone.utc)
+                        await db.commit()
+                        await db.refresh(instance)
+                    return instance
+
+                # Container is gone (manually deleted, Docker pruned, etc.)
+                # Delete stale DB row and fall through to create a new one
+                logger.info(
+                    "Bot-local container '%s' no longer exists in Docker (status=%s); recreating.",
+                    container_name,
+                    instance.status,
+                )
+                await db.delete(instance)
+                await db.commit()
 
             # Create new DB row
             instance = SandboxInstance(
