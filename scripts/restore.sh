@@ -4,7 +4,7 @@ set -euo pipefail
 # ── Config ──────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
-RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:agent-backups}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-s3:thoth-backups}"
 RESTORE_DIR="${REPO_DIR}/restore"
 
 usage() {
