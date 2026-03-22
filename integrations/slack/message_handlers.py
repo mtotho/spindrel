@@ -1,11 +1,14 @@
 """Slack message and app_mention → agent /chat."""
 import base64
+import logging
 
-from agent_client import http, store_passive_message_http, stream_chat
+from agent_client import http, ensure_channel, store_passive_message_http, stream_chat
 from formatting import format_response_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_state
+
+logger = logging.getLogger(__name__)
 
 TEXT_MIMES = {
     "text/plain",
@@ -192,6 +195,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
         if thinking_channel:
             await _handle_client_actions(client, thinking_channel, client_actions)
     except Exception as e:
+        logger.exception("Agent dispatch error for channel %s", channel)
         if thinking_ts and thinking_channel:
             await client.chat_update(
                 channel=thinking_channel,
@@ -217,6 +221,9 @@ async def dispatch(
     state = get_channel_state(channel)
     bot_id = state["bot_id"] or config["bot_id"]
     client_id = slack_client_id(channel)
+
+    # Ensure Channel row exists on the server (idempotent, best-effort)
+    await ensure_channel(client_id, bot_id)
 
     appended, attachments = await _process_slack_files(files or [])
 
@@ -255,7 +262,7 @@ async def dispatch(
                 metadata=msg_metadata,
             )
         except Exception:
-            pass  # Passive storage failure is non-fatal
+            logger.exception("Passive message storage failed for channel %s", channel)
         return
 
     dispatch_config = {

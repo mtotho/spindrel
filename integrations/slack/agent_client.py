@@ -66,6 +66,24 @@ async def post_chat(
     return r.json()
 
 
+async def ensure_channel(client_id: str, bot_id: str) -> None:
+    """Ensure a Channel row exists on the agent server for this client_id.
+
+    Calls POST /api/v1/channels which is idempotent (get-or-create).
+    """
+    payload = {"client_id": client_id, "bot_id": bot_id}
+    try:
+        r = await http.post(
+            f"{AGENT_BASE_URL}/api/v1/channels",
+            json=payload,
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            timeout=5.0,
+        )
+        r.raise_for_status()
+    except Exception:
+        pass  # Best-effort; channel will be created on first message
+
+
 async def store_passive_message_http(
     client_id: str,
     bot_id: str,
