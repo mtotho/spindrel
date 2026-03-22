@@ -519,6 +519,21 @@ class SandboxService:
         except Exception as e:
             logger.warning("docker rm failed for %s: %s", container_id, e)
 
+    async def _get_image_id(self, image_tag: str) -> str | None:
+        """Return the sha256 image ID for a given tag, or None on failure."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "image", "inspect", "--format", "{{.Id}}", image_tag,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+            if proc.returncode == 0:
+                return stdout.decode().strip() or None
+            return None
+        except Exception:
+            return None
+
 
     # --- Bot-local sandbox (per-bot persistent container) ---
 
@@ -603,24 +618,44 @@ class SandboxService:
                     container_alive = existing is not None
 
                 if container_alive:
-                    # Container exists — ensure it's running
-                    if instance.status != "running":
-                        await self._docker_start(instance.container_id)
-                        instance.status = "running"
-                        instance.last_used_at = datetime.now(timezone.utc)
+                    # Check if the image has changed (rebuild detection)
+                    target_image = config.image or "python:3.12-slim"
+                    current_image_id = await self._get_image_id(target_image)
+                    if (
+                        instance.image_id is not None
+                        and current_image_id is not None
+                        and instance.image_id != current_image_id
+                    ):
+                        logger.info(
+                            "Bot-local container '%s' image changed (%s → %s); recreating.",
+                            container_name,
+                            instance.image_id[:19],
+                            current_image_id[:19],
+                        )
+                        await self._docker_stop(instance.container_id)
+                        await self._docker_rm(instance.container_id)
+                        await db.delete(instance)
                         await db.commit()
-                        await db.refresh(instance)
-                    return instance
-
-                # Container is gone (manually deleted, Docker pruned, etc.)
-                # Delete stale DB row and fall through to create a new one
-                logger.info(
-                    "Bot-local container '%s' no longer exists in Docker (status=%s); recreating.",
-                    container_name,
-                    instance.status,
-                )
-                await db.delete(instance)
-                await db.commit()
+                        # Fall through to create a new container
+                    else:
+                        # Container exists with correct image — ensure it's running
+                        if instance.status != "running":
+                            await self._docker_start(instance.container_id)
+                            instance.status = "running"
+                            instance.last_used_at = datetime.now(timezone.utc)
+                            await db.commit()
+                            await db.refresh(instance)
+                        return instance
+                else:
+                    # Container is gone (manually deleted, Docker pruned, etc.)
+                    # Delete stale DB row and fall through to create a new one
+                    logger.info(
+                        "Bot-local container '%s' no longer exists in Docker (status=%s); recreating.",
+                        container_name,
+                        instance.status,
+                    )
+                    await db.delete(instance)
+                    await db.commit()
 
             # Create new DB row
             instance = SandboxInstance(
@@ -637,12 +672,16 @@ class SandboxService:
 
         # Build docker run args (reuse shared helper for mount validation + DRY)
         _validate_mount_specs(config.mounts or [])
+        target_image = config.image or "python:3.12-slim"
+        create_options: dict = {}
+        if config.user:
+            create_options["user"] = config.user
         run_args = _build_docker_run_args(
-            image=config.image or "python:3.12-slim",
+            image=target_image,
             container_name=container_name,
             network_mode=config.network or "none",
             read_only_root=False,
-            create_options={},
+            create_options=create_options,
             env=config.env or {},
             labels={},
             mount_specs=config.mounts or [],
@@ -659,6 +698,7 @@ class SandboxService:
                 else:
                     inst.container_id = container_id
                     inst.status = "running"
+                    inst.image_id = await self._get_image_id(target_image)
                     inst.last_inspected_at = datetime.now(timezone.utc)
                 await db.commit()
                 await db.refresh(inst)
@@ -686,9 +726,12 @@ class SandboxService:
         start_ts = datetime.now(timezone.utc).timestamp()
 
         try:
+            exec_args = ["docker", "exec", "-i"]
+            if config.user:
+                exec_args += ["--user", config.user]
+            exec_args += [instance.container_id, "sh", "-c", command]
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", "-i", instance.container_id,
-                "sh", "-c", command,
+                *exec_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

@@ -506,3 +506,50 @@ async def admin_sandbox_bot_recreate(bot_id: str):
     """
     await sandbox_service.recreate_bot_local(bot_id)
     return RedirectResponse("/admin/sandboxes", status_code=303)
+
+
+@router.get("/sandboxes/bot/{bot_id}/image-status", response_class=HTMLResponse)
+async def admin_sandbox_bot_image_status(bot_id: str):
+    """HTMX partial — returns a staleness badge for the bot-local sandbox image."""
+    from app.agent.bots import get_bot
+
+    bot = get_bot(bot_id)
+    if bot is None or not bot.bot_sandbox.enabled:
+        return HTMLResponse('<span class="text-gray-600">sandbox disabled</span>')
+
+    async with async_session() as db:
+        stmt = select(SandboxInstance).where(
+            SandboxInstance.scope_type == "bot",
+            SandboxInstance.scope_key == bot_id,
+        )
+        instance = (await db.execute(stmt)).scalar_one_or_none()
+
+    if instance is None:
+        return HTMLResponse('<span class="text-gray-500">no container</span>')
+
+    if instance.image_id is None:
+        return HTMLResponse(
+            '<span class="text-yellow-500/70">unknown (pre-tracking)</span>'
+        )
+
+    target_image = bot.bot_sandbox.image or "python:3.12-slim"
+    current_id = await sandbox_service._get_image_id(target_image)
+
+    if current_id is None:
+        return HTMLResponse(
+            '<span class="text-gray-500">image not found locally</span>'
+        )
+
+    short_old = instance.image_id.replace("sha256:", "")[:12]
+    short_new = current_id.replace("sha256:", "")[:12]
+
+    if instance.image_id == current_id:
+        return HTMLResponse(
+            f'<span class="text-green-400">up to date</span>'
+            f' <span class="text-gray-600 font-mono">{short_new}</span>'
+        )
+
+    return HTMLResponse(
+        f'<span class="text-yellow-400">stale</span>'
+        f' <span class="text-gray-500 font-mono">{short_old} → {short_new}</span>'
+    )
