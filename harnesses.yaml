@@ -3,7 +3,7 @@ harnesses:
     command: claude
     args: ["--print", "{prompt}"]
     working_directory: "{working_directory}"
-    timeout: 300
+    timeout: 1800
 
   cursor:
     command: cursor
