@@ -30,6 +30,7 @@ from app.agent.rag import retrieve_context, fetch_skill_chunks_by_id
 from app.agent.tags import resolve_tags
 from app.agent.recording import _record_tool_call, _record_trace_event
 from app.agent.tools import retrieve_tools
+from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import call_mcp_tool, fetch_mcp_tools, get_mcp_server_for_tool, is_mcp_tool
@@ -39,39 +40,6 @@ from app.tools.local.persona import call_persona_tool
 from app.tools.local.knowledge import call_knowledge_tool
 
 logger = logging.getLogger(__name__)
-
-_SYS_MSG_PREFIXES: list[tuple[str, str]] = [
-    ("Current time:", "sys:datetime"),
-    ("Tagged skill context", "sys:tagged_skills"),
-    ("Tagged knowledge", "sys:tagged_knowledge"),
-    ("Pinned skill context", "sys:skill_pinned"),
-    ("Available skills (use get_skill", "sys:skill_index"),
-    ("Relevant skill context:\n", "sys:skill_rag"),
-    ("Relevant context:\n", "sys:skill_context"),
-    ("Available sub-agents", "sys:delegate_index"),
-    ("Relevant memories from past", "sys:memory"),
-    ("Pinned knowledge", "sys:pinned_knowledge"),
-    ("Relevant knowledge:\n", "sys:knowledge"),
-    ("Relevant code/files", "sys:fs_context"),
-    ("Available tools (not yet loaded", "sys:tool_index"),
-    ("Active plans for this session:", "sys:plans"),
-    ("You must respond to the user", "sys:forced_response"),
-    ("You have used too many tool calls", "sys:max_iterations"),
-    ("[TRANSCRIPT_INSTRUCTION]", "sys:audio"),
-]
-
-
-def _CLASSIFY_SYS_MSG(content: str) -> str:
-    for prefix, label in _SYS_MSG_PREFIXES:
-        if content.startswith(prefix):
-            return label
-    return "sys:system_prompt"
-
-
-def _trace(msg: str, *args: Any) -> None:
-    """Log a single-line agent trace when AGENT_TRACE is enabled (no JSON)."""
-    if settings.AGENT_TRACE:
-        logger.info("[agent] " + msg, *args)
 
 async def _llm_call(
     model: str,
