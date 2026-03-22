@@ -5,13 +5,14 @@ from agent_client import (
     ensure_channel,
     fetch_session_plans,
     fetch_session_context,
+    get_channel_session_id,
     list_bots,
     stream_chat,
     update_plan_item_status,
     update_plan_status,
 )
 from formatting import format_last_active, format_response_for_slack
-from session_helpers import derive_session_id, slack_client_id
+from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, set_channel_state
 
@@ -24,9 +25,9 @@ _ITEM_STATUS_ICON = {
 }
 
 
-def _resolve_session_id(channel: str) -> str:
-    client_id = slack_client_id(channel)
-    return derive_session_id(client_id)
+async def _resolve_session_id(channel: str, bot_id: str) -> str | None:
+    """Look up the active session_id for a Slack channel from the server."""
+    return await get_channel_session_id(channel, bot_id)
 
 
 def _format_plan(plan: dict, detail: bool = False) -> str:
@@ -212,7 +213,11 @@ def register_slash_commands(app):
     async def cmd_context(ack, command, respond):
         await ack()
         channel = command.get("channel_id") or ""
-        session_id = _resolve_session_id(channel)
+        state = get_channel_state(channel)
+        session_id = await _resolve_session_id(channel, state["bot_id"])
+        if not session_id:
+            await respond("No active session for this channel yet. Send a message first.")
+            return
         try:
             data = await fetch_session_context(session_id)
         except Exception as e:
@@ -247,7 +252,11 @@ def register_slash_commands(app):
     async def cmd_plan(ack, command, respond):
         await ack()
         channel = command.get("channel_id") or ""
-        session_id = _resolve_session_id(channel)
+        state = get_channel_state(channel)
+        session_id = await _resolve_session_id(channel, state["bot_id"])
+        if not session_id:
+            await respond("No active session for this channel yet. Send a message first.")
+            return
         args = (command.get("text") or "").split()
         sub = args[0].lower() if args else "list"
 
@@ -384,7 +393,11 @@ def register_slash_commands(app):
     async def cmd_compact(ack, command, respond):
         await ack()
         channel = command.get("channel_id") or ""
-        session_id = _resolve_session_id(channel)
+        state = get_channel_state(channel)
+        session_id = await _resolve_session_id(channel, state["bot_id"])
+        if not session_id:
+            await respond("No active session for this channel yet. Send a message first.")
+            return
         try:
             result = await compact_session(session_id)
         except Exception as e:
