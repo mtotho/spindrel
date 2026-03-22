@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Config ──────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Load .env if present and vars not already exported
+if [ -f "$REPO_DIR/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$REPO_DIR/.env"
+  set +a
+fi
+
+# ── Config ──────────────────────────────────────────────────────────────────
 BACKUP_DIR="${BACKUP_DIR:-${REPO_DIR}/backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:?Error: RCLONE_REMOTE is not set. Example: export RCLONE_REMOTE=:s3:your-bucket-name}"
 RESTORE_DIR="${REPO_DIR}/restore"
