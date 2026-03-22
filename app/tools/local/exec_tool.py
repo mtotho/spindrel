@@ -46,11 +46,13 @@ def build_exec_script(
         parts.append(f"cd {shlex.quote(working_directory)}")
 
     if stream_to:
-        # mkdir + tee wrapper; use sh-compatible exit code capture
+        # mkdir + tee wrapper; portable exit-code capture (no PIPESTATUS)
+        exit_file = f"{EXEC_OUTPUT_DIR}/.exit_code"
         parts.append(f"mkdir -p {shlex.quote(EXEC_OUTPUT_DIR)}")
         parts.append(
-            f"{{ {inner} ; }} 2>&1 | tee {shlex.quote(stream_to)}; "
-            f"exit ${{PIPESTATUS[0]:-$?}}"
+            f"{{ {inner} ; echo $? > {shlex.quote(exit_file)} ; }} 2>&1"
+            f" | tee {shlex.quote(stream_to)}; "
+            f"exit $(cat {shlex.quote(exit_file)})"
         )
     else:
         parts.append(inner)
