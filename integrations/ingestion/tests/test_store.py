@@ -1,19 +1,22 @@
 """Tests for SQLite ingestion store using in-memory DB."""
 
 import json
+import sqlite3
 
 from integrations.ingestion.store import IngestionStore
 
 
 def make_store() -> IngestionStore:
     """Create an in-memory store for testing."""
-    return IngestionStore(db_path=":memory:")
+    store = IngestionStore(db_path=":memory:")
+    store._conn.row_factory = sqlite3.Row
+    return store
 
 
 class TestSchema:
     def test_tables_created(self):
         store = make_store()
-        cur = store.conn.execute(
+        cur = store._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         tables = [row["name"] for row in cur.fetchall()]
@@ -61,7 +64,7 @@ class TestQuarantine:
             flags=["injection_attempt"],
             reason="dangerous content",
         )
-        cur = store.conn.execute("SELECT * FROM quarantine WHERE source_id = ?", ("msg-bad",))
+        cur = store._conn.execute("SELECT * FROM quarantine WHERE source_id = ?", ("msg-bad",))
         row = cur.fetchone()
         assert row is not None
         assert row["source"] == "gmail"
@@ -82,7 +85,7 @@ class TestQuarantine:
                 flags=[],
                 reason="test",
             )
-        cur = store.conn.execute("SELECT COUNT(*) as cnt FROM quarantine")
+        cur = store._conn.execute("SELECT COUNT(*) as cnt FROM quarantine")
         assert cur.fetchone()["cnt"] == 3
         store.close()
 
@@ -91,7 +94,7 @@ class TestAudit:
     def test_audit_log_entry(self):
         store = make_store()
         store.audit("gmail", "msg-1", "passed", "low")
-        cur = store.conn.execute("SELECT * FROM audit_log WHERE source_id = ?", ("msg-1",))
+        cur = store._conn.execute("SELECT * FROM audit_log WHERE source_id = ?", ("msg-1",))
         row = cur.fetchone()
         assert row is not None
         assert row["action"] == "passed"
@@ -102,7 +105,7 @@ class TestAudit:
     def test_audit_without_risk_level(self):
         store = make_store()
         store.audit("gmail", "msg-1", "discarded")
-        cur = store.conn.execute("SELECT * FROM audit_log WHERE source_id = ?", ("msg-1",))
+        cur = store._conn.execute("SELECT * FROM audit_log WHERE source_id = ?", ("msg-1",))
         row = cur.fetchone()
         assert row["risk_level"] is None
         store.close()
@@ -111,6 +114,6 @@ class TestAudit:
         store = make_store()
         store.audit("gmail", "msg-1", "quarantined", "high")
         store.audit("gmail", "msg-1", "released", "high")
-        cur = store.conn.execute("SELECT COUNT(*) as cnt FROM audit_log WHERE source_id = ?", ("msg-1",))
+        cur = store._conn.execute("SELECT COUNT(*) as cnt FROM audit_log WHERE source_id = ?", ("msg-1",))
         assert cur.fetchone()["cnt"] == 2
         store.close()
