@@ -24,20 +24,48 @@ summary: >
 
 ### Infrastructure Layout
 
+The media stack spans multiple hosts:
+
+- **Arr Docker Host** — a single Proxmox VM running Sonarr, Radarr, Prowlarr, qBittorrent, and Bazarr in Docker containers
+- **Jellyfin LXC** — Jellyfin runs natively in its own Proxmox LXC container
+- **Jellyseerr LXC** — Jellyseerr runs natively in its own Proxmox LXC container
+- **TrueNAS** — separate storage host; media folders are NFS/SMB-mounted into the containers above. **Out of scope** — no agent integration planned, but the storage dependency is documented here for context
+
 ```
-┌──────────────────────────────────────┐     ┌──────────────────────────────────────┐
-│  Proxmox Node A (Thoth VM)           │     │  Proxmox Node B (Media Server VM)    │
+┌──────────────────────────────────────┐
+│  Proxmox — Thoth VM                  │
+│                                      │
+│  thoth.service (agent-server)        │
+│    └─ media bot (media_bot.yaml)     │
+│       └─ integrations/sonarr/        │
+│       └─ integrations/radarr/        │
+│       └─ integrations/jellyfin/      │
+│       └─ integrations/qbittorrent/   │
+│       └─ integrations/bazarr/        │
+│       └─ integrations/jellyseerr/    │
+│       └─ integrations/prowlarr/      │
+└───────────┬──────────────────────────┘
+            │ REST APIs + SSH
+            │
+┌───────────▼──────────────────────────┐     ┌──────────────────────────────────────┐
+│  Proxmox — Arr Docker Host           │     │  Proxmox — Jellyfin LXC              │
 │                                      │     │                                      │
-│  thoth.service (agent-server)        │────▶│  Sonarr       :8989  (TV)            │
-│    └─ media bot (media_bot.yaml)     │ API │  Radarr       :7878  (Movies)        │
-│       └─ integrations/sonarr/        │     │  Prowlarr     :9696  (Indexers)      │
-│       └─ integrations/radarr/        │     │  Jellyfin     :8096  (Streaming)     │
-│       └─ integrations/jellyfin/      │     │  Jellyseerr   :5055  (Requests)      │
-│       └─ integrations/qbittorrent/   │     │  qBittorrent  :8080  (Downloads)     │
-│       └─ integrations/bazarr/        │     │  Bazarr       :6767  (Subtitles)     │
-│       └─ integrations/jellyseerr/    │     │                                      │
-│       └─ integrations/prowlarr/      │     │  SSH :22 (VM maintenance)            │
-└──────────────────────────────────────┘     └──────────────────────────────────────┘
+│  Docker containers:                  │     │  Jellyfin     :8096  (native)         │
+│    Sonarr       :8989  (TV)          │     │  SSH :22                              │
+│    Radarr       :7878  (Movies)      │     └──────────────────────────────────────┘
+│    Prowlarr     :9696  (Indexers)    │
+│    qBittorrent  :8080  (Downloads)   │     ┌──────────────────────────────────────┐
+│    Bazarr       :6767  (Subtitles)   │     │  Proxmox — Jellyseerr LXC            │
+│                                      │     │                                      │
+│  SSH :22 (VM maintenance)            │     │  Jellyseerr   :5055  (native)         │
+└──────────────────────────────────────┘     │  SSH :22                              │
+                                             └──────────────────────────────────────┘
+            ┌──────────────────────────────────────┐
+            │  TrueNAS (storage — out of scope)    │
+            │                                      │
+            │  NFS/SMB shares mounted into         │
+            │  containers above. No agent access.  │
+            └──────────────────────────────────────┘
 ```
 
 ### Bot Config
@@ -79,7 +107,9 @@ memory:
   cross_channel: false
 ```
 
-### Heartbeat Cadence
+### Scheduled Checks
+
+Implemented as skills bound to scheduled tasks (via `create_task` / task UI), not heartbeat workers.
 
 | Schedule | What | Why |
 |----------|------|-----|
@@ -114,10 +144,38 @@ QBITTORRENT_USERNAME=admin
 QBITTORRENT_PASSWORD=...
 BAZARR_URL=http://media-server:6767
 BAZARR_API_KEY=...
-MEDIA_SERVER_SSH_HOST=media-server
-MEDIA_SERVER_SSH_USER=thoth
-MEDIA_SERVER_SSH_KEY_PATH=/opt/thoth/.ssh/media_server_ed25519
+# SSH — per-host credentials (multi-host topology)
+ARR_DOCKER_HOST=arr-docker-host
+ARR_DOCKER_SSH_USER=thoth
+ARR_DOCKER_SSH_KEY_PATH=/opt/thoth/.ssh/arr_docker_ed25519
+JELLYFIN_HOST=jellyfin-lxc
+JELLYFIN_SSH_USER=thoth
+JELLYFIN_SSH_KEY_PATH=/opt/thoth/.ssh/jellyfin_ed25519
+JELLYSEERR_HOST=jellyseerr-lxc
+JELLYSEERR_SSH_USER=thoth
+JELLYSEERR_SSH_KEY_PATH=/opt/thoth/.ssh/jellyseerr_ed25519
 ```
+
+### Untrusted Data & Prompt Injection Safety
+
+Torrent names, filenames, show/movie titles, and other free-text fields returned from qBittorrent and the *arr APIs are **untrusted external input** — especially from public torrent trackers. These can contain prompt injection attempts.
+
+**What to sanitize:**
+- Free-text fields: torrent names, episode/movie filenames, user-supplied titles, release group tags
+- Any string that originates from external indexers or torrent metadata
+
+**What does NOT need sanitization:**
+- Structured JSON fields from *arr API responses (IDs, booleans, timestamps, enums) — these are from trusted local services
+
+**How to sanitize:**
+- Pass all untrusted free-text through the existing ingestion sanitizer pipeline (Layer 2 injection filter pattern from `app/services/`). The same 4-layer security architecture designed for Gmail integration applies here:
+  1. Input validation / schema enforcement
+  2. Injection pattern detection and stripping
+  3. Content truncation / size limits
+  4. Output escaping before surfacing to agent context
+- Note: the full ingestion pipeline was designed but Gmail integration was never completed — the sanitizer infrastructure exists but needs to be wired up and validated for media data before Phase 1 goes live.
+
+**Action required:** Wire up the sanitizer pipeline for media API responses before Phase 1 deployment. This is a blocking prerequisite, not a nice-to-have.
 
 ### Integration Folder Structure
 
@@ -157,6 +215,8 @@ integrations/
 ```
 
 Each `client.py` follows the same pattern — an async class using `httpx.AsyncClient` with base URL and API key from config. Each `tools.py` registers tools via `@register(openai_schema)` that call the client.
+
+**Tool categorization:** All media tools should be tagged with a `media` category once tool UI categorization is implemented (planned feature, separate todo). This will help manage the growing tool list and allow filtering in the UI.
 
 ---
 
@@ -331,9 +391,9 @@ Pause, resume, or delete a torrent by hash.
 
 ---
 
-## Phase 3 — Proactive Heartbeat Monitoring
+## Phase 3 — Proactive Scheduled Monitoring
 
-*The bot checks things on a schedule and alerts in `#media` when something needs attention.*
+*The bot checks things on a schedule (via skills + scheduled tasks) and alerts in `#media` when something needs attention.*
 
 **Effort: ~2-3 days**
 
@@ -390,16 +450,17 @@ Storage:
 
 ### Implementation Notes
 
-- Heartbeat checks use the existing `heartbeat_worker` infrastructure in `app/services/heartbeat.py`
-- The media bot's heartbeat config in its YAML defines the schedule
-- Each check is a tool call the heartbeat invokes on schedule
+- Alert conditions and periodic checks should be implemented as **skills** bound to the existing **scheduled task system** (`create_task` / scheduled tasks already in the codebase)
+- Michael can bind skills to scheduled tasks via the existing UI — no new heartbeat worker code is needed
+- **Do not** write new heartbeat infrastructure or extend `heartbeat_worker` for media checks
+- External cron jobs are appropriate ONLY for deterministic ingestion-type jobs (e.g. a nightly script that syncs data) — NOT for agent-level logic like "check if shows downloaded and decide what to do"
 - Alerts post to `#media` with appropriate severity formatting
 
 ### Phase 3 Deliverables
 
-- [ ] Heartbeat schedule config in `media_bot.yaml`
-- [ ] Evening check routine (8 PM)
-- [ ] Weekly summary routine (Sunday 10 AM)
+- [ ] Evening check skill (8 PM) — bound to scheduled task
+- [ ] Weekly summary skill (Sunday 10 AM) — bound to scheduled task
+- [ ] Alert conditions implemented as skills, wired to scheduled tasks
 - [ ] Alert formatting (severity levels, thread details)
 - [ ] `integrations/prowlarr/` client + indexer health tool
 
@@ -414,37 +475,42 @@ Storage:
 ### Tools
 
 #### `media_health_check`
-SSH to the media server and check:
+SSH to the Arr Docker host and check:
 
 - All Docker containers running (`docker ps --format`)
 - System load average
 - Uptime
 - Memory usage
 
+Also SSH to Jellyfin and Jellyseerr LXCs to verify service status.
+
 ```python
-# SSH command: docker ps --format '{{.Names}}\t{{.Status}}' && cat /proc/loadavg && uptime && free -h
+# Arr Docker host: docker ps --format '{{.Names}}\t{{.Status}}' && cat /proc/loadavg && uptime && free -h
+# Jellyfin LXC: systemctl is-active jellyfin && uptime && free -h
+# Jellyseerr LXC: systemctl is-active jellyseerr && uptime && free -h
 ```
 
 #### `media_disk_usage`
-Check disk usage on all relevant mount points.
+Check disk usage on all relevant mount points across hosts.
 
 ```python
-# SSH command: df -h /media /downloads /config
+# Arr Docker host: df -h /media /downloads /config
+# Jellyfin LXC: df -h /media
 ```
 
 #### `media_apt_updates`
-Check for pending apt updates on the media server.
+Check for pending apt updates on each host.
 
 ```python
-# SSH command: apt list --upgradable 2>/dev/null | tail -n +2 | wc -l
+# Run on each host: apt list --upgradable 2>/dev/null | tail -n +2 | wc -l
 ```
 
 ### SSH Setup
 
-- Dedicated SSH key pair for the Thoth agent
-- Key stored at `MEDIA_SERVER_SSH_KEY_PATH` (default: `/opt/thoth/.ssh/media_server_ed25519`)
-- Media server `authorized_keys` entry restricted: `command="/usr/local/bin/thoth-ssh-gate"` for safety (optional)
+- Dedicated SSH key pair per host (see env vars: `ARR_DOCKER_SSH_KEY_PATH`, `JELLYFIN_SSH_KEY_PATH`, `JELLYSEERR_SSH_KEY_PATH`)
+- Each host's `authorized_keys` entry restricted: `command="/usr/local/bin/thoth-ssh-gate"` for safety (optional)
 - Use `asyncssh` library for non-blocking SSH execution
+- Note: TrueNAS storage host has no SSH access from the agent — storage is out of scope
 
 ### Phase 4 Deliverables
 
@@ -453,6 +519,12 @@ Check for pending apt updates on the media server.
 - [ ] `media_health_check` tool
 - [ ] `media_disk_usage` tool
 - [ ] `media_apt_updates` tool
+
+---
+
+## Future Work — OpenAPI Spec Validation
+
+A weekly scheduled job should validate the integration client code against the latest *arr OpenAPI specs (Sonarr v3, Radarr v3, Prowlarr v1, etc. all publish machine-readable OpenAPI specs). This would catch breaking API changes early — e.g. renamed fields, removed endpoints, or new required parameters. Not a blocker for any phase, but should be set up once the core integrations stabilize.
 
 ---
 
@@ -594,10 +666,10 @@ Phase 2b: Jellyseerr requests + Jellyfin users        ~1 day
   ├─ jellyseerr_request (search + confirm + submit)
   └─ jellyfin_manage_user (create/delete/reset)
 
-Phase 3: Heartbeat + proactive alerts                 ~2-3 days
-  ├─ Heartbeat schedule wiring
-  ├─ Evening check routine
-  ├─ Weekly summary routine
+Phase 3: Scheduled monitoring + proactive alerts       ~2-3 days
+  ├─ Skills for alert conditions
+  ├─ Evening check skill (bind to scheduled task)
+  ├─ Weekly summary skill (bind to scheduled task)
   ├─ Alert formatting
   └─ integrations/prowlarr/ (indexer health)
 
