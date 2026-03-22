@@ -1,0 +1,42 @@
+{# Heartbeat history partial — included in heartbeat section and loaded via HTMX #}
+{% if history %}
+<div class="space-y-2">
+  {% for task in history %}
+  <div x-data="{ expanded: false }" class="bg-gray-900 rounded-lg border border-gray-700">
+    <div @click="expanded = !expanded" class="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-800 rounded-lg">
+      <div class="flex items-center gap-3 text-xs">
+        <span class="text-gray-500">{{ task.created_at | fmt_dt }}</span>
+        {% if task.status == 'complete' %}
+        <span class="px-1.5 py-0.5 rounded bg-green-900 text-green-300">complete</span>
+        {% elif task.status == 'failed' %}
+        <span class="px-1.5 py-0.5 rounded bg-red-900 text-red-300">failed</span>
+        {% elif task.status == 'running' %}
+        <span class="px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300">running</span>
+        {% else %}
+        <span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">{{ task.status }}</span>
+        {% endif %}
+        {% if task.result %}
+        <span class="text-gray-400 truncate max-w-xs">{{ task.result[:100] }}{% if task.result|length > 100 %}...{% endif %}</span>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/admin/tasks/{{ task.id }}" @click.stop class="text-indigo-400 hover:underline text-xs">view</a>
+        <svg :class="expanded ? 'rotate-180' : ''" class="w-3 h-3 text-gray-500 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+    </div>
+    <div x-show="expanded" x-cloak class="px-3 pb-3">
+      {% if task.result %}
+      <pre class="text-xs text-gray-300 font-mono bg-gray-950 rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">{{ task.result }}</pre>
+      {% endif %}
+      {% if task.error %}
+      <pre class="text-xs text-red-300 font-mono bg-gray-950 rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap">{{ task.error }}</pre>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-gray-600 italic">No heartbeat runs yet.</p>
+{% endif %}

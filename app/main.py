@@ -90,6 +90,8 @@ async def lifespan(app: FastAPI):
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     from app.agent.tasks import task_worker
     asyncio.create_task(task_worker())
+    from app.services.heartbeat import heartbeat_worker
+    asyncio.create_task(heartbeat_worker())
     yield
 
 

@@ -112,6 +112,8 @@ async def admin_tasks(
 
 @router.get("/tasks/{task_id}", response_class=HTMLResponse)
 async def admin_task_detail(request: Request, task_id: uuid.UUID):
+    from app.services.providers import get_available_models_grouped
+
     async with async_session() as db:
         task = await db.get(Task, task_id)
         if not task:
@@ -132,10 +134,17 @@ async def admin_task_detail(request: Request, task_id: uuid.UUID):
             for k, v in sorted(packs.items())
         ]
     )
+    model_groups = await get_available_models_grouped()
 
     return templates.TemplateResponse(
         "admin/task_detail.html",
-        {"request": request, "task": task, "completions_json": json.dumps(completions), "bots": bots},
+        {
+            "request": request,
+            "task": task,
+            "completions_json": json.dumps(completions),
+            "bots": bots,
+            "model_groups": model_groups,
+        },
     )
 
 
@@ -149,6 +158,8 @@ async def admin_task_edit(
     bot_id: str = Form(...),
     reply_in_thread: str = Form(""),  # checkbox: "on" when checked, "" when not
     trigger_rag_loop: str = Form(""),  # checkbox: "on" when checked, "" when not
+    model_override: str = Form(""),
+    model_provider_id_override: str = Form(""),
 ):
     async with async_session() as db:
         task = await db.get(Task, task_id)
@@ -159,7 +170,16 @@ async def admin_task_edit(
         task.recurrence = recurrence.strip() or None
         task.status = status
         task.bot_id = bot_id.strip()
-        task.callback_config = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop == "on"}
+        cb = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop == "on"}
+        mo = model_override.strip()
+        mpo = model_provider_id_override.strip()
+        if mo:
+            cb["model_override"] = mo
+            cb["model_provider_id_override"] = mpo or None
+        else:
+            cb.pop("model_override", None)
+            cb.pop("model_provider_id_override", None)
+        task.callback_config = cb
 
         # Update reply_in_thread in dispatch_config for Slack tasks
         if task.dispatch_type == "slack" and task.dispatch_config is not None:

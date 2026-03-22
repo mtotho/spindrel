@@ -40,6 +40,7 @@
       ('tasks', 'Tasks'),
       ('plans', 'Plans'),
       ('memories', 'Memories'),
+      ('heartbeat', 'Heartbeat'),
     ] %}
     {% for key, label in tabs %}
     <button @click="tab = '{{ key }}'"
@@ -146,6 +147,18 @@
            hx-trigger="revealed"
            hx-swap="innerHTML">
         <div class="text-xs text-gray-600 animate-pulse">Loading memories...</div>
+      </div>
+    </div>
+  </div>
+
+  {# Heartbeat tab — lazy #}
+  <div x-show="tab === 'heartbeat'" x-cloak>
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <div id="heartbeat-section"
+           hx-get="/admin/channels/{{ channel.id }}/heartbeat-section"
+           hx-trigger="revealed"
+           hx-swap="innerHTML">
+        <div class="text-xs text-gray-600 animate-pulse">Loading heartbeat...</div>
       </div>
     </div>
   </div>

@@ -152,6 +152,7 @@ async def run_agent_tool_loop(
     client_id: str | None = None,
     *,
     model_override: str | None = None,
+    provider_id_override: str | None = None,
     turn_start: int = 0,
     native_audio: bool = False,
     user_msg_index: int | None = None,
@@ -163,7 +164,7 @@ async def run_agent_tool_loop(
     When compaction=True, every yielded event gets "compaction": True.
     """
     model = model_override or bot.model
-    provider_id = bot.model_provider_id
+    provider_id = provider_id_override or bot.model_provider_id
 
     # Effective tool result summarization settings (bot-level overrides global)
     _trc = bot.tool_result_config or {}
@@ -614,6 +615,8 @@ async def run_stream(
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
     channel_id: uuid.UUID | None = None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1089,6 +1092,8 @@ async def run_stream(
             bot,
             session_id=session_id,
             client_id=client_id,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
             turn_start=turn_start,
             native_audio=native_audio,
             user_msg_index=user_msg_index,
@@ -1116,6 +1121,8 @@ async def run_stream(
             bot,
             session_id=session_id,
             client_id=client_id,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
             turn_start=turn_start,
             native_audio=native_audio,
             user_msg_index=user_msg_index,
@@ -1138,6 +1145,8 @@ async def run(
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
     channel_id: uuid.UUID | None = None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1150,6 +1159,8 @@ async def run(
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
         channel_id=channel_id,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
     ):
         if event["type"] == "response":
             result.response = event["text"]

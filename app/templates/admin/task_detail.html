@@ -58,6 +58,33 @@
             </select>
           </dd>
         </div>
+        <div class="flex gap-2 items-start">
+          <dt class="text-gray-500 w-32 shrink-0 pt-1.5">Model override</dt>
+          <dd class="flex-1">
+            <select name="model_override" id="task-model-select"
+              @change="
+                const opt = $event.target.selectedOptions[0];
+                document.getElementById('task-model-provider-id').value = opt ? (opt.dataset.providerId || '') : '';
+              "
+              class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+              <option value="">-- use bot default --</option>
+              {% for group in model_groups %}
+              <optgroup label="{{ group.provider_name }}{% if group.provider_type %} ({{ group.provider_type }}){% endif %}">
+                {% for m in group.models %}
+                <option value="{{ m.id }}"
+                  data-provider-id="{{ group.provider_id or '' }}"
+                  {% if task.callback_config and task.callback_config.get('model_override') == m.id and (task.callback_config.get('model_provider_id_override') or '') == (group.provider_id or '') %}selected{% endif %}>
+                  {{ m.display or m.id }}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="model_provider_id_override" id="task-model-provider-id"
+              value="{{ (task.callback_config or {}).get('model_provider_id_override', '') }}" />
+            <p class="text-xs text-gray-500 mt-1">Empty = use the bot's configured model.</p>
+          </dd>
+        </div>
         <div class="flex gap-2">
           <dt class="text-gray-500 w-32 shrink-0">Client</dt>
           <dd class="text-gray-300">{{ task.client_id or "—" }}</dd>
@@ -178,7 +205,7 @@
       <div class="relative">
         <div x-ref="mirror" aria-hidden="true"
           class="absolute inset-0 px-3 py-2 text-sm font-mono bg-gray-900 rounded-lg pointer-events-none overflow-hidden"
-          style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;font:inherit;line-height:1.25rem;z-index:0;"></div>
+          style="white-space:pre-wrap;word-wrap:break-word;color:#e5e7eb;line-height:1.25rem;z-index:0;"></div>
         <textarea name="prompt" rows="8"
           x-ref="ta"
           @input="onInput"

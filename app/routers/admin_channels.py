@@ -22,6 +22,7 @@ from app.db.models import (
     Bot as BotRow,
     BotKnowledge,
     Channel,
+    ChannelHeartbeat,
     KnowledgeAccess,
     Memory,
     Message,
@@ -531,6 +532,160 @@ async def admin_channel_memory_delete(
             await db.commit()
 
     return await admin_channel_memories_section(request, channel_id)
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat section + routes
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/heartbeat-section", response_class=HTMLResponse)
+async def admin_channel_heartbeat_section(request: Request, channel_id: uuid.UUID):
+    from app.services.providers import get_available_models_grouped
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        # Recent heartbeat task history
+        history_stmt = (
+            select(Task)
+            .where(Task.channel_id == channel_id)
+            .where(Task.callback_config["source"].astext == "heartbeat")
+            .order_by(Task.created_at.desc())
+            .limit(10)
+        )
+        history = list((await db.execute(history_stmt)).scalars().all())
+        completions_json = await _build_completions_json(db)
+
+    model_groups = await get_available_models_grouped()
+
+    return templates.TemplateResponse("admin/channel_heartbeat_section.html", {
+        "request": request,
+        "channel": channel,
+        "heartbeat": heartbeat,
+        "model_groups": model_groups,
+        "completions_json": completions_json,
+        "history": history,
+    })
+
+
+@router.post("/channels/{channel_id}/heartbeat", response_class=HTMLResponse)
+async def admin_channel_heartbeat_save(
+    request: Request,
+    channel_id: uuid.UUID,
+    interval_minutes: int = Form(60),
+    model: str = Form(""),
+    model_provider_id: str = Form(""),
+    prompt: str = Form(""),
+    dispatch_results: str = Form(""),
+    trigger_response: str = Form(""),
+):
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        if heartbeat is None:
+            heartbeat = ChannelHeartbeat(
+                channel_id=channel_id,
+                enabled=False,
+            )
+            db.add(heartbeat)
+
+        heartbeat.interval_minutes = max(1, interval_minutes)
+        heartbeat.model = model.strip()
+        heartbeat.model_provider_id = model_provider_id.strip() or None
+        heartbeat.prompt = prompt.strip()
+        heartbeat.dispatch_results = dispatch_results == "on"
+        heartbeat.trigger_response = trigger_response == "on"
+        heartbeat.updated_at = now
+
+        # If enabled and next_run_at not set, schedule first run
+        if heartbeat.enabled and heartbeat.next_run_at is None:
+            from datetime import timedelta
+            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+
+        await db.commit()
+
+    return await admin_channel_heartbeat_section(request, channel_id)
+
+
+@router.post("/channels/{channel_id}/heartbeat/toggle", response_class=HTMLResponse)
+async def admin_channel_heartbeat_toggle(request: Request, channel_id: uuid.UUID):
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        if heartbeat is None:
+            heartbeat = ChannelHeartbeat(
+                channel_id=channel_id,
+                enabled=True,
+            )
+            db.add(heartbeat)
+        else:
+            heartbeat.enabled = not heartbeat.enabled
+
+        heartbeat.updated_at = now
+
+        if heartbeat.enabled and heartbeat.next_run_at is None:
+            from datetime import timedelta
+            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+        elif not heartbeat.enabled:
+            heartbeat.next_run_at = None
+
+        await db.commit()
+
+    return await admin_channel_heartbeat_section(request, channel_id)
+
+
+@router.get("/channels/{channel_id}/heartbeat/history", response_class=HTMLResponse)
+async def admin_channel_heartbeat_history(request: Request, channel_id: uuid.UUID):
+    async with async_session() as db:
+        history_stmt = (
+            select(Task)
+            .where(Task.channel_id == channel_id)
+            .where(Task.callback_config["source"].astext == "heartbeat")
+            .order_by(Task.created_at.desc())
+            .limit(10)
+        )
+        history = list((await db.execute(history_stmt)).scalars().all())
+
+    return templates.TemplateResponse("admin/channel_heartbeat_history.html", {
+        "request": request,
+        "history": history,
+    })
+
+
+@router.post("/channels/{channel_id}/heartbeat/fire", response_class=HTMLResponse)
+async def admin_channel_heartbeat_fire(request: Request, channel_id: uuid.UUID):
+    from app.services.heartbeat import fire_heartbeat
+
+    async with async_session() as db:
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        if not heartbeat:
+            raise HTTPException(status_code=404, detail="No heartbeat configured")
+
+    await fire_heartbeat(heartbeat)
+    return await admin_channel_heartbeat_section(request, channel_id)
 
 
 # ---------------------------------------------------------------------------

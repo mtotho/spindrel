@@ -308,6 +308,12 @@ async def run_task(task: Task) -> None:
         import uuid as _uuid
         correlation_id = _uuid.uuid4()
         messages_start = len(messages)  # capture before run() appends new turn
+
+        # Model override from callback_config (used by heartbeats + admin tasks)
+        _cb_pre = task.callback_config or {}
+        _model_override = _cb_pre.get("model_override") or None
+        _provider_id_override = _cb_pre.get("model_provider_id_override") or None
+
         run_result = await run(
             messages, bot, task.prompt,
             session_id=session_id,
@@ -316,6 +322,8 @@ async def run_task(task: Task) -> None:
             dispatch_type=task.dispatch_type,
             dispatch_config=task.dispatch_config,
             channel_id=task.channel_id,
+            model_override=_model_override,
+            provider_id_override=_provider_id_override,
         )
         result_text = run_result.response
 

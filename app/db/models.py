@@ -503,6 +503,31 @@ class Skill(Base):
 
 
 
+class ChannelHeartbeat(Base):
+    __tablename__ = "channel_heartbeats"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("60"))
+    model: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    dispatch_results: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    trigger_response: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    last_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    channel: Mapped["Channel"] = relationship("Channel")
+
+
 class IntegrationChannelConfig(Base):
     __tablename__ = "integration_channel_configs"
 
