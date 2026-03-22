@@ -50,6 +50,9 @@ slack_state.json
 node_modules/
 android-client/node_modules/
 
+# Media data (cron-generated JSON)
+data/media/*.json
+
 # Backups
 backups/
 rclone.conf
