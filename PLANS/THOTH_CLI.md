@@ -283,7 +283,15 @@ docker --version && docker compose version
 # sudo apt install -y awscli
 ```
 
-### 2. Clone Repo
+### 2. GitHub Auth
+
+```bash
+# Authenticate GitHub CLI (one-time — persists across sessions)
+gh auth login --with-token <<< "your_github_pat_here"
+gh auth setup-git  # makes git use gh for HTTPS auth
+```
+
+### 3. Clone Repo
 
 ```bash
 sudo mkdir -p /opt/thoth
@@ -292,27 +300,40 @@ git clone <repo-url> /opt/thoth
 cd /opt/thoth
 ```
 
-### 3. Run Install Wizard
+### 4. Configure rclone & Environment
 
 ```bash
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -e .
-thoth install
+# Set up rclone S3 remote for backups
+rclone config
+
+# Copy or restore .env
+cp .env.example .env
+# Edit .env with your values (LITELLM_BASE_URL, model keys, etc.)
 ```
 
-The wizard will:
-- Verify all dependencies are present
-- Guide `.env` configuration
-- Set up rclone S3 remote
-- Initialize the database
-- Register the systemd service
-
-### 4. Start & Verify
+### 5. Restore (if migrating) or Fresh Setup
 
 ```bash
-thoth start
-thoth status
+# If migrating from another host:
+./scripts/restore.sh
+
+# If fresh install, start postgres and run migrations:
+docker compose up -d postgres searxng playwright
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+```
+
+### 6. Install Service
+
+```bash
+sudo ./scripts/install-service.sh
+```
+
+### 7. Verify
+
+```bash
+systemctl status agent-server
 curl http://localhost:8000/health
 ```
 

@@ -2,51 +2,65 @@
 set -euo pipefail
 
 # ── install-service.sh ───────────────────────────────────────────────────────
-# Install the Thoth systemd service unit, create the thoth user if needed,
-# and enable + start the service.
+# Set up the Python venv, install deps, run migrations, and install the
+# agent-server systemd service unit.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-UNIT_FILE="$REPO_DIR/systemd/thoth.service"
-INSTALL_DIR="/opt/thoth"
+CURRENT_USER="${SUDO_USER:-$USER}"
+VENV_DIR="$REPO_DIR/.venv"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "error: This script must be run as root (or via sudo)." >&2
     exit 1
 fi
 
-# ── Create thoth user if needed ──────────────────────────────────────────────
-if ! id -u thoth >/dev/null 2>&1; then
-    echo "Creating system user 'thoth'..."
-    useradd --system --create-home --home-dir "$INSTALL_DIR" --shell /usr/sbin/nologin thoth
-    echo "User 'thoth' created."
-else
-    echo "User 'thoth' already exists."
+# ── 1. Create .venv with python3.12 if it doesn't exist ─────────────────────
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating Python 3.12 virtual environment …"
+    python3.12 -m venv "$VENV_DIR"
+    chown -R "$CURRENT_USER:$CURRENT_USER" "$VENV_DIR"
 fi
 
-# ── Add thoth to docker group ────────────────────────────────────────────────
-if getent group docker >/dev/null 2>&1; then
-    if ! id -nG thoth | grep -qw docker; then
-        echo "Adding 'thoth' to docker group..."
-        usermod -aG docker thoth
-    fi
-else
-    echo "warning: docker group does not exist. Docker commands may fail." >&2
-fi
+# ── 2. Install requirements ─────────────────────────────────────────────────
+echo "Installing Python dependencies …"
+sudo -u "$CURRENT_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/requirements.txt"
 
-# ── Install systemd unit ─────────────────────────────────────────────────────
-echo "Installing systemd unit file..."
-cp "$UNIT_FILE" /etc/systemd/system/thoth.service
+# ── 3. Run database migrations ──────────────────────────────────────────────
+echo "Running database migrations …"
+sudo -u "$CURRENT_USER" bash -c "cd '$REPO_DIR' && source '$REPO_DIR/.env' 2>/dev/null; '$VENV_DIR/bin/alembic' upgrade head"
+
+# ── 4. Write systemd unit file ──────────────────────────────────────────────
+echo "Writing /etc/systemd/system/agent-server.service …"
+cat > /etc/systemd/system/agent-server.service <<EOF
+[Unit]
+Description=Thoth Agent Server
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+User=$CURRENT_USER
+WorkingDirectory=$REPO_DIR
+EnvironmentFile=$REPO_DIR/.env
+ExecStartPre=/usr/bin/docker compose -f $REPO_DIR/docker-compose.yml up -d postgres searxng playwright
+ExecStart=$VENV_DIR/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ── 5. Enable and start ─────────────────────────────────────────────────────
+echo "Enabling and starting agent-server.service …"
 systemctl daemon-reload
+systemctl enable agent-server.service
+systemctl start agent-server.service
 
-# ── Enable + start ───────────────────────────────────────────────────────────
-echo "Enabling thoth.service..."
-systemctl enable thoth.service
-
-echo "Starting thoth.service..."
-systemctl start thoth.service
-
+# ── 6. Print status ─────────────────────────────────────────────────────────
 echo ""
-echo "Thoth service installed and started."
-echo "  Status:  systemctl status thoth"
-echo "  Logs:    journalctl -u thoth -f"
+echo "agent-server service installed and started."
+systemctl status agent-server.service --no-pager || true
+echo ""
+echo "  Status:  systemctl status agent-server"
+echo "  Logs:    journalctl -u agent-server -f"
