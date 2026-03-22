@@ -245,7 +245,7 @@ async def run_agent_tool_loop(
                 logger.debug("Tool call %s args: %s", name, args)
 
                 _trace("→ %s", name)
-                yield _event_with_compaction_tag({"type": "tool_start", "tool": name}, compaction)
+                yield _event_with_compaction_tag({"type": "tool_start", "tool": name, "args": args}, compaction)
 
                 tc_result = await dispatch_tool_call(
                     name=name,
@@ -369,7 +369,7 @@ async def run_stream(
     """Core agent loop as an async generator that yields status events.
 
     Events:
-      {"type": "tool_start", "tool": "<name>"}
+      {"type": "tool_start", "tool": "<name>", "args": "<json>"}
       {"type": "tool_result", "tool": "<name>"}
       {"type": "memory_context", "count": <int>}
       {"type": "transcript", "text": "..."}
