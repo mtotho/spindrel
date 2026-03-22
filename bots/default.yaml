@@ -42,12 +42,23 @@ local_tools:
   - upsert_knowledge
   - get_knowledge
   - search_knowledge
+  - edit_knowledge
+  - delete_knowledge
+  - append_to_knowledge
+  - list_knowledge_bases
+  - pin_knowledge
+  - unpin_knowledge
+  - set_knowledge_similarity_threshold
+  - promote_memories_to_knowledge
+  - append_to_persona
+  - edit_persona
   - get_current_local_time
 client_tools:
   - shell_exec
 skills:
   - arch_linux
   - home_assistant
+  - knowledge_management
 audio_input: transcribe
 context_compaction: true
 compaction_interval: 10

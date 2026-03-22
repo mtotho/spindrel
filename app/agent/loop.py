@@ -159,6 +159,7 @@ async def run_agent_tool_loop(
     compaction: bool = False,
     pre_selected_tools: list[dict[str, Any]] | None = None,
     correlation_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -387,6 +388,7 @@ async def run_agent_tool_loop(
                         "save_memory",
                         "purge_memory",
                         "merge_memories",
+                        "promote_memories_to_knowledge",
                     ) and session_id and client_id:
                         result = await call_memory_tool(
                             name,
@@ -396,8 +398,9 @@ async def run_agent_tool_loop(
                             bot.id,
                             bot.memory,
                             correlation_id=correlation_id,
+                            channel_id=channel_id,
                         )
-                    elif name in ("update_persona", "append_to_persona"):
+                    elif name in ("update_persona", "append_to_persona", "edit_persona"):
                         result = await call_persona_tool(name, args or "{}", bot.id)
                     elif name in (
                         "upsert_knowledge",
@@ -405,6 +408,8 @@ async def run_agent_tool_loop(
                         "search_knowledge",
                         "list_knowledge_bases",
                         "append_to_knowledge",
+                        "edit_knowledge",
+                        "delete_knowledge",
                         "pin_knowledge",
                         "unpin_knowledge",
                         "set_knowledge_similarity_threshold",
@@ -1099,6 +1104,7 @@ async def run_stream(
             user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
+            channel_id=channel_id,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -1128,6 +1134,7 @@ async def run_stream(
             user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
+            channel_id=channel_id,
         ):
             yield event
 

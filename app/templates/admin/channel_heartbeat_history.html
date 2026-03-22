@@ -4,23 +4,27 @@
   {% for task in history %}
   <div x-data="{ expanded: false }" class="bg-gray-900 rounded-lg border border-gray-700">
     <div @click="expanded = !expanded" class="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-800 rounded-lg">
-      <div class="flex items-center gap-3 text-xs">
-        <span class="text-gray-500">{{ task.created_at | fmt_dt }}</span>
+      <div class="flex items-center gap-3 text-xs min-w-0">
+        <span class="text-gray-500 shrink-0">{{ task.created_at | fmt_dt }}</span>
         {% if task.status == 'complete' %}
-        <span class="px-1.5 py-0.5 rounded bg-green-900 text-green-300">complete</span>
+        <span class="px-1.5 py-0.5 rounded bg-green-900 text-green-300 shrink-0">complete</span>
         {% elif task.status == 'failed' %}
-        <span class="px-1.5 py-0.5 rounded bg-red-900 text-red-300">failed</span>
+        <span class="px-1.5 py-0.5 rounded bg-red-900 text-red-300 shrink-0">failed</span>
         {% elif task.status == 'running' %}
-        <span class="px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300">running</span>
+        <span class="px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300 shrink-0">running</span>
         {% else %}
-        <span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">{{ task.status }}</span>
+        <span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 shrink-0">{{ task.status }}</span>
         {% endif %}
         {% if task.result %}
-        <span class="text-gray-400 truncate max-w-xs">{{ task.result[:100] }}{% if task.result|length > 100 %}...{% endif %}</span>
+        <span class="text-gray-400 truncate">{{ task.result[:100] }}{% if task.result|length > 100 %}...{% endif %}</span>
         {% endif %}
       </div>
-      <div class="flex items-center gap-2">
-        <a href="/admin/tasks/{{ task.id }}" @click.stop class="text-indigo-400 hover:underline text-xs">view</a>
+      <div class="flex items-center gap-2 shrink-0 ml-2">
+        {% if corr_map is defined and task.id in corr_map %}
+        <a href="/admin/trace/{{ corr_map[task.id] }}" @click.stop
+          class="text-amber-400 hover:text-amber-300 text-xs" title="View trace">trace</a>
+        {% endif %}
+        <a href="/admin/tasks/{{ task.id }}" @click.stop class="text-indigo-400 hover:underline text-xs">task</a>
         <svg :class="expanded ? 'rotate-180' : ''" class="w-3 h-3 text-gray-500 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
         </svg>
@@ -37,6 +41,33 @@
   </div>
   {% endfor %}
 </div>
+
+{# Pagination #}
+{% set total = total | default(0) %}
+{% set current_page = page | default(1) %}
+{% set ps = page_size | default(10) %}
+{% set total_pages = ((total + ps - 1) // ps) if total > 0 else 1 %}
+{% if total > ps %}
+<div class="flex items-center justify-between mt-3 text-xs text-gray-500">
+  <span>{{ total }} total runs</span>
+  <div class="flex items-center gap-1">
+    {% if current_page > 1 %}
+    <button hx-get="/admin/channels/{{ channel_id }}/heartbeat/history?page={{ current_page - 1 }}"
+      hx-target="#heartbeat-history" hx-swap="innerHTML"
+      class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400">&larr;</button>
+    {% endif %}
+    <span class="px-2 text-gray-400">{{ current_page }} / {{ total_pages }}</span>
+    {% if current_page < total_pages %}
+    <button hx-get="/admin/channels/{{ channel_id }}/heartbeat/history?page={{ current_page + 1 }}"
+      hx-target="#heartbeat-history" hx-swap="innerHTML"
+      class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400">&rarr;</button>
+    {% endif %}
+  </div>
+</div>
+{% elif total > 0 %}
+<div class="mt-2 text-xs text-gray-600">{{ total }} total run{{ 's' if total != 1 else '' }}</div>
+{% endif %}
+
 {% else %}
 <p class="text-xs text-gray-600 italic">No heartbeat runs yet.</p>
 {% endif %}

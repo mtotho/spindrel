@@ -24,6 +24,25 @@ async def write_persona(bot_id: str, content: str) -> tuple[bool, str | None]:
         logger.exception("Failed to write persona for bot %s", bot_id)
         return (False, str(e))
 
+async def edit_persona(bot_id: str, old_text: str, new_text: str) -> tuple[bool, str | None]:
+    """Find-and-replace within the persona layer."""
+    try:
+        async with async_session() as db:
+            existing = await db.execute(select(BotPersona).where(BotPersona.bot_id == bot_id))
+            row = existing.scalar_one_or_none()
+            if not row or not row.persona_layer:
+                return (False, "Persona not found.")
+            if old_text not in row.persona_layer:
+                return (False, "old_text not found in persona. Review the [PERSONA] block in your context to see current content.")
+            row.persona_layer = row.persona_layer.replace(old_text, new_text, 1)
+            await db.commit()
+            logger.info("Edited persona for bot %s (replaced %d chars)", bot_id, len(old_text))
+            return (True, None)
+    except Exception as e:
+        logger.exception("Failed to edit persona for bot %s", bot_id)
+        return (False, str(e))
+
+
 async def append_to_persona(bot_id: str, content: str) -> tuple[bool, str | None]:
     # Validate that we have something to append
     if not content or not content.strip():

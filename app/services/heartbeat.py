@@ -63,12 +63,34 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         if hb.model_provider_id:
             callback_config["model_provider_id_override"] = hb.model_provider_id
 
+        # Auto-inject last heartbeat result as lightweight context
+        prompt = hb.prompt
+        last_task_stmt = (
+            select(Task)
+            .where(
+                Task.channel_id == hb.channel_id,
+                Task.status == "complete",
+                Task.callback_config["source"].astext == "heartbeat",
+            )
+            .order_by(Task.completed_at.desc())
+            .limit(1)
+        )
+        last_task = (await db.execute(last_task_stmt)).scalars().first()
+        if last_task and last_task.result:
+            ts = last_task.completed_at.strftime("%Y-%m-%d %H:%M UTC") if last_task.completed_at else "unknown"
+            result_preview = last_task.result[:600]
+            if len(last_task.result) > 600:
+                result_preview += "\n… (use get_last_heartbeat tool for full result)"
+            prompt = (
+                f"[Previous heartbeat result ({ts})]\n{result_preview}\n\n---\n\n{prompt}"
+            )
+
         task = Task(
             bot_id=channel.bot_id,
             client_id=channel.client_id,
             session_id=channel.active_session_id,
             channel_id=channel.id,
-            prompt=hb.prompt,
+            prompt=prompt,
             status="pending",
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,

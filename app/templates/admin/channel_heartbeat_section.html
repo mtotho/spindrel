@@ -173,6 +173,10 @@
     {# History #}
     <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent Runs</h3>
     <div id="heartbeat-history">
+      {% set channel_id = channel.id %}
+      {% set total = total_history | default(0) %}
+      {% set page = 1 %}
+      {% set page_size = 10 %}
       {% include "admin/channel_heartbeat_history.html" %}
     </div>
   </div>

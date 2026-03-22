@@ -5,7 +5,7 @@ from typing import Any
 from app.db.engine import async_session
 from app.db.models import BotKnowledge, KnowledgeAccess, KnowledgePin, KnowledgeWrite
 from app.config import settings
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 from datetime import datetime, timezone
@@ -294,6 +294,115 @@ async def append_to_knowledge(
             channel_id=channel_id,
         )
         await db.commit()
+        return (True, None)
+
+
+async def edit_knowledge(
+    name: str,
+    old_text: str,
+    new_text: str,
+    bot_id: str | None,
+    client_id: str | None,
+    session_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
+) -> tuple[bool, str | None]:
+    """Find-and-replace within a knowledge document, then re-embed."""
+    scoped_bot_id, scoped_client_id = bot_id, client_id
+    async with async_session() as db:
+        # Try legacy lookup first
+        existing = await db.execute(
+            select(BotKnowledge).where(
+                BotKnowledge.name == name,
+                BotKnowledge.bot_id == scoped_bot_id,
+                BotKnowledge.client_id == scoped_client_id,
+                BotKnowledge.session_id == session_id,
+            )
+        )
+        row = existing.scalar_one_or_none()
+
+        # Fallback: knowledge_access lookup
+        if row is None and channel_id is not None:
+            ka_stmt = (
+                select(BotKnowledge)
+                .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
+                .where(
+                    BotKnowledge.name == name,
+                    _ka_name_scope_filter(bot_id or "", channel_id),
+                )
+                .limit(1)
+            )
+            row = (await db.execute(ka_stmt)).scalar_one_or_none()
+
+        if not row:
+            return (False, "Knowledge document not found.")
+        if old_text not in row.content:
+            return (False, "old_text not found in document. Use get_knowledge to see current content.")
+        updated = row.content.replace(old_text, new_text, 1)
+        row.content = updated
+        row.embedding = await _embed(updated)
+        row.updated_at = datetime.now(timezone.utc)
+        _record_knowledge_write(
+            db,
+            bot_knowledge_id=row.id,
+            knowledge_name=row.name,
+            bot_id=scoped_bot_id,
+            client_id=scoped_client_id,
+            session_id=session_id,
+            channel_id=channel_id,
+        )
+        await db.commit()
+        return (True, None)
+
+
+async def delete_knowledge(
+    name: str,
+    bot_id: str | None,
+    client_id: str | None,
+    session_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
+) -> tuple[bool, str | None]:
+    """Delete a knowledge document and its associated access entries."""
+    scoped_bot_id, scoped_client_id = bot_id, client_id
+    async with async_session() as db:
+        # Try legacy lookup first
+        existing = await db.execute(
+            select(BotKnowledge).where(
+                BotKnowledge.name == name,
+                BotKnowledge.bot_id == scoped_bot_id,
+                BotKnowledge.client_id == scoped_client_id,
+                BotKnowledge.session_id == session_id,
+            )
+        )
+        row = existing.scalar_one_or_none()
+
+        # Fallback: knowledge_access lookup
+        if row is None and channel_id is not None:
+            ka_stmt = (
+                select(BotKnowledge)
+                .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
+                .where(
+                    BotKnowledge.name == name,
+                    _ka_name_scope_filter(bot_id or "", channel_id),
+                )
+                .limit(1)
+            )
+            row = (await db.execute(ka_stmt)).scalar_one_or_none()
+
+        if not row:
+            return (False, "Knowledge document not found.")
+
+        # Delete associated knowledge_access entries
+        await db.execute(
+            delete(KnowledgeAccess).where(KnowledgeAccess.knowledge_id == row.id)
+        )
+        # Delete associated knowledge_pin entries (legacy)
+        await db.execute(
+            delete(KnowledgePin).where(KnowledgePin.knowledge_name == name)
+        )
+        # Delete the knowledge document itself
+        await db.delete(row)
+        await db.commit()
+        logger.info("Deleted knowledge document '%s' (id=%s)", name, row.id)
         return (True, None)
 
 

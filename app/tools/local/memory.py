@@ -57,6 +57,15 @@ MERGE_MEMORIES_DESCRIPTION = (
     "concatenate the originals with blank lines."
 )
 
+PROMOTE_MEMORIES_TO_KNOWLEDGE_DESCRIPTION = (
+    "Graduate related memories into a knowledge document and purge the originals. "
+    "Use when you've accumulated several memories about the same topic and want to "
+    "consolidate them into a structured knowledge document. Provide a knowledge_name "
+    "and either your own written content or omit content to auto-join the memories. "
+    "If the knowledge document already exists, content is appended; otherwise a new "
+    "document is created."
+)
+
 
 def _parse_uuid(value: object) -> uuid.UUID | None:
     try:
@@ -239,6 +248,36 @@ async def merge_memories(memory_ids: list, merged_content: str | None = None) ->
     )
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "promote_memories_to_knowledge",
+        "description": PROMOTE_MEMORIES_TO_KNOWLEDGE_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "memory_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "One or more memory UUIDs to promote (from search_memories results).",
+                },
+                "knowledge_name": {
+                    "type": "string",
+                    "description": "Snake_case name for the target knowledge document (e.g. 'home_network', 'project_xyz').",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Optional. Your own written consolidated content. Omit to auto-join the memory texts.",
+                },
+            },
+            "required": ["memory_ids", "knowledge_name"],
+        },
+    },
+})
+async def promote_memories_to_knowledge_tool(memory_ids: list, knowledge_name: str, content: str | None = None) -> str:
+    raise NotImplementedError("promote_memories_to_knowledge must be called via call_memory_tool")
+
+
 # --- Implementations with explicit params (used by the loop; no context vars) ---
 
 
@@ -350,6 +389,113 @@ async def merge_memories_impl(
     return err or "Failed to merge memories."
 
 
+async def promote_memories_to_knowledge_impl(
+    memory_ids: object,
+    knowledge_name: str,
+    content: str | None,
+    session_id: uuid.UUID,
+    client_id: str,
+    bot_id: str,
+    memory_config: "MemoryConfig",
+    channel_id: uuid.UUID | None = None,
+) -> str:
+    """Fetch memories by ID, create/append knowledge doc, purge the memories."""
+    from app.agent.knowledge import (
+        append_to_knowledge,
+        get_knowledge_row_by_name,
+        upsert_knowledge,
+    )
+    from app.agent.memory import memory_scope_where
+    from app.db.engine import async_session as get_session
+    from app.db.models import Memory
+
+    if not isinstance(memory_ids, list) or len(memory_ids) < 1:
+        return "memory_ids must be an array of at least one UUID string."
+    knowledge_name = (knowledge_name or "").strip()
+    if not knowledge_name:
+        return "No knowledge_name provided."
+
+    # Parse UUIDs
+    parsed_ids: list[uuid.UUID] = []
+    for raw in memory_ids:
+        mid = _parse_uuid(raw)
+        if mid is None:
+            return f"Invalid memory_id: {raw}"
+        parsed_ids.append(mid)
+
+    # Fetch memory rows
+    scope_kw = dict(
+        cross_session=memory_config.cross_session,
+        cross_client=memory_config.cross_client,
+        cross_bot=memory_config.cross_bot,
+    )
+    async with get_session() as db:
+        from sqlalchemy import select
+        stmt = select(Memory).where(Memory.id.in_(parsed_ids))
+        clause = memory_scope_where(session_id, client_id, bot_id, **scope_kw)
+        if clause is not None:
+            stmt = stmt.where(clause)
+        rows = (await db.execute(stmt)).scalars().all()
+
+    if not rows:
+        return "No matching memories found for the given IDs."
+
+    found_ids = {r.id for r in rows}
+    missing = [str(mid) for mid in parsed_ids if mid not in found_ids]
+    if missing:
+        return f"Some memory IDs not found or out of scope: {', '.join(missing)}"
+
+    # Build content: use provided content or join memory texts
+    if content and content.strip():
+        final_content = content.strip()
+    else:
+        # Preserve order from memory_ids
+        id_to_row = {r.id: r for r in rows}
+        parts = []
+        for mid in parsed_ids:
+            row = id_to_row[mid]
+            parts.append(row.content)
+        final_content = "\n\n".join(parts)
+
+    # Create or append knowledge document
+    existing = await get_knowledge_row_by_name(
+        knowledge_name, bot_id, client_id, session_id=session_id,
+        ignore_session_scope=True, channel_id=channel_id,
+    )
+    if existing:
+        if not existing.editable_from_tool:
+            return "Target knowledge entry is file-managed and cannot be modified by tools."
+        ok, err = await append_to_knowledge(
+            knowledge_name, "\n\n" + final_content, bot_id, client_id,
+            session_id=session_id, channel_id=channel_id,
+        )
+    else:
+        ok, err = await upsert_knowledge(
+            name=knowledge_name,
+            content=final_content,
+            bot_id=bot_id,
+            client_id=client_id,
+            session_id=session_id,
+            channel_id=channel_id,
+            created_by_bot=bot_id,
+        )
+    if not ok:
+        return f"Failed to write knowledge: {err}" if err else "Failed to write knowledge."
+
+    # Purge the source memories
+    purge_results = []
+    for mid in parsed_ids:
+        r = await purge_memory_impl(str(mid), session_id, client_id, bot_id, memory_config)
+        if "deleted" not in r.lower():
+            purge_results.append(f"{mid}: {r}")
+
+    action = "appended to" if existing else "created"
+    msg = f"Knowledge '{knowledge_name}' {action} from {len(parsed_ids)} memories."
+    if purge_results:
+        msg += f" Note: {len(purge_results)} memory purge(s) had issues."
+    return msg
+
+
 async def call_memory_tool(
     name: str,
     arguments_json: str,
@@ -359,6 +505,7 @@ async def call_memory_tool(
     memory_config: "MemoryConfig",
     *,
     correlation_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> str:
     """Run a memory tool with session_id, client_id, and config injected by the loop. No context vars."""
     try:
@@ -396,6 +543,17 @@ async def call_memory_tool(
             memory_config,
             correlation_id,
         )
+    if name == "promote_memories_to_knowledge":
+        return await promote_memories_to_knowledge_impl(
+            args.get("memory_ids"),
+            args.get("knowledge_name", ""),
+            args.get("content"),
+            session_id,
+            client_id,
+            bot_id,
+            memory_config,
+            channel_id=channel_id,
+        )
     return json.dumps({"error": f"Unknown memory tool: {name}"})
 
 
@@ -427,6 +585,6 @@ def get_memory_tool_schemas(bot: "BotConfig") -> list[dict]:
     save_schema = get_memory_tool_schema(bot)
     if save_schema:
         out.append(save_schema)
-    for extra in get_local_tool_schemas(["purge_memory", "merge_memories"]):
+    for extra in get_local_tool_schemas(["purge_memory", "merge_memories", "promote_memories_to_knowledge"]):
         out.append(extra)
     return out

@@ -1,7 +1,7 @@
 import json
 import logging
 
-from app.agent.persona import write_persona, append_to_persona
+from app.agent.persona import write_persona, append_to_persona, edit_persona
 
 from app.tools.registry import register
 
@@ -19,6 +19,14 @@ APPEND_TO_PERSONA_DESCRIPTION = (
     "you maintain across conversations. Append it when you notice a new preference, "
     "communication pattern, or internalized understanding. "
     "Review the existing persona layer before appending to ensure you don't add redundant information."
+)
+
+EDIT_PERSONA_DESCRIPTION = (
+    "Find-and-replace within your persona layer. Use for precise edits — updating a value, "
+    "correcting a detail, or modifying a specific rule — without rewriting the entire persona. "
+    "Provide the exact text to find (old_text) and what to replace it with (new_text). "
+    "Only the first occurrence is replaced. Review the [PERSONA] block in your context to see "
+    "current content before editing."
 )
 
 
@@ -65,6 +73,17 @@ async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
         if ok:
             return "Persona appended."
         return f"Failed to append to persona: {err}" if err else "Failed to append to persona."
+    if name == "edit_persona":
+        old_text = args.get("old_text") or ""
+        new_text = args.get("new_text")
+        if new_text is None:
+            new_text = ""
+        if not old_text:
+            return "No old_text provided."
+        ok, err = await edit_persona(bot_id, old_text, new_text)
+        if ok:
+            return "Persona edited."
+        return f"Failed to edit persona: {err}" if err else "Failed to edit persona."
     return json.dumps({"error": f"Unknown persona tool: {name}"})
 
 
@@ -88,4 +107,28 @@ async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
 })
 async def append_to_persona_tool(content: str) -> str:
     raise NotImplementedError("append_to_persona must be called via call_persona_tool with bot_id injected")
-        
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "edit_persona",
+        "description": EDIT_PERSONA_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "old_text": {
+                    "type": "string",
+                    "description": "Exact text to find in the persona layer (first occurrence only).",
+                },
+                "new_text": {
+                    "type": "string",
+                    "description": "Replacement text. Can be empty string to delete old_text.",
+                },
+            },
+            "required": ["old_text", "new_text"],
+        },
+    },
+})
+async def edit_persona_tool(old_text: str, new_text: str) -> str:
+    raise NotImplementedError("edit_persona must be called via call_persona_tool with bot_id injected")

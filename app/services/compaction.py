@@ -173,6 +173,7 @@ async def _run_compaction_memory_phase(
         model_override=model,
         compaction=True,
         correlation_id=correlation_id,
+        channel_id=channel.id if channel else None,
     ):
         yield event
 

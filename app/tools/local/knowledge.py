@@ -5,7 +5,9 @@ import uuid
 from app.agent.knowledge import (
     append_to_knowledge,
     create_knowledge_pin,
+    delete_knowledge,
     delete_knowledge_pin,
+    edit_knowledge,
     get_knowledge_by_name,
     get_knowledge_row_by_name,
     list_knowledge_bases,
@@ -43,6 +45,20 @@ LIST_KNOWLEDGE_BASES_DESCRIPTION = (
 
 APPEND_TO_KNOWLEDGE_DESCRIPTION = (
     "Append content to a knowledge document. Use when you want to add more information to a document without overwriting it."
+)
+
+DELETE_KNOWLEDGE_DESCRIPTION = (
+    "Delete a knowledge document permanently. Use to remove outdated, superseded, or "
+    "incorrect documents. Cannot delete file-managed entries (source_type=file). "
+    "This also removes any associated pins and access entries."
+)
+
+EDIT_KNOWLEDGE_DESCRIPTION = (
+    "Find-and-replace within a knowledge document. Use for precise, targeted edits — "
+    "correcting a value, updating a section, or fixing details — without rewriting the "
+    "entire document. Provide the exact text to find (old_text) and what to replace it "
+    "with (new_text). Only the first occurrence is replaced. If old_text is not found, "
+    "the operation fails — use get_knowledge first to see current content."
 )
 
 @register({
@@ -98,6 +114,55 @@ async def upsert_knowledge_tool(name: str, content: str) -> str:
 async def append_to_knowledge_tool(name: str, content: str) -> str:
     raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
 
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "edit_knowledge",
+        "description": EDIT_KNOWLEDGE_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Snake_case identifier for the document to edit.",
+                },
+                "old_text": {
+                    "type": "string",
+                    "description": "Exact text to find in the document (first occurrence only).",
+                },
+                "new_text": {
+                    "type": "string",
+                    "description": "Replacement text. Can be empty string to delete old_text.",
+                },
+            },
+            "required": ["name", "old_text", "new_text"],
+        },
+    },
+})
+async def edit_knowledge_tool(name: str, old_text: str, new_text: str) -> str:
+    raise NotImplementedError("edit_knowledge must be called via call_knowledge_tool")
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "delete_knowledge",
+        "description": DELETE_KNOWLEDGE_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Snake_case identifier of the document to delete.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+})
+async def delete_knowledge_tool(name: str) -> str:
+    raise NotImplementedError("delete_knowledge must be called via call_knowledge_tool")
 
 
 @register({
@@ -167,7 +232,7 @@ async def search_knowledge_tool(query: str) -> str:
             "Pin a knowledge document so it is always injected into context, regardless of semantic similarity. "
             "Use when a document should always be available (e.g. formatting rules, style guides, always-on reference). "
             "Scope controls when the pin applies: 'bot' = always for this bot, 'channel' = always for this Slack channel/client, "
-            "'bot_channel' = only for this bot in this specific channel."
+            "'bot_channel' = only for this bot in this specific channel. If not specified, 'channel' is used by default."
         ),
         "parameters": {
             "type": "object",
@@ -179,14 +244,14 @@ async def search_knowledge_tool(query: str) -> str:
                 "scope": {
                     "type": "string",
                     "enum": ["bot", "channel", "bot_channel"],
-                    "description": "'bot' pins for all channels, 'channel' pins for all bots in this channel, 'bot_channel' pins for this bot+channel only.",
+                    "description": "'bot' pins for all channels, 'channel' pins for all bots in this channel, 'bot_channel' pins for this bot+channel only. If omitted, channel is used.",
                 },
             },
-            "required": ["name", "scope"],
+            "required": ["name"],
         },
     },
 })
-async def pin_knowledge_tool(name: str, scope: str) -> str:
+async def pin_knowledge_tool(name: str, scope: str = "channel") -> str:
     raise NotImplementedError("pin_knowledge must be called via call_knowledge_tool")
 
 
@@ -311,10 +376,14 @@ async def call_knowledge_tool(
         lines = []
         for entry in result:
             source_note = ""
+          
             if entry["source_type"] in ("file", "integration"):
                 source_note = f" [source={entry['source_type']}, read-only]"
             elif not entry["editable_from_tool"]:
                 source_note = " [read-only]"
+
+            if entry["channel_id"] is not None:
+                source_note += f" [channel={entry['channel_id']}]"
             lines.append(f"{entry['name']}{source_note}")
         return "\n".join(lines)
 
@@ -337,6 +406,49 @@ async def call_knowledge_tool(
         if ok:
             return f"Content appended to knowledge document '{doc_name}'."
         return f"Failed to append to knowledge document: {err}" if err else "Failed to append to knowledge document."
+
+    if name == "edit_knowledge":
+        doc_name = (args.get("name") or "").strip()
+        old_text = args.get("old_text") or ""
+        new_text = args.get("new_text")
+        if new_text is None:
+            new_text = ""
+        if not doc_name:
+            return "No name provided."
+        if not old_text:
+            return "No old_text provided."
+        if not session_id:
+            return "Cannot edit knowledge without an active session."
+        # Guard: reject writes to file-managed entries
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
+        if existing_row and not existing_row.editable_from_tool:
+            return json.dumps({"error": "This knowledge entry is file-managed and cannot be modified by tools."})
+        ok, err = await edit_knowledge(
+            doc_name, old_text, new_text, bot_id, client_id,
+            session_id=session_id, channel_id=channel_id,
+        )
+        if ok:
+            return f"Knowledge '{doc_name}' edited successfully."
+        return f"Failed to edit knowledge: {err}" if err else "Failed to edit knowledge."
+
+    if name == "delete_knowledge":
+        doc_name = (args.get("name") or "").strip()
+        if not doc_name:
+            return "No name provided."
+        if not session_id:
+            return "Cannot delete knowledge without an active session."
+        # Guard: reject deletes of file-managed entries
+        existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
+        if not existing_row:
+            return f"No knowledge document found with name '{doc_name}'."
+        if not existing_row.editable_from_tool:
+            return json.dumps({"error": "This knowledge entry is file-managed and cannot be deleted by tools."})
+        ok, err = await delete_knowledge(
+            doc_name, bot_id, client_id, session_id=session_id, channel_id=channel_id,
+        )
+        if ok:
+            return f"Knowledge '{doc_name}' deleted."
+        return f"Failed to delete knowledge: {err}" if err else "Failed to delete knowledge."
 
     if name == "search_knowledge":
         query = (args.get("query") or "").strip()
@@ -376,7 +488,7 @@ async def call_knowledge_tool(
 
     if name == "pin_knowledge":
         doc_name = (args.get("name") or "").strip()
-        scope = (args.get("scope") or "bot").strip()
+        scope = (args.get("scope") or "channel").strip()
         if not doc_name:
             return "No name provided."
         pin_bot_id = bot_id if scope in ("bot", "bot_channel") else None

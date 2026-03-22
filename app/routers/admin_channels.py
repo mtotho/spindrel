@@ -31,7 +31,9 @@ from app.db.models import (
     Session,
     Skill as SkillRow,
     Task,
+    ToolCall,
     ToolEmbedding,
+    TraceEvent,
 )
 from app.routers.admin_template_filters import install_admin_template_filters
 from app.services.channels import reset_channel_session
@@ -538,6 +540,67 @@ async def admin_channel_memory_delete(
 # Heartbeat section + routes
 # ---------------------------------------------------------------------------
 
+
+async def _heartbeat_correlation_ids(db, tasks: list[Task]) -> dict[uuid.UUID, uuid.UUID]:
+    """Look up correlation_id for each heartbeat task.
+
+    Tries Messages first (user message created after task.run_at), then falls
+    back to TraceEvents for tasks that failed before messages were persisted.
+    Returns {task_id: correlation_id}.
+    """
+    if not tasks:
+        return {}
+    candidates = [t for t in tasks if t.session_id and t.run_at]
+    if not candidates:
+        return {}
+
+    session_ids = list({t.session_id for t in candidates})
+    earliest_run = min(t.run_at for t in candidates)
+
+    # Primary: user messages with correlation_id
+    msg_rows = (await db.execute(
+        select(Message.session_id, Message.correlation_id, Message.created_at)
+        .where(
+            Message.session_id.in_(session_ids),
+            Message.role == "user",
+            Message.correlation_id.is_not(None),
+            Message.created_at >= earliest_run,
+        )
+        .order_by(Message.created_at)
+    )).all()
+
+    result: dict[uuid.UUID, uuid.UUID] = {}
+    unmatched = []
+    for t in candidates:
+        found = False
+        for row in msg_rows:
+            if row.session_id == t.session_id and row.created_at >= t.run_at:
+                result[t.id] = row.correlation_id
+                found = True
+                break
+        if not found:
+            unmatched.append(t)
+
+    # Fallback: trace events for tasks with no message match (e.g. early failures)
+    if unmatched:
+        te_rows = (await db.execute(
+            select(TraceEvent.session_id, TraceEvent.correlation_id, TraceEvent.created_at)
+            .where(
+                TraceEvent.session_id.in_([t.session_id for t in unmatched]),
+                TraceEvent.correlation_id.is_not(None),
+                TraceEvent.created_at >= earliest_run,
+            )
+            .order_by(TraceEvent.created_at)
+        )).all()
+        for t in unmatched:
+            for row in te_rows:
+                if row.session_id == t.session_id and row.created_at >= t.run_at:
+                    result[t.id] = row.correlation_id
+                    break
+
+    return result
+
+
 @router.get("/channels/{channel_id}/heartbeat-section", response_class=HTMLResponse)
 async def admin_channel_heartbeat_section(request: Request, channel_id: uuid.UUID):
     from app.services.providers import get_available_models_grouped
@@ -560,6 +623,17 @@ async def admin_channel_heartbeat_section(request: Request, channel_id: uuid.UUI
             .limit(10)
         )
         history = list((await db.execute(history_stmt)).scalars().all())
+        corr_map = await _heartbeat_correlation_ids(db, history)
+
+        total_history = (await db.execute(
+            select(func.count()).select_from(
+                select(Task.id)
+                .where(Task.channel_id == channel_id)
+                .where(Task.callback_config["source"].astext == "heartbeat")
+                .subquery()
+            )
+        )).scalar_one()
+
         completions_json = await _build_completions_json(db)
 
     model_groups = await get_available_models_grouped()
@@ -571,6 +645,8 @@ async def admin_channel_heartbeat_section(request: Request, channel_id: uuid.UUI
         "model_groups": model_groups,
         "completions_json": completions_json,
         "history": history,
+        "corr_map": corr_map,
+        "total_history": total_history,
     })
 
 
@@ -655,20 +731,36 @@ async def admin_channel_heartbeat_toggle(request: Request, channel_id: uuid.UUID
 
 
 @router.get("/channels/{channel_id}/heartbeat/history", response_class=HTMLResponse)
-async def admin_channel_heartbeat_history(request: Request, channel_id: uuid.UUID):
+async def admin_channel_heartbeat_history(
+    request: Request,
+    channel_id: uuid.UUID,
+    page: int = 1,
+):
+    page_size = 10
+    offset = (page - 1) * page_size
+
     async with async_session() as db:
-        history_stmt = (
+        base = (
             select(Task)
             .where(Task.channel_id == channel_id)
             .where(Task.callback_config["source"].astext == "heartbeat")
-            .order_by(Task.created_at.desc())
-            .limit(10)
         )
-        history = list((await db.execute(history_stmt)).scalars().all())
+        total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        history = list((await db.execute(
+            base.order_by(Task.created_at.desc()).offset(offset).limit(page_size)
+        )).scalars().all())
+
+        # Look up correlation_ids for completed tasks via Messages table
+        corr_map = await _heartbeat_correlation_ids(db, history)
 
     return templates.TemplateResponse("admin/channel_heartbeat_history.html", {
         "request": request,
+        "channel_id": channel_id,
         "history": history,
+        "corr_map": corr_map,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
     })
 
 
