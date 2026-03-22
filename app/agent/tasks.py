@@ -224,10 +224,164 @@ async def run_harness_task(task: Task) -> None:
             logger.exception("Failed to schedule harness failure record for task %s", task.id)
 
 
+async def run_exec_task(task: Task) -> None:
+    """Execute a raw exec task: run command in sandbox, store result, dispatch."""
+    logger.info("Running exec task %s", task.id)
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        t = await db.get(Task, task.id)
+        if t is None:
+            return
+        t.status = "running"
+        t.run_at = now
+        await db.commit()
+
+    cfg = task.callback_config or {}
+    command = cfg.get("command", "")
+    args = cfg.get("args", [])
+    working_directory = cfg.get("working_directory")
+    stream_to = cfg.get("stream_to")
+    output_dispatch_type = cfg.get("output_dispatch_type", "none")
+    output_dispatch_config = cfg.get("output_dispatch_config") or {}
+    source_correlation_id = _harness_source_correlation(cfg)
+    sandbox_instance_id = _harness_sandbox_instance(cfg)
+
+    try:
+        from app.agent.bots import get_bot
+        from app.agent.recording import schedule_exec_completion_record
+        from app.services.sandbox import sandbox_service
+        from app.tools.local.exec_tool import build_exec_script
+
+        bot = get_bot(task.bot_id)
+        script = build_exec_script(command, args, working_directory, stream_to)
+
+        if sandbox_instance_id is not None:
+            from app.config import settings as _settings
+            if not _settings.DOCKER_SANDBOX_ENABLED:
+                raise RuntimeError("DOCKER_SANDBOX_ENABLED is false")
+            allowed = bot.docker_sandbox_profiles or None
+            instance = await sandbox_service.get_instance_for_bot(
+                sandbox_instance_id, bot.id, allowed_profiles=allowed
+            )
+            if instance is None:
+                raise RuntimeError("Sandbox instance not found or not allowed")
+            result = await sandbox_service.exec(instance, script)
+        elif bot.bot_sandbox.enabled:
+            result = await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
+        else:
+            raise RuntimeError("No sandbox available for exec task")
+
+        parts = []
+        if result.stdout:
+            parts.append(result.stdout)
+        if result.stderr:
+            parts.append(f"[stderr]\n{result.stderr}")
+        if result.truncated:
+            parts.append("[output truncated]")
+        parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
+        result_text = "\n".join(parts)
+
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "complete"
+                t.result = result_text
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+
+        _err: str | None = None
+        if result.exit_code != 0:
+            _err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
+        schedule_exec_completion_record(
+            command=command,
+            task_id=task.id,
+            session_id=task.session_id,
+            client_id=task.client_id,
+            bot_id=task.bot_id,
+            correlation_id=source_correlation_id,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            truncated=result.truncated,
+            result_text=result_text,
+            error=_err,
+        )
+        await asyncio.sleep(0)
+
+        output_task = Task(
+            id=task.id,
+            bot_id=task.bot_id,
+            dispatch_type=output_dispatch_type,
+            dispatch_config=output_dispatch_config,
+        )
+        dispatcher = dispatchers.get(output_dispatch_type)
+        await dispatcher.deliver(output_task, result_text)
+
+        if cfg.get("notify_parent") and result_text:
+            _parent_bot_id = cfg.get("parent_bot_id")
+            _parent_session_str = cfg.get("parent_session_id")
+            _parent_client_id = cfg.get("parent_client_id")
+            if _parent_bot_id and _parent_session_str:
+                try:
+                    _parent_session_id = uuid.UUID(_parent_session_str)
+                    _cb_task = Task(
+                        bot_id=_parent_bot_id,
+                        client_id=_parent_client_id,
+                        session_id=_parent_session_id,
+                        prompt=f"[Exec task completed: {command}]\n\n{result_text}",
+                        status="pending",
+                        dispatch_type=output_dispatch_type,
+                        dispatch_config=dict(output_dispatch_config),
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    async with async_session() as db:
+                        db.add(_cb_task)
+                        await db.commit()
+                        await db.refresh(_cb_task)
+                    logger.info(
+                        "Exec task %s: created parent callback task %s (bot=%s, session=%s)",
+                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
+                    )
+                except Exception:
+                    logger.exception("Failed to create parent callback task for exec task %s", task.id)
+
+    except Exception as exc:
+        logger.exception("Exec task %s failed", task.id)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = str(exc)[:4000]
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        try:
+            from app.agent.recording import schedule_exec_completion_record
+
+            schedule_exec_completion_record(
+                command=command or "unknown",
+                task_id=task.id,
+                session_id=task.session_id,
+                client_id=task.client_id,
+                bot_id=task.bot_id,
+                correlation_id=source_correlation_id,
+                exit_code=-1,
+                duration_ms=0,
+                truncated=False,
+                result_text="",
+                error=str(exc)[:4000],
+            )
+            await asyncio.sleep(0)
+        except Exception:
+            logger.exception("Failed to schedule exec failure record for task %s", task.id)
+
+
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
     if task.dispatch_type == "harness":
         await run_harness_task(task)
+        return
+    if task.dispatch_type == "exec":
+        await run_exec_task(task)
         return
 
     # Respect the per-session active lock.  If a streaming HTTP request is still

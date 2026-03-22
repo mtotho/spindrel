@@ -97,6 +97,93 @@ async def _record_harness_completion(
         logger.exception("Failed to record harness completion for task %s", task_id)
 
 
+def schedule_exec_completion_record(
+    *,
+    command: str,
+    task_id: uuid.UUID,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    bot_id: str | None,
+    correlation_id: uuid.UUID | None,
+    exit_code: int,
+    duration_ms: int,
+    truncated: bool,
+    result_text: str,
+    error: str | None = None,
+) -> None:
+    """Log deferred exec worker results to tool_calls + trace_events."""
+    asyncio.create_task(
+        _record_exec_completion(
+            command=command,
+            task_id=task_id,
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            correlation_id=correlation_id,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            truncated=truncated,
+            result_text=result_text,
+            error=error,
+        )
+    )
+
+
+async def _record_exec_completion(
+    *,
+    command: str,
+    task_id: uuid.UUID,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    bot_id: str | None,
+    correlation_id: uuid.UUID | None,
+    exit_code: int,
+    duration_ms: int,
+    truncated: bool,
+    result_text: str,
+    error: str | None,
+) -> None:
+    preview = (result_text or "")[:3800]
+    args: dict = {
+        "task_id": str(task_id),
+        "command": command,
+        "exit_code": exit_code,
+        "truncated": truncated,
+    }
+    try:
+        await _record_tool_call(
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            tool_name=f"exec_complete:{command}",
+            tool_type="exec",
+            server_name=None,
+            iteration=0,
+            arguments=args,
+            result=preview if preview else None,
+            error=error,
+            duration_ms=duration_ms,
+            correlation_id=correlation_id,
+        )
+        await _record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot_id,
+            client_id=client_id,
+            event_type="exec",
+            event_name=command,
+            data={
+                "task_id": str(task_id),
+                "exit_code": exit_code,
+                "truncated": truncated,
+                "result_preview": preview[:2000],
+            },
+            duration_ms=duration_ms,
+        )
+    except Exception:
+        logger.exception("Failed to record exec completion for task %s", task_id)
+
+
 async def _record_tool_call(
     *,
     session_id: uuid.UUID | None,

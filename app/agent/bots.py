@@ -125,6 +125,7 @@ class BotConfig:
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
     harness_access: list[str] = field(default_factory=list)  # allowed harness names
+    exec_access: bool = False  # allow delegate_to_exec (raw command execution in sandbox)
     # Provider
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
     # Bot-local execution sandbox
@@ -256,6 +257,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
+        exec_access=bool((row.delegation_config or {}).get("exec_access", False)),
         model_provider_id=row.model_provider_id,
         bot_sandbox=bot_sandbox_cfg,
     )
@@ -330,6 +332,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "delegation_config": {
             "delegate_bots": data.get("delegate_bots", []),
             "harness_access": data.get("harness_access", []),
+            "exec_access": data.get("exec_access", False),
         },
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
