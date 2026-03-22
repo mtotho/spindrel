@@ -1,0 +1,151 @@
+"""Unit tests for app.tools.registry."""
+import json
+
+import pytest
+
+from app.tools import registry
+
+
+@pytest.fixture(autouse=True)
+def _clean_registry():
+    """Save and restore registry state around each test."""
+    backup = registry._tools.copy()
+    yield
+    registry._tools.clear()
+    registry._tools.update(backup)
+
+
+def _register_dummy(name: str = "dummy_tool", func=None):
+    """Register a simple dummy tool."""
+    if func is None:
+        async def func(**kwargs):
+            return json.dumps({"ok": True, **kwargs})
+    schema = {"type": "function", "function": {"name": name, "parameters": {}}}
+    registry.register(schema)(func)
+    return func
+
+
+# ---------------------------------------------------------------------------
+# register()
+# ---------------------------------------------------------------------------
+
+class TestRegister:
+    def test_stores_in_tools(self):
+        _register_dummy("my_tool")
+        assert "my_tool" in registry._tools
+        assert registry._tools["my_tool"]["schema"]["function"]["name"] == "my_tool"
+
+    def test_picks_up_source_dir(self):
+        old = registry._current_load_source_dir
+        registry._current_load_source_dir = "/custom/dir"
+        try:
+            _register_dummy("sourced_tool")
+            assert registry._tools["sourced_tool"]["source_dir"] == "/custom/dir"
+        finally:
+            registry._current_load_source_dir = old
+
+
+# ---------------------------------------------------------------------------
+# iter_registered_tools()
+# ---------------------------------------------------------------------------
+
+class TestIterRegisteredTools:
+    def test_returns_tuples(self):
+        _register_dummy("tool_a")
+        _register_dummy("tool_b")
+        result = registry.iter_registered_tools()
+        names = [r[0] for r in result]
+        assert "tool_a" in names
+        assert "tool_b" in names
+
+    def test_tuple_shape(self):
+        _register_dummy("tool_x")
+        for item in registry.iter_registered_tools():
+            if item[0] == "tool_x":
+                name, schema, source_dir, source_integration, source_file = item
+                assert name == "tool_x"
+                assert isinstance(schema, dict)
+                break
+
+
+# ---------------------------------------------------------------------------
+# get_local_tool_schemas()
+# ---------------------------------------------------------------------------
+
+class TestGetLocalToolSchemas:
+    def test_returns_matching(self):
+        _register_dummy("foo")
+        _register_dummy("bar")
+        result = registry.get_local_tool_schemas(["foo"])
+        assert len(result) == 1
+        assert result[0]["function"]["name"] == "foo"
+
+    def test_returns_empty_for_none(self):
+        assert registry.get_local_tool_schemas(None) == []
+
+    def test_returns_empty_for_empty_list(self):
+        assert registry.get_local_tool_schemas([]) == []
+
+    def test_skips_unknown(self):
+        _register_dummy("foo")
+        result = registry.get_local_tool_schemas(["foo", "nonexistent"])
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# is_local_tool()
+# ---------------------------------------------------------------------------
+
+class TestIsLocalTool:
+    def test_true_for_registered(self):
+        _register_dummy("exists")
+        assert registry.is_local_tool("exists") is True
+
+    def test_false_for_unknown(self):
+        assert registry.is_local_tool("no_such_tool") is False
+
+
+# ---------------------------------------------------------------------------
+# call_local_tool()
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestCallLocalTool:
+    async def test_calls_function(self):
+        async def my_tool(name: str = "world"):
+            return f"Hello {name}"
+
+        _register_dummy("greeter", func=my_tool)
+        result = await registry.call_local_tool("greeter", '{"name": "Alice"}')
+        assert result == "Hello Alice"
+
+    async def test_unknown_tool(self):
+        result = await registry.call_local_tool("nonexistent", "{}")
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    async def test_handles_exception(self):
+        async def bad_tool():
+            raise ValueError("boom")
+
+        _register_dummy("bad", func=bad_tool)
+        result = await registry.call_local_tool("bad", "{}")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "boom" in parsed["error"]
+
+    async def test_empty_arguments(self):
+        async def simple():
+            return "ok"
+
+        _register_dummy("simple", func=simple)
+        result = await registry.call_local_tool("simple", "")
+        assert result == "ok"
+
+    async def test_json_result(self):
+        async def dict_tool():
+            return {"key": "value"}
+
+        _register_dummy("dict_tool", func=dict_tool)
+        result = await registry.call_local_tool("dict_tool", "{}")
+        assert json.loads(result) == {"key": "value"}
