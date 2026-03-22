@@ -1,5 +1,6 @@
 """End-to-end pipeline tests with mocked classifier."""
 
+import sqlite3
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ def _make_pipeline() -> IngestionPipeline:
         classifier_url="http://localhost:8000/v1/chat/completions",
     )
     store = IngestionStore(db_path=":memory:")
+    store._conn.row_factory = sqlite3.Row
     return IngestionPipeline(config=config, store=store)
 
 
@@ -58,7 +60,7 @@ async def test_unsafe_message_quarantined():
 
     assert result is None
     # Verify quarantine record exists
-    cur = pipeline.store.conn.execute("SELECT * FROM quarantine")
+    cur = pipeline.store._conn.execute("SELECT * FROM quarantine")
     row = cur.fetchone()
     assert row is not None
     assert row["risk_level"] == "high"
@@ -134,7 +136,7 @@ async def test_audit_log_on_pass():
     with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=classifier_result):
         await pipeline.process(_make_raw())
 
-    cur = pipeline.store.conn.execute("SELECT * FROM audit_log WHERE action = 'passed'")
+    cur = pipeline.store._conn.execute("SELECT * FROM audit_log WHERE action = 'passed'")
     assert cur.fetchone() is not None
 
 
@@ -147,7 +149,7 @@ async def test_audit_log_on_quarantine():
     with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=classifier_result):
         await pipeline.process(_make_raw())
 
-    cur = pipeline.store.conn.execute("SELECT * FROM audit_log WHERE action = 'quarantined'")
+    cur = pipeline.store._conn.execute("SELECT * FROM audit_log WHERE action = 'quarantined'")
     assert cur.fetchone() is not None
 
 
@@ -179,12 +181,11 @@ async def test_processed_marked_after_quarantine():
 async def test_classifier_timeout_quarantines():
     """Classifier timeout (fail-closed) should quarantine the message."""
     pipeline = _make_pipeline()
-    # ClassifierResult defaults: safe=False, risk_level="high"
-    timeout_result = ClassifierResult(reason="classifier_timeout")
+    timeout_result = ClassifierResult(safe=False, reason="classifier_timeout", risk_level="high")
 
     with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=timeout_result):
         result = await pipeline.process(_make_raw())
 
     assert result is None
-    cur = pipeline.store.conn.execute("SELECT * FROM quarantine")
+    cur = pipeline.store._conn.execute("SELECT * FROM quarantine")
     assert cur.fetchone() is not None
