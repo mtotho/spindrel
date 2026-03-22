@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
-    LLM_RATE_LIMIT_RETRIES: int = 2          # additional attempts after first failure
-    LLM_RATE_LIMIT_INITIAL_WAIT: int = 65    # seconds before first retry (slightly > 60s TPM window)
+    LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
+    LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)
     # Rate limit retry (task level — reschedules entire task on rate limit failure)
     TASK_RATE_LIMIT_RETRIES: int = 3         # max reschedule attempts before marking failed
 
