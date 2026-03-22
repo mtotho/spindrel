@@ -83,6 +83,7 @@ class BotSandboxConfig:
     env: dict = field(default_factory=dict)
     ports: list = field(default_factory=list)
     mounts: list = field(default_factory=list)  # [{host_path, container_path, mode}]
+    user: str = ""
 
 
 @dataclass
@@ -220,6 +221,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         env=bs_raw.get("env", {}),
         ports=bs_raw.get("ports", []),
         mounts=bs_raw.get("mounts", []),
+        user=bs_raw.get("user", ""),
     )
     return BotConfig(
         id=row.id,

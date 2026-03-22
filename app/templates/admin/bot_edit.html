@@ -804,6 +804,7 @@ function botContextEstimatePanel(botId) {
         unrestricted: bsInit.unrestricted || false,
         image: bsInit.image || 'python:3.12-slim',
         network: bsInit.network || 'none',
+        user: bsInit.user || '',
         env: bsInit.env || {},
         ports: bsInit.ports || [],
         mounts: bsInit.mounts || [],
@@ -984,6 +985,12 @@ function botContextEstimatePanel(botId) {
               </select>
             </div>
           </div>
+          <!-- Run as User -->
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Run as User</label>
+            <input x-model="bs.user" type="text" placeholder="e.g. 1000 or appuser (default: image default)"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
           <!-- Sandbox Env Vars -->
           <div>
             <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Container Environment Variables</div>
@@ -1050,13 +1057,16 @@ function botContextEstimatePanel(botId) {
             </div>
           </div>
           {% if not is_new %}
-          <div>
+          <div class="flex items-center gap-4">
             <button type="button"
               onclick="if(confirm('Recreate the bot-local container?\nThe container will be stopped and removed; the next exec_command call will auto-create it.')) fetch('/admin/sandboxes/bot/{{ bot.id }}/recreate', {method:'POST'}).then(r => { if(r.ok) window.location.reload(); })"
-              class="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-indigo-300 hover:text-indigo-200 rounded-lg border border-gray-600">
+              class="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-indigo-300 hover:text-indigo-200 rounded-lg border border-gray-600 shrink-0">
               ↻ Recreate Container
             </button>
-            <p class="text-xs text-gray-600 mt-1">Use if the container is in a bad state. It will be rebuilt on next use.</p>
+            <span hx-get="/admin/sandboxes/bot/{{ bot.id }}/image-status"
+              hx-trigger="load"
+              hx-swap="innerHTML"
+              class="text-xs"></span>
           </div>
           {% endif %}
         </div>
