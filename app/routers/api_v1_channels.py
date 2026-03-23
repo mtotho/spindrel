@@ -6,10 +6,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, KnowledgeAccess, Message, Session, Task
+from app.db.models import Attachment, Channel, KnowledgeAccess, Message, Session, Task
 from app.dependencies import get_db, verify_auth
 from app.services.channels import get_or_create_channel, ensure_active_session, reset_channel_session, switch_channel_session
 from app.services.sessions import store_passive_message
@@ -52,6 +52,9 @@ class ChannelUpdate(BaseModel):
     bot_id: Optional[str] = None
     require_mention: Optional[bool] = None
     passive_memory: Optional[bool] = None
+    attachment_retention_days: Optional[int] = None
+    attachment_max_size_bytes: Optional[int] = None
+    attachment_types_allowed: Optional[list[str]] = None
 
 
 class MessageInject(BaseModel):
@@ -179,6 +182,12 @@ async def update_channel(
         channel.require_mention = body.require_mention
     if body.passive_memory is not None:
         channel.passive_memory = body.passive_memory
+    if body.attachment_retention_days is not None:
+        channel.attachment_retention_days = body.attachment_retention_days
+    if body.attachment_max_size_bytes is not None:
+        channel.attachment_max_size_bytes = body.attachment_max_size_bytes
+    if body.attachment_types_allowed is not None:
+        channel.attachment_types_allowed = body.attachment_types_allowed
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -350,3 +359,47 @@ async def search_channel_messages(
 
     messages = (await db.execute(stmt)).scalars().all()
     return [HistoryMessageOut(**m) for m in _serialize_messages(messages)]
+
+
+class AttachmentStatsOut(BaseModel):
+    channel_id: uuid.UUID
+    total_count: int
+    with_file_data_count: int
+    total_size_bytes: int
+    oldest_created_at: Optional[datetime] = None
+    effective_config: dict
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{channel_id}/attachment-stats", response_model=AttachmentStatsOut)
+async def get_attachment_stats(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Get attachment storage stats and effective retention config for a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    row = (await db.execute(
+        select(
+            func.count().label("total_count"),
+            func.count().filter(Attachment.file_data.is_not(None)).label("with_file_data_count"),
+            func.coalesce(func.sum(Attachment.size_bytes).filter(Attachment.file_data.is_not(None)), 0).label("total_size_bytes"),
+            func.min(Attachment.created_at).label("oldest_created_at"),
+        ).where(Attachment.channel_id == channel_id)
+    )).one()
+
+    from app.services.attachment_retention import get_effective_retention
+    effective = get_effective_retention(channel)
+
+    return AttachmentStatsOut(
+        channel_id=channel_id,
+        total_count=row.total_count,
+        with_file_data_count=row.with_file_data_count,
+        total_size_bytes=row.total_size_bytes,
+        oldest_created_at=row.oldest_created_at,
+        effective_config=effective,
+    )
