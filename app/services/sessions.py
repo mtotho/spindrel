@@ -462,7 +462,10 @@ def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
 def _attachment_hint(att: Attachment) -> str:
     """Build a compact redaction hint for an attachment in history."""
     desc = att.description or "pending summary"
-    return f'[attached: {att.filename} — "{desc}"]'
+    return (
+        f'[attached: {att.filename} — "{desc}"]\n'
+        f'→ To fetch full file, call: get_attachment("{att.id}")'
+    )
 
 
 def _enrich_content_with_attachments(content: Any, attachments: list[Attachment]) -> Any:
