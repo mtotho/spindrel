@@ -23,6 +23,7 @@ def _fake_attachment(**overrides):
         filename="screenshot.png",
         mime_type="image/png",
         size_bytes=12345,
+        file_data=b"fake-image-bytes",
         posted_by="slack:U123",
         source_integration="slack",
         description=None,
