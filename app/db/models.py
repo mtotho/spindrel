@@ -33,6 +33,9 @@ class Channel(Base):
     compaction_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
@@ -481,6 +484,9 @@ class Bot(Base):
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     bot_sandbox: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
+    elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("provider_configs.id", ondelete="SET NULL"),

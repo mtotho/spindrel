@@ -4,13 +4,15 @@ import asyncio
 import json
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.agent.elevation import (
+    ElevationConfig,
     ElevationDecision,
     classify_turn,
+    resolve_elevation_config,
     _get_last_user_content,
 )
 
@@ -373,3 +375,106 @@ class TestElevationLogging:
         assert backfill["backfill"] is True
         assert backfill["tokens_used"] == 1234
         assert backfill["latency_ms"] == 567
+
+
+# ---------------------------------------------------------------------------
+# 5. Elevation config resolution priority tests
+# ---------------------------------------------------------------------------
+
+def _make_bot(**overrides):
+    """Create a minimal bot-like object for testing get_elevation_config."""
+    defaults = dict(
+        elevation_enabled=None,
+        elevation_threshold=None,
+        elevated_model=None,
+    )
+    defaults.update(overrides)
+    return MagicMock(**defaults)
+
+
+def _make_channel(elevation_enabled=None, elevation_threshold=None, elevated_model=None):
+    """Create a mock Channel row."""
+    ch = MagicMock()
+    ch.elevation_enabled = elevation_enabled
+    ch.elevation_threshold = elevation_threshold
+    ch.elevated_model = elevated_model
+    return ch
+
+
+class TestElevationConfigResolution:
+    """Test resolve_elevation_config() priority: bot > channel > global."""
+
+    GLOBAL = dict(global_enabled=True, global_threshold=0.5, global_elevated_model="global-model")
+
+    def test_global_defaults_when_nothing_set(self):
+        """With no bot or channel overrides, global env vars are used."""
+        bot = _make_bot()
+        cfg = resolve_elevation_config(bot, channel=None, **self.GLOBAL)
+        assert cfg.enabled is True
+        assert cfg.threshold == 0.5
+        assert cfg.elevated_model == "global-model"
+
+    def test_channel_overrides_global(self):
+        """Channel-level fields override global defaults."""
+        bot = _make_bot()
+        channel = _make_channel(
+            elevation_enabled=False,
+            elevation_threshold=0.8,
+            elevated_model="channel-model",
+        )
+        cfg = resolve_elevation_config(bot, channel=channel, **self.GLOBAL)
+        assert cfg.enabled is False
+        assert cfg.threshold == 0.8
+        assert cfg.elevated_model == "channel-model"
+
+    def test_bot_overrides_channel(self):
+        """Bot-level fields override channel-level fields."""
+        bot = _make_bot(
+            elevation_enabled=True,
+            elevation_threshold=0.3,
+            elevated_model="bot-model",
+        )
+        channel = _make_channel(
+            elevation_enabled=False,
+            elevation_threshold=0.8,
+            elevated_model="channel-model",
+        )
+        cfg = resolve_elevation_config(bot, channel=channel, **self.GLOBAL)
+        assert cfg.enabled is True
+        assert cfg.threshold == 0.3
+        assert cfg.elevated_model == "bot-model"
+
+    def test_partial_bot_override(self):
+        """Bot overrides only some fields; rest fall through to channel/global."""
+        bot = _make_bot(elevation_threshold=0.2)  # only threshold set
+        channel = _make_channel(elevation_enabled=True)  # only enabled set
+        cfg = resolve_elevation_config(
+            bot, channel=channel,
+            global_enabled=False, global_threshold=0.5, global_elevated_model="global-model",
+        )
+        # enabled: channel says True (overrides global False)
+        assert cfg.enabled is True
+        # threshold: bot says 0.2 (overrides global 0.5)
+        assert cfg.threshold == 0.2
+        # elevated_model: neither bot nor channel set it → global
+        assert cfg.elevated_model == "global-model"
+
+    def test_no_channel_falls_to_global(self):
+        """When channel is None, bot fields override global directly."""
+        bot = _make_bot(elevation_enabled=True)
+        cfg = resolve_elevation_config(
+            bot, channel=None,
+            global_enabled=False, global_threshold=0.4, global_elevated_model="global-model",
+        )
+        assert cfg.enabled is True
+        assert cfg.threshold == 0.4
+        assert cfg.elevated_model == "global-model"
+
+    def test_all_none_uses_global(self):
+        """When bot and channel have all None fields, global values are used."""
+        bot = _make_bot()
+        channel = _make_channel()  # all None
+        cfg = resolve_elevation_config(bot, channel=channel, **self.GLOBAL)
+        assert cfg.enabled is True
+        assert cfg.threshold == 0.5
+        assert cfg.elevated_model == "global-model"

@@ -107,6 +107,35 @@
     </div>
   </div>
 
+  {# Model Elevation #}
+  <div>
+    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-2 border-t border-gray-700 pt-4">Model Elevation</h3>
+    <p class="text-xs text-gray-600 mb-3">Per-channel elevation overrides. Leave blank to inherit from global settings. Bot-level settings (if set) take priority over these.</p>
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Enable Elevation</label>
+        <select name="elevation_enabled"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="" {% if channel.elevation_enabled is none %}selected{% endif %}>Inherit (default)</option>
+          <option value="true" {% if channel.elevation_enabled == true %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if channel.elevation_enabled == false and channel.elevation_enabled is not none %}selected{% endif %}>Disabled</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Threshold <span class="text-gray-600">(0.0–1.0)</span></label>
+        <input name="elevation_threshold" type="number" step="0.01" min="0" max="1"
+          value="{{ channel.elevation_threshold if channel.elevation_threshold is not none else '' }}" placeholder="inherit"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Elevated Model</label>
+        <input name="elevated_model" type="text"
+          value="{{ channel.elevated_model or '' }}" placeholder="inherit"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </div>
+
   <div class="flex justify-end">
     <button type="submit"
       class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm">Save</button>
