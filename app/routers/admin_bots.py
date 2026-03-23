@@ -143,6 +143,10 @@ async def admin_bot_new(request: Request):
         delegation_config={},
         bot_sandbox={},
         model_provider_id=None,
+        attachment_summarization_enabled=None,
+        attachment_summary_model=None,
+        attachment_text_max_chars=None,
+        attachment_vision_concurrency=None,
         updated_at=None,
     )
     skill_descriptions = {s.id: _skill_description(s.content) for s in all_skills}
@@ -204,6 +208,10 @@ async def admin_bot_create(
     elevation_enabled: str = Form(""),
     elevation_threshold: str = Form(""),
     elevated_model: str = Form(""),
+    attachment_summarization_enabled: str = Form(""),
+    attachment_summary_model: str = Form(""),
+    attachment_text_max_chars: str = Form(""),
+    attachment_vision_concurrency: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
 ):
@@ -305,6 +313,10 @@ async def admin_bot_create(
         elevation_enabled={"true": True, "false": False}.get(elevation_enabled.strip().lower()),
         elevation_threshold=_float_or_none(elevation_threshold),
         elevated_model=elevated_model.strip() or None,
+        attachment_summarization_enabled={"true": True, "false": False}.get(attachment_summarization_enabled.strip().lower()),
+        attachment_summary_model=attachment_summary_model.strip() or None,
+        attachment_text_max_chars=_int_or_none(attachment_text_max_chars),
+        attachment_vision_concurrency=_int_or_none(attachment_vision_concurrency),
         model_provider_id=model_provider_id.strip() or None,
         created_at=now,
         updated_at=now,
@@ -482,6 +494,10 @@ async def admin_bot_update(
     elevation_enabled: str = Form(""),
     elevation_threshold: str = Form(""),
     elevated_model: str = Form(""),
+    attachment_summarization_enabled: str = Form(""),
+    attachment_summary_model: str = Form(""),
+    attachment_text_max_chars: str = Form(""),
+    attachment_vision_concurrency: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
 ):
@@ -584,6 +600,10 @@ async def admin_bot_update(
         row.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
         row.elevation_threshold = _float_or_none(elevation_threshold)
         row.elevated_model = elevated_model.strip() or None
+        row.attachment_summarization_enabled = {"true": True, "false": False}.get(attachment_summarization_enabled.strip().lower())
+        row.attachment_summary_model = attachment_summary_model.strip() or None
+        row.attachment_text_max_chars = _int_or_none(attachment_text_max_chars)
+        row.attachment_vision_concurrency = _int_or_none(attachment_vision_concurrency)
         row.model_provider_id = model_provider_id.strip() or None
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
