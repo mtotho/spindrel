@@ -54,6 +54,67 @@ def _truncate(text: str, limit: int) -> str:
     return cut.rstrip() + "…"
 
 
+# ---------------------------------------------------------------------------
+# Slack message limits:
+#   • text field: ~40,000 chars (but mrkdwn rendering breaks on long messages)
+#   • Block Kit text block: 3,000 chars
+#   • Max blocks per message: 50
+# In practice, messages beyond ~3,500 chars can render incorrectly (truncated
+# from the top, missing code blocks).  We split at safe boundaries.
+# ---------------------------------------------------------------------------
+SLACK_MSG_CHUNK_LIMIT = 3500
+
+
+def split_for_slack(text: str, limit: int = SLACK_MSG_CHUNK_LIMIT) -> list[str]:
+    """Split *text* into chunks of at most *limit* chars for Slack.
+
+    Tries to break at blank-line boundaries first, then single newlines, and
+    falls back to a hard cut.  Code-block fences (```) are re-opened/closed
+    across chunks so rendering stays correct.
+    """
+    if not text or len(text) <= limit:
+        return [text] if text else [""]
+
+    chunks: list[str] = []
+    remaining = text
+    in_code_block = False  # track whether we're inside a ``` fence
+
+    while remaining:
+        if len(remaining) <= limit:
+            chunks.append(remaining)
+            break
+
+        # Find a good break point within the limit.
+        segment = remaining[:limit]
+        # Prefer breaking at a blank line.
+        break_at = segment.rfind("\n\n")
+        if break_at < limit // 4:
+            # No good blank-line break — try a single newline.
+            break_at = segment.rfind("\n")
+        if break_at < limit // 4:
+            # Hard cut as last resort.
+            break_at = limit
+
+        chunk = remaining[:break_at].rstrip()
+        remaining = remaining[break_at:].lstrip("\n")
+
+        # Track code fences in this chunk.
+        fence_count = chunk.count("```")
+        if in_code_block:
+            # Re-open the code block that was split.
+            chunk = "```\n" + chunk
+        if (fence_count + (1 if in_code_block else 0)) % 2 == 1:
+            # Odd fences → we're now inside an unclosed block.  Close it.
+            chunk = chunk + "\n```"
+            in_code_block = True
+        else:
+            in_code_block = False
+
+        chunks.append(chunk)
+
+    return chunks if chunks else [""]
+
+
 def format_tool_status(tool: str, raw_args: str | None = None) -> str:
     """Return a short Slack status string describing a tool invocation."""
     parsed: dict = {}
@@ -84,4 +145,17 @@ def format_tool_status(tool: str, raw_args: str | None = None) -> str:
             return f"🤖 {bot_id} → {_truncate(prompt, 80)}"
         return f"🤖 {bot_id}"
 
+    # Generic fallback — try to surface the most useful argument value so the
+    # user can see at a glance what the tool is doing.
+    _HINT_KEYS = ("query", "prompt", "url", "path", "content", "name", "search", "message", "input", "text")
+    for key in _HINT_KEYS:
+        val = parsed.get(key)
+        if val and isinstance(val, str):
+            hint = val.split("\n", 1)[0]
+            return f"🔧 {tool} → {_truncate(hint, 80)}"
+    # If no recognisable key, show the first string arg (if any).
+    for val in parsed.values():
+        if isinstance(val, str) and val.strip():
+            hint = val.strip().split("\n", 1)[0]
+            return f"🔧 {tool} → {_truncate(hint, 80)}"
     return f"🔧 _{tool}..._"

@@ -1,20 +1,26 @@
-"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact."""
+"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact, /todos, /status."""
+
+import asyncio
+import logging
 
 from agent_client import (
     compact_session,
     ensure_channel,
     fetch_session_plans,
     fetch_session_context,
+    fetch_todos,
     get_channel_session_id,
     list_bots,
     stream_chat,
     update_plan_item_status,
     update_plan_status,
 )
-from formatting import format_last_active, format_response_for_slack, format_tool_status
+from formatting import format_last_active, format_response_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, set_channel_state
+
+logger = logging.getLogger(__name__)
 
 
 _ITEM_STATUS_ICON = {
@@ -196,12 +202,20 @@ def register_slash_commands(app):
                 elif etype == "response":
                     reply = (event.get("text") or "").strip()
                     client_actions = event.get("client_actions") or []
+                    formatted = format_response_for_slack(reply)
+                    chunks = split_for_slack(formatted)
                     await client.chat_update(
                         channel=thinking_channel,
                         ts=thinking_ts,
-                        text=format_response_for_slack(reply),
+                        text=chunks[0],
                         **identity,
                     )
+                    for chunk in chunks[1:]:
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=chunk,
+                            **identity,
+                        )
         except Exception as e:
             await client.chat_update(
                 channel=thinking_channel,
@@ -406,3 +420,127 @@ def register_slash_commands(app):
             return
         title = result.get("title") or "(untitled)"
         await respond(f"✓ Compacted. Title: *{title}*")
+
+    @app.command("/todos")
+    async def cmd_todos(ack, command, respond):
+        """Show pending todos for the current channel/bot. `/todos done` shows completed."""
+        await ack()
+        channel = command.get("channel_id") or ""
+        state = get_channel_state(channel)
+        bot_id = state["bot_id"]
+        arg = (command.get("text") or "").strip().lower()
+
+        # We need the server-side channel UUID, not the Slack channel ID.
+        client_id = slack_client_id(channel)
+        ch_data = await ensure_channel(client_id, bot_id)
+        if not ch_data or not ch_data.get("id"):
+            await respond("No channel registered yet. Send a message first.")
+            return
+        channel_uuid = ch_data["id"]
+
+        status = "done" if arg == "done" else "pending"
+        try:
+            todos = await fetch_todos(bot_id, channel_uuid, status=status)
+        except Exception as e:
+            await respond(f"Error fetching todos: {e}")
+            return
+
+        if not todos:
+            label = "completed" if status == "done" else "pending"
+            await respond(f"No {label} todos for `{bot_id}` in this channel.")
+            return
+
+        # Group by priority (descending).
+        groups: dict[int, list[dict]] = {}
+        for t in todos:
+            p = t.get("priority", 0)
+            groups.setdefault(p, []).append(t)
+
+        lines: list[str] = []
+        heading = "Recently Completed" if status == "done" else "Pending Todos"
+        lines.append(f"*{heading}* — `{bot_id}`")
+
+        for priority in sorted(groups.keys(), reverse=True):
+            if priority > 0:
+                lines.append(f"\n*Priority {priority}*")
+            elif len(groups) > 1:
+                lines.append("\n*Normal*")
+            for t in groups[priority]:
+                icon = "✓" if t["status"] == "done" else "○"
+                lines.append(f"  {icon} {t['content']}")
+
+        await respond("\n".join(lines))
+
+    @app.command("/status")
+    async def cmd_status(ack, command, respond):
+        """Quick server health check — runs host commands directly, no bot interaction."""
+        await ack()
+
+        async def _run(cmd: str, timeout: float = 5.0) -> str:
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                return stdout.decode("utf-8", errors="replace").strip()
+            except asyncio.TimeoutError:
+                return "⚠️ timed out"
+            except Exception as e:
+                return f"⚠️ {e}"
+
+        # Run all checks concurrently.
+        results = await asyncio.gather(
+            _run("systemctl is-active thoth thoth-slack 2>/dev/null || echo 'unknown'"),
+            _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
+            _run("df -h / | tail -1"),
+            _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
+            _run("git -C /home/thothbot/agent-server log --oneline -1 2>/dev/null || echo 'unknown'"),
+        )
+        svc_raw, docker_raw, disk_raw, backup_raw, git_raw = results
+
+        lines: list[str] = ["*Server Status*", ""]
+
+        # Services
+        svc_lines = svc_raw.splitlines()
+        svc_names = ["thoth", "thoth-slack"]
+        svc_parts: list[str] = []
+        for i, name in enumerate(svc_names):
+            status = svc_lines[i].strip() if i < len(svc_lines) else "unknown"
+            icon = "✅" if status == "active" else "🚨"
+            svc_parts.append(f"{icon} `{name}`: {status}")
+        lines.append("*Services*")
+        lines.extend(f"  {s}" for s in svc_parts)
+
+        # Docker containers
+        lines.append("\n*Containers*")
+        if "none" in docker_raw:
+            lines.append("  🚨 No matching containers running")
+        else:
+            for row in docker_raw.splitlines():
+                parts = row.split("\t", 1)
+                name = parts[0] if parts else row
+                st = parts[1] if len(parts) > 1 else ""
+                icon = "✅" if "Up" in st else "🚨"
+                lines.append(f"  {icon} `{name}`: {st}")
+
+        # Disk
+        lines.append("\n*Disk*")
+        try:
+            disk_parts = disk_raw.split()
+            use_pct = int(disk_parts[4].rstrip("%")) if len(disk_parts) >= 5 else 0
+            icon = "🚨" if use_pct > 90 else ("⚠️" if use_pct > 80 else "✅")
+            lines.append(f"  {icon} `/`: {disk_parts[4]} used ({disk_parts[3]} avail)")
+        except (IndexError, ValueError):
+            lines.append(f"  ⚠️ `{disk_raw}`")
+
+        # Backup
+        lines.append("\n*Last Backup*")
+        lines.append(f"  {backup_raw[:200]}")
+
+        # Git
+        lines.append("\n*Deploy*")
+        lines.append(f"  `{git_raw[:120]}`")
+
+        await respond("\n".join(lines))
