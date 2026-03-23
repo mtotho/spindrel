@@ -115,6 +115,133 @@ class TestMessageHistoryRedaction:
 
 
 # ---------------------------------------------------------------------------
+# test_message_redaction — turn-by-turn attachment behavior
+# ---------------------------------------------------------------------------
+
+class TestMessageRedaction:
+    """Verify that attachments appear in full on turn 0, redacted on turn 1+."""
+
+    def _make_attachment(self, **overrides):
+        defaults = dict(
+            filename="screenshot.png",
+            description="A dashboard showing metrics",
+            url="https://cdn.example.com/screenshot.png",
+            type="image",
+        )
+        defaults.update(overrides)
+        return MagicMock(**defaults)
+
+    def test_turn_0_full_content_preserved(self):
+        """Turn 0: _message_to_dict with no attachments keeps content as-is."""
+        from app.services.sessions import _message_to_dict
+
+        msg = MagicMock()
+        msg.role = "user"
+        msg.content = "Check this image"
+        msg.tool_calls = None
+        msg.tool_call_id = None
+        msg.metadata_ = None
+        msg.attachments = []
+
+        d = _message_to_dict(msg, enrich_attachments=True)
+        assert d["content"] == "Check this image"
+
+    def test_turn_1_plus_redacted_placeholder_replaced(self):
+        """Turn 1+: stored placeholder is replaced with attachment hint."""
+        from app.services.sessions import _enrich_content_with_attachments
+
+        att = self._make_attachment()
+        content = "Here is the image: [image — not available in this session]"
+        result = _enrich_content_with_attachments(content, [att])
+
+        assert "screenshot.png" in result
+        assert "dashboard showing metrics" in result
+        assert "get_attachment" in result
+        assert "[image — not available in this session]" not in result
+
+    def test_turn_1_plus_multipart_content_redacted(self):
+        """Turn 1+: list-form content with image placeholder is replaced."""
+        from app.services.sessions import _enrich_content_with_attachments
+
+        att = self._make_attachment()
+        content = [
+            {"type": "text", "text": "Look: [image — not available in this session]"},
+        ]
+        result = _enrich_content_with_attachments(content, [att])
+
+        assert isinstance(result, list)
+        text_parts = [p["text"] for p in result if p.get("type") == "text"]
+        combined = " ".join(text_parts)
+        assert "screenshot.png" in combined
+        assert "dashboard showing metrics" in combined
+        assert "[image — not available in this session]" not in combined
+
+    def test_unsummarized_attachment_no_tool_hint(self):
+        """Attachment without description → no 'get_attachment' tool hint."""
+        from app.services.sessions import _enrich_content_with_attachments
+
+        att = self._make_attachment(description=None)
+        content = "[image — not available in this session]"
+        result = _enrich_content_with_attachments(content, [att])
+
+        assert "screenshot.png" in result
+        assert "pending summary" in result
+        assert "get_attachment" not in result
+
+    def test_large_text_file_redacted_on_reload(self):
+        """Large text file attachment: only summary injected, not full text."""
+        from app.services.sessions import _enrich_content_with_attachments
+
+        att = self._make_attachment(
+            filename="data.csv",
+            description="A CSV file with 50k rows of sales data",
+            type="text",
+        )
+        # Stored content has no image placeholder — hints are appended
+        stored_content = "Please analyze the attached file"
+        result = _enrich_content_with_attachments(stored_content, [att])
+
+        assert "data.csv" in result
+        assert "50k rows of sales data" in result
+        assert "get_attachment" in result
+        # Full file content is NOT re-injected (only the hint)
+        assert len(result) < 500
+
+    def test_message_to_dict_enriches_attachments(self):
+        """_message_to_dict calls enrichment when enrich_attachments=True."""
+        from app.services.sessions import _message_to_dict
+
+        att = self._make_attachment()
+        msg = MagicMock()
+        msg.role = "user"
+        msg.content = "[image — not available in this session]"
+        msg.tool_calls = None
+        msg.tool_call_id = None
+        msg.metadata_ = None
+        msg.attachments = [att]
+
+        d = _message_to_dict(msg, enrich_attachments=True)
+        assert "screenshot.png" in d["content"]
+        assert "[image — not available in this session]" not in d["content"]
+
+    def test_message_to_dict_no_enrichment_flag(self):
+        """_message_to_dict without enrich_attachments leaves placeholders."""
+        from app.services.sessions import _message_to_dict
+
+        att = self._make_attachment()
+        msg = MagicMock()
+        msg.role = "user"
+        msg.content = "[image — not available in this session]"
+        msg.tool_calls = None
+        msg.tool_call_id = None
+        msg.metadata_ = None
+        msg.attachments = [att]
+
+        d = _message_to_dict(msg, enrich_attachments=False)
+        assert "[image — not available in this session]" in d["content"]
+
+
+# ---------------------------------------------------------------------------
 # test_attachment_sweep_worker
 # ---------------------------------------------------------------------------
 
