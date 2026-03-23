@@ -36,9 +36,19 @@ _TEXT_PROMPT = (
 )
 
 
-async def _summarize_image(url: str, model: str) -> str:
-    """Use vision model to describe an image by URL."""
+async def _summarize_image(url: str | None, model: str, file_data: bytes | None = None) -> str:
+    """Use vision model to describe an image by URL or stored bytes."""
+    import base64
     from app.services.providers import get_llm_client
+
+    if file_data:
+        # Prefer stored bytes — no HTTP fetch needed
+        b64 = base64.b64encode(file_data).decode()
+        image_url = f"data:image/png;base64,{b64}"
+    elif url:
+        image_url = url
+    else:
+        return ""
 
     response = await get_llm_client().chat.completions.create(
         model=model,
@@ -46,7 +56,7 @@ async def _summarize_image(url: str, model: str) -> str:
             "role": "user",
             "content": [
                 {"type": "text", "text": _IMAGE_PROMPT},
-                {"type": "image_url", "image_url": {"url": url}},
+                {"type": "image_url", "image_url": {"url": image_url}},
             ],
         }],
         max_tokens=300,
@@ -100,14 +110,19 @@ async def summarize_attachment(
             description: str | None = None
 
             if att.type == "image":
-                description = await _summarize_image(att.url, model)
+                description = await _summarize_image(att.url, model, file_data=att.file_data)
             elif att.type in ("text", "file"):
                 try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=30) as client:
-                        resp = await client.get(att.url)
-                        resp.raise_for_status()
-                        text_content = resp.text[:text_max_chars]
+                    if att.file_data:
+                        text_content = att.file_data.decode("utf-8", errors="replace")[:text_max_chars]
+                    elif att.url:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=30) as client:
+                            resp = await client.get(att.url)
+                            resp.raise_for_status()
+                            text_content = resp.text[:text_max_chars]
+                    else:
+                        return
                     description = await _summarize_text_content(text_content, model)
                 except Exception:
                     logger.warning(

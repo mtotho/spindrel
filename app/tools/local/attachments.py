@@ -1,5 +1,6 @@
-"""Local tool: get_attachment — fetch full attachment metadata + description."""
+"""Local tool: get_attachment — fetch full attachment metadata + file bytes."""
 
+import base64
 import json
 import logging
 import uuid
@@ -14,10 +15,10 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "get_attachment",
         "description": (
-            "Fetch full attachment metadata and description by ID. "
-            "Returns url, description, filename, posted_by, posted_at, type, mime_type. "
-            "For text files, includes the description/summary. "
-            "For images, returns url + vision description."
+            "Fetch full attachment metadata and file bytes by ID. "
+            "Returns file_data_base64 — a base64-encoded version of the file bytes. "
+            "Pass this directly to vision or image editing models. "
+            "Also returns description, filename, posted_by, posted_at, type, mime_type."
         ),
         "parameters": {
             "type": "object",
@@ -48,7 +49,6 @@ async def get_attachment(attachment_id: str) -> str:
         "type": att.type,
         "filename": att.filename,
         "mime_type": att.mime_type,
-        "url": att.url,
         "size_bytes": att.size_bytes,
         "posted_by": att.posted_by,
         "posted_at": att.created_at.isoformat() if att.created_at else None,
@@ -56,4 +56,5 @@ async def get_attachment(attachment_id: str) -> str:
         "description": att.description,
         "description_model": att.description_model,
         "described_at": att.described_at.isoformat() if att.described_at else None,
+        "file_data_base64": base64.b64encode(att.file_data).decode() if att.file_data else None,
     })

@@ -42,11 +42,12 @@ class Attachment(BaseModel):
 
 class FileMetadata(BaseModel):
     """Metadata about an attached file for server-side attachment tracking."""
-    url: str
+    url: str | None = None
     filename: str = "attachment"
     mime_type: str = "application/octet-stream"
     size_bytes: int = 0
     posted_by: str | None = None
+    file_data: str | None = None  # base64-encoded file bytes
 
 
 class ChatRequest(BaseModel):
@@ -89,15 +90,18 @@ async def _create_attachments_from_metadata(
 
     for fm in file_metadata:
         try:
+            import base64 as _b64
+            raw_bytes = _b64.b64decode(fm.file_data) if fm.file_data else None
             await create_attachment(
                 message_id=message_id,
                 channel_id=channel_id,
-                url=fm.url,
                 filename=fm.filename,
                 mime_type=fm.mime_type,
                 size_bytes=fm.size_bytes,
                 posted_by=fm.posted_by,
                 source_integration=source_integration,
+                file_data=raw_bytes,
+                url=fm.url,
                 bot_id=bot_id,
             )
         except Exception:

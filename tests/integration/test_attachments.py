@@ -91,7 +91,7 @@ class TestPostMessageWithSlackFile:
 # ---------------------------------------------------------------------------
 
 class TestMessageHistoryRedaction:
-    def test_attachment_hint_format(self):
+    async def test_attachment_hint_format(self):
         """Turn 1+: attachment hint has correct format."""
         from app.services.sessions import _attachment_hint
 
@@ -103,7 +103,7 @@ class TestMessageHistoryRedaction:
         assert "report.pdf" in hint
         assert "quarterly financial report" in hint
 
-    def test_attachment_hint_no_description(self):
+    async def test_attachment_hint_no_description(self):
         """Unsummarized attachment produces hint without description."""
         from app.services.sessions import _attachment_hint
 
@@ -433,6 +433,7 @@ class TestBotConfigOverridesInSummarizer:
         att.id = uuid.uuid4()
         att.type = "image"
         att.url = "https://cdn.example.com/img.jpg"
+        att.file_data = None
         att.described_at = None
 
         mock_response = MagicMock()
@@ -470,6 +471,7 @@ class TestBotConfigOverridesInSummarizer:
         att.id = uuid.uuid4()
         att.type = "text"
         att.url = "https://cdn.example.com/doc.txt"
+        att.file_data = None
         att.described_at = None
 
         long_content = "x" * 20000
