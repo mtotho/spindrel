@@ -9,6 +9,7 @@ import logging
 
 from app.agent.dispatchers import register
 from integrations.slack.client import bot_attribution, post_message
+from integrations.slack.formatting import split_for_slack
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,17 @@ class SlackDispatcher:
         reply_in_thread = cfg.get("reply_in_thread", True)
         attrs = bot_attribution(task.bot_id)
 
-        ok = await post_message(
-            token, channel_id, result,
-            thread_ts=thread_ts,
-            reply_in_thread=reply_in_thread,
-            **attrs,
-        )
+        chunks = split_for_slack(result)
+        ok = True
+        for chunk in chunks:
+            ok = await post_message(
+                token, channel_id, chunk,
+                thread_ts=thread_ts,
+                reply_in_thread=reply_in_thread,
+                **attrs,
+            )
+            if not ok:
+                break
         if not ok:
             return
 
