@@ -197,7 +197,7 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
         "name": "delegate_to_harness",
         "description": (
             "Run an external CLI harness (e.g. claude-code, cursor) with a prompt. "
-            "Runs inside the bot's sandbox (bot_sandbox config) by default. "
+            "Runs inside the bot's workspace container (docker workspace) by default. "
             "Pass sandbox_instance_id to target a specific sandbox instance instead. "
             "Use mode=sync (default) to wait for the result. "
             "Use mode=deferred for background execution; result posts to the channel when done. "
@@ -225,7 +225,7 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                     "type": "string",
                     "description": (
                         "Optional. UUID of a specific sandbox instance (from ensure_sandbox) to run in. "
-                        "If omitted, falls back to the bot's bot_sandbox config when enabled. "
+                        "If omitted, falls back to the bot's workspace docker config when enabled. "
                         "Use this only when you need to target a specific sandbox instance."
                     ),
                 },
@@ -259,7 +259,7 @@ def _parse_uuid_opt(raw: str | None) -> uuid.UUID | None:
                     ),
                 },
             },
-            "required": ["harness", "prompt"],  # sandbox_instance_id optional; falls back to bot_sandbox
+            "required": ["harness", "prompt"],  # sandbox_instance_id optional; falls back to workspace docker
         },
     },
 })

@@ -10,7 +10,7 @@ import yaml
 from app.config import settings
 
 if TYPE_CHECKING:
-    from app.agent.bots import BotConfig
+    from app.agent.bots import BotConfig, BotSandboxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,21 @@ class HarnessService:
                 extra_args=extra_args,
             )
 
+        # New workspace path — build a BotSandboxConfig from workspace.docker
+        if bot.workspace.enabled and bot.workspace.type == "docker":
+            sandbox_config = self._workspace_to_sandbox_config(bot)
+            return await self._run_in_bot_sandbox(
+                harness_name=harness_name,
+                cfg=cfg,
+                prompt=prompt,
+                working_directory=working_directory,
+                bot=bot,
+                sandbox_config=sandbox_config,
+                timeout=timeout,
+                extra_args=extra_args,
+            )
+
+        # Legacy bot_sandbox path
         if bot.bot_sandbox.enabled:
             return await self._run_in_bot_sandbox(
                 harness_name=harness_name,
@@ -135,11 +150,41 @@ class HarnessService:
                 prompt=prompt,
                 working_directory=working_directory,
                 bot=bot,
+                sandbox_config=bot.bot_sandbox,
                 timeout=timeout,
                 extra_args=extra_args,
             )
 
-        raise HarnessError("Harness must be run in a sandbox. Use sandbox_instance_id or enable bot_sandbox.")
+        raise HarnessError("Harness must be run in a sandbox. Enable workspace (docker) or bot_sandbox.")
+
+    @staticmethod
+    def _workspace_to_sandbox_config(bot: "BotConfig") -> "BotSandboxConfig":
+        """Build a BotSandboxConfig from workspace.docker config."""
+        from app.agent.bots import BotSandboxConfig
+        from app.services.workspace import workspace_service
+
+        docker = bot.workspace.docker
+        host_root = workspace_service.ensure_host_dir(bot.id)
+
+        workspace_mount = {
+            "host_path": host_root,
+            "container_path": "/workspace",
+            "mode": "rw",
+        }
+        mounts = list(docker.mounts or [])
+        if not any(m.get("container_path") == "/workspace" for m in mounts):
+            mounts.insert(0, workspace_mount)
+
+        return BotSandboxConfig(
+            enabled=True,
+            unrestricted=True,
+            image=docker.image,
+            network=docker.network,
+            env=docker.env,
+            ports=docker.ports,
+            mounts=mounts,
+            user=docker.user,
+        )
 
     async def _run_in_bot_sandbox(
         self,
@@ -149,14 +194,15 @@ class HarnessService:
         prompt: str,
         working_directory: str | None,
         bot: "BotConfig",
+        sandbox_config: "BotSandboxConfig",
         timeout: int,
         extra_args: list[str] | None = None,
     ) -> HarnessResult:
-        """Run harness inside the bot-local sandbox (bot_sandbox.enabled=True)."""
+        """Run harness inside a bot-local sandbox container."""
         from app.services.sandbox import sandbox_service
 
-        if not bot.bot_sandbox.image:
-            raise HarnessError("Cannot run harness in bot sandbox: bot_sandbox.image is not set.")
+        if not sandbox_config.image:
+            raise HarnessError("Cannot run harness in bot sandbox: no image configured.")
 
         wd_container: str | None = None
         if working_directory:
@@ -181,11 +227,11 @@ class HarnessService:
             "[harness] %s bot_sandbox bot=%s image=%r",
             harness_name,
             bot.id,
-            bot.bot_sandbox.image,
+            sandbox_config.image,
         )
 
         exec_res = await sandbox_service.exec_bot_local(
-            bot.id, script, bot.bot_sandbox, timeout=timeout,
+            bot.id, script, sandbox_config, timeout=timeout,
         )
         return HarnessResult(
             stdout=exec_res.stdout,
