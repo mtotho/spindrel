@@ -3,7 +3,7 @@ import base64
 import logging
 
 from agent_client import http, ensure_channel, store_passive_message_http, stream_chat
-from formatting import format_response_for_slack, format_tool_status
+from formatting import format_response_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_state
@@ -172,6 +172,9 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             elif etype == "response":
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []
+                formatted = format_response_for_slack(reply)
+                chunks = split_for_slack(formatted)
+
                 if _delegation_posts_seen:
                     try:
                         await client.chat_delete(
@@ -180,19 +183,29 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                         )
                     except Exception:
                         pass
-                    await client.chat_postMessage(
-                        channel=thinking_channel,
-                        text=format_response_for_slack(reply),
-                        thread_ts=thread_ts,
-                        **identity,
-                    )
+                    for chunk in chunks:
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=chunk,
+                            thread_ts=thread_ts,
+                            **identity,
+                        )
                 else:
+                    # First chunk replaces the thinking placeholder.
                     await client.chat_update(
                         channel=thinking_channel,
                         ts=thinking_ts,
-                        text=format_response_for_slack(reply),
+                        text=chunks[0],
                         **identity,
                     )
+                    # Remaining chunks posted as follow-up messages.
+                    for chunk in chunks[1:]:
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=chunk,
+                            thread_ts=thread_ts,
+                            **identity,
+                        )
         if thinking_channel:
             await _handle_client_actions(client, thinking_channel, client_actions)
     except Exception as e:
