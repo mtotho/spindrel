@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Thoth CLI — single entry point for service management."""
+
+import argparse
+import os
+import subprocess
+import sys
+
+SERVICES = ["thoth", "thoth-slack"]
+
+
+def get_repo_dir():
+    """Auto-detect repo directory from script location, cwd, or env var."""
+    # Check env var first
+    for var in ("THOTH_HOME", "THOTH_REPO_PATH"):
+        path = os.environ.get(var)
+        if path and os.path.isdir(os.path.join(path, ".git")):
+            return path
+
+    # Script location (works when installed via symlink — resolves to real path)
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    repo_dir = os.path.dirname(script_dir)
+    if os.path.isdir(os.path.join(repo_dir, ".git")):
+        return repo_dir
+
+    # Current directory
+    cwd = os.getcwd()
+    if os.path.isdir(os.path.join(cwd, ".git")):
+        return cwd
+
+    print("error: Could not find repo directory. Set THOTH_HOME or run from the repo.", file=sys.stderr)
+    sys.exit(1)
+
+
+def run(cmd, check=True, shell=True, **kwargs):
+    """Run a command, printing it first."""
+    print(f"  → {cmd}")
+    result = subprocess.run(cmd, shell=shell, **kwargs)
+    if check and result.returncode != 0:
+        print(f"  ✗ Command failed (exit {result.returncode})", file=sys.stderr)
+    return result
+
+
+def cmd_start(args):
+    """Start thoth services."""
+    print("Starting services...")
+    for svc in SERVICES:
+        run(f"sudo systemctl start {svc}.service")
+
+
+def cmd_stop(args):
+    """Stop thoth services."""
+    print("Stopping services...")
+    for svc in reversed(SERVICES):
+        run(f"sudo systemctl stop {svc}.service")
+
+
+def cmd_restart(args):
+    """Restart thoth services."""
+    print("Restarting services...")
+    for svc in SERVICES:
+        run(f"sudo systemctl restart {svc}.service")
+
+
+def cmd_pull(args):
+    """Pull latest code and restart services."""
+    repo = get_repo_dir()
+    print(f"Pulling latest in {repo}...")
+    result = run(f"git -C {repo} fetch origin && git -C {repo} pull --rebase origin master")
+    if result.returncode != 0:
+        print("Pull failed — skipping restart.", file=sys.stderr)
+        return
+    cmd_restart(args)
+
+
+def cmd_backup(args):
+    """Run backup.sh."""
+    repo = get_repo_dir()
+    script = os.path.join(repo, "scripts", "backup.sh")
+    if not os.path.isfile(script):
+        print(f"error: {script} not found", file=sys.stderr)
+        sys.exit(1)
+    print("Running backup...")
+    result = run(f"bash {script}", check=False)
+    if result.returncode != 0:
+        print("warning: Backup completed with errors.", file=sys.stderr)
+
+
+def cmd_restore(args):
+    """Run restore.sh with optional backup file."""
+    repo = get_repo_dir()
+    script = os.path.join(repo, "scripts", "restore.sh")
+    if not os.path.isfile(script):
+        print(f"error: {script} not found", file=sys.stderr)
+        sys.exit(1)
+    cmd = f"bash {script}"
+    if args.backup_file:
+        cmd += f" {args.backup_file}"
+    print("Running restore...")
+    run(cmd)
+
+
+def cmd_status(args):
+    """Show service status, docker containers, and disk usage."""
+    print("=== Systemd Services ===")
+    for svc in SERVICES:
+        run(f"systemctl status {svc}.service --no-pager -l", check=False)
+        print()
+
+    print("=== Docker Containers ===")
+    run("docker ps --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'", check=False)
+    print()
+
+    print("=== Disk Usage ===")
+    run("df -h / | tail -1", check=False)
+    run("docker system df 2>/dev/null", check=False)
+
+
+def cmd_logs(args):
+    """Tail journalctl logs for services."""
+    svc = args.service
+    if svc and svc not in SERVICES:
+        print(f"error: Unknown service '{svc}'. Choose from: {', '.join(SERVICES)}", file=sys.stderr)
+        sys.exit(1)
+
+    units = [f"-u {svc}"] if svc else [f"-u {s}" for s in SERVICES]
+    cmd = f"journalctl {' '.join(units)} -f --no-pager -n 50"
+    print(f"Tailing logs ({svc or 'all services'})... (Ctrl+C to stop)")
+    try:
+        run(cmd)
+    except KeyboardInterrupt:
+        pass
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="thoth",
+        description="Thoth service management CLI",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("start", help="Start thoth services")
+    sub.add_parser("stop", help="Stop thoth services")
+    sub.add_parser("restart", help="Restart thoth services")
+    sub.add_parser("pull", help="Git pull + restart")
+    sub.add_parser("backup", help="Run backup")
+
+    restore_p = sub.add_parser("restore", help="Restore from backup")
+    restore_p.add_argument("backup_file", nargs="?", default=None, help="Path to backup archive")
+
+    sub.add_parser("status", help="Show service/container/disk status")
+
+    logs_p = sub.add_parser("logs", help="Tail service logs")
+    logs_p.add_argument("service", nargs="?", default=None, help="Service name (thoth or thoth-slack)")
+
+    args = parser.parse_args()
+
+    commands = {
+        "start": cmd_start,
+        "stop": cmd_stop,
+        "restart": cmd_restart,
+        "pull": cmd_pull,
+        "backup": cmd_backup,
+        "restore": cmd_restore,
+        "status": cmd_status,
+        "logs": cmd_logs,
+    }
+    commands[args.command](args)
+
+
+if __name__ == "__main__":
+    main()
