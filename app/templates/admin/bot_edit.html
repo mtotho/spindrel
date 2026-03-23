@@ -632,6 +632,36 @@ function botContextEstimatePanel(botId) {
     </div>
   </section>
 
+  <!-- Model Elevation -->
+  <section x-data="{ elevOn: {{ 'true' if bot.elevation_enabled else 'false' }} }">
+    <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Model Elevation</h2>
+    <p class="text-xs text-gray-500 mb-4">Automatically elevate to a more capable model for complex requests. Leave fields blank to inherit from channel or global settings.</p>
+    <div class="grid grid-cols-3 gap-4">
+      <div class="flex items-center gap-3 col-span-3">
+        <select name="elevation_enabled"
+          x-model="elevOn"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="" {% if bot.elevation_enabled is none %}selected{% endif %}>Inherit (default)</option>
+          <option value="true" {% if bot.elevation_enabled == true %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if bot.elevation_enabled == false and bot.elevation_enabled is not none %}selected{% endif %}>Disabled</option>
+        </select>
+        <label class="text-sm text-gray-300">Enable Elevation</label>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Threshold <span class="text-gray-600">(0.0–1.0)</span></label>
+        <input name="elevation_threshold" type="number" step="0.01" min="0" max="1"
+          value="{{ bot.elevation_threshold if bot.elevation_threshold is not none else '' }}" placeholder="inherit"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-400 mb-1">Elevated Model</label>
+        <input name="elevated_model" type="text"
+          value="{{ bot.elevated_model or '' }}" placeholder="inherit"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
   <!-- Memory -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Memory</h2>

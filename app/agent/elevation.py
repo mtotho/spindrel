@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from app.agent.bots import BotConfig
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,76 @@ _ERROR_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+@dataclass
+class ElevationConfig:
+    """Resolved elevation configuration (bot > channel > global)."""
+    enabled: bool
+    threshold: float
+    elevated_model: str
+
+
+def resolve_elevation_config(
+    bot: BotConfig,
+    channel: object | None = None,
+    *,
+    global_enabled: bool = False,
+    global_threshold: float = 0.4,
+    global_elevated_model: str = "",
+) -> ElevationConfig:
+    """Pure resolution logic: bot > channel > global defaults. No I/O."""
+    enabled = global_enabled
+    threshold = global_threshold
+    elevated_model = global_elevated_model
+
+    # Layer 2: channel overrides
+    if channel is not None:
+        if getattr(channel, "elevation_enabled", None) is not None:
+            enabled = channel.elevation_enabled
+        if getattr(channel, "elevation_threshold", None) is not None:
+            threshold = channel.elevation_threshold
+        if getattr(channel, "elevated_model", None) is not None:
+            elevated_model = channel.elevated_model
+
+    # Layer 3: bot overrides (most specific)
+    if bot.elevation_enabled is not None:
+        enabled = bot.elevation_enabled
+    if bot.elevation_threshold is not None:
+        threshold = bot.elevation_threshold
+    if bot.elevated_model is not None:
+        elevated_model = bot.elevated_model
+
+    return ElevationConfig(enabled=enabled, threshold=threshold, elevated_model=elevated_model)
+
+
+async def get_elevation_config(
+    bot: BotConfig,
+    channel_id: uuid.UUID | None = None,
+) -> ElevationConfig:
+    """Resolve elevation config with priority: bot > channel > global env vars.
+
+    Each field is resolved independently — a bot can override threshold while
+    inheriting enabled from the channel, for example.
+    """
+    from app.config import settings
+
+    channel = None
+    if channel_id is not None:
+        try:
+            from app.db.engine import async_session
+            from app.db.models import Channel
+            async with async_session() as db:
+                channel = await db.get(Channel, channel_id)
+        except Exception:
+            logger.warning("Failed to load channel elevation config", exc_info=True)
+
+    return resolve_elevation_config(
+        bot, channel,
+        global_enabled=settings.MODEL_ELEVATION_ENABLED,
+        global_threshold=settings.MODEL_ELEVATION_THRESHOLD,
+        global_elevated_model=settings.MODEL_ELEVATED_MODEL,
+    )
+
+
 @dataclass
 class ElevationDecision:
     model: str

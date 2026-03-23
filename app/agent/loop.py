@@ -15,7 +15,7 @@ from app.agent.message_utils import (
     _extract_client_actions,
     _extract_transcript,
 )
-from app.agent.elevation import classify_turn
+from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
 from app.agent.llm import _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
@@ -137,11 +137,12 @@ async def run_agent_tool_loop(
                 await asyncio.sleep(_wait)
 
             # --- Model elevation ---
-            if settings.MODEL_ELEVATION_ENABLED and not compaction:
+            _elev_cfg = await get_elevation_config(bot, channel_id)
+            if _elev_cfg.enabled and not compaction:
                 decision = classify_turn(
                     messages, model,
-                    settings.MODEL_ELEVATED_MODEL,
-                    settings.MODEL_ELEVATION_THRESHOLD,
+                    _elev_cfg.elevated_model,
+                    _elev_cfg.threshold,
                     tool_calls_made,
                 )
                 effective_model = decision.model
