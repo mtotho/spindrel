@@ -30,8 +30,8 @@ def _image_model_requests_b64_json(model: str) -> bool:
         "name": "generate_image",
         "description": (
             "Generate or edit an image. Pass only `prompt` to generate from scratch. "
-            "Pass `source_image_b64` (base64 PNG/JPEG from get_attachment) plus a `prompt` "
-            "describing the changes to edit an existing image."
+            "To edit an existing image, first call get_attachment(id) and pass its "
+            "file_data_base64 as source_image_b64 here, plus a prompt describing the changes."
         ),
         "parameters": {
             "type": "object",
