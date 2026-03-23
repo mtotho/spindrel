@@ -280,6 +280,9 @@ async def admin_channel_settings_save(
     compaction_interval: str = Form(""),
     compaction_keep_turns: str = Form(""),
     memory_knowledge_compaction_prompt: str = Form(""),
+    elevation_enabled: str = Form(""),
+    elevation_threshold: str = Form(""),
+    elevated_model: str = Form(""),
 ):
     now = datetime.now(timezone.utc)
     async with async_session() as db:
@@ -295,6 +298,12 @@ async def admin_channel_settings_save(
         channel.compaction_interval = int(compaction_interval) if compaction_interval.strip() else None
         channel.compaction_keep_turns = int(compaction_keep_turns) if compaction_keep_turns.strip() else None
         channel.memory_knowledge_compaction_prompt = memory_knowledge_compaction_prompt.strip() or None
+        channel.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
+        try:
+            channel.elevation_threshold = float(elevation_threshold.strip()) if elevation_threshold.strip() else None
+        except ValueError:
+            channel.elevation_threshold = None
+        channel.elevated_model = elevated_model.strip() or None
         channel.updated_at = now
         await db.commit()
         await db.refresh(channel)

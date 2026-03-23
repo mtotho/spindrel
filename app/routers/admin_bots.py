@@ -201,6 +201,9 @@ async def admin_bot_create(
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
+    elevation_enabled: str = Form(""),
+    elevation_threshold: str = Form(""),
+    elevated_model: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
 ):
@@ -299,6 +302,9 @@ async def admin_bot_create(
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         delegation_config=delegation_config,
         bot_sandbox=bot_sandbox,
+        elevation_enabled={"true": True, "false": False}.get(elevation_enabled.strip().lower()),
+        elevation_threshold=_float_or_none(elevation_threshold),
+        elevated_model=elevated_model.strip() or None,
         model_provider_id=model_provider_id.strip() or None,
         created_at=now,
         updated_at=now,
@@ -473,6 +479,9 @@ async def admin_bot_update(
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
+    elevation_enabled: str = Form(""),
+    elevation_threshold: str = Form(""),
+    elevated_model: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
 ):
@@ -572,6 +581,9 @@ async def admin_bot_update(
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.delegation_config = delegation_config
         row.bot_sandbox = bot_sandbox
+        row.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
+        row.elevation_threshold = _float_or_none(elevation_threshold)
+        row.elevated_model = elevated_model.strip() or None
         row.model_provider_id = model_provider_id.strip() or None
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
