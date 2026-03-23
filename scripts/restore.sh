@@ -69,6 +69,13 @@ cp -r "$RESTORE_DIR/skills/"* "$REPO_DIR/skills/"
 mkdir -p "$REPO_DIR/config/searxng"
 cp "$RESTORE_DIR/config/searxng/settings.yml" "$REPO_DIR/config/searxng/settings.yml"
 
+# Restore workspace data if present in backup
+if [[ -d "$RESTORE_DIR/.agent-workspaces" ]]; then
+  echo "[restore] Restoring workspaces to $HOME/.agent-workspaces …"
+  mkdir -p "$HOME/.agent-workspaces"
+  cp -r "$RESTORE_DIR/.agent-workspaces/"* "$HOME/.agent-workspaces/"
+fi
+
 # ── 4. Start postgres and wait for healthy ──────────────────────────────────
 echo "[restore] Starting postgres …"
 docker compose -f "$REPO_DIR/docker-compose.yml" up -d postgres
