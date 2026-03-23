@@ -64,26 +64,22 @@ class TestPostMessageWithSlackFile:
             yield
 
     async def test_slack_file_triggers_attachment_creation(self, client):
-        """Slack message with file → attachment creation task spawned."""
+        """Slack message with file → attachment creation awaited."""
         with patch("app.routers.chat._create_attachments_from_metadata", new_callable=AsyncMock) as mock_create:
-            # Patch asyncio.create_task to call the coroutine directly
-            with patch("app.routers.chat.asyncio") as mock_asyncio:
-                mock_asyncio.create_task = MagicMock()
+            resp = await client.post(
+                "/chat",
+                json={
+                    "message": "Check this file",
+                    "bot_id": "test-bot",
+                    "file_metadata": [_make_file_metadata()],
+                    "msg_metadata": {"source": "slack"},
+                },
+                headers=AUTH_HEADERS,
+            )
+            assert resp.status_code == 200
 
-                resp = await client.post(
-                    "/chat",
-                    json={
-                        "message": "Check this file",
-                        "bot_id": "test-bot",
-                        "file_metadata": [_make_file_metadata()],
-                        "msg_metadata": {"source": "slack"},
-                    },
-                    headers=AUTH_HEADERS,
-                )
-                assert resp.status_code == 200
-
-                # asyncio.create_task was called for attachment creation
-                mock_asyncio.create_task.assert_called()
+            # _create_attachments_from_metadata was awaited directly
+            mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

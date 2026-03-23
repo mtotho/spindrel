@@ -85,7 +85,7 @@ async def _create_attachments_from_metadata(
     source_integration: str,
     bot_id: str | None = None,
 ) -> None:
-    """Create attachment records from file metadata (fire-and-forget)."""
+    """Create attachment records from file metadata. Awaited before next turn."""
     from app.services.attachments import create_attachment
 
     for fm in file_metadata:
@@ -252,10 +252,10 @@ async def chat(
     )
     if req.file_metadata and user_msg_id:
         source = (req.msg_metadata or {}).get("source", "web")
-        asyncio.create_task(_create_attachments_from_metadata(
+        await _create_attachments_from_metadata(
             req.file_metadata, user_msg_id, channel_id, source,
             bot_id=req.bot_id,
-        ))
+        )
     maybe_compact(
         session_id, bot, messages,
         correlation_id=correlation_id,
@@ -409,10 +409,10 @@ async def chat_stream(
             )
             if req.file_metadata and user_msg_id:
                 source = (req.msg_metadata or {}).get("source", "web")
-                asyncio.create_task(_create_attachments_from_metadata(
+                await _create_attachments_from_metadata(
                     req.file_metadata, user_msg_id, channel_id, source,
                     bot_id=req.bot_id,
-                ))
+                )
 
             maybe_compact(
                 session_id, bot, messages,
