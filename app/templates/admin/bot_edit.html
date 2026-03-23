@@ -43,7 +43,7 @@ function collectContextDraft() {
     knowledge_enabled: hv('knowledge_enabled') === 'true',
     memory_max_inject_chars: nums('memory_max_inject_chars'),
     knowledge_max_inject_chars: nums('knowledge_max_inject_chars'),
-    filesystem_indexes: j('filesystem_indexes_json', []),
+    workspace: j('workspace_json', {enabled: false}),
     audio_input: fd.get('audio_input') || 'transcribe',
     delegation_config: j('delegation_config_json', {}),
   };
@@ -848,201 +848,115 @@ function botContextEstimatePanel(botId) {
   </section>
   {% endif %}
 
-  <!-- Host Execution + Sandbox -->
+  <!-- Workspace -->
   <script>
-  function execSectionData() {
-    const heInit = {{ (bot.host_exec_config or {}) | tojson }};
-    const bsInit = {{ (bot.bot_sandbox or {}) | tojson }};
+  function workspaceData() {
+    const init = {{ (bot.workspace or {}) | tojson }};
+    const docker = init.docker || {};
+    const host = init.host || {};
+    const indexing = init.indexing || {};
     return {
-      he: {
-        enabled: heInit.enabled || false,
-        dry_run: heInit.dry_run || false,
-        working_dirs: heInit.working_dirs || [],
-        commands: heInit.commands || [],
-        blocked_patterns: heInit.blocked_patterns || [],
-        env_passthrough: heInit.env_passthrough || [],
-        timeout: heInit.timeout || null,
-        max_output_bytes: heInit.max_output_bytes || null,
+      ws: {
+        enabled: init.enabled || false,
+        type: init.type || 'docker',
+        docker: {
+          image: docker.image || 'python:3.12-slim',
+          network: docker.network || 'none',
+          env: docker.env || {},
+          ports: docker.ports || [],
+          mounts: docker.mounts || [],
+          user: docker.user || '',
+          read_only_root: docker.read_only_root || false,
+          cpus: docker.cpus || null,
+          memory: docker.memory || null,
+        },
+        host: {
+          root: host.root || '',
+          commands: host.commands || [],
+          blocked_patterns: host.blocked_patterns || [],
+          env_passthrough: host.env_passthrough || [],
+        },
+        timeout: init.timeout || null,
+        max_output_bytes: init.max_output_bytes || null,
+        indexing: {
+          enabled: indexing.enabled !== false,
+          patterns: indexing.patterns || ['**/*.py','**/*.md','**/*.yaml'],
+          similarity_threshold: indexing.similarity_threshold || null,
+          top_k: indexing.top_k || null,
+          watch: indexing.watch !== false,
+          cooldown_seconds: indexing.cooldown_seconds || 300,
+        },
       },
-      bs: {
-        enabled: bsInit.enabled || false,
-        unrestricted: bsInit.unrestricted || false,
-        image: bsInit.image || 'python:3.12-slim',
-        network: bsInit.network || 'none',
-        user: bsInit.user || '',
-        env: bsInit.env || {},
-        ports: bsInit.ports || [],
-        mounts: bsInit.mounts || [],
-      },
-      newDir: '', newCmd: '', newCmdSubs: '', newBlocked: '', newEnvPass: '',
-      newSbEnvKey: '', newSbEnvVal: '', newHostPort: '', newContainerPort: '',
+      newEnvKey: '', newEnvVal: '', newHostPort: '', newContainerPort: '',
       newMountHost: '', newMountContainer: '', newMountMode: 'rw',
-      get sandboxActive() { return this.bs.enabled; },
-      get commandsUnrestricted() { return this.bs.enabled && this.bs.unrestricted; },
-      addDir() { if (this.newDir.trim()) { this.he.working_dirs = [...this.he.working_dirs, this.newDir.trim()]; this.newDir = ''; } },
-      removeDir(i) { this.he.working_dirs = this.he.working_dirs.filter((_, j) => j !== i); },
-      addCmd() { if (this.newCmd.trim()) { const subs = this.newCmdSubs.trim() ? this.newCmdSubs.split(',').map(s => s.trim()).filter(Boolean) : []; this.he.commands = [...this.he.commands, {name: this.newCmd.trim(), subcommands: subs}]; this.newCmd = ''; this.newCmdSubs = ''; } },
-      removeCmd(i) { this.he.commands = this.he.commands.filter((_, j) => j !== i); },
-      addBlocked() { if (this.newBlocked.trim()) { this.he.blocked_patterns = [...this.he.blocked_patterns, this.newBlocked.trim()]; this.newBlocked = ''; } },
-      removeBlocked(i) { this.he.blocked_patterns = this.he.blocked_patterns.filter((_, j) => j !== i); },
-      addEnvPass() { if (this.newEnvPass.trim()) { this.he.env_passthrough = [...this.he.env_passthrough, this.newEnvPass.trim()]; this.newEnvPass = ''; } },
-      removeEnvPass(i) { this.he.env_passthrough = this.he.env_passthrough.filter((_, j) => j !== i); },
-      addSbEnv() { if (this.newSbEnvKey.trim()) { const e = {...this.bs.env}; e[this.newSbEnvKey.trim()] = this.newSbEnvVal; this.bs.env = e; this.newSbEnvKey = ''; this.newSbEnvVal = ''; } },
-      removeSbEnv(k) { const e = {...this.bs.env}; delete e[k]; this.bs.env = e; },
-      addPort() { if (this.newContainerPort.trim()) { this.bs.ports = [...this.bs.ports, {host_port: this.newHostPort.trim(), container_port: this.newContainerPort.trim()}]; this.newHostPort = ''; this.newContainerPort = ''; } },
-      removePort(i) { this.bs.ports = this.bs.ports.filter((_, j) => j !== i); },
-      addMount() { if (this.newMountHost.trim() && this.newMountContainer.trim()) { this.bs.mounts = [...this.bs.mounts, {host_path: this.newMountHost.trim(), container_path: this.newMountContainer.trim(), mode: this.newMountMode}]; this.newMountHost = ''; this.newMountContainer = ''; this.newMountMode = 'rw'; } },
-      removeMount(i) { this.bs.mounts = this.bs.mounts.filter((_, j) => j !== i); },
+      newHostCmd: '', newHostCmdSubs: '', newBlocked: '', newEnvPass: '',
+      newPattern: '',
+      addEnv() { if (this.newEnvKey.trim()) { const e = {...this.ws.docker.env}; e[this.newEnvKey.trim()] = this.newEnvVal; this.ws.docker.env = e; this.newEnvKey = ''; this.newEnvVal = ''; } },
+      removeEnv(k) { const e = {...this.ws.docker.env}; delete e[k]; this.ws.docker.env = e; },
+      addPort() { if (this.newContainerPort.trim()) { this.ws.docker.ports = [...this.ws.docker.ports, {host_port: this.newHostPort.trim(), container_port: this.newContainerPort.trim()}]; this.newHostPort = ''; this.newContainerPort = ''; } },
+      removePort(i) { this.ws.docker.ports = this.ws.docker.ports.filter((_, j) => j !== i); },
+      addMount() { if (this.newMountHost.trim() && this.newMountContainer.trim()) { this.ws.docker.mounts = [...this.ws.docker.mounts, {host_path: this.newMountHost.trim(), container_path: this.newMountContainer.trim(), mode: this.newMountMode}]; this.newMountHost = ''; this.newMountContainer = ''; this.newMountMode = 'rw'; } },
+      removeMount(i) { this.ws.docker.mounts = this.ws.docker.mounts.filter((_, j) => j !== i); },
+      addHostCmd() { if (this.newHostCmd.trim()) { const subs = this.newHostCmdSubs.trim() ? this.newHostCmdSubs.split(',').map(s => s.trim()).filter(Boolean) : []; this.ws.host.commands = [...this.ws.host.commands, {name: this.newHostCmd.trim(), subcommands: subs}]; this.newHostCmd = ''; this.newHostCmdSubs = ''; } },
+      removeHostCmd(i) { this.ws.host.commands = this.ws.host.commands.filter((_, j) => j !== i); },
+      addBlocked() { if (this.newBlocked.trim()) { this.ws.host.blocked_patterns = [...this.ws.host.blocked_patterns, this.newBlocked.trim()]; this.newBlocked = ''; } },
+      removeBlocked(i) { this.ws.host.blocked_patterns = this.ws.host.blocked_patterns.filter((_, j) => j !== i); },
+      addEnvPass() { if (this.newEnvPass.trim()) { this.ws.host.env_passthrough = [...this.ws.host.env_passthrough, this.newEnvPass.trim()]; this.newEnvPass = ''; } },
+      removeEnvPass(i) { this.ws.host.env_passthrough = this.ws.host.env_passthrough.filter((_, j) => j !== i); },
+      addPattern() { if (this.newPattern.trim()) { this.ws.indexing.patterns = [...this.ws.indexing.patterns, this.newPattern.trim()]; this.newPattern = ''; } },
+      removePattern(i) { this.ws.indexing.patterns = this.ws.indexing.patterns.filter((_, j) => j !== i); },
     };
   }
   </script>
-  <section x-data="execSectionData()">
-    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Host Execution</h2>
-    <p class="text-xs text-gray-500 mb-4">Run shell commands on the host system. Requires <code class="bg-gray-700 px-1 rounded">HOST_EXEC_ENABLED=true</code> server setting.</p>
+  <section x-data="workspaceData()">
+    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Workspace</h2>
+    <p class="text-xs text-gray-500 mb-4">Unified execution environment and file indexing. When enabled, <code class="bg-gray-700 px-1 rounded">exec_command</code>, <code class="bg-gray-700 px-1 rounded">search_workspace</code>, <code class="bg-gray-700 px-1 rounded">reindex_workspace</code>, and <code class="bg-gray-700 px-1 rounded">delegate_to_exec</code> tools are auto-injected.</p>
 
-    <input type="hidden" name="host_exec_config_json" :value="JSON.stringify(he)" />
-    <input type="hidden" name="bot_sandbox_json" :value="JSON.stringify(bs)" />
+    <input type="hidden" name="workspace_json" :value="JSON.stringify(ws)" />
 
     <div class="space-y-4">
-      <!-- Toggles -->
-      <div class="flex gap-6">
+      <!-- Enable + Type -->
+      <div class="flex items-center gap-6">
         <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" class="rounded text-indigo-500" x-model="he.enabled" />
-          <span class="text-sm text-gray-300">Enabled</span>
+          <input type="checkbox" class="rounded text-indigo-500" x-model="ws.enabled" />
+          <span class="text-sm text-gray-300">Enable Workspace</span>
         </label>
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" class="rounded text-yellow-500" x-model="he.dry_run" />
-          <span class="text-sm text-gray-300">Dry Run (log only, no execution)</span>
-        </label>
-      </div>
-
-      <!-- Timeout / max output -->
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Timeout (seconds)</label>
-          <input type="number" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
-            x-model.number="he.timeout" placeholder="server default (30)" />
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Max Output Bytes</label>
-          <input type="number" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
-            x-model.number="he.max_output_bytes" placeholder="server default (65536)" />
+        <div x-show="ws.enabled" class="flex items-center gap-2">
+          <label class="block text-xs text-gray-400">Type</label>
+          <select x-model="ws.type" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            <option value="docker">Docker Container</option>
+            <option value="host">Host Execution</option>
+          </select>
         </div>
       </div>
 
-      <!-- Working Dirs -->
-      <div :class="sandboxActive ? 'opacity-40 pointer-events-none select-none' : ''">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          Allowed Working Directories
-          <span x-show="sandboxActive" class="normal-case font-normal text-gray-600 ml-2">(not applicable in sandbox)</span>
+      <div x-show="ws.enabled" class="space-y-4">
+        <!-- Execution Limits -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Timeout (seconds)</label>
+            <input type="number" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              x-model.number="ws.timeout" placeholder="server default (30)" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Max Output Bytes</label>
+            <input type="number" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              x-model.number="ws.max_output_bytes" placeholder="server default (65536)" />
+          </div>
         </div>
-        <div class="space-y-1 mb-2">
-          <template x-for="(dir, i) in (he.working_dirs||[])" :key="i">
-            <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700">
-              <span class="text-xs font-mono text-gray-200 flex-1" x-text="dir"></span>
-              <button type="button" @click="removeDir(i)" class="text-red-400 hover:text-red-300 text-xs">✕</button>
-            </div>
-          </template>
-        </div>
-        <div class="flex gap-2">
-          <input type="text" x-model="newDir" @keydown.enter.prevent="addDir()" placeholder="/home/user/projects"
-            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <button type="button" @click="addDir()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-        </div>
-      </div>
 
-      <!-- Commands -->
-      <div :class="commandsUnrestricted ? 'opacity-40 pointer-events-none select-none' : ''">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          Allowed Commands
-          <span x-show="commandsUnrestricted" class="normal-case font-normal text-gray-600 ml-2">(any command allowed in sandbox)</span>
-        </div>
-        <p class="text-xs text-gray-500 mb-2">Use <code class="bg-gray-700 px-1 rounded">*</code> as name to allow any command. Leave subcommands empty to allow all.</p>
-        <div class="space-y-1 mb-2">
-          <template x-for="(cmd, i) in (he.commands||[])" :key="i">
-            <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700 text-xs">
-              <span class="font-mono text-indigo-300 w-24 shrink-0" x-text="cmd.name"></span>
-              <span class="text-gray-400 flex-1" x-text="cmd.subcommands && cmd.subcommands.length ? cmd.subcommands.join(', ') : '(all subcommands)'"></span>
-              <button type="button" @click="removeCmd(i)" class="text-red-400 hover:text-red-300">✕</button>
-            </div>
-          </template>
-        </div>
-        <div class="flex gap-2">
-          <input type="text" x-model="newCmd" @keydown.enter.prevent="addCmd()" placeholder="binary (e.g. git)"
-            class="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <input type="text" x-model="newCmdSubs" @keydown.enter.prevent="addCmd()" placeholder="subcommands (comma-sep, or blank)"
-            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-          <button type="button" @click="addCmd()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-        </div>
-      </div>
-
-      <!-- Blocked Patterns -->
-      <div>
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Bot-Level Blocked Patterns (regex)</div>
-        <div class="space-y-1 mb-2">
-          <template x-for="(pat, i) in (he.blocked_patterns||[])" :key="i">
-            <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700">
-              <span class="text-xs font-mono text-yellow-300 flex-1" x-text="pat"></span>
-              <button type="button" @click="removeBlocked(i)" class="text-red-400 hover:text-red-300 text-xs">✕</button>
-            </div>
-          </template>
-        </div>
-        <div class="flex gap-2">
-          <input type="text" x-model="newBlocked" @keydown.enter.prevent="addBlocked()" placeholder="regex pattern"
-            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <button type="button" @click="addBlocked()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-        </div>
-      </div>
-
-      <!-- Env Passthrough -->
-      <div :class="sandboxActive ? 'opacity-40 pointer-events-none select-none' : ''">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          Extra Env Passthrough
-          <span x-show="sandboxActive" class="normal-case font-normal text-gray-600 ml-2">(not applicable in sandbox)</span>
-        </div>
-        <p class="text-xs text-gray-500 mb-2">Additional env vars to pass through (beyond server defaults like PATH, HOME).</p>
-        <div class="flex flex-wrap gap-1 mb-2">
-          <template x-for="(v, i) in (he.env_passthrough||[])" :key="i">
-            <span class="flex items-center gap-1 bg-gray-700 rounded px-2 py-0.5 text-xs font-mono text-gray-200">
-              <span x-text="v"></span>
-              <button type="button" @click="removeEnvPass(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
-            </span>
-          </template>
-        </div>
-        <div class="flex gap-2">
-          <input type="text" x-model="newEnvPass" @keydown.enter.prevent="addEnvPass()" placeholder="ENV_VAR_NAME"
-            class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <button type="button" @click="addEnvPass()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-        </div>
-      </div>
-
-      <!-- Execution Sandbox (subsection) -->
-      <div class="pt-4 mt-2 border-t border-gray-700">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Execution Sandbox</div>
-        <p class="text-xs text-gray-500 mb-3">
-          Route <code class="text-gray-400">exec_command</code> into a per-bot Docker container.
-          The container persists even when disabled — toggle to switch routing without destroying it.
-        </p>
-        <div class="flex flex-wrap items-center gap-6 mb-3">
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" class="rounded text-indigo-500" x-model="bs.enabled" />
-            <span class="text-sm text-gray-300">Enable sandbox routing</span>
-          </label>
-          <label x-show="bs.enabled" class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" class="rounded text-green-500" x-model="bs.unrestricted" />
-            <span class="text-sm text-gray-300">Allow any command <span class="text-xs text-gray-500">(ignores command allowlist above)</span></span>
-          </label>
-        </div>
-        <div x-show="bs.enabled" class="space-y-3 pl-4 border-l-2 border-indigo-800/50">
+        <!-- Docker Panel -->
+        <div x-show="ws.type === 'docker'" class="space-y-3 pl-4 border-l-2 border-indigo-800/50">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Docker Settings</div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Docker Image</label>
-              <input x-model="bs.image" type="text" placeholder="python:3.12-slim"
+              <label class="block text-xs text-gray-400 mb-1">Image</label>
+              <input x-model="ws.docker.image" type="text" placeholder="python:3.12-slim"
                 class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div>
               <label class="block text-xs text-gray-400 mb-1">Network Mode</label>
-              <select x-model="bs.network"
+              <select x-model="ws.docker.network"
                 class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="none">none (no network)</option>
                 <option value="bridge">bridge</option>
@@ -1050,40 +964,55 @@ function botContextEstimatePanel(botId) {
               </select>
             </div>
           </div>
-          <!-- Run as User -->
-          <div>
-            <label class="block text-xs text-gray-400 mb-1">Run as User</label>
-            <input x-model="bs.user" type="text" placeholder="e.g. 1000 or appuser (default: image default)"
-              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Run as User</label>
+              <input x-model="ws.docker.user" type="text" placeholder="image default"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">CPUs</label>
+              <input x-model.number="ws.docker.cpus" type="number" step="0.1" placeholder="unlimited"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Memory</label>
+              <input x-model="ws.docker.memory" type="text" placeholder="e.g. 512m, 2g"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
           </div>
-          <!-- Sandbox Env Vars -->
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" class="rounded text-indigo-500" x-model="ws.docker.read_only_root" />
+            <span class="text-sm text-gray-300">Read-only root filesystem</span>
+          </label>
+          <!-- Container Env Vars -->
           <div>
             <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Container Environment Variables</div>
-            <template x-for="(val, key) in bs.env" :key="key">
+            <template x-for="(val, key) in ws.docker.env" :key="key">
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-mono text-xs text-gray-300 w-32 truncate" x-text="key"></span>
                 <span class="text-gray-600">=</span>
                 <span class="font-mono text-xs text-gray-400 flex-1 truncate" x-text="val"></span>
-                <button type="button" @click="removeSbEnv(key)" class="text-xs text-red-400 hover:text-red-300 shrink-0">✕</button>
+                <button type="button" @click="removeEnv(key)" class="text-xs text-red-400 hover:text-red-300 shrink-0">&times;</button>
               </div>
             </template>
             <div class="flex items-center gap-2 mt-1.5">
-              <input x-model="newSbEnvKey" type="text" placeholder="KEY"
+              <input x-model="newEnvKey" type="text" placeholder="KEY"
                 class="w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
               <span class="text-gray-600 text-xs">=</span>
-              <input x-model="newSbEnvVal" type="text" placeholder="value"
+              <input x-model="newEnvVal" type="text" placeholder="value"
                 class="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-              <button type="button" @click="addSbEnv()"
+              <button type="button" @click="addEnv()"
                 class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
             </div>
           </div>
           <!-- Port Mappings -->
           <div>
-            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Port Mappings (optional)</div>
-            <template x-for="(pm, idx) in bs.ports" :key="idx">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Port Mappings</div>
+            <template x-for="(pm, idx) in ws.docker.ports" :key="idx">
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-mono text-xs text-gray-300" x-text="pm.host_port ? pm.host_port + ':' + pm.container_port : pm.container_port"></span>
-                <button type="button" @click="removePort(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">✕</button>
+                <button type="button" @click="removePort(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">&times;</button>
               </div>
             </template>
             <div class="flex items-center gap-2 mt-1.5">
@@ -1096,13 +1025,14 @@ function botContextEstimatePanel(botId) {
                 class="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">Add</button>
             </div>
           </div>
-          <!-- Volume Mounts -->
+          <!-- Extra Volume Mounts -->
           <div>
-            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Volume Mounts</div>
-            <template x-for="(mt, idx) in bs.mounts" :key="idx">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Extra Volume Mounts</div>
+            <p class="text-xs text-gray-500 mb-1">The workspace root is always mounted at <code class="bg-gray-700 px-1 rounded">/workspace</code>. Add additional mounts here.</p>
+            <template x-for="(mt, idx) in ws.docker.mounts" :key="idx">
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-mono text-xs text-gray-300 flex-1 truncate" x-text="mt.host_path + ' : ' + mt.container_path + ' : ' + (mt.mode || 'rw')"></span>
-                <button type="button" @click="removeMount(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">&#10005;</button>
+                <button type="button" @click="removeMount(idx)" class="text-xs text-red-400 hover:text-red-300 shrink-0">&times;</button>
               </div>
             </template>
             <div class="flex items-center gap-2 mt-1.5">
@@ -1124,9 +1054,9 @@ function botContextEstimatePanel(botId) {
           {% if not is_new %}
           <div class="flex items-center gap-4">
             <button type="button"
-              onclick="if(confirm('Recreate the bot-local container?\nThe container will be stopped and removed; the next exec_command call will auto-create it.')) fetch('/admin/sandboxes/bot/{{ bot.id }}/recreate', {method:'POST'}).then(r => { if(r.ok) window.location.reload(); })"
+              onclick="if(confirm('Recreate the workspace container?\nThe container will be stopped and removed; the next exec_command call will auto-create it.')) fetch('/admin/sandboxes/bot/{{ bot.id }}/recreate', {method:'POST'}).then(r => { if(r.ok) window.location.reload(); })"
               class="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-indigo-300 hover:text-indigo-200 rounded-lg border border-gray-600 shrink-0">
-              ↻ Recreate Container
+              Recreate Container
             </button>
             <span hx-get="/admin/sandboxes/bot/{{ bot.id }}/image-status"
               hx-trigger="load"
@@ -1135,49 +1065,129 @@ function botContextEstimatePanel(botId) {
           </div>
           {% endif %}
         </div>
+
+        <!-- Host Panel -->
+        <div x-show="ws.type === 'host'" class="space-y-3 pl-4 border-l-2 border-green-800/50">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Host Settings</div>
+          <p class="text-xs text-gray-500">Requires <code class="bg-gray-700 px-1 rounded">HOST_EXEC_ENABLED=true</code> server setting.</p>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Custom Root (optional)</label>
+            <input x-model="ws.host.root" type="text" placeholder="auto: ~/.agent-workspaces/<bot-id>/"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          </div>
+          <!-- Commands allowlist -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Allowed Commands</div>
+            <p class="text-xs text-gray-500 mb-2">Use <code class="bg-gray-700 px-1 rounded">*</code> to allow any command. Leave subcommands empty to allow all.</p>
+            <div class="space-y-1 mb-2">
+              <template x-for="(cmd, i) in (ws.host.commands||[])" :key="i">
+                <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700 text-xs">
+                  <span class="font-mono text-indigo-300 w-24 shrink-0" x-text="cmd.name"></span>
+                  <span class="text-gray-400 flex-1" x-text="cmd.subcommands && cmd.subcommands.length ? cmd.subcommands.join(', ') : '(all)'"></span>
+                  <button type="button" @click="removeHostCmd(i)" class="text-red-400 hover:text-red-300">&times;</button>
+                </div>
+              </template>
+            </div>
+            <div class="flex gap-2">
+              <input type="text" x-model="newHostCmd" @keydown.enter.prevent="addHostCmd()" placeholder="binary"
+                class="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+              <input type="text" x-model="newHostCmdSubs" @keydown.enter.prevent="addHostCmd()" placeholder="subcommands (comma-sep)"
+                class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+              <button type="button" @click="addHostCmd()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+            </div>
+          </div>
+          <!-- Blocked Patterns -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Blocked Patterns (regex)</div>
+            <div class="space-y-1 mb-2">
+              <template x-for="(pat, i) in (ws.host.blocked_patterns||[])" :key="i">
+                <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1 border border-gray-700">
+                  <span class="text-xs font-mono text-yellow-300 flex-1" x-text="pat"></span>
+                  <button type="button" @click="removeBlocked(i)" class="text-red-400 hover:text-red-300 text-xs">&times;</button>
+                </div>
+              </template>
+            </div>
+            <div class="flex gap-2">
+              <input type="text" x-model="newBlocked" @keydown.enter.prevent="addBlocked()" placeholder="regex pattern"
+                class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+              <button type="button" @click="addBlocked()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+            </div>
+          </div>
+          <!-- Env Passthrough -->
+          <div>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Extra Env Passthrough</div>
+            <div class="flex flex-wrap gap-1 mb-2">
+              <template x-for="(v, i) in (ws.host.env_passthrough||[])" :key="i">
+                <span class="flex items-center gap-1 bg-gray-700 rounded px-2 py-0.5 text-xs font-mono text-gray-200">
+                  <span x-text="v"></span>
+                  <button type="button" @click="removeEnvPass(i)" class="text-red-400 hover:text-red-300 ml-1">&times;</button>
+                </span>
+              </template>
+            </div>
+            <div class="flex gap-2">
+              <input type="text" x-model="newEnvPass" @keydown.enter.prevent="addEnvPass()" placeholder="ENV_VAR_NAME"
+                class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+              <button type="button" @click="addEnvPass()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indexing Panel -->
+        <div class="pt-4 mt-2 border-t border-gray-700">
+          <div class="flex items-center gap-4 mb-3">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Workspace Indexing</div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" class="rounded text-indigo-500" x-model="ws.indexing.enabled" />
+              <span class="text-sm text-gray-300">Enable</span>
+            </label>
+            <label x-show="ws.indexing.enabled" class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" class="rounded text-indigo-500" x-model="ws.indexing.watch" />
+              <span class="text-sm text-gray-300">Watch for changes</span>
+            </label>
+          </div>
+          <div x-show="ws.indexing.enabled" class="space-y-3">
+            <div>
+              <div class="text-xs text-gray-400 mb-1">File Patterns</div>
+              <div class="flex flex-wrap gap-1 mb-2">
+                <template x-for="(pat, i) in (ws.indexing.patterns||[])" :key="i">
+                  <span class="flex items-center gap-1 bg-gray-700 rounded px-2 py-0.5 text-xs font-mono text-gray-200">
+                    <span x-text="pat"></span>
+                    <button type="button" @click="removePattern(i)" class="text-red-400 hover:text-red-300 ml-1">&times;</button>
+                  </span>
+                </template>
+              </div>
+              <div class="flex gap-2">
+                <input type="text" x-model="newPattern" @keydown.enter.prevent="addPattern()" placeholder="**/*.py"
+                  class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+                <button type="button" @click="addPattern()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">Similarity Threshold</label>
+                <input type="number" step="0.01" min="0" max="1"
+                  x-model.number="ws.indexing.similarity_threshold" placeholder="server default"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">Top-K Results</label>
+                <input type="number" min="1"
+                  x-model.number="ws.indexing.top_k" placeholder="server default (8)"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">Cooldown (seconds)</label>
+                <input type="number" min="0"
+                  x-model.number="ws.indexing.cooldown_seconds" placeholder="300"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- Filesystem Access -->
-  <script>
-  function fsAccessData() {
-    return {
-      entries: {{ (bot.filesystem_access or []) | tojson }},
-      newPath: '', newMode: 'read',
-      addEntry() { if (this.newPath.trim()) { this.entries = [...this.entries, {path: this.newPath.trim(), mode: this.newMode}]; this.newPath = ''; this.newMode = 'read'; } },
-      removeEntry(i) { this.entries = this.entries.filter((_, j) => j !== i); },
-    };
-  }
-  </script>
-  <section x-data="fsAccessData()">
-    <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Filesystem Access</h2>
-    <p class="text-xs text-gray-500 mb-4">Control which paths the bot's filesystem tools (read_file, write_file, etc.) can access.</p>
-
-    <input type="hidden" name="filesystem_access_json" :value="JSON.stringify(entries)" />
-
-    <div class="space-y-1 mb-3">
-      <template x-for="(entry, i) in entries" :key="i">
-        <div class="flex items-center gap-2 bg-gray-800 rounded px-2 py-1.5 border border-gray-700 text-xs">
-          <span class="font-mono text-gray-200 flex-1" x-text="entry.path"></span>
-          <span class="px-2 py-0.5 rounded text-xs font-medium"
-            :class="entry.mode === 'readwrite' ? 'bg-green-900 text-green-300' : entry.mode === 'write' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-300'"
-            x-text="entry.mode"></span>
-          <button type="button" @click="removeEntry(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
-        </div>
-      </template>
-    </div>
-    <div class="flex gap-2">
-      <input type="text" x-model="newPath" @keydown.enter.prevent="addEntry()" placeholder="/home/user/projects"
-        class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-      <select x-model="newMode" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
-        <option value="read">read</option>
-        <option value="write">write</option>
-        <option value="readwrite">readwrite</option>
-      </select>
-      <button type="button" @click="addEntry()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-    </div>
-  </section>
 
   <!-- Delegation -->
   <script>
@@ -1252,27 +1262,11 @@ function botContextEstimatePanel(botId) {
     </div>
   </section>
 
-  <!-- Filesystem Indexes script (must be before x-data use) -->
-  <script>
-  function fsIndexData() {
-    const init = {{ (bot.filesystem_indexes or []) | tojson }};
-    return {
-      entries: (init || []).map(e => ({...e, similarity_threshold: e.similarity_threshold ?? null})),
-      newRoot: '', newThreshold: null,
-      addEntry() {
-        if (!this.newRoot.trim()) return;
-        this.entries = [...this.entries, {root: this.newRoot.trim(), patterns: ['**/*.py','**/*.md','**/*.yaml'], cooldown_seconds: 300, watch: false, similarity_threshold: this.newThreshold || null}];
-        this.newRoot = ''; this.newThreshold = null;
-      },
-      removeEntry(i) { this.entries = this.entries.filter((_, j) => j !== i); },
-    };
-  }
-  </script>
 
   <!-- Advanced -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Advanced</h2>
-    <p class="text-xs text-gray-500 mb-4">Audio input mode and filesystem indexing for semantic search over local codebases. Compaction settings are configured per-channel.</p>
+    <p class="text-xs text-gray-500 mb-4">Audio input mode. Compaction settings are configured per-channel.</p>
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-xs text-gray-400 mb-1">Audio Input</label>
@@ -1281,39 +1275,11 @@ function botContextEstimatePanel(botId) {
           <option value="transcribe" {% if bot.audio_input == 'transcribe' %}selected{% endif %}>transcribe</option>
           <option value="native" {% if bot.audio_input == 'native' %}selected{% endif %}>native</option>
         </select>
-        <p class="text-xs text-gray-600 mt-1">transcribe: Whisper STT → text. native: audio passed directly to multimodal models (e.g. Gemini).</p>
-      </div>
-      <div class="col-span-2" x-data="fsIndexData()">
-        <input type="hidden" name="filesystem_indexes_json" :value="JSON.stringify(entries)" />
-        <div class="flex items-center justify-between mb-2">
-          <label class="block text-xs text-gray-400">Filesystem Indexes</label>
-          <span class="text-xs text-gray-600">Configure patterns/watch in FS Admin · threshold overrides server default</span>
-        </div>
-        <div class="space-y-1 mb-2">
-          <template x-for="(entry, i) in entries" :key="i">
-            <div class="flex items-center gap-2 bg-gray-800 rounded px-3 py-1.5 border border-gray-700 text-xs">
-              <span class="font-mono text-gray-200 flex-1 truncate" x-text="entry.root"></span>
-              <label class="text-gray-500 shrink-0">threshold</label>
-              <input type="number" step="0.01" min="0" max="1"
-                :value="entry.similarity_threshold ?? ''"
-                @input="entry.similarity_threshold = $event.target.value ? parseFloat($event.target.value) : null"
-                placeholder="default"
-                class="w-24 bg-gray-900 border border-gray-600 rounded px-2 py-0.5 text-gray-200 focus:outline-none focus:border-indigo-500" />
-              <button type="button" @click="removeEntry(i)" class="text-red-400 hover:text-red-300 ml-1">✕</button>
-            </div>
-          </template>
-          <div x-show="entries.length === 0" class="text-xs text-gray-600 italic px-1">No filesystem indexes configured</div>
-        </div>
-        <div class="flex gap-2">
-          <input type="text" x-model="newRoot" @keydown.enter.prevent="addEntry()" placeholder="/path/to/directory"
-            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          <input type="number" x-model.number="newThreshold" step="0.01" min="0" max="1" placeholder="threshold"
-            class="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
-          <button type="button" @click="addEntry()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg px-3 py-1.5 text-sm">Add</button>
-        </div>
+        <p class="text-xs text-gray-600 mt-1">transcribe: Whisper STT &rarr; text. native: audio passed directly to multimodal models (e.g. Gemini).</p>
       </div>
     </div>
   </section>
+
 
   <div class="flex items-center gap-3 pt-4">
     <button type="submit"

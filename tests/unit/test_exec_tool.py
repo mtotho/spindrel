@@ -99,10 +99,15 @@ class FakeBotSandbox:
 
 
 @dataclass
+class FakeWorkspace:
+    enabled: bool = False
+
+@dataclass
 class FakeBot:
     id: str = "test_bot"
     bot_sandbox: FakeBotSandbox = field(default_factory=FakeBotSandbox)
     docker_sandbox_profiles: list = field(default_factory=list)
+    workspace: FakeWorkspace = field(default_factory=FakeWorkspace)
 
 
 class TestDelegateToExecAccessControl:

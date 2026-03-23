@@ -24,6 +24,60 @@ LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
 
 
+async def _cleanup_orphaned_tools(registered_tools: dict) -> None:
+    """Remove local_tools entries from bot configs that reference unregistered tools."""
+    from app.db.engine import async_session
+    from app.db.models import Bot as BotRow
+
+    registered = set(registered_tools.keys())
+    for bot in list_bots():
+        orphaned = set(bot.local_tools or []) - registered
+        if not orphaned:
+            continue
+        cleaned = [t for t in bot.local_tools if t in registered]
+        logger.info(
+            "Bot '%s': removing %d orphaned local_tools: %s",
+            bot.id, len(orphaned), sorted(orphaned),
+        )
+        async with async_session() as db:
+            row = await db.get(BotRow, bot.id)
+            if row:
+                row.local_tools = cleaned
+                await db.commit()
+    # Reload so in-memory configs reflect the cleanup
+    await load_bots()
+
+
+async def _index_filesystems_and_start_watchers() -> None:
+    """Index workspace and legacy filesystem directories, then start file watchers.
+
+    Runs as a background task so it doesn't block server startup.
+    """
+    from app.agent.fs_indexer import index_directory
+    from app.agent.fs_watcher import start_watchers
+    from app.services.workspace import workspace_service
+
+    logger.info("Background: indexing configured filesystem directories...")
+    for bot in list_bots():
+        # Workspace-based indexing
+        if bot.workspace.enabled and bot.workspace.indexing.enabled:
+            root = workspace_service.get_workspace_root(bot.id)
+            try:
+                stats = await index_directory(root, bot.id, bot.workspace.indexing.patterns, force=True)
+                logger.info("Indexed workspace for bot %s: %s", bot.id, stats)
+            except Exception:
+                logger.exception("Failed to index workspace for bot %s", bot.id)
+        # Legacy filesystem_indexes (backwards compat)
+        for cfg in bot.filesystem_indexes:
+            try:
+                stats = await index_directory(cfg.root, bot.id, cfg.patterns, force=True)
+                logger.info("Indexed %s for bot %s: %s", cfg.root, bot.id, stats)
+            except Exception:
+                logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
+    await start_watchers(list_bots())
+    logger.info("Background: filesystem indexing complete.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
@@ -47,14 +101,9 @@ async def lifespan(app: FastAPI):
 
     logger.info("Indexing local tool schemas for retrieval...")
     await index_local_tools()
-    # Warn about deprecated tool name
-    for _bot in list_bots():
-        if "run_host_command" in (_bot.local_tools or []):
-            logger.warning(
-                "Bot '%s' lists 'run_host_command' in local_tools — this tool has been renamed "
-                "to 'exec_command'. Update the bot config to remove this warning.",
-                _bot.id,
-            )
+    # Auto-remove orphaned local_tools entries (tools that no longer exist)
+    from app.tools.registry import _tools as _registered_tools
+    await _cleanup_orphaned_tools(_registered_tools)
     logger.info("Fetching and indexing MCP tool schemas...")
     await warm_mcp_tool_index_for_all_bots()
     await validate_pinned_tools()
@@ -66,17 +115,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting file watcher...")
     asyncio.create_task(file_sync.watch_files())
 
-    logger.info("Indexing configured filesystem directories...")
-    from app.agent.fs_indexer import index_directory
-    from app.agent.fs_watcher import start_watchers
+    # Ensure workspace host dirs exist (fast, doesn't block)
+    from app.services.workspace import workspace_service
     for bot in list_bots():
-        for cfg in bot.filesystem_indexes:
-            try:
-                stats = await index_directory(cfg.root, bot.id, cfg.patterns, force=True)
-                logger.info("Indexed %s for bot %s: %s", cfg.root, bot.id, stats)
-            except Exception:
-                logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
-    await start_watchers(list_bots())
+        if bot.workspace.enabled:
+            workspace_service.ensure_host_dir(bot.id)
+    # Index filesystem directories + start watchers in background (doesn't block startup)
+    asyncio.create_task(_index_filesystems_and_start_watchers())
 
     if settings.HARNESS_CONFIG_FILE and Path(settings.HARNESS_CONFIG_FILE).exists():
         logger.info("Loading harness configs from %s...", settings.HARNESS_CONFIG_FILE)

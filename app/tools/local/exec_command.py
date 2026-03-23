@@ -1,20 +1,14 @@
-"""exec_command tool — runs shell commands on the host or inside a bot-local sandbox.
+"""exec_command tool — runs shell commands in the bot's workspace.
 
-When the bot has bot_sandbox.enabled=True, commands are transparently routed into the
-per-bot Docker container instead of the host. All other behaviour (access control,
-result format) is identical.
+When the bot has workspace.enabled=True, commands route through the WorkspaceService
+(Docker container or host, depending on workspace.type). Falls back to legacy
+bot_sandbox / host_exec for bots not yet migrated to workspace config.
 """
 import json
 import logging
 
 from app.agent.bots import get_bot
 from app.agent.context import current_bot_id
-from app.services.host_exec import (
-    HostExecAccessDeniedError,
-    HostExecBlockedError,
-    HostExecError,
-    host_exec_service,
-)
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -25,9 +19,8 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "exec_command",
         "description": (
-            "Execute a shell command. "
-            "Routes to the bot-local Docker sandbox when sandbox mode is enabled; "
-            "otherwise runs on the host. "
+            "Execute a shell command in the bot's workspace. "
+            "Routes to Docker container or host depending on workspace config. "
             "Supports pipes, shell features, and chaining (&&, ||). "
             "Use for build commands, git operations, file manipulation, running scripts, etc. "
             "For commands with verbose output (package managers, compilers, build tools), "
@@ -48,8 +41,9 @@ logger = logging.getLogger(__name__)
                 "working_dir": {
                     "type": "string",
                     "description": (
-                        "Absolute path to the working directory. "
-                        "Required for host execution; optional when running in bot sandbox."
+                        "Working directory inside the workspace. "
+                        "For Docker workspaces, defaults to /workspace. "
+                        "For host workspaces, defaults to the workspace root."
                     ),
                 },
             },
@@ -64,7 +58,23 @@ async def exec_command(command: str, working_dir: str = "") -> str:
 
     bot = get_bot(bot_id)
 
-    # Route to bot-local sandbox if enabled
+    # New workspace path
+    if bot.workspace.enabled:
+        try:
+            from app.services.workspace import workspace_service
+            result = await workspace_service.exec(bot_id, command, bot.workspace, working_dir)
+            return json.dumps({
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+                "truncated": result.truncated,
+                "duration_ms": result.duration_ms,
+                "workspace_type": result.workspace_type,
+            })
+        except Exception as e:
+            return json.dumps({"error": "workspace_error", "message": str(e)})
+
+    # Legacy: bot_sandbox path
     if bot.bot_sandbox.enabled:
         if not bot.bot_sandbox.image:
             return json.dumps({"error": "config_error", "message": "bot_sandbox.image is not set."})
@@ -82,11 +92,17 @@ async def exec_command(command: str, working_dir: str = "") -> str:
         except Exception as e:
             return json.dumps({"error": "sandbox_error", "message": str(e)})
 
-    # Host execution path
+    # Legacy: host execution path
     if not working_dir:
         return json.dumps({"error": "missing_param", "message": "working_dir is required for host execution."})
 
     try:
+        from app.services.host_exec import (
+            HostExecAccessDeniedError,
+            HostExecBlockedError,
+            HostExecError,
+            host_exec_service,
+        )
         result = await host_exec_service.run(command, working_dir, bot.host_exec)
     except HostExecAccessDeniedError as e:
         return json.dumps({"error": "access_denied", "message": str(e)})

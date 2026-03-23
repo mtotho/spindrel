@@ -44,6 +44,15 @@
         <p class="text-xs text-gray-600 mt-0.5">Include passive messages in memory compaction.</p>
       </div>
     </label>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input type="checkbox" name="workspace_rag" value="true"
+        {% if channel.workspace_rag %}checked{% endif %}
+        class="mt-0.5 rounded border-gray-600 text-indigo-500" />
+      <div>
+        <span class="text-xs text-gray-300">Workspace RAG</span>
+        <p class="text-xs text-gray-600 mt-0.5">Auto-inject relevant workspace files into context each turn. Disable to keep search_workspace available without auto-injection.</p>
+      </div>
+    </label>
   </div>
 
   {# Compaction #}

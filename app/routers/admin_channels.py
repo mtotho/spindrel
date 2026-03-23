@@ -276,6 +276,7 @@ async def admin_channel_settings_save(
     name: str = Form(""),
     require_mention: str | None = Form(None),
     passive_memory: str | None = Form(None),
+    workspace_rag: str | None = Form(None),
     context_compaction: str = Form("true"),
     compaction_interval: str = Form(""),
     compaction_keep_turns: str = Form(""),
@@ -294,6 +295,7 @@ async def admin_channel_settings_save(
             channel.name = name.strip()
         channel.require_mention = require_mention == "true"
         channel.passive_memory = passive_memory == "true"
+        channel.workspace_rag = workspace_rag == "true"
         channel.context_compaction = context_compaction == "true"
         channel.compaction_interval = int(compaction_interval) if compaction_interval.strip() else None
         channel.compaction_keep_turns = int(compaction_keep_turns) if compaction_keep_turns.strip() else None

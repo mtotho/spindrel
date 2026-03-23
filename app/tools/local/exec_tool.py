@@ -1,4 +1,4 @@
-"""delegate_to_exec — raw command execution inside a bot sandbox."""
+"""delegate_to_exec — raw command execution inside the bot's workspace."""
 import json
 import logging
 import shlex
@@ -65,10 +65,10 @@ def build_exec_script(
     "function": {
         "name": "delegate_to_exec",
         "description": (
-            "Run any shell command inside the bot's sandbox (docker container). "
+            "Run any shell command inside the bot's workspace (docker container or host). "
             "Use mode=sync (default) to wait for the result. "
             "Use mode=deferred for background execution; result posts to the channel when done. "
-            "Output is written to a log file that can be tailed mid-run via exec_sandbox. "
+            "Output is written to a log file that can be tailed mid-run."
         ),
         "parameters": {
             "type": "object",
@@ -84,14 +84,7 @@ def build_exec_script(
                 },
                 "working_directory": {
                     "type": "string",
-                    "description": "Working directory inside the container.",
-                },
-                "sandbox_instance_id": {
-                    "type": "string",
-                    "description": (
-                        "Optional UUID of a specific sandbox instance. "
-                        "If omitted, falls back to the bot's bot_sandbox config."
-                    ),
+                    "description": "Working directory inside the workspace.",
                 },
                 "stream_to": {
                     "type": "string",
@@ -133,11 +126,12 @@ async def delegate_to_exec(
     command: str,
     args: list[str] | None = None,
     working_directory: str | None = None,
-    sandbox_instance_id: str | None = None,
     stream_to: str | None = None,
     mode: str = "sync",
     reply_in_thread: bool = False,
     notify_parent: bool = True,
+    # Legacy param kept for backwards compat — ignored when workspace is enabled
+    sandbox_instance_id: str | None = None,
 ) -> str:
     # Coerce string booleans from LLMs
     if isinstance(reply_in_thread, str):
@@ -166,20 +160,11 @@ async def delegate_to_exec(
             return json.dumps({"error": "Invalid working directory."})
         working_directory = wd
 
-    # Parse sandbox_instance_id
-    sbx: uuid.UUID | None = None
-    if sandbox_instance_id:
-        try:
-            sbx = uuid.UUID(str(sandbox_instance_id).strip())
-        except (ValueError, TypeError):
-            return json.dumps({"error": f"Invalid sandbox_instance_id: {sandbox_instance_id}"})
-
     if mode == "deferred":
         return await _exec_deferred(
             command=command,
             args=args,
             working_directory=working_directory,
-            sandbox_instance_id=sbx,
             stream_to=stream_to,
             bot_id=parent_bot_id,
             reply_in_thread=reply_in_thread,
@@ -191,9 +176,9 @@ async def delegate_to_exec(
         command=command,
         args=args,
         working_directory=working_directory,
-        sandbox_instance_id=sbx,
         stream_to=stream_to,
         bot=bot,
+        sandbox_instance_id=sandbox_instance_id,
     )
 
 
@@ -202,23 +187,46 @@ async def _exec_sync(
     command: str,
     args: list[str] | None,
     working_directory: str | None,
-    sandbox_instance_id: uuid.UUID | None,
     stream_to: str | None,
     bot,
+    sandbox_instance_id: str | None = None,
 ) -> str:
-    """Execute command synchronously in sandbox and return result."""
-    from app.config import settings
-    from app.services.sandbox import sandbox_service
-
+    """Execute command synchronously and return result."""
     script = build_exec_script(command, args, working_directory, stream_to)
 
     try:
-        if sandbox_instance_id is not None:
+        # New workspace path
+        if bot.workspace.enabled:
+            from app.services.workspace import workspace_service
+            exec_res = await workspace_service.exec(
+                bot.id, script, bot.workspace, working_directory or "",
+            )
+            output: dict = {
+                "exit_code": exec_res.exit_code,
+                "duration_ms": exec_res.duration_ms,
+                "workspace_type": exec_res.workspace_type,
+            }
+            if exec_res.truncated:
+                output["truncated"] = True
+            if exec_res.stdout:
+                output["stdout"] = exec_res.stdout
+            if exec_res.stderr:
+                output["stderr"] = exec_res.stderr
+            if stream_to:
+                output["output_file"] = stream_to
+            return json.dumps(output)
+
+        # Legacy: sandbox path
+        from app.config import settings
+        from app.services.sandbox import sandbox_service
+
+        if sandbox_instance_id:
+            sbx = uuid.UUID(str(sandbox_instance_id).strip())
             if not settings.DOCKER_SANDBOX_ENABLED:
                 return json.dumps({"error": "DOCKER_SANDBOX_ENABLED is false."})
             allowed = bot.docker_sandbox_profiles or None
             instance = await sandbox_service.get_instance_for_bot(
-                sandbox_instance_id, bot.id, allowed_profiles=allowed
+                sbx, bot.id, allowed_profiles=allowed
             )
             if instance is None:
                 return json.dumps({"error": "Sandbox instance not found or not allowed."})
@@ -226,9 +234,9 @@ async def _exec_sync(
         elif bot.bot_sandbox.enabled:
             exec_res = await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
         else:
-            return json.dumps({"error": "No sandbox available. Enable bot_sandbox or provide sandbox_instance_id."})
+            return json.dumps({"error": "No workspace or sandbox available. Enable workspace or bot_sandbox."})
 
-        output: dict = {
+        output = {
             "exit_code": exec_res.exit_code,
             "duration_ms": exec_res.duration_ms,
         }
@@ -252,7 +260,6 @@ async def _exec_deferred(
     command: str,
     args: list[str] | None,
     working_directory: str | None,
-    sandbox_instance_id: uuid.UUID | None,
     stream_to: str | None,
     bot_id: str,
     reply_in_thread: bool,
@@ -280,8 +287,6 @@ async def _exec_deferred(
     }
     if stream_to:
         callback_cfg["stream_to"] = stream_to
-    if sandbox_instance_id is not None:
-        callback_cfg["sandbox_instance_id"] = str(sandbox_instance_id)
     if notify_parent and session_id is not None:
         callback_cfg["notify_parent"] = True
         callback_cfg["parent_bot_id"] = bot_id

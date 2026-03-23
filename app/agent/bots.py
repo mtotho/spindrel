@@ -87,6 +87,48 @@ class BotSandboxConfig:
 
 
 @dataclass
+class WorkspaceDockerConfig:
+    image: str = "python:3.12-slim"
+    network: str = "none"
+    env: dict = field(default_factory=dict)
+    ports: list = field(default_factory=list)
+    mounts: list = field(default_factory=list)  # [{host_path, container_path, mode}]
+    user: str = ""
+    read_only_root: bool = False
+    cpus: float | None = None
+    memory: str | None = None
+
+
+@dataclass
+class WorkspaceHostConfig:
+    root: str = ""  # custom root; empty = auto (~/.agent-workspaces/<bot_id>/)
+    commands: list[HostExecCommandEntry] = field(default_factory=list)
+    blocked_patterns: list[str] = field(default_factory=list)
+    env_passthrough: list[str] = field(default_factory=list)
+
+
+@dataclass
+class WorkspaceIndexingConfig:
+    enabled: bool = True
+    patterns: list[str] = field(default_factory=lambda: ["**/*.py", "**/*.md", "**/*.yaml"])
+    similarity_threshold: float | None = None
+    top_k: int | None = None
+    watch: bool = True
+    cooldown_seconds: int = 300
+
+
+@dataclass
+class WorkspaceConfig:
+    enabled: bool = False
+    type: str = "docker"  # "docker" | "host"
+    docker: WorkspaceDockerConfig = field(default_factory=WorkspaceDockerConfig)
+    host: WorkspaceHostConfig = field(default_factory=WorkspaceHostConfig)
+    timeout: int | None = None
+    max_output_bytes: int | None = None
+    indexing: WorkspaceIndexingConfig = field(default_factory=WorkspaceIndexingConfig)
+
+
+@dataclass
 class BotConfig:
     id: str
     name: str
@@ -133,6 +175,8 @@ class BotConfig:
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
     # Bot-local execution sandbox
     bot_sandbox: BotSandboxConfig = field(default_factory=BotSandboxConfig)
+    # Unified workspace config
+    workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
 
     @property
     def skill_ids(self) -> list[str]:
@@ -227,6 +271,47 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         mounts=bs_raw.get("mounts", []),
         user=bs_raw.get("user", ""),
     )
+    ws_raw = row.workspace or {}
+    ws_docker_raw = ws_raw.get("docker", {})
+    ws_host_raw = ws_raw.get("host", {})
+    ws_indexing_raw = ws_raw.get("indexing", {})
+    workspace_cfg = WorkspaceConfig(
+        enabled=ws_raw.get("enabled", False),
+        type=ws_raw.get("type", "docker"),
+        docker=WorkspaceDockerConfig(
+            image=ws_docker_raw.get("image", "python:3.12-slim"),
+            network=ws_docker_raw.get("network", "none"),
+            env=ws_docker_raw.get("env", {}),
+            ports=ws_docker_raw.get("ports", []),
+            mounts=ws_docker_raw.get("mounts", []),
+            user=ws_docker_raw.get("user", ""),
+            read_only_root=ws_docker_raw.get("read_only_root", False),
+            cpus=ws_docker_raw.get("cpus"),
+            memory=ws_docker_raw.get("memory"),
+        ),
+        host=WorkspaceHostConfig(
+            root=ws_host_raw.get("root", ""),
+            commands=[
+                HostExecCommandEntry(
+                    name=c["name"],
+                    subcommands=c.get("subcommands", []),
+                )
+                for c in ws_host_raw.get("commands", [])
+            ],
+            blocked_patterns=ws_host_raw.get("blocked_patterns", []),
+            env_passthrough=ws_host_raw.get("env_passthrough", []),
+        ),
+        timeout=ws_raw.get("timeout"),
+        max_output_bytes=ws_raw.get("max_output_bytes"),
+        indexing=WorkspaceIndexingConfig(
+            enabled=ws_indexing_raw.get("enabled", True),
+            patterns=ws_indexing_raw.get("patterns", ["**/*.py", "**/*.md", "**/*.yaml"]),
+            similarity_threshold=ws_indexing_raw.get("similarity_threshold"),
+            top_k=ws_indexing_raw.get("top_k"),
+            watch=ws_indexing_raw.get("watch", True),
+            cooldown_seconds=ws_indexing_raw.get("cooldown_seconds", 300),
+        ),
+    )
     return BotConfig(
         id=row.id,
         name=row.name,
@@ -265,6 +350,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         elevated_model=row.elevated_model,
         model_provider_id=row.model_provider_id,
         bot_sandbox=bot_sandbox_cfg,
+        workspace=workspace_cfg,
     )
 
 
@@ -338,6 +424,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
             "delegate_bots": data.get("delegate_bots", []),
             "harness_access": data.get("harness_access", []),
         },
+        "workspace": data.get("workspace", {"enabled": False}),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
