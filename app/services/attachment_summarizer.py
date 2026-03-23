@@ -72,9 +72,22 @@ async def _summarize_text_content(content: str, model: str) -> str:
     return (response.choices[0].message.content or "").strip()
 
 
-async def summarize_attachment(attachment_id: uuid.UUID) -> None:
+def _get_bot_semaphore(concurrency: int) -> asyncio.Semaphore:
+    """Return a semaphore for the given concurrency level (cached per value)."""
+    if concurrency == settings.ATTACHMENT_VISION_CONCURRENCY:
+        return _get_semaphore()
+    # For bot-specific concurrency, create a new semaphore (not cached — acceptable for rare case)
+    return asyncio.Semaphore(concurrency)
+
+
+async def summarize_attachment(
+    attachment_id: uuid.UUID,
+    bot_overrides: dict | None = None,
+) -> None:
     """Summarize a single attachment (image via vision, text via LLM)."""
-    sem = _get_semaphore()
+    overrides = bot_overrides or {}
+    concurrency = overrides.get("vision_concurrency", settings.ATTACHMENT_VISION_CONCURRENCY)
+    sem = _get_bot_semaphore(concurrency)
     async with sem:
         try:
             async with async_session() as db:
@@ -82,20 +95,19 @@ async def summarize_attachment(attachment_id: uuid.UUID) -> None:
                 if att is None or att.described_at is not None:
                     return
 
-            model = settings.ATTACHMENT_SUMMARY_MODEL
+            model = overrides.get("model", settings.ATTACHMENT_SUMMARY_MODEL)
+            text_max_chars = overrides.get("text_max_chars", settings.ATTACHMENT_TEXT_MAX_CHARS)
             description: str | None = None
 
             if att.type == "image":
                 description = await _summarize_image(att.url, model)
             elif att.type in ("text", "file"):
-                # For text files, we need the content from the URL
-                # If the URL is accessible, fetch and summarize
                 try:
                     import httpx
                     async with httpx.AsyncClient(timeout=30) as client:
                         resp = await client.get(att.url)
                         resp.raise_for_status()
-                        text_content = resp.text[:settings.ATTACHMENT_TEXT_MAX_CHARS]
+                        text_content = resp.text[:text_max_chars]
                     description = await _summarize_text_content(text_content, model)
                 except Exception:
                     logger.warning(

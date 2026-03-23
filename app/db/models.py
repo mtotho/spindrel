@@ -529,6 +529,10 @@ class Bot(Base):
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_summarization_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    attachment_summary_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_text_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attachment_vision_concurrency: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_provider_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("provider_configs.id", ondelete="SET NULL"),
