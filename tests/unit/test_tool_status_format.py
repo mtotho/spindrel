@@ -93,7 +93,7 @@ def test_unknown_tool():
 def test_unknown_tool_with_args():
     args = json.dumps({"query": "hello"})
     result = format_tool_status("web_search", args)
-    assert result == "🔧 _web_search..._"
+    assert result == "🔧 web_search → hello"
 
 
 # -- Missing / invalid args --

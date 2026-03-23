@@ -65,12 +65,13 @@ async def _get_bot_attachment_config(bot_id: str | None) -> dict:
 async def create_attachment(
     message_id: uuid.UUID,
     channel_id: uuid.UUID | None,
-    url: str,
     filename: str,
     mime_type: str,
     size_bytes: int,
     posted_by: str | None,
     source_integration: str,
+    file_data: bytes | None = None,
+    url: str | None = None,
     attachment_type: str | None = None,
     bot_id: str | None = None,
 ) -> Attachment:
@@ -82,6 +83,7 @@ async def create_attachment(
         channel_id=channel_id,
         type=resolved_type,
         url=url,
+        file_data=file_data,
         filename=filename,
         mime_type=mime_type,
         size_bytes=size_bytes,
