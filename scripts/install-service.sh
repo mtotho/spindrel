@@ -142,7 +142,19 @@ echo "Installed ${#UNITS[@]} service(s):"
 for unit in "${UNITS[@]}"; do
     echo "  - $unit"
 done
+
+# ── Install thoth CLI symlink ────────────────────────────────────────────────
+CLI_SCRIPT="$REPO_DIR/scripts/thoth"
+CLI_LINK="/usr/local/bin/thoth"
+if [ -x "$CLI_SCRIPT" ]; then
+    ln -sf "$CLI_SCRIPT" "$CLI_LINK"
+    echo ""
+    echo "CLI installed: $CLI_LINK → $CLI_SCRIPT"
+fi
+
 echo ""
 echo "Commands:"
-echo "  Status:  systemctl status ${UNITS[*]}"
-echo "  Logs:    journalctl -u thoth -u thoth-slack -f"
+echo "  thoth status    Show service status"
+echo "  thoth restart   Restart services"
+echo "  thoth logs      Tail logs"
+echo "  thoth --help    All commands"
