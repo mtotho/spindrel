@@ -2,65 +2,119 @@
 set -euo pipefail
 
 # ── install-service.sh ───────────────────────────────────────────────────────
-# Set up the Python venv, install deps, run migrations, and install the
-# agent-server systemd service unit.
+# Install Thoth systemd services: the main server + any integration services
+# discovered under integrations/*/service.
+#
+# Paths are resolved from where the repo actually lives. User/group default
+# to the owner of the repo directory (override with -u/-g flags).
+#
+# Usage:
+#   sudo ./scripts/install-service.sh              # auto-detect user from repo owner
+#   sudo ./scripts/install-service.sh -u myuser    # explicit user
+#   sudo ./scripts/install-service.sh -u myuser -g mygroup
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CURRENT_USER="${SUDO_USER:-$USER}"
-VENV_DIR="$REPO_DIR/.venv"
+
+# ── Parse flags ──────────────────────────────────────────────────────────────
+SVC_USER=""
+SVC_GROUP=""
+while getopts "u:g:" opt; do
+    case $opt in
+        u) SVC_USER="$OPTARG" ;;
+        g) SVC_GROUP="$OPTARG" ;;
+        *) echo "Usage: $0 [-u user] [-g group]" >&2; exit 1 ;;
+    esac
+done
+
+# Default user/group to repo directory owner
+if [ -z "$SVC_USER" ]; then
+    SVC_USER="$(stat -c '%U' "$REPO_DIR")"
+fi
+if [ -z "$SVC_GROUP" ]; then
+    SVC_GROUP="$(stat -c '%G' "$REPO_DIR")"
+fi
+
+# ── Detect venv directory name ───────────────────────────────────────────────
+if [ -d "$REPO_DIR/.venv" ]; then
+    VENV=".venv"
+elif [ -d "$REPO_DIR/venv" ]; then
+    VENV="venv"
+else
+    echo "error: No virtualenv found at $REPO_DIR/.venv or $REPO_DIR/venv" >&2
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "error: This script must be run as root (or via sudo)." >&2
     exit 1
 fi
 
-# ── 1. Create .venv with python3.12 if it doesn't exist ─────────────────────
-if [ ! -d "$VENV_DIR" ]; then
-    echo "Creating Python 3.12 virtual environment …"
-    python3.12 -m venv "$VENV_DIR"
-    chown -R "$CURRENT_USER:$CURRENT_USER" "$VENV_DIR"
+echo "Install dir:  $REPO_DIR"
+echo "Venv:         $VENV"
+echo "User/group:   $SVC_USER:$SVC_GROUP"
+echo ""
+
+# ── Create user if needed ────────────────────────────────────────────────────
+if ! id -u "$SVC_USER" >/dev/null 2>&1; then
+    echo "Creating system user '$SVC_USER'..."
+    useradd --system --create-home --shell /usr/sbin/nologin "$SVC_USER"
 fi
 
-# ── 2. Install requirements ─────────────────────────────────────────────────
-echo "Installing Python dependencies …"
-sudo -u "$CURRENT_USER" "$VENV_DIR/bin/pip" install --quiet "$REPO_DIR"
+# ── Add user to docker group ────────────────────────────────────────────────
+if getent group docker >/dev/null 2>&1; then
+    if ! id -nG "$SVC_USER" | grep -qw docker; then
+        echo "Adding '$SVC_USER' to docker group..."
+        usermod -aG docker "$SVC_USER"
+    fi
+else
+    echo "warning: docker group does not exist. Docker commands may fail." >&2
+fi
 
-# ── 3. Run database migrations ──────────────────────────────────────────────
-echo "Running database migrations …"
-sudo -u "$CURRENT_USER" bash -c "cd '$REPO_DIR' && source '$REPO_DIR/.env' 2>/dev/null; '$VENV_DIR/bin/alembic' upgrade head"
+# ── Helper: substitute placeholders and install a service file ───────────────
+install_unit() {
+    local template="$1"
+    local unit_name="$2"
 
-# ── 4. Write systemd unit file ──────────────────────────────────────────────
-echo "Writing /etc/systemd/system/agent-server.service …"
-cat > /etc/systemd/system/agent-server.service <<EOF
-[Unit]
-Description=Thoth Agent Server
-After=network.target docker.service
-Requires=docker.service
+    echo "Installing $unit_name..."
+    sed \
+        -e "s|__INSTALL_DIR__|$REPO_DIR|g" \
+        -e "s|__VENV__|$VENV|g" \
+        -e "s|__USER__|$SVC_USER|g" \
+        -e "s|__GROUP__|$SVC_GROUP|g" \
+        "$template" > "/etc/systemd/system/$unit_name"
+}
 
-[Service]
-User=$CURRENT_USER
-WorkingDirectory=$REPO_DIR
-EnvironmentFile=$REPO_DIR/.env
-ExecStartPre=/usr/bin/docker compose -f $REPO_DIR/docker-compose.yml up -d postgres searxng playwright
-ExecStart=$VENV_DIR/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
+UNITS=()
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# ── Main service ─────────────────────────────────────────────────────────────
+install_unit "$REPO_DIR/systemd/thoth.service" "thoth.service"
+UNITS+=("thoth.service")
 
-# ── 5. Enable and start ─────────────────────────────────────────────────────
-echo "Enabling and starting agent-server.service …"
+# ── Integration services (auto-discover) ─────────────────────────────────────
+for svc_file in "$REPO_DIR"/integrations/*/service; do
+    [ -f "$svc_file" ] || continue
+    integration_id="$(basename "$(dirname "$svc_file")")"
+    install_unit "$svc_file" "thoth-$integration_id.service"
+    UNITS+=("thoth-$integration_id.service")
+done
+
+# ── Reload + enable + start ──────────────────────────────────────────────────
 systemctl daemon-reload
-systemctl enable agent-server.service
-systemctl start agent-server.service
 
-# ── 6. Print status ─────────────────────────────────────────────────────────
+for unit in "${UNITS[@]}"; do
+    echo "Enabling $unit..."
+    systemctl enable "$unit"
+    echo "Starting $unit..."
+    systemctl start "$unit"
+done
+
 echo ""
-echo "agent-server service installed and started."
-systemctl status agent-server.service --no-pager || true
+echo "Installed ${#UNITS[@]} service(s):"
+for unit in "${UNITS[@]}"; do
+    echo "  - $unit"
+done
 echo ""
-echo "  Status:  systemctl status agent-server"
-echo "  Logs:    journalctl -u agent-server -f"
+echo "Commands:"
+echo "  Status:  systemctl status ${UNITS[*]}"
+echo "  Logs:    journalctl -u thoth -u thoth-slack -f"

@@ -5,13 +5,13 @@ Requires=docker.service
 
 [Service]
 Type=simple
-User=thoth
-Group=thoth
-WorkingDirectory=/opt/thoth
-EnvironmentFile=/opt/thoth/.env
-ExecStartPre=/usr/bin/docker compose -f /opt/thoth/docker-compose.yml up -d postgres searxng playwright
-ExecStartPre=/opt/thoth/venv/bin/alembic upgrade head
-ExecStart=/opt/thoth/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStartPre=/usr/bin/docker compose -f __INSTALL_DIR__/docker-compose.yml up -d postgres searxng playwright
+ExecStartPre=__INSTALL_DIR__/__VENV__/bin/alembic upgrade head
+ExecStart=__INSTALL_DIR__/__VENV__/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

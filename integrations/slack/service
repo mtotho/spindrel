@@ -1,0 +1,20 @@
+[Unit]
+Description=Thoth Slack Bot (socket mode)
+After=thoth.service
+BindsTo=thoth.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=__INSTALL_DIR__/__VENV__/bin/python integrations/slack/slack_bot.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=thoth-slack
+
+[Install]
+WantedBy=multi-user.target
