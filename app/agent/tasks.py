@@ -373,6 +373,17 @@ async def run_exec_task(task: Task) -> None:
             if instance is None:
                 raise RuntimeError("Sandbox instance not found or not allowed")
             result = await sandbox_service.exec(instance, script)
+        elif bot.workspace.enabled:
+            from app.services.workspace import workspace_service
+            ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "")
+            # Convert to sandbox-compatible result
+            from dataclasses import dataclass as _dc
+            @_dc
+            class _R:
+                stdout: str; stderr: str; exit_code: int; truncated: bool; duration_ms: int
+            result = _R(stdout=ws_result.stdout, stderr=ws_result.stderr,
+                        exit_code=ws_result.exit_code, truncated=ws_result.truncated,
+                        duration_ms=ws_result.duration_ms)
         elif bot.bot_sandbox.enabled:
             result = await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
         else:
