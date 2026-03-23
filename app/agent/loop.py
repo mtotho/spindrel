@@ -69,7 +69,14 @@ async def run_agent_tool_loop(
     if pre_selected_tools is not None:
         all_tools = list(pre_selected_tools)
     else:
-        local_schemas = get_local_tool_schemas(bot.local_tools)
+        # Auto-inject workspace tools when workspace is enabled
+        _local_tool_names = list(bot.local_tools)
+        if bot.workspace.enabled:
+            from app.agent.message_utils import _WORKSPACE_TOOLS
+            for wt in _WORKSPACE_TOOLS:
+                if wt not in _local_tool_names:
+                    _local_tool_names.append(wt)
+        local_schemas = get_local_tool_schemas(_local_tool_names)
         mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
         client_schemas = get_client_tool_schemas(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas

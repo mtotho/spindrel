@@ -408,10 +408,53 @@ async def assemble_context(
             })
             yield {"type": "plans_context", "count": len(_plan_rows)}
 
-    # --- filesystem context ---
-    if bot.filesystem_indexes:
+    # --- workspace filesystem context ---
+    _do_workspace_rag = False
+    if bot.workspace.enabled and bot.workspace.indexing.enabled:
+        # Check channel override
+        _channel_rag = True
+        if channel_id:
+            try:
+                from app.db.engine import async_session as _async_session_ch
+                from app.db.models import Channel as _Channel
+                async with _async_session_ch() as _chdb:
+                    _ch = await _chdb.get(_Channel, channel_id)
+                    if _ch and not _ch.workspace_rag:
+                        _channel_rag = False
+            except Exception:
+                pass
+        _do_workspace_rag = _channel_rag
+
+    if _do_workspace_rag:
         from app.agent.fs_indexer import retrieve_filesystem_context
-        # Use the most permissive threshold across all configured indexes (or default)
+        from app.services.workspace import workspace_service
+        _ws_root = workspace_service.get_workspace_root(bot.id)
+        _ws_threshold = bot.workspace.indexing.similarity_threshold
+        _ws_top_k = bot.workspace.indexing.top_k
+        fs_chunks, fs_sim = await retrieve_filesystem_context(
+            user_message, bot.id, roots=[_ws_root],
+            threshold=_ws_threshold, top_k=_ws_top_k,
+        )
+        if fs_chunks:
+            yield {"type": "fs_context", "count": len(fs_chunks)}
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="fs_context",
+                    count=len(fs_chunks),
+                    data={"preview": fs_chunks[0][:200], "best_similarity": round(fs_sim, 4)},
+                ))
+            messages.append({
+                "role": "system",
+                "content": "Relevant files from workspace:\n\n"
+                           + "\n\n---\n\n".join(fs_chunks),
+            })
+    elif bot.filesystem_indexes:
+        # Legacy filesystem_indexes path
+        from app.agent.fs_indexer import retrieve_filesystem_context
         fs_threshold = min(
             (cfg.similarity_threshold for cfg in bot.filesystem_indexes if cfg.similarity_threshold is not None),
             default=None,

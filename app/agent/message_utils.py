@@ -103,9 +103,18 @@ def _merge_tool_schemas(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+_WORKSPACE_TOOLS = ["exec_command", "search_workspace", "reindex_workspace", "delegate_to_exec"]
+
+
 async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]:
     by_name: dict[str, dict[str, Any]] = {}
-    for t in get_local_tool_schemas(bot.local_tools):
+    # Auto-inject workspace tools when workspace is enabled
+    extra_local = list(bot.local_tools)
+    if bot.workspace.enabled:
+        for wt in _WORKSPACE_TOOLS:
+            if wt not in extra_local:
+                extra_local.append(wt)
+    for t in get_local_tool_schemas(extra_local):
         by_name[t["function"]["name"]] = t
     for t in await fetch_mcp_tools(bot.mcp_servers):
         by_name[t["function"]["name"]] = t

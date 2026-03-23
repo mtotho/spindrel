@@ -66,11 +66,26 @@ async def _debounced_watch(root: str, bot_id: str, patterns: list[str]) -> None:
 
 
 async def start_watchers(bots: list) -> None:
-    """Launch watcher tasks for all watch=True filesystem_indexes configs across all bots."""
+    """Launch watcher tasks for workspace and legacy filesystem_indexes configs."""
     global _stop_event, _watcher_tasks
     _stop_event = asyncio.Event()
     seen: set[tuple[str, str]] = set()
     for bot in bots:
+        # Workspace-based watcher (new)
+        ws = getattr(bot, "workspace", None)
+        if ws and ws.enabled and ws.indexing.enabled and ws.indexing.watch:
+            from app.services.workspace import workspace_service
+            ws_root = workspace_service.get_workspace_root(bot.id)
+            abs_root = str(Path(ws_root).resolve())
+            key = (abs_root, bot.id)
+            if key not in seen:
+                seen.add(key)
+                task = asyncio.create_task(
+                    _debounced_watch(ws_root, bot.id, ws.indexing.patterns),
+                    name=f"fs_watcher:{bot.id}:{abs_root}",
+                )
+                _watcher_tasks.append(task)
+        # Legacy filesystem_indexes
         for cfg in getattr(bot, "filesystem_indexes", []):
             if not cfg.watch:
                 continue

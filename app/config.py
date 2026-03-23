@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
     HARNESS_MAX_RESUME_RETRIES: int = 1
 
+    # Workspaces
+    WORKSPACE_BASE_DIR: str = "~/.agent-workspaces"
+
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False
     DOCKER_SOCKET_PATH: str = "/var/run/docker.sock"
@@ -116,7 +119,7 @@ class Settings(BaseSettings):
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this
     TOOL_RESULT_SUMMARIZE_MODEL: str = "gemini/gemini-2.5-flash"             # empty = use bot's current model
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
-    TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill", "read_file"]
+    TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill"]
 
     # RAG injection limits (chars per item before joining; prevents context bloat)
     KNOWLEDGE_MAX_INJECT_CHARS: int = 8000   # per knowledge doc injected into context

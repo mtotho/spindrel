@@ -142,6 +142,7 @@ async def admin_bot_new(request: Request):
         knowledge_max_inject_chars=None, memory_max_inject_chars=None,
         delegation_config={},
         bot_sandbox={},
+        workspace={"enabled": False},
         model_provider_id=None,
         attachment_summarization_enabled=None,
         attachment_summary_model=None,
@@ -214,6 +215,7 @@ async def admin_bot_create(
     attachment_vision_concurrency: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
+    workspace_json: str = Form(default='{"enabled": false}'),
 ):
     bot_id = id.strip()
     if not bot_id or not name.strip() or not model.strip():
@@ -260,6 +262,11 @@ async def admin_bot_create(
         bot_sandbox = json.loads(bot_sandbox_json or "{}")
     except json.JSONDecodeError:
         bot_sandbox = {}
+
+    try:
+        workspace = json.loads(workspace_json or '{"enabled": false}')
+    except json.JSONDecodeError:
+        workspace = {"enabled": False}
 
     from app.agent.bots import _normalize_skill_entry
     try:
@@ -310,6 +317,7 @@ async def admin_bot_create(
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         delegation_config=delegation_config,
         bot_sandbox=bot_sandbox,
+        workspace=workspace,
         elevation_enabled={"true": True, "false": False}.get(elevation_enabled.strip().lower()),
         elevation_threshold=_float_or_none(elevation_threshold),
         elevated_model=elevated_model.strip() or None,
@@ -500,6 +508,7 @@ async def admin_bot_update(
     attachment_vision_concurrency: str = Form(""),
     model_provider_id: str = Form(""),
     bot_sandbox_json: str = Form(default="{}"),
+    workspace_json: str = Form(default='{"enabled": false}'),
 ):
     def _float_or_none(s: str) -> float | None:
         try:
@@ -542,6 +551,11 @@ async def admin_bot_update(
         bot_sandbox = json.loads(bot_sandbox_json or "{}")
     except json.JSONDecodeError:
         bot_sandbox = {}
+
+    try:
+        workspace = json.loads(workspace_json or '{"enabled": false}')
+    except json.JSONDecodeError:
+        workspace = {"enabled": False}
 
     from app.agent.bots import _normalize_skill_entry
     try:
@@ -597,6 +611,7 @@ async def admin_bot_update(
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.delegation_config = delegation_config
         row.bot_sandbox = bot_sandbox
+        row.workspace = workspace
         row.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
         row.elevation_threshold = _float_or_none(elevation_threshold)
         row.elevated_model = elevated_model.strip() or None
