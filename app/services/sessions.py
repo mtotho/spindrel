@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import BotConfig, get_bot
 from app.agent.persona import get_persona
 from app.db.engine import async_session
-from app.db.models import Message, Session
+from sqlalchemy.orm import selectinload
+
+from app.db.models import Attachment, Message, Session
 
 
 logger = logging.getLogger(__name__)
@@ -204,11 +206,13 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
         if watermark_msg is not None:
             recent_result = await db.execute(
                 select(Message)
+                .options(selectinload(Message.attachments))
                 .where(Message.session_id == session.id)
                 .where(Message.created_at > watermark_msg.created_at)
                 .order_by(Message.created_at)
             )
-            recent = [_message_to_dict(m) for m in recent_result.scalars().all() if m.role != "system"]
+            recent = [_message_to_dict(m, enrich_attachments=True)
+                       for m in recent_result.scalars().all() if m.role != "system"]
             passive, active = _split_passive_active(recent)
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
@@ -220,10 +224,11 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             logger.warning("Watermark message missing for session %s, falling back to summary + full history", session.id)
             result = await db.execute(
                 select(Message)
+                .options(selectinload(Message.attachments))
                 .where(Message.session_id == session.id)
                 .order_by(Message.created_at)
             )
-            all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
+            all_msgs = [_message_to_dict(m, enrich_attachments=True) for m in result.scalars().all()]
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
             messages = _base_messages()
@@ -234,10 +239,11 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
 
     result = await db.execute(
         select(Message)
+        .options(selectinload(Message.attachments))
         .where(Message.session_id == session.id)
         .order_by(Message.created_at)
     )
-    all_msgs = [_message_to_dict(m) for m in result.scalars().all()]
+    all_msgs = [_message_to_dict(m, enrich_attachments=True) for m in result.scalars().all()]
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
     messages = _base_messages()
@@ -253,12 +259,14 @@ async def persist_turn(
     from_index: int,
     correlation_id: uuid.UUID | None = None,
     msg_metadata: dict | None = None,
-) -> None:
+) -> uuid.UUID | None:
+    """Persist new messages from a turn. Returns the first user message ID (for attachment linking)."""
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
     now = datetime.now(timezone.utc)
     first_user = True
+    first_user_msg_id: uuid.UUID | None = None
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
         meta = {}
@@ -276,6 +284,8 @@ async def persist_turn(
             created_at=now + timedelta(microseconds=i),
         )
         db.add(record)
+        if first_user_msg_id is None and msg.get("role") == "user":
+            first_user_msg_id = record.id
 
     await db.execute(
         update(Session)
@@ -283,6 +293,7 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
+    return first_user_msg_id
 
 
 async def store_dispatch_echo(
@@ -448,10 +459,73 @@ def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
     return cleaned
 
 
-def _message_to_dict(msg: Message) -> dict:
+def _attachment_hint(att: Attachment) -> str:
+    """Build a compact redaction hint for an attachment in history."""
+    desc = att.description or "pending summary"
+    return f'[attached: {att.filename} — "{desc}"]'
+
+
+def _enrich_content_with_attachments(content: Any, attachments: list[Attachment]) -> Any:
+    """Replace image/file placeholders in stored content with attachment summaries.
+
+    Only applies to older turns where images were redacted to placeholders by
+    _redact_images_for_db.  Returns enriched content.
+    """
+    if not attachments:
+        return content
+
+    hints = "\n".join(_attachment_hint(a) for a in attachments)
+    tool_hint = (
+        "\n(Use get_attachment tool to fetch full file/image if needed.)"
+        if any(a.description for a in attachments)
+        else ""
+    )
+
+    if isinstance(content, str):
+        # Replace generic image placeholders with attachment summaries
+        if "[image — not available in this session]" in content:
+            content = content.replace(
+                "[image — not available in this session]",
+                hints + tool_hint,
+                1,  # replace first occurrence; remaining will be replaced by subsequent calls
+            )
+        elif "[image]" in content:
+            content = content.replace("[image]", hints + tool_hint, 1)
+        else:
+            # No placeholder — append hints
+            content = content + "\n" + hints + tool_hint
+        return content
+
+    if isinstance(content, list):
+        # Replace image_url placeholder parts with text attachment hints
+        result: list = []
+        hint_injected = False
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text", "")
+                if "[image — not available in this session]" in text:
+                    text = text.replace(
+                        "[image — not available in this session]",
+                        hints + tool_hint,
+                    )
+                    hint_injected = True
+                result.append({"type": "text", "text": text})
+            else:
+                result.append(part)
+        if not hint_injected:
+            result.append({"type": "text", "text": hints + tool_hint})
+        return result
+
+    return content
+
+
+def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     d: dict = {"role": msg.role}
     if msg.content is not None:
-        d["content"] = normalize_stored_content(msg.content)
+        content = normalize_stored_content(msg.content)
+        if enrich_attachments and hasattr(msg, "attachments") and msg.attachments:
+            content = _enrich_content_with_attachments(content, msg.attachments)
+        d["content"] = content
     if msg.tool_calls is not None:
         d["tool_calls"] = msg.tool_calls
     if msg.tool_call_id is not None:

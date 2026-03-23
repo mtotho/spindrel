@@ -40,6 +40,15 @@ class Attachment(BaseModel):
     name: str = ""
 
 
+class FileMetadata(BaseModel):
+    """Metadata about an attached file for server-side attachment tracking."""
+    url: str
+    filename: str = "attachment"
+    mime_type: str = "application/octet-stream"
+    size_bytes: int = 0
+    posted_by: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str = ""
     channel_id: Optional[uuid.UUID] = None  # Preferred for channel targeting
@@ -50,6 +59,7 @@ class ChatRequest(BaseModel):
     audio_format: Optional[str] = None  # e.g. "m4a", "wav", "webm"
     audio_native: Optional[bool] = None  # True/False overrides bot default; None = use bot setting
     attachments: list[Attachment] = Field(default_factory=list)
+    file_metadata: list[FileMetadata] = Field(default_factory=list)  # server-side attachment tracking
     dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"
     dispatch_config: Optional[dict] = None  # type-specific routing config
     passive: bool = False  # If True, store message but skip agent run
@@ -65,6 +75,31 @@ class ChatResponse(BaseModel):
 
 def _is_integration_client(client_id: str) -> bool:
     return is_integration_client_id(client_id)
+
+
+async def _create_attachments_from_metadata(
+    file_metadata: list[FileMetadata],
+    message_id: uuid.UUID,
+    channel_id: uuid.UUID | None,
+    source_integration: str,
+) -> None:
+    """Create attachment records from file metadata (fire-and-forget)."""
+    from app.services.attachments import create_attachment
+
+    for fm in file_metadata:
+        try:
+            await create_attachment(
+                message_id=message_id,
+                channel_id=channel_id,
+                url=fm.url,
+                filename=fm.filename,
+                mime_type=fm.mime_type,
+                size_bytes=fm.size_bytes,
+                posted_by=fm.posted_by,
+                source_integration=source_integration,
+            )
+        except Exception:
+            logger.warning("Failed to create attachment for %s", fm.filename, exc_info=True)
 
 
 async def _resolve_channel_and_session(
@@ -204,11 +239,16 @@ async def chat(
         logger.info("Client actions: %d", len(result.client_actions))
         logger.debug("Client actions: %s", result.client_actions)
 
-    await persist_turn(
+    user_msg_id = await persist_turn(
         db, session_id, bot, messages, from_index,
         correlation_id=correlation_id,
         msg_metadata=req.msg_metadata,
     )
+    if req.file_metadata and user_msg_id:
+        source = (req.msg_metadata or {}).get("source", "web")
+        asyncio.create_task(_create_attachments_from_metadata(
+            req.file_metadata, user_msg_id, channel_id, source,
+        ))
     maybe_compact(
         session_id, bot, messages,
         correlation_id=correlation_id,
@@ -355,11 +395,16 @@ async def chat_stream(
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
 
-            await persist_turn(
+            user_msg_id = await persist_turn(
                 db, session_id, bot, messages, from_index,
                 correlation_id=correlation_id,
                 msg_metadata=req.msg_metadata,
             )
+            if req.file_metadata and user_msg_id:
+                source = (req.msg_metadata or {}).get("source", "web")
+                asyncio.create_task(_create_attachments_from_metadata(
+                    req.file_metadata, user_msg_id, channel_id, source,
+                ))
 
             maybe_compact(
                 session_id, bot, messages,
