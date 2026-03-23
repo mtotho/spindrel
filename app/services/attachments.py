@@ -62,6 +62,15 @@ async def _get_bot_attachment_config(bot_id: str | None) -> dict:
         return {}
 
 
+async def _get_channel_for_retention(channel_id: uuid.UUID | None):
+    """Load channel row for retention config lookup."""
+    if not channel_id:
+        return None
+    from app.db.models import Channel
+    async with async_session() as db:
+        return await db.get(Channel, channel_id)
+
+
 async def create_attachment(
     message_id: uuid.UUID,
     channel_id: uuid.UUID | None,
@@ -77,13 +86,37 @@ async def create_attachment(
 ) -> Attachment:
     """Persist an attachment and kick off async summarization."""
     resolved_type = attachment_type or _infer_type(mime_type)
+
+    # Enforce size and type restrictions (channel → global)
+    stored_file_data = file_data
+    if stored_file_data is not None:
+        from app.services.attachment_retention import get_effective_retention
+        channel = await _get_channel_for_retention(channel_id)
+        effective = get_effective_retention(channel)
+
+        max_size = effective["max_size_bytes"]
+        if max_size is not None and size_bytes > max_size:
+            logger.info(
+                "Attachment %s (%d bytes) exceeds max_size_bytes %d for channel %s — storing metadata only",
+                filename, size_bytes, max_size, channel_id,
+            )
+            stored_file_data = None
+
+        types_allowed = effective["types_allowed"]
+        if stored_file_data is not None and types_allowed is not None and resolved_type not in types_allowed:
+            logger.info(
+                "Attachment type '%s' not in allowed types %s for channel %s — storing metadata only",
+                resolved_type, types_allowed, channel_id,
+            )
+            stored_file_data = None
+
     attachment = Attachment(
         id=uuid.uuid4(),
         message_id=message_id,
         channel_id=channel_id,
         type=resolved_type,
         url=url,
-        file_data=file_data,
+        file_data=stored_file_data,
         filename=filename,
         mime_type=mime_type,
         size_bytes=size_bytes,
