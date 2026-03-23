@@ -167,3 +167,25 @@ async def reset_channel_session(
     await db.flush()
     await db.commit()
     return session_id
+
+
+async def switch_channel_session(
+    db: AsyncSession,
+    channel: Channel,
+    session_id: uuid.UUID,
+) -> uuid.UUID:
+    """Switch a channel's active session to an existing session.
+
+    The target session must belong to this channel.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError(f"Session {session_id} not found")
+    if session.channel_id != channel.id:
+        raise ValueError(f"Session {session_id} does not belong to channel {channel.id}")
+
+    channel.active_session_id = session_id
+    channel.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+    return session_id

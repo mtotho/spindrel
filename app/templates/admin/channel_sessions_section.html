@@ -46,6 +46,18 @@
       <td class="py-2 text-right text-gray-500 text-xs whitespace-nowrap">
         {{ s.last_active | fmt_dt }}
       </td>
+      <td class="py-2 pl-2 text-right">
+        {% if not (channel.active_session_id and s.id == channel.active_session_id) %}
+        <button
+          hx-post="/admin/channels/{{ channel.id }}/switch-session/{{ s.id }}"
+          hx-confirm="Switch to this session?"
+          hx-target="#sessions-section"
+          hx-swap="innerHTML"
+          class="text-[10px] px-2 py-0.5 rounded bg-gray-700 hover:bg-indigo-700 text-gray-300 hover:text-white">
+          Restore
+        </button>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

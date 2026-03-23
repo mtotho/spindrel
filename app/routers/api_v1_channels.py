@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, KnowledgeAccess, Message, Session, Task
 from app.dependencies import get_db, verify_auth
-from app.services.channels import get_or_create_channel, ensure_active_session, reset_channel_session
+from app.services.channels import get_or_create_channel, ensure_active_session, reset_channel_session, switch_channel_session
 from app.services.sessions import store_passive_message
 from app.tools.local.search_history import _build_query, _serialize_messages
 
@@ -251,6 +251,35 @@ async def reset_channel(
     return ResetResponse(
         channel_id=channel_id,
         new_session_id=new_session_id,
+        previous_session_id=previous,
+    )
+
+
+class SwitchSessionRequest(BaseModel):
+    session_id: uuid.UUID
+
+
+@router.post("/{channel_id}/switch-session", response_model=ResetResponse)
+async def switch_session(
+    channel_id: uuid.UUID,
+    body: SwitchSessionRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Switch a channel's active session to an existing session."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    previous = channel.active_session_id
+    try:
+        await switch_channel_session(db, channel, body.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return ResetResponse(
+        channel_id=channel_id,
+        new_session_id=body.session_id,
         previous_session_id=previous,
     )
 

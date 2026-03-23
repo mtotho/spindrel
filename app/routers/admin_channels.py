@@ -36,7 +36,7 @@ from app.db.models import (
     TraceEvent,
 )
 from app.routers.admin_template_filters import install_admin_template_filters
-from app.services.channels import reset_channel_session
+from app.services.channels import reset_channel_session, switch_channel_session
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +176,42 @@ async def admin_channel_reset(request: Request, channel_id: uuid.UUID):
     return HTMLResponse(
         f'<span class="text-xs text-green-400">Reset! New session: {str(new_session_id)[:8]}...</span>'
     )
+
+
+@router.post("/channels/{channel_id}/switch-session/{session_id}", response_class=HTMLResponse)
+async def admin_channel_switch_session(request: Request, channel_id: uuid.UUID, session_id: uuid.UUID):
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        try:
+            await switch_channel_session(db, channel, session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Re-render the sessions section
+        sessions = (await db.execute(
+            select(Session)
+            .where(Session.channel_id == channel_id)
+            .order_by(Session.last_active.desc())
+            .limit(20)
+        )).scalars().all()
+        msg_counts: dict[uuid.UUID, int] = {}
+        if sessions:
+            sids = [s.id for s in sessions]
+            rows = (await db.execute(
+                select(Message.session_id, func.count())
+                .where(Message.session_id.in_(sids))
+                .group_by(Message.session_id)
+            )).all()
+            msg_counts = {r[0]: r[1] for r in rows}
+
+    return templates.TemplateResponse("admin/channel_sessions_section.html", {
+        "request": request,
+        "channel": channel,
+        "sessions": sessions,
+        "msg_counts": msg_counts,
+    })
 
 
 # ---------------------------------------------------------------------------
