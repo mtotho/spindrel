@@ -82,6 +82,7 @@ async def _create_attachments_from_metadata(
     message_id: uuid.UUID,
     channel_id: uuid.UUID | None,
     source_integration: str,
+    bot_id: str | None = None,
 ) -> None:
     """Create attachment records from file metadata (fire-and-forget)."""
     from app.services.attachments import create_attachment
@@ -97,6 +98,7 @@ async def _create_attachments_from_metadata(
                 size_bytes=fm.size_bytes,
                 posted_by=fm.posted_by,
                 source_integration=source_integration,
+                bot_id=bot_id,
             )
         except Exception:
             logger.warning("Failed to create attachment for %s", fm.filename, exc_info=True)
@@ -248,6 +250,7 @@ async def chat(
         source = (req.msg_metadata or {}).get("source", "web")
         asyncio.create_task(_create_attachments_from_metadata(
             req.file_metadata, user_msg_id, channel_id, source,
+            bot_id=req.bot_id,
         ))
     maybe_compact(
         session_id, bot, messages,
@@ -404,6 +407,7 @@ async def chat_stream(
                 source = (req.msg_metadata or {}).get("source", "web")
                 asyncio.create_task(_create_attachments_from_metadata(
                     req.file_metadata, user_msg_id, channel_id, source,
+                    bot_id=req.bot_id,
                 ))
 
             maybe_compact(

@@ -37,6 +37,31 @@ def _infer_type(mime_type: str) -> str:
     return "file"
 
 
+async def _get_bot_attachment_config(bot_id: str | None) -> dict:
+    """Look up bot-level attachment overrides. Returns dict of non-None overrides."""
+    if not bot_id:
+        return {}
+    try:
+        from app.db.models import Bot as BotRow
+        async with async_session() as db:
+            row = await db.get(BotRow, bot_id)
+        if not row:
+            return {}
+        overrides = {}
+        if row.attachment_summarization_enabled is not None:
+            overrides["enabled"] = row.attachment_summarization_enabled
+        if row.attachment_summary_model is not None:
+            overrides["model"] = row.attachment_summary_model
+        if row.attachment_text_max_chars is not None:
+            overrides["text_max_chars"] = row.attachment_text_max_chars
+        if row.attachment_vision_concurrency is not None:
+            overrides["vision_concurrency"] = row.attachment_vision_concurrency
+        return overrides
+    except Exception:
+        logger.warning("Failed to load bot attachment config for %s", bot_id, exc_info=True)
+        return {}
+
+
 async def create_attachment(
     message_id: uuid.UUID,
     channel_id: uuid.UUID | None,
@@ -47,6 +72,7 @@ async def create_attachment(
     posted_by: str | None,
     source_integration: str,
     attachment_type: str | None = None,
+    bot_id: str | None = None,
 ) -> Attachment:
     """Persist an attachment and kick off async summarization."""
     resolved_type = attachment_type or _infer_type(mime_type)
@@ -67,10 +93,14 @@ async def create_attachment(
         await db.commit()
         await db.refresh(attachment)
 
+    # Resolve bot-level overrides
+    bot_config = await _get_bot_attachment_config(bot_id)
+    summarization_enabled = bot_config.get("enabled", settings.ATTACHMENT_SUMMARY_ENABLED)
+
     # Fire eager summarization
-    if settings.ATTACHMENT_SUMMARY_ENABLED and resolved_type in ("image", "text", "file"):
+    if summarization_enabled and resolved_type in ("image", "text", "file"):
         from app.services.attachment_summarizer import summarize_attachment
-        asyncio.create_task(summarize_attachment(attachment.id))
+        asyncio.create_task(summarize_attachment(attachment.id, bot_overrides=bot_config))
 
     logger.info(
         "Created attachment %s (%s, %s) for message %s",

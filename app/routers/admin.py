@@ -10,6 +10,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.agent.bots import get_bot, list_bots
@@ -23,6 +24,7 @@ from app.services.sessions import (
     upsert_integration_session,
 )
 from app.db.models import (
+    Attachment,
     BotKnowledge,
     KnowledgePin,
     KnowledgeWrite,
@@ -241,11 +243,14 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
             await db.execute(
                 select(Message)
                 .where(Message.session_id == session_id)
+                .options(selectinload(Message.attachments))
                 .order_by(Message.created_at.asc())
                 .offset(offset)
                 .limit(page_size)
             )
         ).scalars().all()
+        # Collect all attachments across loaded messages
+        all_attachments = [att for msg in messages for att in (msg.attachments or [])]
         plans = (await db.execute(
             select(Plan).where(Plan.session_id == session_id).order_by(Plan.created_at)
         )).scalars().all()
@@ -282,6 +287,7 @@ async def admin_session_detail(request: Request, session_id: uuid.UUID, page: in
             "last_page": last_page,
             "plans": plans,
             "plan_items": plan_items_map,
+            "attachments": all_attachments,
         },
     )
 

@@ -662,6 +662,41 @@ function botContextEstimatePanel(botId) {
     </div>
   </section>
 
+  <!-- Attachments -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Attachment Summarization</h2>
+    <p class="text-xs text-gray-500 mb-4">Override global attachment summarization settings for this bot. Leave blank to inherit global defaults.</p>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="flex items-center gap-3 col-span-2">
+        <select name="attachment_summarization_enabled"
+          class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="" {% if bot.attachment_summarization_enabled is none %}selected{% endif %}>Inherit (default)</option>
+          <option value="true" {% if bot.attachment_summarization_enabled == true %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if bot.attachment_summarization_enabled == false and bot.attachment_summarization_enabled is not none %}selected{% endif %}>Disabled</option>
+        </select>
+        <label class="text-sm text-gray-300">Summarization Enabled</label>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Vision / Summary Model</label>
+        <input name="attachment_summary_model" type="text"
+          value="{{ bot.attachment_summary_model or '' }}" placeholder="inherit (gemini/gemini-2.5-flash)"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Text Max Chars</label>
+        <input name="attachment_text_max_chars" type="number" min="0"
+          value="{{ bot.attachment_text_max_chars if bot.attachment_text_max_chars is not none else '' }}" placeholder="inherit (40000)"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Vision Concurrency</label>
+        <input name="attachment_vision_concurrency" type="number" min="1" max="20"
+          value="{{ bot.attachment_vision_concurrency if bot.attachment_vision_concurrency is not none else '' }}" placeholder="inherit (3)"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </section>
+
   <!-- Memory -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-1 pb-2 border-b border-gray-700">Memory</h2>
