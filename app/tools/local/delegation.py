@@ -345,14 +345,31 @@ async def delegate_to_harness(
             bot=bot,
             sandbox_instance_id=sbx,
         )
-        output = {
-            "exit_code": result.exit_code,
-            "duration_ms": result.duration_ms,
-        }
+
+        # Attempt to parse Claude Code JSON output for structured response
+        from app.agent.tasks import _parse_claude_json_output
+        claude_data = _parse_claude_json_output(result.stdout)
+
+        if claude_data is not None:
+            output = {
+                "exit_code": result.exit_code,
+                "duration_ms": result.duration_ms,
+                "result": claude_data.get("result", ""),
+                "session_id": claude_data.get("session_id"),
+                "is_error": claude_data.get("is_error", False),
+                "cost_usd": claude_data.get("cost_usd"),
+                "num_turns": claude_data.get("num_turns"),
+            }
+        else:
+            output = {
+                "exit_code": result.exit_code,
+                "duration_ms": result.duration_ms,
+            }
+            if result.stdout:
+                output["stdout"] = result.stdout
+
         if result.truncated:
             output["truncated"] = True
-        if result.stdout:
-            output["stdout"] = result.stdout
         if result.stderr:
             output["stderr"] = result.stderr
         return json.dumps(output)
