@@ -191,6 +191,7 @@ async def stream_chat(
     client_id: str,
     session_id: str | None = None,
     attachments: list[dict] | None = None,
+    file_metadata: list[dict] | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
     msg_metadata: dict | None = None,
@@ -205,6 +206,8 @@ async def stream_chat(
         payload["session_id"] = session_id
     if attachments:
         payload["attachments"] = attachments
+    if file_metadata:
+        payload["file_metadata"] = file_metadata
     if dispatch_type:
         payload["dispatch_type"] = dispatch_type
     if dispatch_config:

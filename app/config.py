@@ -134,6 +134,13 @@ class Settings(BaseSettings):
     HEARTBEAT_QUIET_INTERVAL_MINUTES: int = 60  # interval during quiet hours (0 = disabled entirely)
     HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
 
+    # Attachments
+    ATTACHMENT_SUMMARY_ENABLED: bool = True
+    ATTACHMENT_SUMMARY_MODEL: str = "gemini/gemini-2.5-flash"
+    ATTACHMENT_VISION_CONCURRENCY: int = 3
+    ATTACHMENT_SWEEP_INTERVAL_S: int = 60
+    ATTACHMENT_TEXT_MAX_CHARS: int = 40_000  # ~10K tokens for text summarization
+
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
     SLACK_BOT_TOKEN: str = ""  # xoxb-... used for channel name lookup in admin UI

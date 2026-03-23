@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, ForeignKey, Integer, Text, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, Text, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -121,6 +121,48 @@ class Message(Base):
     )
 
     session: Mapped["Session"] = relationship(back_populates="messages")
+    attachments: Mapped[list["Attachment"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)  # image, file, text, audio, video
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    posted_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_integration: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'web'"))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    described_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+
+    message: Mapped["Message"] = relationship(back_populates="attachments")
+
+    __table_args__ = (
+        Index("ix_attachments_message_type", "message_id", "type"),
+        Index("ix_attachments_channel_type", "channel_id", "type"),
+        Index(
+            "ix_attachments_unsummarized",
+            "type", "described_at",
+            postgresql_where=text("described_at IS NULL AND type IN ('image', 'text', 'file')"),
+        ),
+    )
 
 
 class Document(Base):
