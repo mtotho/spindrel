@@ -84,7 +84,7 @@ def upgrade() -> None:
 
         import json
         conn.execute(
-            sa.text("UPDATE bots SET workspace = :ws::jsonb WHERE id = :id"),
+            sa.text("UPDATE bots SET workspace = CAST(:ws AS jsonb) WHERE id = :id"),
             {"ws": json.dumps(workspace), "id": bot_id},
         )
 
