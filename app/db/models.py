@@ -36,6 +36,9 @@ class Channel(Base):
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attachment_max_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attachment_types_allowed: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )

@@ -1,0 +1,100 @@
+<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Attachment Settings</h2>
+{% if saved is defined and saved %}
+<div class="mb-3 text-xs text-green-400">Attachment settings saved.</div>
+{% endif %}
+
+{# Storage stats (read-only) #}
+<div class="mb-5 bg-gray-900 rounded-lg px-4 py-3 border border-gray-700">
+  <div class="text-xs text-gray-400 uppercase tracking-wider mb-2">Storage Usage</div>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+    <div>
+      <div class="text-gray-500 text-xs">Total attachments</div>
+      <div class="text-gray-200 font-mono" id="att-total">{{ stats.total_count }}</div>
+    </div>
+    <div>
+      <div class="text-gray-500 text-xs">With file data</div>
+      <div class="text-gray-200 font-mono" id="att-with-data">{{ stats.with_file_data_count }}</div>
+    </div>
+    <div>
+      <div class="text-gray-500 text-xs">Total stored</div>
+      <div class="text-gray-200 font-mono" id="att-size">{{ "%.1f"|format(stats.total_size_bytes / 1048576) }} MB</div>
+    </div>
+    <div>
+      <div class="text-gray-500 text-xs">Oldest attachment</div>
+      <div class="text-gray-200 font-mono" id="att-oldest">
+        {% if stats.oldest_created_at %}{{ stats.oldest_created_at.strftime('%Y-%m-%d') }}{% else %}&mdash;{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<form hx-post="/admin/channels/{{ channel.id }}/attachment-settings"
+      hx-target="#attachments-section"
+      hx-swap="innerHTML"
+      class="space-y-5">
+
+  {# Retention period #}
+  <div x-data="{ keepForever: {{ 'true' if channel.attachment_retention_days is none else 'false' }} }">
+    <label class="block text-xs text-gray-400 mb-1">Retention Period</label>
+    <label class="flex items-center gap-2 cursor-pointer mb-2">
+      <input type="checkbox" x-model="keepForever"
+        class="rounded border-gray-600 text-indigo-500" />
+      <span class="text-xs text-gray-300">Keep forever</span>
+    </label>
+    <div x-show="!keepForever" x-cloak class="flex items-center gap-2">
+      <input type="number" name="attachment_retention_days" min="1"
+        value="{{ channel.attachment_retention_days or '' }}"
+        placeholder="Days"
+        :disabled="keepForever"
+        class="w-32 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      <span class="text-xs text-gray-500">days</span>
+    </div>
+    <p class="text-xs text-gray-600 mt-1">
+      Global default: {{ settings_retention_days if settings_retention_days else 'keep forever' }}
+    </p>
+  </div>
+
+  {# Max file size #}
+  <div x-data="{ noLimit: {{ 'true' if channel.attachment_max_size_bytes is none else 'false' }} }">
+    <label class="block text-xs text-gray-400 mb-1">Max File Size</label>
+    <label class="flex items-center gap-2 cursor-pointer mb-2">
+      <input type="checkbox" x-model="noLimit"
+        class="rounded border-gray-600 text-indigo-500" />
+      <span class="text-xs text-gray-300">No limit</span>
+    </label>
+    <div x-show="!noLimit" x-cloak class="flex items-center gap-2">
+      <input type="number" name="attachment_max_size_mb" min="1"
+        value="{{ '%d'|format(channel.attachment_max_size_bytes / 1048576) if channel.attachment_max_size_bytes else '' }}"
+        placeholder="MB"
+        :disabled="noLimit"
+        class="w-32 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      <span class="text-xs text-gray-500">MB</span>
+    </div>
+    <p class="text-xs text-gray-600 mt-1">
+      Global default: {{ '%d MB'|format(settings_max_size_bytes / 1048576) if settings_max_size_bytes else 'no limit' }}
+    </p>
+  </div>
+
+  {# Allowed types #}
+  <div>
+    <label class="block text-xs text-gray-400 mb-2">Store bytes for attachment types</label>
+    {% set all_types = ['image', 'file', 'text', 'audio', 'video'] %}
+    {% set current_types = channel.attachment_types_allowed %}
+    <div class="flex flex-wrap gap-3">
+      {% for t in all_types %}
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="checkbox" name="attachment_types" value="{{ t }}"
+          {% if current_types is none or t in current_types %}checked{% endif %}
+          class="rounded border-gray-600 text-indigo-500" />
+        <span class="text-xs text-gray-300 capitalize">{{ t }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="text-xs text-gray-600 mt-1">Unchecked types: metadata stored, bytes skipped. All checked = no filtering.</p>
+  </div>
+
+  <button type="submit"
+    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors">
+    Save Attachment Settings
+  </button>
+</form>

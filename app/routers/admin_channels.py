@@ -475,6 +475,111 @@ async def admin_channel_knowledge_remove(
     return await admin_channel_knowledge_section(request, channel_id)
 
 
+@router.get("/channels/{channel_id}/attachments-section", response_class=HTMLResponse)
+async def admin_channel_attachments_section(request: Request, channel_id: uuid.UUID):
+    from app.db.models import Attachment
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        row = (await db.execute(
+            select(
+                func.count().label("total_count"),
+                func.count().filter(Attachment.file_data.is_not(None)).label("with_file_data_count"),
+                func.coalesce(func.sum(Attachment.size_bytes).filter(Attachment.file_data.is_not(None)), 0).label("total_size_bytes"),
+                func.min(Attachment.created_at).label("oldest_created_at"),
+            ).where(Attachment.channel_id == channel_id)
+        )).one()
+
+    stats = {
+        "total_count": row.total_count,
+        "with_file_data_count": row.with_file_data_count,
+        "total_size_bytes": row.total_size_bytes,
+        "oldest_created_at": row.oldest_created_at,
+    }
+
+    return templates.TemplateResponse("admin/channel_attachments_section.html", {
+        "request": request,
+        "channel": channel,
+        "stats": stats,
+        "settings_retention_days": settings.ATTACHMENT_RETENTION_DAYS,
+        "settings_max_size_bytes": settings.ATTACHMENT_MAX_SIZE_BYTES,
+    })
+
+
+@router.post("/channels/{channel_id}/attachment-settings", response_class=HTMLResponse)
+async def admin_channel_attachment_settings_save(
+    request: Request,
+    channel_id: uuid.UUID,
+    attachment_retention_days: str = Form(""),
+    attachment_max_size_mb: str = Form(""),
+    attachment_types: list[str] = Form([]),
+):
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        # Retention days: empty or missing = None (keep forever)
+        val = attachment_retention_days.strip()
+        channel.attachment_retention_days = int(val) if val else None
+
+        # Max size: convert MB → bytes, empty = None (no limit)
+        val = attachment_max_size_mb.strip()
+        channel.attachment_max_size_bytes = int(float(val) * 1048576) if val else None
+
+        # Types: all 5 checked = None (no filtering), otherwise store the list
+        all_types = {"image", "file", "text", "audio", "video"}
+        if set(attachment_types) >= all_types:
+            channel.attachment_types_allowed = None
+        else:
+            channel.attachment_types_allowed = attachment_types if attachment_types else None
+
+        channel.updated_at = now
+        await db.commit()
+        await db.refresh(channel)
+
+    # Re-render with saved flag
+    return await _render_attachments_section(request, channel_id, saved=True)
+
+
+async def _render_attachments_section(request: Request, channel_id: uuid.UUID, saved: bool = False):
+    from app.db.models import Attachment
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        row = (await db.execute(
+            select(
+                func.count().label("total_count"),
+                func.count().filter(Attachment.file_data.is_not(None)).label("with_file_data_count"),
+                func.coalesce(func.sum(Attachment.size_bytes).filter(Attachment.file_data.is_not(None)), 0).label("total_size_bytes"),
+                func.min(Attachment.created_at).label("oldest_created_at"),
+            ).where(Attachment.channel_id == channel_id)
+        )).one()
+
+    stats = {
+        "total_count": row.total_count,
+        "with_file_data_count": row.with_file_data_count,
+        "total_size_bytes": row.total_size_bytes,
+        "oldest_created_at": row.oldest_created_at,
+    }
+
+    return templates.TemplateResponse("admin/channel_attachments_section.html", {
+        "request": request,
+        "channel": channel,
+        "stats": stats,
+        "saved": saved,
+        "settings_retention_days": settings.ATTACHMENT_RETENTION_DAYS,
+        "settings_max_size_bytes": settings.ATTACHMENT_MAX_SIZE_BYTES,
+    })
+
+
 @router.get("/channels/{channel_id}/tasks-section", response_class=HTMLResponse)
 async def admin_channel_tasks_section(request: Request, channel_id: uuid.UUID):
     async with async_session() as db:

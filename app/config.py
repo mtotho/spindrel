@@ -141,6 +141,10 @@ class Settings(BaseSettings):
     ATTACHMENT_VISION_CONCURRENCY: int = 3
     ATTACHMENT_SWEEP_INTERVAL_S: int = 60
     ATTACHMENT_TEXT_MAX_CHARS: int = 40_000  # ~10K tokens for text summarization
+    ATTACHMENT_RETENTION_DAYS: int | None = None  # global default, None = keep forever
+    ATTACHMENT_MAX_SIZE_BYTES: int | None = None  # global default, None = no limit
+    ATTACHMENT_TYPES_ALLOWED: list[str] | None = None  # global default, None = all types
+    ATTACHMENT_RETENTION_SWEEP_INTERVAL_S: int = 3600  # 1 hour between sweeps
 
     # Slack
     SLACK_DEFAULT_BOT: str = "default"

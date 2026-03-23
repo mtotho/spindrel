@@ -94,6 +94,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(heartbeat_worker())
     from app.services.attachment_summarizer import attachment_sweep_worker
     asyncio.create_task(attachment_sweep_worker())
+    from app.services.attachment_retention import attachment_retention_worker
+    asyncio.create_task(attachment_retention_worker())
     yield
 
 
