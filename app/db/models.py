@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -139,7 +139,8 @@ class Attachment(Base):
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
     )
     type: Mapped[str] = mapped_column(Text, nullable=False)  # image, file, text, audio, video
-    url: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -44,19 +44,20 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
         size = f.get("size") or 0
         if not url:
             continue
-        # Track file metadata for server-side attachment persistence
+        try:
+            data = await _download_slack_file(url)
+        except Exception as e:
+            text_parts.append(f"\n[Could not fetch {name}: {e}]")
+            continue
+        # Track file metadata for server-side attachment persistence (includes bytes)
         file_metadata.append({
             "url": url,
             "filename": name,
             "mime_type": mime,
             "size_bytes": size,
             "posted_by": f"slack:{user}" if user else None,
+            "file_data": base64.b64encode(data).decode("ascii"),
         })
-        try:
-            data = await _download_slack_file(url)
-        except Exception as e:
-            text_parts.append(f"\n[Could not fetch {name}: {e}]")
-            continue
         if mime in TEXT_MIMES or mime.startswith("text/"):
             raw = data[:MAX_TEXT_FILE_BYTES]
             content = raw.decode("utf-8", errors="replace")
