@@ -24,7 +24,7 @@ fi
 
 # ── 2. Install requirements ─────────────────────────────────────────────────
 echo "Installing Python dependencies …"
-sudo -u "$CURRENT_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/requirements.txt"
+sudo -u "$CURRENT_USER" "$VENV_DIR/bin/pip" install --quiet "$REPO_DIR"
 
 # ── 3. Run database migrations ──────────────────────────────────────────────
 echo "Running database migrations …"
