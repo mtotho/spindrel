@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-pytestmark = pytest.mark.asyncio
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,6 +38,7 @@ def _fake_attachment(**overrides):
 # test_create_attachment
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestCreateAttachment:
     async def test_create_attachment(self):
         """Creates attachment, fires async summarization."""
@@ -144,6 +143,7 @@ class TestCreateAttachment:
 # test_summarize_image_attachment
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestSummarizeImageAttachment:
     async def test_summarize_image_attachment(self):
         """Vision model call stores description."""
@@ -190,6 +190,7 @@ class TestSummarizeImageAttachment:
 # test_summarize_text_attachment
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestSummarizeTextAttachment:
     async def test_summarize_text_attachment(self):
         """LLM reads text, stores summary."""
@@ -242,6 +243,7 @@ class TestSummarizeTextAttachment:
 # test_summarization_failure_graceful
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestSummarizationFailureGraceful:
     async def test_summarization_failure_graceful(self):
         """Summarization fails, doesn't crash, attachment left for retry."""
@@ -279,6 +281,7 @@ class TestSummarizationFailureGraceful:
 # test_get_attachment_tool
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestGetAttachmentTool:
     async def test_get_attachment_tool(self):
         """Agent tool fetches by ID, returns metadata."""
@@ -344,6 +347,7 @@ class TestInferType:
 # test_bot_attachment_config_lookup
 # ---------------------------------------------------------------------------
 
+@pytest.mark.asyncio
 class TestBotAttachmentConfig:
     async def test_returns_overrides(self):
         """Returns non-None bot overrides."""
