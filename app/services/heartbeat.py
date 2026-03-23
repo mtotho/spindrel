@@ -178,9 +178,26 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         )
 
 
+async def _run_elevation_analysis() -> None:
+    """Run elevation log analysis and write results to file."""
+    from app.services.elevation_analysis import analyze_elevation_log
+
+    try:
+        analysis = analyze_elevation_log()
+        if analysis.get("total_turns", 0) == 0:
+            logger.info("Elevation analysis: no data yet, skipping")
+            return
+
+        logger.info("Elevation analysis complete: %d turns, %d elevated",
+                     analysis["total_turns"], analysis["elevated_turns"])
+    except Exception:
+        logger.exception("Elevation analysis failed")
+
+
 async def heartbeat_worker() -> None:
     """Background worker loop: polls for due heartbeats every 30 seconds."""
     logger.info("Heartbeat worker started")
+    _last_elevation_analysis: datetime | None = None
     while True:
         try:
             due = await fetch_due_heartbeats()
@@ -191,4 +208,14 @@ async def heartbeat_worker() -> None:
                     logger.exception("Failed to fire heartbeat %s", hb.id)
         except Exception:
             logger.exception("heartbeat_worker poll error")
+
+        # Run elevation analysis once per day
+        now = datetime.now(timezone.utc)
+        if settings.MODEL_ELEVATION_ENABLED and (
+            _last_elevation_analysis is None
+            or (now - _last_elevation_analysis) >= timedelta(hours=24)
+        ):
+            _last_elevation_analysis = now
+            asyncio.create_task(_run_elevation_analysis())
+
         await asyncio.sleep(30)

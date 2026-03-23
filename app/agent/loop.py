@@ -88,6 +88,11 @@ async def run_agent_tool_loop(
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
 
+    # Elevation outcome tracking: collect per-iteration log IDs + turn-level metrics
+    import time as _time_mod
+    _turn_t0 = _time_mod.monotonic()
+    _elev_log_ids: list[str] = []  # all elevation log IDs for this turn
+
     try:
         for iteration in range(settings.AGENT_MAX_ITERATIONS):
             logger.debug("--- Iteration %d ---", iteration + 1)
@@ -148,6 +153,8 @@ async def run_agent_tool_loop(
                 _elev_log_id = await log_elevation(
                     decision, turn_id=correlation_id,
                     bot_id=bot.id, channel_id=channel_id,
+                    elevation_enabled=True,
+                    threshold=settings.MODEL_ELEVATION_THRESHOLD,
                 )
                 if decision.was_elevated:
                     logger.info(
@@ -158,13 +165,13 @@ async def run_agent_tool_loop(
                 effective_model = model
                 _elev_log_id = None
 
-            import time as _time
-            _llm_t0 = _time.monotonic()
+            _llm_t0 = _time_mod.monotonic()
             response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id)
-            _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
+            _llm_latency_ms = int((_time_mod.monotonic() - _llm_t0) * 1000)
 
-            # Backfill elevation log with outcome data
+            # Backfill elevation log with per-call data (outcome added at turn end)
             if _elev_log_id is not None:
+                _elev_log_ids.append(_elev_log_id)
                 _tokens = response.usage.total_tokens if response.usage else None
                 asyncio.create_task(backfill_elevation_log(
                     _elev_log_id, tokens_used=_tokens, latency_ms=_llm_latency_ms,
@@ -244,6 +251,17 @@ async def run_agent_tool_loop(
                         logger.warning("Native audio response contained no transcript tags")
                         messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
                     transcript_emitted = True
+
+                # Backfill elevation log entries with turn outcome
+                if _elev_log_ids:
+                    _turn_dur = int((_time_mod.monotonic() - _turn_t0) * 1000)
+                    for _eid in _elev_log_ids:
+                        asyncio.create_task(backfill_elevation_log(
+                            _eid, outcome="success",
+                            tool_call_count=len(tool_calls_made),
+                            total_iterations=iteration + 1,
+                            turn_duration_ms=_turn_dur,
+                        ))
 
                 logger.info("Final response (%d chars): %r", len(text), text[:120])
                 if correlation_id is not None and not compaction:
@@ -355,6 +373,17 @@ async def run_agent_tool_loop(
                 messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
             transcript_emitted = True
 
+        # Backfill elevation log entries with turn outcome (max iterations)
+        if _elev_log_ids:
+            _turn_dur = int((_time_mod.monotonic() - _turn_t0) * 1000)
+            for _eid in _elev_log_ids:
+                asyncio.create_task(backfill_elevation_log(
+                    _eid, outcome="max_iterations",
+                    tool_call_count=len(tool_calls_made),
+                    total_iterations=settings.AGENT_MAX_ITERATIONS,
+                    turn_duration_ms=_turn_dur,
+                ))
+
         _trace("✓ response (%d chars)", len(text))
         if correlation_id is not None and not compaction:
             asyncio.create_task(_record_trace_event(
@@ -374,6 +403,16 @@ async def run_agent_tool_loop(
         }, compaction)
 
     except Exception as exc:
+        # Backfill elevation log entries with error outcome
+        if _elev_log_ids:
+            _turn_dur = int((_time_mod.monotonic() - _turn_t0) * 1000)
+            for _eid in _elev_log_ids:
+                asyncio.create_task(backfill_elevation_log(
+                    _eid, outcome="error",
+                    tool_call_count=len(tool_calls_made),
+                    turn_duration_ms=_turn_dur,
+                    error=f"{type(exc).__name__}: {str(exc)[:200]}",
+                ))
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,

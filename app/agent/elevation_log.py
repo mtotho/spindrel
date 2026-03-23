@@ -29,6 +29,8 @@ async def log_elevation(
     turn_id: uuid.UUID | None = None,
     bot_id: str = "",
     channel_id: uuid.UUID | None = None,
+    elevation_enabled: bool = True,
+    threshold: float = 0.0,
 ) -> str:
     """Write a pre-call elevation log entry. Returns the log entry ID for backfill."""
     entry_id = uuid.uuid4().hex
@@ -38,6 +40,8 @@ async def log_elevation(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "bot_id": bot_id,
         "channel_id": str(channel_id) if channel_id else None,
+        "elevation_enabled": elevation_enabled,
+        "threshold": round(threshold, 4),
         "model_chosen": decision.model,
         "was_elevated": decision.was_elevated,
         "score": round(decision.score, 4),
@@ -55,6 +59,11 @@ async def backfill_elevation_log(
     *,
     tokens_used: int | None = None,
     latency_ms: int | None = None,
+    outcome: str | None = None,
+    tool_call_count: int | None = None,
+    total_iterations: int | None = None,
+    turn_duration_ms: int | None = None,
+    error: str | None = None,
 ) -> None:
     """Append a backfill record that associates outcome data with a prior log entry."""
     backfill: dict[str, Any] = {
@@ -62,6 +71,11 @@ async def backfill_elevation_log(
         "backfill": True,
         "tokens_used": tokens_used,
         "latency_ms": latency_ms,
+        "outcome": outcome,
+        "tool_call_count": tool_call_count,
+        "total_iterations": total_iterations,
+        "turn_duration_ms": turn_duration_ms,
+        "error": error,
     }
     await _append_entry(backfill)
 
