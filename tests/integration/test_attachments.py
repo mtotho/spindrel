@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 
-from tests.integration.conftest import AUTH_HEADERS
+from tests.integration.conftest import AUTH_HEADERS, TEST_BOT
 
 
 pytestmark = pytest.mark.asyncio
@@ -119,126 +120,219 @@ class TestMessageHistoryRedaction:
 # ---------------------------------------------------------------------------
 
 class TestMessageRedaction:
-    """Verify that attachments appear in full on turn 0, redacted on turn 1+."""
+    """Verify turn 0 gets full attachment, turn 1+ gets redacted summary."""
 
-    def _make_attachment(self, **overrides):
-        defaults = dict(
-            filename="screenshot.png",
-            description="A dashboard showing metrics",
-            url="https://cdn.example.com/screenshot.png",
+    @pytest_asyncio.fixture
+    async def session_with_image_attachment(self, db_session):
+        """Create a session with a user message containing a redacted image + attachment row."""
+        from app.db.models import Session, Message, Attachment
+
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id, client_id="test-client", bot_id="test-bot",
+        )
+        db_session.add(session)
+
+        # System message
+        sys_msg = Message(session_id=session_id, role="system", content="You are a test bot.")
+        db_session.add(sys_msg)
+
+        # User message — stored with placeholder (as _content_for_db would produce)
+        import json
+        stored_content = json.dumps([
+            {"type": "text", "text": "Check this dashboard"},
+            {"type": "text", "text": "[image — not available in this session]"},
+        ])
+        user_msg = Message(
+            session_id=session_id, role="user", content=stored_content,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        db_session.add(user_msg)
+        await db_session.flush()
+
+        # Attachment with summary
+        att = Attachment(
+            message_id=user_msg.id,
             type="image",
+            url="https://cdn.example.com/screenshot.png",
+            filename="screenshot.png",
+            mime_type="image/png",
+            size_bytes=4096,
+            source_integration="slack",
+            description="A dashboard showing metrics",
+            described_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
-        defaults.update(overrides)
-        return MagicMock(**defaults)
+        db_session.add(att)
+        await db_session.commit()
 
-    def test_turn_0_full_content_preserved(self):
-        """Turn 0: _message_to_dict with no attachments keeps content as-is."""
-        from app.services.sessions import _message_to_dict
+        return session, user_msg, att
 
-        msg = MagicMock()
-        msg.role = "user"
-        msg.content = "Check this image"
-        msg.tool_calls = None
-        msg.tool_call_id = None
-        msg.metadata_ = None
-        msg.attachments = []
+    @pytest_asyncio.fixture
+    async def session_with_text_attachment(self, db_session):
+        """Create a session with a large text file attachment."""
+        from app.db.models import Session, Message, Attachment
 
-        d = _message_to_dict(msg, enrich_attachments=True)
-        assert d["content"] == "Check this image"
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id, client_id="test-client", bot_id="test-bot",
+        )
+        db_session.add(session)
 
-    def test_turn_1_plus_redacted_placeholder_replaced(self):
-        """Turn 1+: stored placeholder is replaced with attachment hint."""
-        from app.services.sessions import _enrich_content_with_attachments
+        sys_msg = Message(session_id=session_id, role="system", content="You are a test bot.")
+        db_session.add(sys_msg)
 
-        att = self._make_attachment()
-        content = "Here is the image: [image — not available in this session]"
-        result = _enrich_content_with_attachments(content, [att])
+        user_msg = Message(
+            session_id=session_id, role="user",
+            content="Please analyze the attached file",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        db_session.add(user_msg)
+        await db_session.flush()
 
-        assert "screenshot.png" in result
-        assert "dashboard showing metrics" in result
-        assert "get_attachment" in result
-        assert "[image — not available in this session]" not in result
-
-    def test_turn_1_plus_multipart_content_redacted(self):
-        """Turn 1+: list-form content with image placeholder is replaced."""
-        from app.services.sessions import _enrich_content_with_attachments
-
-        att = self._make_attachment()
-        content = [
-            {"type": "text", "text": "Look: [image — not available in this session]"},
-        ]
-        result = _enrich_content_with_attachments(content, [att])
-
-        assert isinstance(result, list)
-        text_parts = [p["text"] for p in result if p.get("type") == "text"]
-        combined = " ".join(text_parts)
-        assert "screenshot.png" in combined
-        assert "dashboard showing metrics" in combined
-        assert "[image — not available in this session]" not in combined
-
-    def test_unsummarized_attachment_no_tool_hint(self):
-        """Attachment without description → no 'get_attachment' tool hint."""
-        from app.services.sessions import _enrich_content_with_attachments
-
-        att = self._make_attachment(description=None)
-        content = "[image — not available in this session]"
-        result = _enrich_content_with_attachments(content, [att])
-
-        assert "screenshot.png" in result
-        assert "pending summary" in result
-        assert "get_attachment" not in result
-
-    def test_large_text_file_redacted_on_reload(self):
-        """Large text file attachment: only summary injected, not full text."""
-        from app.services.sessions import _enrich_content_with_attachments
-
-        att = self._make_attachment(
-            filename="data.csv",
-            description="A CSV file with 50k rows of sales data",
+        att = Attachment(
+            message_id=user_msg.id,
             type="text",
+            url="https://cdn.example.com/data.csv",
+            filename="data.csv",
+            mime_type="text/csv",
+            size_bytes=1_200_000,
+            source_integration="web",
+            description="A CSV file with 50k rows of sales data",
+            described_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
-        # Stored content has no image placeholder — hints are appended
-        stored_content = "Please analyze the attached file"
-        result = _enrich_content_with_attachments(stored_content, [att])
+        db_session.add(att)
+        await db_session.commit()
 
-        assert "data.csv" in result
-        assert "50k rows of sales data" in result
-        assert "get_attachment" in result
-        # Full file content is NOT re-injected (only the hint)
-        assert len(result) < 500
+        return session, user_msg, att
 
-    def test_message_to_dict_enriches_attachments(self):
-        """_message_to_dict calls enrichment when enrich_attachments=True."""
-        from app.services.sessions import _message_to_dict
+    async def test_turn_0_agent_sees_full_image(self, db_session):
+        """Turn 0: when user posts image, agent context includes full image for vision."""
+        from app.services.sessions import _content_for_db, _redact_images_for_db
 
-        att = self._make_attachment()
-        msg = MagicMock()
-        msg.role = "user"
-        msg.content = "[image — not available in this session]"
-        msg.tool_calls = None
-        msg.tool_call_id = None
-        msg.metadata_ = None
-        msg.attachments = [att]
+        # Simulate fresh multipart content with a real image URL (not data:)
+        fresh_content = [
+            {"type": "text", "text": "Check this dashboard"},
+            {"type": "image_url", "image_url": {"url": "https://cdn.example.com/screenshot.png"}},
+        ]
 
-        d = _message_to_dict(msg, enrich_attachments=True)
-        assert "screenshot.png" in d["content"]
-        assert "[image — not available in this session]" not in d["content"]
+        # _redact_images_for_db only strips data: URLs — real URLs pass through
+        redacted = _redact_images_for_db(fresh_content)
+        assert any(
+            p.get("type") == "image_url" for p in redacted
+        ), "Real image URL must survive redaction — agent needs it for vision on turn 0"
 
-    def test_message_to_dict_no_enrichment_flag(self):
-        """_message_to_dict without enrich_attachments leaves placeholders."""
-        from app.services.sessions import _message_to_dict
+        # _content_for_db serializes for storage but preserves the image_url part
+        stored = _content_for_db({"content": fresh_content})
+        import json
+        parsed = json.loads(stored)
+        assert any(
+            p.get("type") == "image_url" for p in parsed
+        ), "Stored content must retain full image_url for turn-0 agent vision"
 
-        att = self._make_attachment()
-        msg = MagicMock()
-        msg.role = "user"
-        msg.content = "[image — not available in this session]"
-        msg.tool_calls = None
-        msg.tool_call_id = None
-        msg.metadata_ = None
-        msg.attachments = [att]
+    async def test_turn_0_data_url_redacted_for_storage(self, db_session):
+        """Turn 0: data: URLs are stripped before storage (too large for DB rows)."""
+        from app.services.sessions import _redact_images_for_db
 
-        d = _message_to_dict(msg, enrich_attachments=False)
-        assert "[image — not available in this session]" in d["content"]
+        content_with_data_url = [
+            {"type": "text", "text": "Here is a screenshot"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo..."}},
+        ]
+        redacted = _redact_images_for_db(content_with_data_url)
+
+        assert not any(
+            p.get("type") == "image_url" for p in redacted
+        ), "data: URL must be replaced with placeholder"
+        text_parts = " ".join(p.get("text", "") for p in redacted if p.get("type") == "text")
+        assert "[image — not available in this session]" in text_parts
+
+    async def test_turn_1_plus_shows_attachment_summary(
+        self, db_session, session_with_image_attachment,
+    ):
+        """Turn 1+: same message in history shows [attached: filename — "summary"] not full image."""
+        from app.services.sessions import _load_messages
+
+        session, user_msg, att = session_with_image_attachment
+
+        with patch("app.services.sessions.get_bot", return_value=TEST_BOT), \
+             patch("app.services.sessions.get_persona", return_value=None):
+            messages = await _load_messages(db_session, session)
+
+        # Find the user message in loaded history
+        user_msgs = [m for m in messages if m["role"] == "user"]
+        assert len(user_msgs) == 1
+
+        content = user_msgs[0]["content"]
+        # For list content, combine text parts
+        if isinstance(content, list):
+            text_parts = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+        else:
+            text_parts = content
+
+        # Verify: redacted to attachment hint
+        assert "screenshot.png" in text_parts
+        assert "A dashboard showing metrics" in text_parts
+        # Verify: tool hint present
+        assert "get_attachment" in text_parts
+        # Verify: placeholder is gone
+        assert "[image — not available in this session]" not in text_parts
+
+    async def test_large_text_file_truncated_on_turn_1_plus(
+        self, db_session, session_with_text_attachment,
+    ):
+        """Turn 1+: large text attachments show summary + hint, not full content."""
+        from app.services.sessions import _load_messages
+
+        session, user_msg, att = session_with_text_attachment
+
+        with patch("app.services.sessions.get_bot", return_value=TEST_BOT), \
+             patch("app.services.sessions.get_persona", return_value=None):
+            messages = await _load_messages(db_session, session)
+
+        user_msgs = [m for m in messages if m["role"] == "user"]
+        assert len(user_msgs) == 1
+
+        content = user_msgs[0]["content"]
+        if isinstance(content, list):
+            content = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+
+        # Summary + hint injected
+        assert "data.csv" in content
+        assert "50k rows of sales data" in content
+        assert "get_attachment" in content
+        # Content is compact — no full 1MB file re-injected
+        assert len(content) < 500
+
+    async def test_no_attachment_unaffected(self, db_session):
+        """Messages without attachments pass through unchanged across all turns."""
+        from app.db.models import Session, Message
+        from app.services.sessions import _load_messages
+
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id, client_id="test-client", bot_id="test-bot",
+        )
+        db_session.add(session)
+
+        sys_msg = Message(session_id=session_id, role="system", content="You are a test bot.")
+        db_session.add(sys_msg)
+
+        user_msg = Message(
+            session_id=session_id, role="user", content="Hello, no attachments here",
+        )
+        db_session.add(user_msg)
+        await db_session.commit()
+
+        with patch("app.services.sessions.get_bot", return_value=TEST_BOT), \
+             patch("app.services.sessions.get_persona", return_value=None):
+            messages = await _load_messages(db_session, session)
+
+        user_msgs = [m for m in messages if m["role"] == "user"]
+        assert len(user_msgs) == 1
+        assert user_msgs[0]["content"] == "Hello, no attachments here"
 
 
 # ---------------------------------------------------------------------------
