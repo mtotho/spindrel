@@ -29,16 +29,29 @@ async def _download_slack_file(url: str) -> bytes:
     return r.content
 
 
-async def _process_slack_files(files: list[dict]) -> tuple[str, list[dict]]:
-    """Download Slack shares: append text file bodies to the message; collect images for the API."""
+async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, list[dict], list[dict]]:
+    """Download Slack shares: append text file bodies to the message; collect images for the API.
+
+    Returns (text_parts_joined, attachments_for_vision, file_metadata_for_server).
+    """
     text_parts: list[str] = []
     attachments: list[dict] = []
+    file_metadata: list[dict] = []
     for f in files or []:
         mime = f.get("mimetype") or ""
         name = f.get("name") or "attachment"
         url = f.get("url_private_download") or f.get("url_private")
+        size = f.get("size") or 0
         if not url:
             continue
+        # Track file metadata for server-side attachment persistence
+        file_metadata.append({
+            "url": url,
+            "filename": name,
+            "mime_type": mime,
+            "size_bytes": size,
+            "posted_by": f"slack:{user}" if user else None,
+        })
         try:
             data = await _download_slack_file(url)
         except Exception as e:
@@ -57,7 +70,7 @@ async def _process_slack_files(files: list[dict]) -> tuple[str, list[dict]]:
                 "mime_type": mime,
                 "name": name,
             })
-    return "".join(text_parts), attachments
+    return "".join(text_parts), attachments, file_metadata
 
 
 async def _handle_client_actions(client, channel: str, actions: list) -> None:
@@ -99,6 +112,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     bot_id = payload["bot_id"]
     client_id = payload["client_id"]
     attachments = payload["attachments"]
+    file_metadata = payload.get("file_metadata") or []
     dispatch_config = payload["dispatch_config"]
     thread_ts = payload["thread_ts"]
     msg_metadata = payload["msg_metadata"]
@@ -128,6 +142,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             bot_id=bot_id,
             client_id=client_id,
             attachments=attachments if attachments else None,
+            file_metadata=file_metadata if file_metadata else None,
             dispatch_type="slack",
             dispatch_config=dispatch_config,
             msg_metadata=msg_metadata,
@@ -239,7 +254,7 @@ async def dispatch(
     # Ensure Channel row exists on the server (idempotent, best-effort)
     await ensure_channel(client_id, bot_id)
 
-    appended, attachments = await _process_slack_files(files or [])
+    appended, attachments, file_metadata = await _process_slack_files(files or [], user)
 
     if mentioned and not text and not appended and not attachments:
         text = "[@mention only, no user text — use channel context and respond.]"
@@ -290,6 +305,7 @@ async def dispatch(
         "bot_id": bot_id,
         "client_id": client_id,
         "attachments": attachments,
+        "file_metadata": file_metadata,
         "dispatch_config": dispatch_config,
         "thread_ts": thread_ts,
         "msg_metadata": msg_metadata,
