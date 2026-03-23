@@ -1,5 +1,6 @@
 """Task worker: runs scheduled/deferred agent tasks and dispatches results."""
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -84,6 +85,24 @@ def _harness_sandbox_instance(cfg: dict) -> uuid.UUID | None:
         return None
 
 
+def _parse_claude_json_output(stdout: str) -> dict | None:
+    """Try to parse Claude Code --output-format json output.
+
+    Returns the parsed dict if stdout is a valid Claude Code JSON result
+    (has "type": "result"), otherwise None for backwards compat with
+    non-JSON harnesses.
+    """
+    if not stdout or not stdout.strip().startswith("{"):
+        return None
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("type") != "result":
+        return None
+    return data
+
+
 async def run_harness_task(task: Task) -> None:
     """Execute a harness task: run the subprocess, store result, dispatch to output channel."""
     logger.info("Running harness task %s", task.id)
@@ -111,30 +130,75 @@ async def run_harness_task(task: Task) -> None:
         from app.services.harness import harness_service, HarnessError
         bot = get_bot(task.bot_id)
 
+        # Pass extra_args from callback_config (used for --resume on retry)
+        resume_extra_args: list[str] | None = cfg.get("resume_extra_args")
+
         result = await harness_service.run(
             harness_name=harness_name,
             prompt=task.prompt,
             working_directory=working_directory,
             bot=bot,
             sandbox_instance_id=sandbox_instance_id,
+            extra_args=resume_extra_args,
         )
 
-        parts = []
-        if result.stdout:
-            parts.append(result.stdout)
-        if result.stderr:
-            parts.append(f"[stderr]\n{result.stderr}")
-        if result.truncated:
-            parts.append("[output truncated]")
-        parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
-        result_text = "\n".join(parts)
+        # Attempt to parse Claude Code JSON output
+        claude_data = _parse_claude_json_output(result.stdout)
+        claude_session_id: str | None = None
 
+        if claude_data is not None:
+            claude_session_id = claude_data.get("session_id")
+            cc_result = claude_data.get("result", "")
+            cc_is_error = claude_data.get("is_error", False)
+            cc_cost = claude_data.get("cost_usd")
+            cc_turns = claude_data.get("num_turns")
+
+            parts = []
+            if cc_result:
+                parts.append(cc_result)
+            if cc_is_error:
+                parts.append("[claude-code reported error]")
+            if result.stderr:
+                parts.append(f"[stderr]\n{result.stderr}")
+            if result.truncated:
+                parts.append("[output truncated]")
+            meta_parts = []
+            if cc_turns is not None:
+                meta_parts.append(f"turns={cc_turns}")
+            if cc_cost is not None:
+                meta_parts.append(f"cost=${cc_cost:.2f}")
+            meta_parts.append(f"{result.duration_ms}ms")
+            meta_parts.append(f"exit={result.exit_code}")
+            parts.append(f"[{', '.join(meta_parts)}]")
+            result_text = "\n".join(parts)
+        else:
+            # Non-JSON fallback (cursor, other harnesses)
+            parts = []
+            if result.stdout:
+                parts.append(result.stdout)
+            if result.stderr:
+                parts.append(f"[stderr]\n{result.stderr}")
+            if result.truncated:
+                parts.append("[output truncated]")
+            parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
+            result_text = "\n".join(parts)
+
+        # Store claude_session_id on callback_config for potential resume
         async with async_session() as db:
             t = await db.get(Task, task.id)
             if t:
                 t.status = "complete"
                 t.result = result_text
                 t.completed_at = datetime.now(timezone.utc)
+                if claude_session_id:
+                    merged_cfg = dict(t.callback_config or {})
+                    merged_cfg["claude_session_id"] = claude_session_id
+                    if claude_data:
+                        if claude_data.get("cost_usd") is not None:
+                            merged_cfg["claude_cost_usd"] = claude_data["cost_usd"]
+                        if claude_data.get("num_turns") is not None:
+                            merged_cfg["claude_num_turns"] = claude_data["num_turns"]
+                    t.callback_config = merged_cfg
                 await db.commit()
 
         _h_err: str | None = None
@@ -173,11 +237,24 @@ async def run_harness_task(task: Task) -> None:
             if _parent_bot_id and _parent_session_str:
                 try:
                     _parent_session_id = uuid.UUID(_parent_session_str)
+                    # Build enriched prompt with metadata when structured data is available
+                    _cb_header = f"[Harness {harness_name} completed"
+                    if claude_data is not None:
+                        _meta = []
+                        if claude_data.get("num_turns") is not None:
+                            _meta.append(f"turns={claude_data['num_turns']}")
+                        if claude_data.get("cost_usd") is not None:
+                            _meta.append(f"cost=${claude_data['cost_usd']:.2f}")
+                        if claude_data.get("is_error"):
+                            _meta.append("error=true")
+                        if _meta:
+                            _cb_header += f" ({', '.join(_meta)})"
+                    _cb_header += "]"
                     _cb_task = Task(
                         bot_id=_parent_bot_id,
                         client_id=_parent_client_id,
                         session_id=_parent_session_id,
-                        prompt=f"[Harness {harness_name} completed]\n\n{result_text}",
+                        prompt=f"{_cb_header}\n\n{result_text}",
                         status="pending",
                         dispatch_type=output_dispatch_type,
                         dispatch_config=dict(output_dispatch_config),
@@ -196,13 +273,42 @@ async def run_harness_task(task: Task) -> None:
 
     except Exception as exc:
         logger.exception("Harness task %s failed", task.id)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = str(exc)[:4000]
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+
+        # Resume retry: check for a session_id we can resume from.
+        # Sources: local variable from this run's JSON parse, prior run stored on DB, or prior resume args.
+        _resume_session_id = locals().get("claude_session_id") or cfg.get("claude_session_id")
+        _resume_retries = cfg.get("resume_retries", 0)
+        _can_resume = (
+            _resume_session_id
+            and _resume_retries < settings.HARNESS_MAX_RESUME_RETRIES
+        )
+
+        if _can_resume:
+            logger.info(
+                "Harness task %s: scheduling resume (session=%s, attempt %d/%d)",
+                task.id, _resume_session_id, _resume_retries + 1, settings.HARNESS_MAX_RESUME_RETRIES,
+            )
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    merged_cfg = dict(t.callback_config or {})
+                    merged_cfg["resume_extra_args"] = ["--resume", str(_resume_session_id)]
+                    merged_cfg["resume_retries"] = _resume_retries + 1
+                    t.callback_config = merged_cfg
+                    t.status = "pending"
+                    t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
+                    t.error = f"resuming (attempt {_resume_retries + 1}): {str(exc)[:200]}"
+                    t.prompt = "continue from where you left off"
+                    await db.commit()
+        else:
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    t.status = "failed"
+                    t.error = str(exc)[:4000]
+                    t.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+
         try:
             from app.agent.recording import schedule_harness_completion_record
 

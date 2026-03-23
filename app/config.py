@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     DELEGATION_MAX_DEPTH: int = 3
     HARNESS_CONFIG_FILE: str = "harnesses.yaml"
     HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
+    HARNESS_MAX_RESUME_RETRIES: int = 1
 
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False

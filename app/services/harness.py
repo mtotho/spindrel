@@ -97,6 +97,7 @@ class HarnessService:
         bot: "BotConfig",
         *,
         sandbox_instance_id: uuid.UUID | None = None,
+        extra_args: list[str] | None = None,
     ) -> HarnessResult:
         """Execute a harness on the host (subprocess) or inside a Docker sandbox (docker exec).
 
@@ -124,6 +125,7 @@ class HarnessService:
                 bot=bot,
                 sandbox_instance_id=sandbox_instance_id,
                 timeout=timeout,
+                extra_args=extra_args,
             )
 
         if bot.bot_sandbox.enabled:
@@ -134,6 +136,7 @@ class HarnessService:
                 working_directory=working_directory,
                 bot=bot,
                 timeout=timeout,
+                extra_args=extra_args,
             )
 
         raise HarnessError("Harness must be run in a sandbox. Use sandbox_instance_id or enable bot_sandbox.")
@@ -147,6 +150,7 @@ class HarnessService:
         working_directory: str | None,
         bot: "BotConfig",
         timeout: int,
+        extra_args: list[str] | None = None,
     ) -> HarnessResult:
         """Run harness inside the bot-local sandbox (bot_sandbox.enabled=True)."""
         from app.services.sandbox import sandbox_service
@@ -164,6 +168,8 @@ class HarnessService:
             wd_container = cfg.working_directory.strip() or None
 
         substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
+        if extra_args:
+            substituted_args.extend(extra_args)
 
         inner = shlex.join([cfg.command] + substituted_args)
         if wd_container:
@@ -199,6 +205,7 @@ class HarnessService:
         bot: "BotConfig",
         sandbox_instance_id: uuid.UUID,
         timeout: int,
+        extra_args: list[str] | None = None,
     ) -> HarnessResult:
         from app.services.sandbox import sandbox_service
 
@@ -227,6 +234,8 @@ class HarnessService:
             wd_container = cfg.working_directory.strip() or None
 
         substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
+        if extra_args:
+            substituted_args.extend(extra_args)
 
         inner = shlex.join([cfg.command] + substituted_args)
         if wd_container:
