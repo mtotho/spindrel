@@ -61,6 +61,7 @@ router.include_router(_providers_router)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+templates.env.cache = None  # Disable LRU cache — avoids unhashable-key bug in Jinja2 3.1.x
 install_admin_template_filters(templates.env)
 
 

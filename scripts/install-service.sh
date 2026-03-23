@@ -85,6 +85,27 @@ install_unit() {
         "$template" > "/etc/systemd/system/$unit_name"
 }
 
+# ── Stop and remove old services ─────────────────────────────────────────────
+# Kill anything on port 8000 (stale processes from renamed/removed services)
+echo "Cleaning up old services..."
+OLD_PID="$(ss -tlnp | grep ':8000 ' | grep -oP 'pid=\K\d+' || true)"
+if [ -n "$OLD_PID" ]; then
+    echo "Killing stale process on port 8000 (pid $OLD_PID)..."
+    kill "$OLD_PID" 2>/dev/null || true
+    sleep 1
+fi
+
+# Stop+disable any thoth-related services (catches old names like agent-server.service)
+for old_unit in /etc/systemd/system/thoth*.service /etc/systemd/system/agent-server*.service; do
+    [ -f "$old_unit" ] || continue
+    unit_name="$(basename "$old_unit")"
+    echo "Stopping old service: $unit_name"
+    systemctl stop "$unit_name" 2>/dev/null || true
+    systemctl disable "$unit_name" 2>/dev/null || true
+    rm -f "$old_unit"
+done
+systemctl daemon-reload
+
 UNITS=()
 
 # ── Main service ─────────────────────────────────────────────────────────────
@@ -105,6 +126,13 @@ systemctl daemon-reload
 for unit in "${UNITS[@]}"; do
     echo "Enabling $unit..."
     systemctl enable "$unit"
+done
+
+# Start main service first, then integrations
+echo "Starting ${UNITS[0]}..."
+systemctl start "${UNITS[0]}"
+
+for unit in "${UNITS[@]:1}"; do
     echo "Starting $unit..."
     systemctl start "$unit"
 done
