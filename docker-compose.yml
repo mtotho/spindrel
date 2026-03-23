@@ -1,3 +1,4 @@
+name: "agent-server" #temporary name so i dont have to rename my dockers
 services:
   agent-server:
     build: .
