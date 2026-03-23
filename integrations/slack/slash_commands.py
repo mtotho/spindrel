@@ -1,4 +1,4 @@
-"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact, /todos, /status."""
+"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact, /todos, /health."""
 
 import asyncio
 import logging
@@ -471,7 +471,7 @@ def register_slash_commands(app):
 
         await respond("\n".join(lines))
 
-    @app.command("/status")
+    @app.command("/health")
     async def cmd_status(ack, command, respond):
         """Quick server health check — runs host commands directly, no bot interaction."""
         await ack()
