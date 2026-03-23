@@ -541,13 +541,15 @@ class SandboxService:
         seg = _sanitize_docker_name_segment(bot_id, 48)
         return f"agent-sbx-bot-{seg}"
 
-    async def _ensure_bot_local_profile(self, bot_id: str, config: "BotSandboxConfig") -> uuid.UUID:
+    async def _ensure_bot_local_profile(self, bot_id: str, config: "BotSandboxConfig") -> tuple[uuid.UUID, bool]:
         """Get or create a synthetic SandboxProfile row for bot-local sandboxes.
 
-        Returns the profile UUID. The profile name is 'bot-local:{bot_id}'.
+        Returns (profile_uuid, config_changed) — config_changed is True when
+        the profile was updated (meaning the running container is stale).
         """
         import hashlib as _hashlib
         profile_uuid = uuid.UUID(bytes=_hashlib.sha256(f"bot-sandbox:{bot_id}".encode()).digest()[:16])
+        config_changed = False
         async with async_session() as db:
             profile = await db.get(SandboxProfile, profile_uuid)
             target_image = config.image or "python:3.12-slim"
@@ -571,25 +573,24 @@ class SandboxService:
                 await db.commit()
             else:
                 # Sync all fields from bot config
-                changed = False
                 if profile.image != target_image:
                     profile.image = target_image
-                    changed = True
+                    config_changed = True
                 if profile.network_mode != target_network:
                     profile.network_mode = target_network
-                    changed = True
+                    config_changed = True
                 if profile.env != target_env:
                     profile.env = target_env
-                    changed = True
+                    config_changed = True
                 if profile.mount_specs != target_mounts:
                     profile.mount_specs = target_mounts
-                    changed = True
+                    config_changed = True
                 if profile.port_mappings != target_ports:
                     profile.port_mappings = target_ports
-                    changed = True
-                if changed:
+                    config_changed = True
+                if config_changed:
                     await db.commit()
-        return profile_uuid
+        return profile_uuid, config_changed
 
     async def ensure_bot_local(
         self,
@@ -601,7 +602,7 @@ class SandboxService:
         Uses scope_type='bot', scope_key=bot_id.
         """
         container_name = self._bot_local_container_name(bot_id)
-        profile_uuid = await self._ensure_bot_local_profile(bot_id, config)
+        profile_uuid, config_changed = await self._ensure_bot_local_profile(bot_id, config)
 
         async with async_session() as db:
             stmt = select(SandboxInstance).where(
@@ -621,6 +622,7 @@ class SandboxService:
                     # Check if the image has changed (rebuild detection)
                     target_image = config.image or "python:3.12-slim"
                     current_image_id = await self._get_image_id(target_image)
+                    needs_recreate = False
                     if (
                         instance.image_id is not None
                         and current_image_id is not None
@@ -632,13 +634,22 @@ class SandboxService:
                             instance.image_id[:19],
                             current_image_id[:19],
                         )
+                        needs_recreate = True
+                    elif config_changed:
+                        logger.info(
+                            "Bot-local container '%s' config changed (ports/network/env/mounts); recreating.",
+                            container_name,
+                        )
+                        needs_recreate = True
+
+                    if needs_recreate:
                         await self._docker_stop(instance.container_id)
                         await self._docker_rm(instance.container_id)
                         await db.delete(instance)
                         await db.commit()
                         # Fall through to create a new container
                     else:
-                        # Container exists with correct image — ensure it's running
+                        # Container exists with correct config — ensure it's running
                         if instance.status != "running":
                             await self._docker_start(instance.container_id)
                             instance.status = "running"
