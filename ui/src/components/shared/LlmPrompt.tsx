@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useCompletions } from "../../api/hooks/useModels";
 import type { CompletionItem } from "../../types/api";
 
@@ -10,15 +10,6 @@ interface Props {
   rows?: number;
   helpText?: string;
 }
-
-const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
-  skill: { bg: "#1e1b4b", fg: "#a5b4fc" },
-  tool: { bg: "#14532d", fg: "#86efac" },
-  "tool-pack": { bg: "#14532d", fg: "#86efac" },
-  knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
-};
-
-const TAG_RE = /(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-.]*)/g;
 
 function scoreMatch(value: string, label: string, query: string): number {
   const v = value.toLowerCase();
@@ -37,15 +28,6 @@ function scoreMatch(value: string, label: string, query: string): number {
   return 1;
 }
 
-function highlightTags(text: string): string {
-  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return escaped.replace(TAG_RE, (match: string, prefix?: string) => {
-    const type = (prefix || "").replace(":", "");
-    const c = TAG_COLORS[type] || { bg: "#374151", fg: "#d1d5db" };
-    return `<span style="border-radius:3px;padding:0 2px;background:${c.bg};color:${c.fg}">${match}</span>`;
-  }) + "\n";
-}
-
 export function LlmPrompt({
   value,
   onChange,
@@ -56,7 +38,6 @@ export function LlmPrompt({
 }: Props) {
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mirrorRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [showMenu, setShowMenu] = useState(false);
@@ -64,13 +45,6 @@ export function LlmPrompt({
   const [atStart, setAtStart] = useState(-1);
   const [filtered, setFiltered] = useState<CompletionItem[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-
-  // Sync mirror highlight
-  useEffect(() => {
-    if (mirrorRef.current) {
-      mirrorRef.current.innerHTML = highlightTags(value);
-    }
-  }, [value]);
 
   const handleInput = useCallback(
     (text: string) => {
@@ -154,7 +128,13 @@ export function LlmPrompt({
     [showMenu, filtered, activeIdx, selectItem]
   );
 
-  // Portal dropdown for autocomplete
+  const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
+    skill: { bg: "#1e1b4b", fg: "#a5b4fc" },
+    tool: { bg: "#14532d", fg: "#86efac" },
+    "tool-pack": { bg: "#14532d", fg: "#86efac" },
+    knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
+  };
+
   const renderMenu = () => {
     if (!showMenu || filtered.length === 0 || typeof document === "undefined") return null;
     const ReactDOM = require("react-dom");
@@ -176,97 +156,87 @@ export function LlmPrompt({
             overflowY: "auto",
           }}
         >
-          {filtered.map((item, i) => (
-            <div
-              key={item.value}
-              onMouseDown={(e) => { e.preventDefault(); selectItem(item); }}
-              onMouseEnter={() => setActiveIdx(i)}
-              style={{
-                padding: "6px 12px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "baseline",
-                gap: 8,
-                background: i === activeIdx ? "#2a2a2a" : "transparent",
-              }}
-            >
-              <span style={{ fontFamily: "monospace", fontSize: 12, color: "#818cf8" }}>
-                @{item.value}
-              </span>
-              {item.label !== item.value && (
-                <span style={{ fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.label.slice(item.value.length)}
+          {filtered.map((item, i) => {
+            const prefix = item.value.includes(":") ? item.value.split(":")[0] : "";
+            const colors = TAG_COLORS[prefix] || { bg: "#374151", fg: "#d1d5db" };
+            return (
+              <div
+                key={item.value}
+                onMouseDown={(e) => { e.preventDefault(); selectItem(item); }}
+                onMouseEnter={() => setActiveIdx(i)}
+                style={{
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  background: i === activeIdx ? "#2a2a2a" : "transparent",
+                }}
+              >
+                {prefix && (
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 600,
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    background: colors.bg,
+                    color: colors.fg,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}>
+                    {prefix}
+                  </span>
+                )}
+                <span style={{ fontFamily: "monospace", fontSize: 12, color: "#e5e5e5" }}>
+                  {item.value.includes(":") ? item.value.split(":").slice(1).join(":") : item.value}
                 </span>
-              )}
-            </div>
-          ))}
+                {item.label !== item.value && (
+                  <span style={{ fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.label}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </>,
       document.body
     );
   };
 
-  const baseStyle: React.CSSProperties = {
-    fontFamily: "monospace",
-    fontSize: 13,
-    lineHeight: "1.4em",
-    padding: "8px 12px",
-    borderRadius: 8,
-  };
-
   return (
     <div>
       {label && (
-        <div style={{ color: "#666", fontSize: 12, marginBottom: 4 }}>
+        <div style={{ color: "#999", fontSize: 12, marginBottom: 4, fontWeight: 500 }}>
           {label}{" "}
-          <span style={{ color: "#555" }}>(type @ to insert tags)</span>
+          <span style={{ color: "#555", fontWeight: 400 }}>(type @ to insert tags)</span>
         </div>
       )}
-      <div ref={containerRef} style={{ position: "relative" }}>
-        {/* Mirror for syntax highlighting */}
-        <div
-          ref={mirrorRef}
-          style={{
-            ...baseStyle,
-            position: "absolute",
-            inset: 0,
-            background: "#111",
-            border: "1px solid #333",
-            pointerEvents: "none",
-            overflow: "hidden",
-            whiteSpace: "pre-wrap",
-            wordWrap: "break-word",
-            color: "#e5e7eb",
-            zIndex: 0,
-          }}
-        />
-        {/* Textarea */}
+      <div ref={containerRef}>
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown as any}
           onBlur={() => setTimeout(() => setShowMenu(false), 200)}
-          onScroll={() => {
-            if (mirrorRef.current && textareaRef.current) {
-              mirrorRef.current.scrollTop = textareaRef.current.scrollTop;
-            }
-          }}
           placeholder={placeholder}
           rows={rows}
           style={{
-            ...baseStyle,
+            fontFamily: "monospace",
+            fontSize: 13,
+            lineHeight: "1.5",
+            padding: "8px 12px",
+            borderRadius: 8,
             width: "100%",
             border: "1px solid #333",
-            background: "transparent",
-            color: "transparent",
-            caretColor: "#e5e7eb",
-            position: "relative",
-            zIndex: 1,
+            background: "#111",
+            color: "#e5e7eb",
             resize: "vertical",
             outline: "none",
+            transition: "border-color 0.15s",
           }}
-          onFocus={(e) => { (e.target as HTMLTextAreaElement).style.borderColor = "#3b82f6"; }}
+          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; }}
+          onBlurCapture={(e) => { e.target.style.borderColor = "#333"; }}
         />
       </div>
       {helpText && (
