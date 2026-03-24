@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Message, Session, ToolCall, TraceEvent
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -93,7 +93,7 @@ async def admin_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List log entries (tool calls + trace events), merged and sorted desc."""
     offset = (page - 1) * page_size
@@ -194,7 +194,7 @@ async def admin_logs(
 async def admin_trace_detail(
     correlation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get full trace timeline for a correlation ID."""
     tool_calls = (await db.execute(

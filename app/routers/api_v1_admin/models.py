@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Skill as SkillRow, ToolEmbedding
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ class CompletionItem(BaseModel):
 
 @router.get("/models", response_model=list[ModelGroupOut])
 async def admin_models(
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List all available LLM models grouped by provider."""
     from app.services.providers import get_available_models_grouped
@@ -56,7 +56,7 @@ async def admin_models(
 @router.get("/completions", response_model=list[CompletionItem])
 async def admin_completions(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get @-tag completions for skills, tools, and tool-packs."""
     from app.tools.packs import get_tool_packs

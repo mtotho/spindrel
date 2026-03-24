@@ -11,7 +11,7 @@ from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Skill as SkillRow
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -51,7 +51,7 @@ class SkillUpdateIn(BaseModel):
 @router.get("/skills", response_model=list[SkillOut])
 async def admin_list_skills(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List all skills with chunk counts."""
     skills = (await db.execute(
@@ -84,7 +84,7 @@ async def admin_list_skills(
 async def admin_get_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -105,7 +105,7 @@ async def admin_get_skill(
 async def admin_create_skill(
     body: SkillCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     skill_id = body.id.strip().lower().replace(" ", "_")
     if not skill_id or not body.name.strip():
@@ -140,7 +140,7 @@ async def admin_update_skill(
     skill_id: str,
     body: SkillUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -175,7 +175,7 @@ async def admin_update_skill(
 async def admin_delete_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -190,7 +190,7 @@ async def admin_delete_skill(
 
 @router.post("/file-sync")
 async def admin_file_sync(
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Trigger a full file sync for skills and knowledge."""
     from app.services.file_sync import sync_all_files

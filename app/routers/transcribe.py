@@ -4,7 +4,7 @@ import tempfile
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import verify_auth
+from app.dependencies import verify_auth_or_user
 from app.stt import transcribe as stt_transcribe
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def _transcribe_audio_file(body: bytes, content_type: str) -> str:
 @router.post("/transcribe")
 async def transcribe(
     request: Request,
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     body = await request.body()
     if not body:

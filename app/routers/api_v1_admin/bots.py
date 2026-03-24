@@ -18,7 +18,7 @@ from app.db.models import (
     Skill as SkillRow,
     ToolEmbedding,
 )
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 from ._helpers import _bot_to_out
 from ._schemas import BotListOut, BotOut, MemoryListOut, MemoryOut
@@ -32,7 +32,7 @@ router = APIRouter()
 
 @router.get("/bots", response_model=BotListOut)
 async def admin_bots_list(
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List all bots with full config."""
     bots = list_bots()
@@ -45,7 +45,7 @@ async def admin_bots_list(
 @router.get("/bots/{bot_id}", response_model=BotOut)
 async def admin_bot_detail(
     bot_id: str,
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get a single bot's full config."""
     from app.agent.persona import get_persona
@@ -91,7 +91,7 @@ class BotEditorDataOut(BaseModel):
 async def admin_bot_editor_data(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get bot config + all available options for the editor UI.
 
@@ -270,7 +270,7 @@ async def admin_bot_update(
     bot_id: str,
     data: BotUpdateIn = Body(...),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Update a bot's config via JSON."""
     from app.agent.bots import reload_bots
@@ -366,7 +366,7 @@ class BotCreateIn(BaseModel):
 async def admin_bot_create(
     data: BotCreateIn = Body(...),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Create a new bot."""
     import re
@@ -433,7 +433,7 @@ async def admin_bot_memories(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List memories for a specific bot."""
     memories = (await db.execute(

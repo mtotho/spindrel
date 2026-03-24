@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment as AttachmentModel, Message, Session, Task
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 from app.services.sessions import store_passive_message
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class InjectResponse(BaseModel):
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Create or retrieve a session for an integration client."""
     from app.agent.bots import get_bot
@@ -153,7 +153,7 @@ async def inject_message(
     session_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """
     Inject a message into a session from an external integration.
@@ -209,7 +209,7 @@ async def list_messages(
     session_id: uuid.UUID,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List messages for a session, most recent first."""
     session = await db.get(Session, session_id)

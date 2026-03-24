@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Attachment
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter(prefix="/attachments", tags=["Attachments"])
 
@@ -38,7 +38,7 @@ class AttachmentOut(BaseModel):
 async def get_attachment(
     attachment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     att = await db.get(Attachment, attachment_id)
     if att is None:
@@ -88,7 +88,7 @@ async def list_attachments(
     type: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     q = select(Attachment)
     if channel_id:

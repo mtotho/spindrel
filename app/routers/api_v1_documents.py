@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import IntegrationDocument
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -62,7 +62,7 @@ class DocumentOut(BaseModel):
 async def ingest_document(
     body: DocumentIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Ingest a document and embed it for semantic search."""
     embed_text = f"{body.title}\n{body.content}" if body.title else body.content
@@ -90,7 +90,7 @@ async def search_documents(
     session_id: Optional[uuid.UUID] = None,
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Semantic search over integration documents using cosine similarity."""
     query_embedding = await _embed(q)
@@ -115,7 +115,7 @@ async def search_documents(
 async def get_document(
     doc_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Fetch a document by ID."""
     doc = await db.get(IntegrationDocument, doc_id)
@@ -128,7 +128,7 @@ async def get_document(
 async def delete_document(
     doc_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Delete a document by ID."""
     doc = await db.get(IntegrationDocument, doc_id)

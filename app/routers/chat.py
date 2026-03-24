@@ -16,7 +16,7 @@ from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.db.models import Task as TaskModel
-from app.dependencies import get_db, verify_auth, verify_auth_or_user
+from app.dependencies import get_db, verify_auth_or_user
 from app.services import session_locks
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
 from app.services.compaction import maybe_compact

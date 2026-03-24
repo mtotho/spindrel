@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot
 from app.db.models import Todo
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter(prefix="/todos", tags=["Todos"])
 
@@ -47,7 +47,7 @@ async def list_todos(
     channel_id: uuid.UUID = Query(...),
     status: str = Query("pending"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     stmt = (
         select(Todo)
@@ -64,7 +64,7 @@ async def list_todos(
 async def create_todo(
     body: TodoCreate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     # Validate bot exists
     try:
@@ -91,7 +91,7 @@ async def patch_todo(
     todo_id: uuid.UUID,
     body: TodoPatch,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     todo = await db.get(Todo, todo_id)
     if not todo:
@@ -113,7 +113,7 @@ async def patch_todo(
 async def delete_todo(
     todo_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     todo = await db.get(Todo, todo_id)
     if not todo:

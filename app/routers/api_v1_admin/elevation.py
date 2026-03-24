@@ -10,7 +10,7 @@ from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -141,7 +141,7 @@ async def get_bot_elevation(
     bot_id: str,
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.db.models import Bot
     bot_row = await db.get(Bot, bot_id)
@@ -167,7 +167,7 @@ async def update_bot_elevation(
     bot_id: str,
     data: ElevationConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.db.models import Bot
     bot_row = await db.get(Bot, bot_id)
@@ -210,7 +210,7 @@ async def get_channel_elevation(
     channel_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.db.models import Channel
     ch = await db.get(Channel, channel_id)
@@ -236,7 +236,7 @@ async def update_channel_elevation(
     channel_id: uuid.UUID,
     data: ElevationConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.db.models import Channel
     ch = await db.get(Channel, channel_id)
