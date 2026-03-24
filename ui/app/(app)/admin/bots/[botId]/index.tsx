@@ -1649,8 +1649,12 @@ export default function BotEditorScreen() {
               <Row>
                 <Col>
                   <FormRow label="Vision / Summary Model">
-                    <TextInput value={draft.attachment_summary_model ?? ""}
-                      onChangeText={(v) => update({ attachment_summary_model: v || undefined })} placeholder="inherit" />
+                    <LlmModelDropdown
+                      value={draft.attachment_summary_model ?? ""}
+                      onChange={(v) => update({ attachment_summary_model: v || undefined })}
+                      placeholder="inherit"
+                      allowClear
+                    />
                   </FormRow>
                 </Col>
                 <Col>
