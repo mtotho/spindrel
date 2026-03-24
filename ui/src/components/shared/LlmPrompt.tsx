@@ -1,4 +1,3 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useCompletions } from "../../api/hooks/useModels";
 import type { CompletionItem } from "../../types/api";
@@ -19,6 +18,8 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
 };
 
+const TAG_RE = /(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-.]*)/g;
+
 function scoreMatch(value: string, label: string, query: string): number {
   const v = value.toLowerCase();
   const l = label.toLowerCase();
@@ -27,7 +28,6 @@ function scoreMatch(value: string, label: string, query: string): number {
   if (v.startsWith(q)) return 4;
   if (name.startsWith(q)) return 3;
   if (v.includes(q) || l.includes(q)) return 2;
-  // Fuzzy
   let hi = 0;
   for (let i = 0; i < q.length; i++) {
     const idx = v.indexOf(q[i], hi);
@@ -35,6 +35,15 @@ function scoreMatch(value: string, label: string, query: string): number {
     hi = idx + 1;
   }
   return 1;
+}
+
+function highlightTags(text: string): string {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(TAG_RE, (match: string, prefix?: string) => {
+    const type = (prefix || "").replace(":", "");
+    const c = TAG_COLORS[type] || { bg: "#374151", fg: "#d1d5db" };
+    return `<span style="border-radius:3px;padding:0 2px;background:${c.bg};color:${c.fg}">${match}</span>`;
+  }) + "\n";
 }
 
 export function LlmPrompt({
@@ -48,37 +57,24 @@ export function LlmPrompt({
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [showMenu, setShowMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
   const [atStart, setAtStart] = useState(-1);
   const [filtered, setFiltered] = useState<CompletionItem[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const TAG_RE = /(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-.]*)/g;
-
-  const updateHighlight = useCallback(() => {
-    if (!mirrorRef.current || !textareaRef.current) return;
-    const escaped = value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    mirrorRef.current.innerHTML =
-      escaped.replace(TAG_RE, (match: string, prefix?: string) => {
-        const type = (prefix || "").replace(":", "");
-        const colors = TAG_COLORS[type] || { bg: "#374151", fg: "#d1d5db" };
-        return `<span style="border-radius:3px;padding:0 2px;background:${colors.bg};color:${colors.fg}">${match}</span>`;
-      }) + "\n";
-    mirrorRef.current.scrollTop = textareaRef.current.scrollTop;
-  }, [value]);
-
+  // Sync mirror highlight
   useEffect(() => {
-    updateHighlight();
-  }, [value, updateHighlight]);
+    if (mirrorRef.current) {
+      mirrorRef.current.innerHTML = highlightTags(value);
+    }
+  }, [value]);
 
   const handleInput = useCallback(
     (text: string) => {
       onChange(text);
-
       const ta = textareaRef.current;
       if (!ta || !completions) return;
 
@@ -98,9 +94,8 @@ export function LlmPrompt({
       }
 
       setAtStart(atIdx);
-      const ql = query.toLowerCase();
       const scored = completions
-        .map((c) => ({ c, s: scoreMatch(c.value, c.label, ql) }))
+        .map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
         .filter((x) => x.s > 0)
         .sort((a, b) => b.s - a.s)
         .map((x) => x.c)
@@ -108,7 +103,14 @@ export function LlmPrompt({
 
       setActiveIdx(0);
       setFiltered(scored);
-      setShowMenu(scored.length > 0);
+
+      if (scored.length > 0 && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setMenuPos({ top: rect.bottom + 2, left: rect.left, width: rect.width });
+        setShowMenu(true);
+      } else {
+        setShowMenu(false);
+      }
     },
     [completions, onChange]
   );
@@ -122,8 +124,6 @@ export function LlmPrompt({
       const newValue = before + "@" + item.value + " " + after;
       onChange(newValue);
       setShowMenu(false);
-
-      // Move cursor
       requestAnimationFrame(() => {
         const cur = atStart + item.value.length + 2;
         ta.selectionStart = ta.selectionEnd = cur;
@@ -154,34 +154,89 @@ export function LlmPrompt({
     [showMenu, filtered, activeIdx, selectItem]
   );
 
+  // Portal dropdown for autocomplete
+  const renderMenu = () => {
+    if (!showMenu || filtered.length === 0 || typeof document === "undefined") return null;
+    const ReactDOM = require("react-dom");
+    return ReactDOM.createPortal(
+      <>
+        <div onClick={() => setShowMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
+        <div
+          style={{
+            position: "fixed",
+            top: menuPos.top,
+            left: menuPos.left,
+            width: menuPos.width,
+            maxHeight: 200,
+            zIndex: 9999,
+            background: "#1a1a1a",
+            border: "1px solid #333",
+            borderRadius: 8,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            overflowY: "auto",
+          }}
+        >
+          {filtered.map((item, i) => (
+            <div
+              key={item.value}
+              onMouseDown={(e) => { e.preventDefault(); selectItem(item); }}
+              onMouseEnter={() => setActiveIdx(i)}
+              style={{
+                padding: "6px 12px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "baseline",
+                gap: 8,
+                background: i === activeIdx ? "#2a2a2a" : "transparent",
+              }}
+            >
+              <span style={{ fontFamily: "monospace", fontSize: 12, color: "#818cf8" }}>
+                @{item.value}
+              </span>
+              {item.label !== item.value && (
+                <span style={{ fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.label.slice(item.value.length)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </>,
+      document.body
+    );
+  };
+
+  const baseStyle: React.CSSProperties = {
+    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: "1.4em",
+    padding: "8px 12px",
+    borderRadius: 8,
+  };
+
   return (
-    <View>
+    <div>
       {label && (
-        <Text className="text-text-dim text-xs mb-1">
+        <div style={{ color: "#666", fontSize: 12, marginBottom: 4 }}>
           {label}{" "}
-          <Text className="text-text-dim/50">
-            (type @ to insert skill/tool tags)
-          </Text>
-        </Text>
+          <span style={{ color: "#555" }}>(type @ to insert tags)</span>
+        </div>
       )}
-      <View className="relative">
+      <div ref={containerRef} style={{ position: "relative" }}>
         {/* Mirror for syntax highlighting */}
         <div
           ref={mirrorRef}
           style={{
+            ...baseStyle,
             position: "absolute",
             inset: 0,
-            padding: "8px 12px",
-            fontSize: 13,
-            fontFamily: "monospace",
-            background: "#111111",
-            borderRadius: 8,
+            background: "#111",
+            border: "1px solid #333",
             pointerEvents: "none",
             overflow: "hidden",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
             color: "#e5e7eb",
-            lineHeight: "1.25rem",
             zIndex: 0,
           }}
         />
@@ -191,7 +246,7 @@ export function LlmPrompt({
           value={value}
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown as any}
-          onBlur={() => setTimeout(() => setShowMenu(false), 150)}
+          onBlur={() => setTimeout(() => setShowMenu(false), 200)}
           onScroll={() => {
             if (mirrorRef.current && textareaRef.current) {
               mirrorRef.current.scrollTop = textareaRef.current.scrollTop;
@@ -200,12 +255,9 @@ export function LlmPrompt({
           placeholder={placeholder}
           rows={rows}
           style={{
+            ...baseStyle,
             width: "100%",
-            fontFamily: "monospace",
-            fontSize: 13,
-            border: "1px solid #333333",
-            borderRadius: 8,
-            padding: "8px 12px",
+            border: "1px solid #333",
             background: "transparent",
             color: "transparent",
             caretColor: "#e5e7eb",
@@ -213,41 +265,14 @@ export function LlmPrompt({
             zIndex: 1,
             resize: "vertical",
             outline: "none",
-            lineHeight: "1.25rem",
           }}
+          onFocus={(e) => { (e.target as HTMLTextAreaElement).style.borderColor = "#3b82f6"; }}
         />
-        {/* Autocomplete dropdown */}
-        {showMenu && filtered.length > 0 && (
-          <View
-            className="absolute z-50 left-0 right-0 bg-surface-raised border border-surface-border rounded-lg shadow-lg overflow-hidden"
-            style={{ top: "100%", marginTop: 2, maxHeight: 180 }}
-          >
-            <ScrollView>
-              {filtered.map((item, i) => (
-                <Pressable
-                  key={item.value}
-                  onPress={() => selectItem(item)}
-                  className={`flex-row items-baseline gap-2 px-3 py-1.5 ${
-                    i === activeIdx ? "bg-surface-overlay" : "hover:bg-surface-overlay/50"
-                  }`}
-                >
-                  <Text className="text-accent text-xs font-mono">
-                    @{item.value}
-                  </Text>
-                  {item.label !== item.value && (
-                    <Text className="text-text-dim text-xs" numberOfLines={1}>
-                      {item.label.slice(item.value.length)}
-                    </Text>
-                  )}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </View>
+      </div>
       {helpText && (
-        <Text className="text-text-dim text-[10px] mt-1">{helpText}</Text>
+        <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>{helpText}</div>
       )}
-    </View>
+      {renderMenu()}
+    </div>
   );
 }
