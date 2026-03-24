@@ -21,10 +21,11 @@ Frigate is a local NVR (network video recorder) with AI object detection. You ca
 - `frigate_event_clip` — download an event's MP4 video clip as an attachment
 - `frigate_recording_clip` — download a time-range recording clip from a camera as an attachment
 
-### Posting
+### Posting & Analysis
 - `post_attachment` — post any attachment (image, video, file) into chat by attachment_id
+- `describe_attachment` — use a vision model to describe or answer questions about an image attachment
 
-**Two-step workflow:** Download tools save media as attachments and return an `attachment_id`. Then call `post_attachment(attachment_id)` to display it in chat.
+**Two-step workflow:** Download tools save media as attachments and return an `attachment_id`. Then call `post_attachment(attachment_id)` to display it in chat, or `describe_attachment(attachment_id, prompt)` to analyze it with a vision model.
 
 ## Common Workflows
 
@@ -37,6 +38,10 @@ Frigate is a local NVR (network video recorder) with AI object detection. You ca
 2. For interesting events: `frigate_event_snapshot(event_id="...")` → get attachment_id
 3. `post_attachment(attachment_id="...")` to show each snapshot
 4. If user wants video: `frigate_event_clip(event_id="...")` → `post_attachment(...)`
+
+### "What do you see on the front porch?"
+1. `frigate_snapshot(camera="front_porch")` → get attachment_id
+2. `describe_attachment(attachment_id="...", prompt="What do you see? Are there any people, packages, or animals?")`
 
 ### "Show me the driveway from 2pm to 2:05pm"
 1. Convert times to Unix timestamps
