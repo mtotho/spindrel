@@ -29,8 +29,7 @@ class TestUnwrapOptional:
 
     def test_pipe_none(self):
         # Python 3.10+ `str | None` creates a types.UnionType.
-        # As of Python 3.14, get_origin() normalizes this to typing.Union,
-        # so _unwrap_optional correctly unwraps it to str.
+        # _unwrap_optional handles both typing.Union and types.UnionType.
         t = str | None
         result = _unwrap_optional(t)
         assert result is str
