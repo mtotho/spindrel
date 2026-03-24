@@ -9,6 +9,7 @@ import {
   Bot,
   Activity,
   Menu,
+  Plus,
 } from "lucide-react";
 
 export default function HomeScreen() {
@@ -41,11 +42,29 @@ export default function HomeScreen() {
         <View className="max-w-2xl w-full mx-auto gap-6">
           {/* Header */}
           {!showHamburger && (
-            <View className="gap-1">
-              <Text className="text-text text-xl font-bold">Channels</Text>
-              <Text className="text-text-muted text-sm">
-                Select a channel to start chatting
-              </Text>
+            <View className="flex-row items-center justify-between">
+              <View className="gap-1">
+                <Text className="text-text text-xl font-bold">Channels</Text>
+                <Text className="text-text-muted text-sm">
+                  Select a channel to start chatting
+                </Text>
+              </View>
+              <Link href={"/channels/new" as any} asChild>
+                <Pressable
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    backgroundColor: "#3b82f6",
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Plus size={14} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>New Channel</Text>
+                </Pressable>
+              </Link>
             </View>
           )}
 
@@ -89,11 +108,17 @@ export default function HomeScreen() {
                         <Text className="text-text-muted text-xs">
                           {bot?.name ?? channel.bot_id}
                         </Text>
-                        {channel.integration && (
+                        {(channel.integrations?.length ?? 0) > 0 ? (
+                          channel.integrations!.map((b) => (
+                            <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                              {b.integration_type}
+                            </Text>
+                          ))
+                        ) : channel.integration ? (
                           <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
                             {channel.integration}
                           </Text>
-                        )}
+                        ) : null}
                       </View>
                     </View>
                   </View>

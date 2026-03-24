@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import Channel, Session
+from app.db.models import Channel, ChannelIntegration, Session
 
 if TYPE_CHECKING:
     from app.db.models import User
@@ -32,6 +32,19 @@ def is_integration_client_id(client_id: str | None) -> bool:
     if not client_id:
         return False
     return any(client_id.startswith(p) for p in INTEGRATION_CLIENT_PREFIXES)
+
+
+async def resolve_channel_by_client_id(
+    db: AsyncSession,
+    client_id: str,
+) -> Channel | None:
+    """Find a channel via channel_integrations binding by client_id."""
+    result = await db.execute(
+        select(Channel)
+        .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+        .where(ChannelIntegration.client_id == client_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_or_create_channel(
@@ -66,10 +79,16 @@ async def get_or_create_channel(
 
     # 2. client_id lookup
     if client_id is not None:
+        # Legacy: check Channel.client_id directly
         result = await db.execute(
             select(Channel).where(Channel.client_id == client_id)
         )
         ch = result.scalar_one_or_none()
+
+        # Fall back to channel_integrations table
+        if ch is None:
+            ch = await resolve_channel_by_client_id(db, client_id)
+
         if ch is not None:
             changed = False
             if ch.bot_id != bot_id:
@@ -103,6 +122,18 @@ async def get_or_create_channel(
         )
         db.add(ch)
         await db.flush()
+
+        # Also create a ChannelIntegration row for new integration channels
+        if integration:
+            binding = ChannelIntegration(
+                channel_id=ch.id,
+                integration_type=integration,
+                client_id=client_id,
+                dispatch_config=dispatch_config,
+            )
+            db.add(binding)
+            await db.flush()
+
         return ch
 
     # 3. No client_id, no channel_id — anonymous channel
@@ -136,12 +167,22 @@ async def ensure_active_session(
     # Create new session for this channel — flush the session row first
     # so the FK from channels.active_session_id → sessions.id is satisfied.
     session_id = uuid.uuid4()
+    has_integration = channel.integration is not None
+    if not has_integration:
+        # Check channel_integrations table
+        result = await db.execute(
+            select(ChannelIntegration.id)
+            .where(ChannelIntegration.channel_id == channel.id)
+            .limit(1)
+        )
+        has_integration = result.scalar_one_or_none() is not None
+
     session = Session(
         id=session_id,
         client_id=channel.client_id or f"channel:{channel.id}",
         bot_id=channel.bot_id,
         channel_id=channel.id,
-        locked=channel.integration is not None,
+        locked=has_integration,
     )
     db.add(session)
     await db.flush()
@@ -161,13 +202,22 @@ async def reset_channel_session(
     The old session is preserved (messages, compaction) but becomes inactive.
     Channel-scoped knowledge, tasks, and plans persist across the reset.
     """
+    has_integration = channel.integration is not None
+    if not has_integration:
+        result = await db.execute(
+            select(ChannelIntegration.id)
+            .where(ChannelIntegration.channel_id == channel.id)
+            .limit(1)
+        )
+        has_integration = result.scalar_one_or_none() is not None
+
     session_id = uuid.uuid4()
     session = Session(
         id=session_id,
         client_id=channel.client_id or f"channel:{channel.id}",
         bot_id=channel.bot_id,
         channel_id=channel.id,
-        locked=channel.integration is not None,
+        locked=has_integration,
     )
     db.add(session)
     await db.flush()
@@ -219,6 +269,58 @@ def apply_channel_visibility(stmt, user):
             Channel.user_id == user.id,
         )
     )
+
+
+async def bind_integration(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    integration_type: str,
+    client_id: str,
+    dispatch_config: dict | None = None,
+    display_name: str | None = None,
+) -> ChannelIntegration:
+    """Bind an integration to a channel. Raises on duplicate client_id."""
+    binding = ChannelIntegration(
+        channel_id=channel_id,
+        integration_type=integration_type,
+        client_id=client_id,
+        dispatch_config=dispatch_config,
+        display_name=display_name,
+    )
+    db.add(binding)
+    await db.flush()
+    return binding
+
+
+async def unbind_integration(
+    db: AsyncSession,
+    binding_id: uuid.UUID,
+) -> bool:
+    """Delete an integration binding. Returns True if found and deleted."""
+    binding = await db.get(ChannelIntegration, binding_id)
+    if binding is None:
+        return False
+    await db.delete(binding)
+    await db.flush()
+    return True
+
+
+async def adopt_integration(
+    db: AsyncSession,
+    binding_id: uuid.UUID,
+    target_channel_id: uuid.UUID,
+) -> ChannelIntegration:
+    """Move a binding from its current channel to target_channel_id."""
+    binding = await db.get(ChannelIntegration, binding_id)
+    if binding is None:
+        raise ValueError(f"Binding {binding_id} not found")
+    target = await db.get(Channel, target_channel_id)
+    if target is None:
+        raise ValueError(f"Target channel {target_channel_id} not found")
+    binding.channel_id = target_channel_id
+    binding.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return binding
 
 
 async def resolve_integration_user(

@@ -14,7 +14,7 @@ import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
-import type { Message, ChatAttachment, ChatFileMetadata } from "@/src/types/api";
+import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
   messages: Message[];
@@ -36,6 +36,9 @@ export default function ChatScreen() {
 
   // Show hamburger when sidebar is not visible (mobile or collapsed)
   const showHamburger = columns === "single" || sidebarCollapsed;
+
+  // Per-turn model override
+  const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -134,11 +137,15 @@ export default function ChatScreen() {
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
+        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
       });
+
+      // Clear per-turn override after sending
+      setTurnModelOverride(undefined);
     },
-    [channelId, channel]
+    [channelId, channel, turnModelOverride]
   );
 
   // For inverted FlatList, data must be newest-first
@@ -179,9 +186,14 @@ export default function ChatScreen() {
             {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
           </Text>
           {bot && (
-            <Link href={`/admin/bots/${bot.id}` as any}>
-              <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
-            </Link>
+            <>
+              <Link href={`/admin/bots/${bot.id}` as any}>
+                <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
+              </Link>
+              <Text className="text-text-dim text-[10px]">
+                {channel?.model_override || bot?.model}
+              </Text>
+            </>
           )}
         </View>
         {channelId && (
@@ -251,6 +263,9 @@ export default function ChatScreen() {
       <MessageInput
         onSend={handleSend}
         disabled={chatState.isStreaming}
+        modelOverride={turnModelOverride}
+        onModelOverrideChange={setTurnModelOverride}
+        defaultModel={channel?.model_override || bot?.model}
       />
     </View>
   );

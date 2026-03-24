@@ -40,6 +40,8 @@ class AssemblyResult:
     user_msg_index: int = 0
     tagged_tool_names: list[str] = field(default_factory=list)
     tagged_bot_names: list[str] = field(default_factory=list)
+    channel_model_override: str | None = None
+    channel_provider_id_override: str | None = None
 
 
 async def assemble_context(
@@ -94,6 +96,9 @@ async def assemble_context(
                 pinned_tools=_eff.pinned_tools,
                 skills=_eff.skills,
             )
+            if _ch_row.model_override:
+                result.channel_model_override = _ch_row.model_override
+                result.channel_provider_id_override = _ch_row.model_provider_id_override
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(

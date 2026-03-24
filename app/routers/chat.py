@@ -63,6 +63,7 @@ class ChatRequest(BaseModel):
     file_metadata: list[FileMetadata] = Field(default_factory=list)  # server-side attachment tracking
     dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"
     dispatch_config: Optional[dict] = None  # type-specific routing config
+    model_override: Optional[str] = None  # Per-turn model override (highest priority)
     passive: bool = False  # If True, store message but skip agent run
     msg_metadata: Optional[dict] = None  # Metadata to attach to the user message row
 
@@ -308,6 +309,7 @@ async def chat(
             dispatch_type=req.dispatch_type,
             dispatch_config=req.dispatch_config,
             channel_id=channel_id,
+            model_override=req.model_override,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -483,6 +485,7 @@ async def chat_stream(
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
                 channel_id=channel_id,
+                model_override=req.model_override,
             )
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():

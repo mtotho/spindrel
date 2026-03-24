@@ -340,3 +340,67 @@ class TestListChannelKnowledge:
         assert entries[0]["knowledge_name"] == "test-knowledge"
         assert entries[0]["scope_type"] == "channel"
         assert entries[0]["mode"] == "rag"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/admin/channels/{id}/knowledge
+# ---------------------------------------------------------------------------
+
+class TestAdminListChannelKnowledge:
+    async def test_empty_knowledge(self, client):
+        created = await _create_channel(client)
+        ch_id = created["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/knowledge",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_channel_not_found(self, client):
+        resp = await client.get(
+            f"/api/v1/admin/channels/{uuid.uuid4()}/knowledge",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_knowledge_with_entries(self, client, db_session):
+        created = await _create_channel(client)
+        ch_id = created["id"]
+
+        bk = BotKnowledge(
+            id=uuid.uuid4(),
+            name="admin-test-knowledge",
+            content="Some detailed knowledge content here",
+            bot_id="test-bot",
+            created_by_bot="test-bot",
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(bk)
+        await db_session.flush()
+
+        ka = KnowledgeAccess(
+            id=uuid.uuid4(),
+            knowledge_id=bk.id,
+            scope_type="channel",
+            scope_key=str(ch_id),
+            mode="pinned",
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ka)
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/knowledge",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        entries = resp.json()
+        assert len(entries) == 1
+        assert entries[0]["title"] == "admin-test-knowledge"
+        assert entries[0]["mode"] == "pinned"
+        assert entries[0]["bot_id"] == "test-bot"
+        assert entries[0]["content_length"] == len("Some detailed knowledge content here")
+        assert entries[0]["content"] == "Some detailed knowledge content here"
+        assert "updated_at" in entries[0]

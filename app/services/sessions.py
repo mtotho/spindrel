@@ -104,11 +104,16 @@ def _content_for_db(msg: dict) -> str | dict | list | None:
 
 
 def _effective_system_prompt(bot: BotConfig) -> str:
-    """System prompt plus optional memory guidelines when memory is enabled."""
-    out = bot.system_prompt.rstrip()
+    """Base prompt + bot system prompt + optional memory guidelines."""
+    from app.agent.base_prompt import render_base_prompt
+    parts = []
+    base = render_base_prompt(bot)
+    if base:
+        parts.append(base.rstrip())
+    parts.append(bot.system_prompt.rstrip())
     if bot.memory.enabled and bot.memory.prompt:
-        out += "\n\n" + bot.memory.prompt.strip()
-    return out
+        parts.append(bot.memory.prompt.strip())
+    return "\n\n".join(parts)
 
 
 async def load_or_create(

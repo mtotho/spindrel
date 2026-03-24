@@ -40,6 +40,8 @@ class Channel(Base):
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_max_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -69,6 +71,28 @@ class Channel(Base):
         back_populates="channel",
         foreign_keys="Session.channel_id",
     )
+    integrations: Mapped[list["ChannelIntegration"]] = relationship(
+        back_populates="channel",
+        cascade="all, delete-orphan",
+    )
+
+
+class ChannelIntegration(Base):
+    __tablename__ = "channel_integrations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
+    )
+    integration_type: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    channel: Mapped["Channel"] = relationship(back_populates="integrations")
 
 
 class Session(Base):
@@ -531,6 +555,7 @@ class Bot(Base):
     tool_retrieval: Mapped[bool] = mapped_column(nullable=False, default=True)
     tool_similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
     persona: Mapped[bool] = mapped_column(nullable=False, default=False)
+    base_prompt: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
     context_compaction: Mapped[bool] = mapped_column(nullable=False, default=True)
     compaction_interval: Mapped[int | None] = mapped_column(nullable=True)
     compaction_keep_turns: Mapped[int | None] = mapped_column(nullable=True)
@@ -577,7 +602,7 @@ class Bot(Base):
 class SharedWorkspace(Base):
     __tablename__ = "shared_workspaces"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'python:3.12-slim'"))

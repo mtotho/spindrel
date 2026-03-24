@@ -131,6 +131,38 @@ agent-api POST /api/v1/workspaces/$WSID/bots '{"bot_id":"researcher","role":"mem
 agent-api POST /api/v1/workspaces/$WSID/start
 ```
 
+## Model Override
+
+Override the LLM model at channel level or per-turn.
+
+**Resolution chain:** per-turn (`model_override` in ChatRequest) > channel `model_override` (DB) > `bot.model`
+
+### Channel-level override (persistent)
+```
+# Get current settings
+GET /api/v1/admin/channels/{channel_id}/settings
+
+# Set model override
+PUT /api/v1/admin/channels/{channel_id}/settings
+{"model_override": "gemini/gemini-2.5-flash"}
+
+# Clear override (revert to bot default)
+PUT /api/v1/admin/channels/{channel_id}/settings
+{"model_override": null}
+```
+
+### Per-turn override (single message)
+Include `model_override` in the ChatRequest body:
+```json
+{"message": "hello", "bot_id": "default", "model_override": "openai/gpt-4o"}
+```
+
+### Slack
+- `/model` — show current model (override vs bot default)
+- `/model list` — show available models grouped by provider
+- `/model <name>` — set channel override (supports partial matching)
+- `/model clear` — clear override, revert to bot default
+
 ## Orchestrator Checklist
 
 - [ ] Workspace container is running (`GET /workspaces/{id}/status`)
