@@ -21,6 +21,7 @@ from app.db.models import (
     BotKnowledge,
     Channel,
     ChannelHeartbeat,
+    KnowledgeAccess,
     Memory,
     Message,
     Plan,
@@ -908,6 +909,58 @@ async def admin_channel_memories(
     )
 
 
+@router.get("/tasks")
+async def admin_list_tasks(
+    status: Optional[str] = None,
+    bot_id: Optional[str] = None,
+    channel_id: Optional[uuid.UUID] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """List tasks with optional filters. Supports pagination."""
+    stmt = select(Task).order_by(Task.created_at.desc())
+    count_stmt = select(func.count()).select_from(Task)
+
+    if status:
+        stmt = stmt.where(Task.status == status)
+        count_stmt = count_stmt.where(Task.status == status)
+    if bot_id:
+        stmt = stmt.where(Task.bot_id == bot_id)
+        count_stmt = count_stmt.where(Task.bot_id == bot_id)
+    if channel_id:
+        stmt = stmt.where(Task.channel_id == channel_id)
+        count_stmt = count_stmt.where(Task.channel_id == channel_id)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    tasks = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
+
+    return {
+        "tasks": [
+            {
+                "id": str(t.id),
+                "status": t.status,
+                "bot_id": t.bot_id,
+                "prompt": t.prompt,
+                "result": t.result[:500] if t.result else None,
+                "error": t.error,
+                "dispatch_type": t.dispatch_type,
+                "recurrence": t.recurrence,
+                "channel_id": str(t.channel_id) if t.channel_id else None,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
+                "run_at": t.run_at.isoformat() if t.run_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            }
+            for t in tasks
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 @router.get("/channels/{channel_id}/tasks", response_model=TaskListOut)
 async def admin_channel_tasks(
     channel_id: uuid.UUID,
@@ -1241,3 +1294,39 @@ async def admin_channels_enriched(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Channel knowledge
+# ---------------------------------------------------------------------------
+@router.get("/channels/{channel_id}/knowledge")
+async def get_channel_knowledge(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """Return knowledge entries scoped to this channel."""
+    # Knowledge scoped to this channel via knowledge_access table
+    stmt = (
+        select(BotKnowledge, KnowledgeAccess.mode)
+        .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
+        .where(
+            KnowledgeAccess.scope_type == "channel",
+            KnowledgeAccess.scope_key == str(channel_id),
+        )
+        .order_by(BotKnowledge.updated_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "id": str(k.id),
+            "title": k.title,
+            "content": k.content[:500] if k.content else None,
+            "content_length": len(k.content) if k.content else 0,
+            "bot_id": k.bot_id,
+            "mode": mode,
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+            "updated_at": k.updated_at.isoformat() if k.updated_at else None,
+        }
+        for k, mode in rows
+    ]

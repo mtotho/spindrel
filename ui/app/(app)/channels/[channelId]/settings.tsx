@@ -40,6 +40,7 @@ const INTERVAL_OPTIONS = [
 const TABS = [
   { key: "general", label: "General" },
   { key: "sessions", label: "Sessions" },
+  { key: "knowledge", label: "Knowledge" },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "memories", label: "Memories" },
   { key: "tasks", label: "Tasks" },
@@ -167,6 +168,7 @@ export default function ChannelSettingsScreen() {
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} />
         )}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
+        {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
         {tab === "memories" && <MemoriesTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} />}
@@ -395,6 +397,62 @@ function SessionsTab({ channelId }: { channelId: string }) {
             )}
           </div>
         ))}
+      </div>
+    </Section>
+  );
+}
+
+// ===========================================================================
+// Knowledge Tab
+// ===========================================================================
+function KnowledgeTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-knowledge", channelId],
+    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/knowledge`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.length) return <EmptyState message="No knowledge entries scoped to this channel." />;
+
+  const modeColors: Record<string, { bg: string; fg: string }> = {
+    rag: { bg: "#1e3a5f", fg: "#93c5fd" },
+    pinned: { bg: "#166534", fg: "#86efac" },
+    tag_only: { bg: "#333", fg: "#999" },
+  };
+
+  return (
+    <Section title={`Knowledge (${data.length})`}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.map((k: any) => {
+          const mc = modeColors[k.mode] || modeColors.rag;
+          return (
+            <div key={k.id} style={{
+              padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>
+                  {k.title || "Untitled"}
+                </div>
+                <span style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                  background: mc.bg, color: mc.fg,
+                }}>
+                  {k.mode}
+                </span>
+              </div>
+              {k.content && (
+                <div style={{ fontSize: 12, color: "#888", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "hidden" }}>
+                  {k.content}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#555", marginTop: 6 }}>
+                <span>{k.content_length?.toLocaleString()} chars</span>
+                {k.bot_id && <span>bot: {k.bot_id}</span>}
+                {k.updated_at && <span>{new Date(k.updated_at).toLocaleString()}</span>}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Section>
   );

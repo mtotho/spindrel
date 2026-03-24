@@ -91,7 +91,7 @@ export function Sidebar() {
 
   if (collapsed) {
     return (
-      <View className="w-12 bg-surface border-r border-surface-border items-center pt-4">
+      <View className="bg-surface border-r border-surface-border items-center pt-4" style={{ width: 48, flexShrink: 0 }}>
         <Pressable onPress={toggleSidebar} className="p-2">
           <ChevronRight size={16} color="#9ca3af" />
         </Pressable>
@@ -100,13 +100,13 @@ export function Sidebar() {
   }
 
   return (
-    <View className="w-40 bg-surface border-r border-surface-border flex-1">
+    <View className="bg-surface border-r border-surface-border" style={{ width: 200, flexShrink: 0 }}>
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Header — Thoth branding */}
         <View className="flex-row items-center justify-between px-2.5 py-3">
           <Link href="/" asChild>
             <Pressable className="flex-row items-center gap-1.5">
-              <Text style={{ fontSize: 16, lineHeight: 20 }}>{"\u{130C5}"}</Text>
+              <Text style={{ fontSize: 16, lineHeight: 20, color: "#e5e5e5" }}>{"\u{130C5}"}</Text>
               <Text className="text-accent text-sm font-semibold tracking-wide">THOTH</Text>
             </Pressable>
           </Link>
