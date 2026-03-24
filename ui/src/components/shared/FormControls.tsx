@@ -8,18 +8,22 @@ import { View, Text, Pressable } from "react-native";
 // ---------------------------------------------------------------------------
 // Section card
 // ---------------------------------------------------------------------------
-export function Section({ title, description, children }: {
+export function Section({ title, description, action, children }: {
   title: string;
   description?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <View className="gap-4">
-      <View>
-        <Text className="text-text text-sm font-semibold">{title}</Text>
-        {description && (
-          <Text className="text-text-dim text-xs mt-0.5">{description}</Text>
-        )}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View>
+          <Text className="text-text text-sm font-semibold">{title}</Text>
+          {description && (
+            <Text className="text-text-dim text-xs mt-0.5">{description}</Text>
+          )}
+        </View>
+        {action}
       </View>
       {children}
     </View>

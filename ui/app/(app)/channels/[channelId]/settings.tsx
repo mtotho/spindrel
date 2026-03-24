@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check, RotateCw, Play, ExternalLink } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useChannelElevation } from "@/src/api/hooks/useElevation";
+import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -176,7 +177,7 @@ export default function ChannelSettingsScreen() {
         {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
         {tab === "memories" && <MemoriesTab channelId={channelId!} />}
-        {tab === "tasks" && <TasksTab channelId={channelId!} />}
+        {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "plans" && <PlansTab channelId={channelId!} />}
         {tab === "compression" && <CompressionTab channelId={channelId!} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
@@ -783,14 +784,19 @@ function MemoriesTab({ channelId }: { channelId: string }) {
 // ===========================================================================
 // Tasks Tab
 // ===========================================================================
-function TasksTab({ channelId }: { channelId: string }) {
+function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-tasks", channelId],
     queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/tasks`),
   });
 
-  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data?.length) return <EmptyState message="No tasks yet." />;
+  type EditorState =
+    | { mode: "closed" }
+    | { mode: "create" }
+    | { mode: "edit"; taskId: string };
+
+  const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
 
   const statusColors: Record<string, { bg: string; fg: string }> = {
     pending: { bg: "#333", fg: "#999" },
@@ -799,40 +805,85 @@ function TasksTab({ channelId }: { channelId: string }) {
     failed: { bg: "#7f1d1d", fg: "#fca5a5" },
   };
 
+  const handleEditorSaved = () => {
+    setEditorState({ mode: "closed" });
+    queryClient.invalidateQueries({ queryKey: ["channel-tasks", channelId] });
+  };
+
+  const editorOpen = editorState.mode !== "closed";
+  const editorTaskId = editorState.mode === "edit" ? editorState.taskId : null;
+
   return (
-    <Section title={`Tasks (${data.length})`}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {data.map((t: any) => {
-          const sc = statusColors[t.status] || statusColors.pending;
-          return (
-            <div key={t.id} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-            }}>
-              <div>
-                <div style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
-                  {t.id?.substring(0, 12)}...
-                </div>
-                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
-                  {t.dispatch_type || "none"} · {new Date(t.created_at).toLocaleString()}
-                </div>
-                {t.prompt && (
-                  <div style={{ fontSize: 11, color: "#888", marginTop: 4, maxWidth: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {t.prompt.substring(0, 100)}
+    <>
+      <Section title={`Tasks (${data?.length ?? 0})`} action={
+        <button
+          onClick={() => setEditorState({ mode: "create" })}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "4px 12px", fontSize: 11, fontWeight: 600,
+            border: "none", cursor: "pointer", borderRadius: 6,
+            background: "#3b82f6", color: "#fff",
+          }}
+        >
+          <Plus size={12} />
+          New Task
+        </button>
+      }>
+        {isLoading ? (
+          <ActivityIndicator color="#3b82f6" />
+        ) : !data?.length ? (
+          <EmptyState message="No tasks yet." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {data.map((t: any) => {
+              const sc = statusColors[t.status] || statusColors.pending;
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setEditorState({ mode: "edit", taskId: t.id })}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
+                      {t.id?.substring(0, 12)}...
+                    </div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                      {t.dispatch_type || "none"} · {new Date(t.created_at).toLocaleString()}
+                    </div>
+                    {t.prompt && (
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 4, maxWidth: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.prompt.substring(0, 100)}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <span style={{
-                fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                background: sc.bg, color: sc.fg,
-              }}>
-                {t.status}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </Section>
+                  <span style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                    background: sc.bg, color: sc.fg,
+                  }}>
+                    {t.status}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      {editorOpen && (
+        <TaskEditorShared
+          taskId={editorTaskId}
+          onClose={() => setEditorState({ mode: "closed" })}
+          onSaved={handleEditorSaved}
+          defaultChannelId={channelId}
+          defaultBotId={botId}
+          extraQueryKeysToInvalidate={[["channel-tasks", channelId]]}
+        />
+      )}
+    </>
   );
 }
 
