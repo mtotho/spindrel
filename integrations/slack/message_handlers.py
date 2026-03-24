@@ -185,6 +185,10 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     )
                 except Exception:
                     pass
+                # Handle child bot's client_actions (e.g. image uploads)
+                child_actions = event.get("client_actions") or []
+                if child_actions:
+                    await _handle_client_actions(client, thinking_channel, child_actions)
             elif etype == "response":
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []

@@ -148,7 +148,13 @@ async def generate_image_tool(
     if not resp.data:
         return json.dumps({"error": "No image returned"})
 
-    # Collect all returned images
+    # Collect all returned images and persist as attachments
+    from app.agent.context import current_bot_id, current_channel_id
+    from app.services.attachments import create_attachment
+
+    channel_id = current_channel_id.get()
+    bot_id = current_bot_id.get()
+
     results: list[dict] = []
     for idx, item in enumerate(resp.data):
         b64: str | None = getattr(item, "b64_json", None)
@@ -162,10 +168,30 @@ async def generate_image_tool(
                 logger.warning("Could not download image %d URL: %s", idx, e)
                 continue
         if b64:
+            img_bytes = base64.b64decode(b64)
+            filename = f"generated_{idx}.png" if len(resp.data) > 1 else "generated.png"
+
+            # Persist to attachments table so it's available for future edits/references
+            try:
+                await create_attachment(
+                    message_id=None,
+                    channel_id=channel_id,
+                    filename=filename,
+                    mime_type="image/png",
+                    size_bytes=len(img_bytes),
+                    posted_by=bot_id or "image-bot",
+                    source_integration="generate_image",
+                    file_data=img_bytes,
+                    attachment_type="image",
+                    bot_id=bot_id,
+                )
+            except Exception:
+                logger.warning("Failed to persist generated image %d as attachment", idx, exc_info=True)
+
             results.append({
                 "type": "upload_image",
                 "data": b64,
-                "filename": f"generated_{idx}.png" if len(resp.data) > 1 else "generated.png",
+                "filename": filename,
                 "caption": "",
             })
 

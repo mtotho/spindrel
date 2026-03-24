@@ -557,6 +557,7 @@ async def run_stream(
                 "bot_id": _dp["bot_id"],
                 "text": _dp["text"],
                 "reply_in_thread": _dp.get("reply_in_thread", False),
+                "client_actions": _dp.get("client_actions", []),
             }
         if _last_response is not None:
             yield _last_response

@@ -112,6 +112,7 @@ class DelegationService:
 
         correlation_id = uuid.uuid4()
         final_response = ""
+        child_client_actions: list[dict] = []
 
         parent_ctx = snapshot_agent_context()
         try:
@@ -144,6 +145,7 @@ class DelegationService:
             ):
                 if event.get("type") == "response":
                     final_response = event.get("text", "")
+                    child_client_actions = event.get("client_actions", [])
 
             # Persist child turn
             async with async_session() as db:
@@ -172,6 +174,7 @@ class DelegationService:
                     "text": final_response,
                     "bot_id": delegate_bot_id,
                     "reply_in_thread": reply_in_thread,
+                    "client_actions": child_client_actions,
                 })
                 from app.services.sessions import store_dispatch_echo
                 await store_dispatch_echo(

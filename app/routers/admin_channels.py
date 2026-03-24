@@ -507,36 +507,7 @@ async def admin_channel_knowledge_remove(
 
 @router.get("/channels/{channel_id}/attachments-section", response_class=HTMLResponse)
 async def admin_channel_attachments_section(request: Request, channel_id: uuid.UUID):
-    from app.db.models import Attachment
-
-    async with async_session() as db:
-        channel = await db.get(Channel, channel_id)
-        if not channel:
-            raise HTTPException(status_code=404, detail="Channel not found")
-
-        row = (await db.execute(
-            select(
-                func.count().label("total_count"),
-                func.count().filter(Attachment.file_data.is_not(None)).label("with_file_data_count"),
-                func.coalesce(func.sum(Attachment.size_bytes).filter(Attachment.file_data.is_not(None)), 0).label("total_size_bytes"),
-                func.min(Attachment.created_at).label("oldest_created_at"),
-            ).where(Attachment.channel_id == channel_id)
-        )).one()
-
-    stats = {
-        "total_count": row.total_count,
-        "with_file_data_count": row.with_file_data_count,
-        "total_size_bytes": row.total_size_bytes,
-        "oldest_created_at": row.oldest_created_at,
-    }
-
-    return templates.TemplateResponse("admin/channel_attachments_section.html", {
-        "request": request,
-        "channel": channel,
-        "stats": stats,
-        "settings_retention_days": settings.ATTACHMENT_RETENTION_DAYS,
-        "settings_max_size_bytes": settings.ATTACHMENT_MAX_SIZE_BYTES,
-    })
+    return await _render_attachments_section(request, channel_id)
 
 
 @router.post("/channels/{channel_id}/attachment-settings", response_class=HTMLResponse)
@@ -593,6 +564,15 @@ async def _render_attachments_section(request: Request, channel_id: uuid.UUID, s
             ).where(Attachment.channel_id == channel_id)
         )).one()
 
+        # Fetch recent attachments for the list
+        att_result = await db.execute(
+            select(Attachment)
+            .where(Attachment.channel_id == channel_id)
+            .order_by(Attachment.created_at.desc())
+            .limit(50)
+        )
+        attachment_list = att_result.scalars().all()
+
     stats = {
         "total_count": row.total_count,
         "with_file_data_count": row.with_file_data_count,
@@ -605,6 +585,7 @@ async def _render_attachments_section(request: Request, channel_id: uuid.UUID, s
         "channel": channel,
         "stats": stats,
         "saved": saved,
+        "attachment_list": attachment_list,
         "settings_retention_days": settings.ATTACHMENT_RETENTION_DAYS,
         "settings_max_size_bytes": settings.ATTACHMENT_MAX_SIZE_BYTES,
     })
