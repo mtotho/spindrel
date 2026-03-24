@@ -11,7 +11,7 @@ interface Props {
   helpText?: string;
 }
 
-function scoreMatch(value: string, label: string, query: string): number {
+export function scoreMatch(value: string, label: string, query: string): number {
   const v = value.toLowerCase();
   const l = label.toLowerCase();
   const q = query.toLowerCase();
@@ -38,7 +38,7 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
 // ---------------------------------------------------------------------------
 // Autocomplete dropdown (portal-based)
 // ---------------------------------------------------------------------------
-function AutocompleteMenu({
+export function AutocompleteMenu({
   show,
   items,
   activeIdx,

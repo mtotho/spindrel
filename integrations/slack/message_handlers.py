@@ -110,7 +110,6 @@ async def _handle_client_actions(client, channel: str, actions: list, *,
             channel=channel,
             content=img_bytes,
             filename=action.get("filename") or "generated.png",
-            thread_ts=thread_ts,
         )
 
 

@@ -86,10 +86,10 @@ async def frigate_list_cameras() -> str:
     "function": {
         "name": "frigate_get_events",
         "description": (
-            "Get recent detection events from Frigate NVR cameras. Returns events "
-            "with detected object labels (person, car, dog, etc.), timestamps, zones, "
-            "and thumbnail/snapshot URLs. Use to answer questions like 'has anyone been "
-            "outside?' or 'what activity has there been on the driveway?'"
+            "Get detection events from Frigate NVR cameras. Returns event IDs, labels, "
+            "timestamps, zones, and scores. Use frigate_snapshot/frigate_event_snapshot/"
+            "frigate_event_clip to download media for specific events. "
+            "Pagination: use 'before' with the start_time of the last event to get the next page."
         ),
         "parameters": {
             "type": "object",
@@ -112,11 +112,28 @@ async def frigate_list_cameras() -> str:
                 },
                 "before": {
                     "type": "number",
-                    "description": "Only events before this Unix timestamp.",
+                    "description": "Only events before this Unix timestamp. Use for pagination: pass start_time of the last event from previous page.",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max events to return (default 20).",
+                    "description": "Max events to return (default 10, max 50).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum detection confidence score (0-1). Use to filter out low-confidence detections.",
+                },
+                "has_clip": {
+                    "type": "boolean",
+                    "description": "Only return events that have a video clip available.",
+                },
+                "has_snapshot": {
+                    "type": "boolean",
+                    "description": "Only return events that have a snapshot image available.",
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort order: 'score' (highest confidence first) or 'date' (newest first, default).",
+                    "enum": ["score", "date"],
                 },
                 "favorites": {
                     "type": "boolean",
@@ -132,12 +149,17 @@ async def frigate_get_events(
     zone: Optional[str] = None,
     after: Optional[float] = None,
     before: Optional[float] = None,
-    limit: int = 20,
+    limit: int = 10,
+    min_score: Optional[float] = None,
+    has_clip: Optional[bool] = None,
+    has_snapshot: Optional[bool] = None,
+    sort: Optional[str] = None,
     favorites: Optional[bool] = None,
 ) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
     try:
+        limit = max(1, min(limit, 50))
         params: dict = {"limit": limit}
         if camera:
             params["camera"] = camera
@@ -149,6 +171,14 @@ async def frigate_get_events(
             params["after"] = after
         if before is not None:
             params["before"] = before
+        if min_score is not None:
+            params["min_score"] = min_score
+        if has_clip is not None:
+            params["has_clip"] = 1 if has_clip else 0
+        if has_snapshot is not None:
+            params["has_snapshot"] = 1 if has_snapshot else 0
+        if sort:
+            params["sort"] = sort
         if favorites is not None:
             params["favorites"] = 1 if favorites else 0
 
@@ -167,11 +197,12 @@ async def frigate_get_events(
                 "zones": ev.get("zones", []),
                 "has_snapshot": ev.get("has_snapshot", False),
                 "has_clip": ev.get("has_clip", False),
-                "thumbnail_url": f"{_base_url()}/api/events/{eid}/thumbnail.jpg",
-                "snapshot_url": f"{_base_url()}/api/events/{eid}/snapshot.jpg" if ev.get("has_snapshot") else None,
-                "clip_url": f"{_base_url()}/api/events/{eid}/clip.mp4" if ev.get("has_clip") else None,
             })
-        return json.dumps({"events": results, "count": len(results)})
+        has_more = len(results) == limit
+        resp: dict = {"events": results, "count": len(results)}
+        if has_more and results:
+            resp["next_before"] = results[-1].get("start_time")
+        return json.dumps(resp)
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
