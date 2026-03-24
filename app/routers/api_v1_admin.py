@@ -44,6 +44,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin API"])
 
 
+def _to_dict(obj: Any) -> dict:
+    """Convert a dataclass (or dict) to a plain dict."""
+    import dataclasses
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    if isinstance(obj, dict):
+        return obj
+    return {"enabled": False}
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
@@ -385,7 +395,7 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         harness_access=bot.harness_access,
         model_provider_id=bot.model_provider_id,
         integration_config=getattr(bot, "integration_config", {}),
-        workspace=getattr(bot, "workspace", {"enabled": False}),
+        workspace=_to_dict(getattr(bot, "workspace", {"enabled": False})),
         docker_sandbox_profiles=getattr(bot, "docker_sandbox_profiles", []),
         elevation_enabled=getattr(bot, "elevation_enabled", None),
         elevation_threshold=getattr(bot, "elevation_threshold", None),

@@ -1148,7 +1148,7 @@ export default function BotEditorScreen() {
                   <FormRow label="Display Name">
                     <TextInput
                       value={draft.display_name || ""}
-                      onChangeText={(v) => update({ display_name: v || null })}
+                      onChangeText={(v) => update({ display_name: v || undefined })}
                       placeholder={draft.name}
                     />
                   </FormRow>
@@ -1157,7 +1157,7 @@ export default function BotEditorScreen() {
                   <FormRow label="Avatar URL">
                     <TextInput
                       value={draft.avatar_url || ""}
-                      onChangeText={(v) => update({ avatar_url: v || null })}
+                      onChangeText={(v) => update({ avatar_url: v || undefined })}
                       placeholder="https://..."
                     />
                   </FormRow>
