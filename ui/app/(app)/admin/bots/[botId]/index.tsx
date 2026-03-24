@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { View, Text, ScrollView, ActivityIndicator } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Save, Search, X, Plus, Trash2, Package } from "lucide-react";
+import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown } from "lucide-react";
 import { useBotEditorData, useUpdateBot } from "@/src/api/hooks/useBots";
+import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
+import { useGoBack } from "@/src/hooks/useGoBack";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
@@ -89,19 +91,70 @@ function ListEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Section nav
+// Section nav — sidebar on desktop, dropdown on mobile
 // ---------------------------------------------------------------------------
+const MOBILE_NAV_BREAKPOINT = 768;
+
 function SectionNav({
   active,
   onSelect,
   filter,
   matchingSections,
+  isMobile,
 }: {
   active: SectionKey;
   onSelect: (k: SectionKey) => void;
   filter: string;
   matchingSections: Set<SectionKey>;
+  isMobile: boolean;
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  if (isMobile) {
+    const activeLabel = SECTIONS.find((s) => s.key === active)?.label ?? active;
+    return (
+      <div style={{ position: "relative", borderBottom: "1px solid #1a1a1a" }}>
+        <button
+          onClick={() => setMobileOpen(!mobileOpen)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, width: "100%",
+            padding: "8px 16px", background: "#0a0a0a", border: "none",
+            color: "#e5e5e5", fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          <span style={{ flex: 1, textAlign: "left" }}>{activeLabel}</span>
+          <ChevronDown size={14} color="#555" style={{ transform: mobileOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } as any} />
+        </button>
+        {mobileOpen && (
+          <div style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+            background: "#0a0a0a", border: "1px solid #1a1a1a", borderTop: "none",
+            maxHeight: 300, overflowY: "auto",
+          }}>
+            {SECTIONS.map((s) => {
+              const dimmed = filter && !matchingSections.has(s.key);
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => { onSelect(s.key); setMobileOpen(false); }}
+                  style={{
+                    display: "block", width: "100%", padding: "7px 16px", border: "none",
+                    background: active === s.key ? "#1a1a1a" : "transparent",
+                    color: dimmed ? "#333" : active === s.key ? "#3b82f6" : "#888",
+                    fontSize: 12, fontWeight: active === s.key ? 600 : 400,
+                    cursor: "pointer", textAlign: "left",
+                  }}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{
       width: 150, flexShrink: 0, borderRight: "1px solid #1a1a1a",
@@ -457,6 +510,15 @@ function ToolsSection({
             </FormRow>
           </Col>
           <Col>
+            <FormRow label="Summarizer model">
+              <TextInput
+                value={(draft.tool_result_config as any)?.model ?? ""}
+                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
+                placeholder="global model"
+              />
+            </FormRow>
+          </Col>
+          <Col>
             <FormRow label="Max summary tokens">
               <TextInput
                 value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
@@ -500,6 +562,15 @@ function ToolsSection({
             </FormRow>
           </Col>
           <Col>
+            <FormRow label="Compression model">
+              <TextInput
+                value={(draft.compression_config as any)?.model ?? ""}
+                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, model: v || undefined } })}
+                placeholder="global model"
+              />
+            </FormRow>
+          </Col>
+          <Col>
             <FormRow label="Keep turns (verbatim)">
               <TextInput
                 value={String((draft.compression_config as any)?.keep_turns ?? "")}
@@ -510,6 +581,75 @@ function ToolsSection({
           </Col>
         </Row>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bot memories section (shown inside Memory tab)
+// ---------------------------------------------------------------------------
+function BotMemoriesSection({ botId }: { botId: string | undefined }) {
+  const { data: memories, isLoading } = useBotMemories(botId);
+  const deleteMut = useDeleteMemory();
+
+  if (!botId) return null;
+
+  return (
+    <div style={{ marginTop: 8, borderTop: "1px solid #222", paddingTop: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", marginBottom: 4 }}>
+        Stored Memories
+      </div>
+      <div style={{ fontSize: 10, color: "#555", marginBottom: 12 }}>
+        Facts this bot has memorized. Delete individual memories that are no longer relevant.
+      </div>
+
+      {isLoading && (
+        <div style={{ padding: 12, color: "#555", fontSize: 12 }}>Loading...</div>
+      )}
+
+      {!isLoading && (!memories || memories.length === 0) && (
+        <div style={{ padding: 12, color: "#444", fontSize: 12, fontStyle: "italic" }}>
+          No memories stored yet.
+        </div>
+      )}
+
+      {memories && memories.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {memories.map((m) => (
+            <div key={m.id} style={{
+              display: "flex", alignItems: "flex-start", gap: 8,
+              padding: "8px 10px", background: "#111", borderRadius: 6,
+              border: "1px solid #1a1a1a",
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 12, color: "#ccc", lineHeight: 1.5,
+                  whiteSpace: "pre-wrap", wordBreak: "break-word",
+                }}>
+                  {m.content}
+                </div>
+                <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>
+                  {new Date(m.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                  {m.client_id && <span> &middot; {m.client_id.slice(0, 12)}</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (confirm("Delete this memory?")) deleteMut.mutate(m.id);
+                }}
+                disabled={deleteMut.isPending}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: 4, flexShrink: 0, color: "#666",
+                }}
+                title="Delete memory"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -913,10 +1053,13 @@ function WorkspaceSection({
 // ---------------------------------------------------------------------------
 export default function BotEditorScreen() {
   const { botId } = useLocalSearchParams<{ botId: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/admin/bots");
   const { data: editorData, isLoading } = useBotEditorData(botId);
   const updateMutation = useUpdateBot(botId);
   const scrollRef = useRef<ScrollView>(null);
+
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
 
   const [activeSection, setActiveSection] = useState<SectionKey>("identity");
   const [filter, setFilter] = useState("");
@@ -990,7 +1133,7 @@ export default function BotEditorScreen() {
         display: "flex", alignItems: "center", gap: 12,
         padding: "10px 16px", borderBottom: "1px solid #1a1a1a",
       }}>
-        <button onClick={() => router.back()} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
           <ArrowLeft size={16} color="#888" />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1033,9 +1176,16 @@ export default function BotEditorScreen() {
         </div>
       )}
 
+      {/* Section nav: dropdown on mobile, sidebar on desktop */}
+      {isMobile && (
+        <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile />
+      )}
+
       {/* Body */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} />
+        {!isMobile && (
+          <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile={false} />
+        )}
 
         <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 20, maxWidth: 800 }}>
 
@@ -1128,6 +1278,9 @@ export default function BotEditorScreen() {
                   onChange={(v) => update({ memory: { ...draft.memory, prompt: v || undefined } })}
                   rows={4} placeholder="Specific guidance on what's worth remembering..." />
               </FormRow>
+
+              {/* Stored memories list */}
+              <BotMemoriesSection botId={botId} />
             </div>
           )}
 
