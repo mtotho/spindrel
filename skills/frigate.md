@@ -23,15 +23,21 @@ Frigate is a local NVR (network video recorder) with AI object detection. You ca
 
 ### Posting & Analysis
 - `post_attachment` — post any attachment (image, video, file) into chat by attachment_id
-- `describe_attachment` — use a vision model to describe or answer questions about an image attachment
+- `list_attachments` — list recent attachments with auto-generated descriptions (useful for reviewing multiple snapshots)
+- `describe_attachment` — answer a specific question about an image (makes a vision call); without a prompt returns the auto-generated description
 
-**Two-step workflow:** Download tools save media as attachments and return an `attachment_id`. Then call `post_attachment(attachment_id)` to display it in chat, or `describe_attachment(attachment_id, prompt)` to analyze it with a vision model.
+## Efficient Workflows
 
-## Common Workflows
+**Key insight:** Downloaded images are automatically described by a vision model in the background. You can download multiple snapshots at once, then use `list_attachments` to review all descriptions and only post the relevant ones. This saves tool calls vs describing one at a time.
 
 ### "Show me the front door"
 1. `frigate_snapshot(camera="front_door")` → get attachment_id
 2. `post_attachment(attachment_id="...")`
+
+### "Check all the cameras for anything unusual"
+1. Download snapshots from multiple cameras (can call `frigate_snapshot` multiple times in one turn)
+2. `list_attachments(limit=10)` → review the auto-generated descriptions for each
+3. Report findings; `post_attachment` only the interesting ones
 
 ### "What happened on the driveway in the last hour?"
 1. `frigate_get_events(camera="driveway", after=<unix_timestamp_1h_ago>)`
@@ -39,9 +45,9 @@ Frigate is a local NVR (network video recorder) with AI object detection. You ca
 3. `post_attachment(attachment_id="...")` to show each snapshot
 4. If user wants video: `frigate_event_clip(event_id="...")` → `post_attachment(...)`
 
-### "What do you see on the front porch?"
+### "Is there a package on the front porch?"
 1. `frigate_snapshot(camera="front_porch")` → get attachment_id
-2. `describe_attachment(attachment_id="...", prompt="What do you see? Are there any people, packages, or animals?")`
+2. `describe_attachment(attachment_id="...", prompt="Is there a package or delivery on the porch?")` — specific question needs a fresh vision call
 
 ### "Show me the driveway from 2pm to 2:05pm"
 1. Convert times to Unix timestamps

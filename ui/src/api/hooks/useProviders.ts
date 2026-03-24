@@ -47,10 +47,16 @@ export interface TestResult {
   message: string;
 }
 
+export interface ProviderListResponse {
+  providers: ProviderItem[];
+  env_fallback_base_url?: string | null;
+  env_fallback_has_key: boolean;
+}
+
 export function useProviders() {
   return useQuery({
     queryKey: ["admin-providers"],
-    queryFn: () => apiFetch<ProviderItem[]>("/api/v1/admin/providers"),
+    queryFn: () => apiFetch<ProviderListResponse>("/api/v1/admin/providers"),
   });
 }
 
