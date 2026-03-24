@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import re
+import types
 from typing import Annotated, Any, Callable, Union, get_args, get_origin, get_type_hints
 
 from app.tools.registry import register
@@ -21,7 +22,7 @@ _JSON_SCALAR = {
 
 def _unwrap_optional(t: Any) -> Any:
     origin = get_origin(t)
-    if origin is Union:
+    if origin is Union or origin is types.UnionType:
         args = [a for a in get_args(t) if a is not type(None)]
         if len(args) == 1:
             return args[0]
