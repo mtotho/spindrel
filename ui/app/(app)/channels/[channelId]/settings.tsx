@@ -1,8 +1,8 @@
 import { useCallback, useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check, RotateCw, Play } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play, ExternalLink } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
@@ -19,6 +19,7 @@ import {
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
+import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -47,6 +48,7 @@ const TABS = [
   { key: "tasks", label: "Tasks" },
   { key: "plans", label: "Plans" },
   { key: "compression", label: "Compression" },
+  { key: "logs", label: "Logs" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -175,6 +177,7 @@ export default function ChannelSettingsScreen() {
         {tab === "tasks" && <TasksTab channelId={channelId!} />}
         {tab === "plans" && <PlansTab channelId={channelId!} />}
         {tab === "compression" && <CompressionTab channelId={channelId!} />}
+        {tab === "logs" && <LogsTab channelId={channelId!} />}
       </ScrollView>
     </View>
   );
@@ -886,6 +889,90 @@ function CompressionTab({ channelId }: { channelId: string }) {
           </div>
         </Section>
       )}
+    </>
+  );
+}
+
+// ===========================================================================
+// Logs Tab
+// ===========================================================================
+
+const LOG_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
+  tool_call:            { bg: "#312e81", fg: "#a5b4fc" },
+  memory_injection:     { bg: "#3b0764", fg: "#d8b4fe" },
+  skill_context:        { bg: "#134e4a", fg: "#5eead4" },
+  knowledge_context:    { bg: "#1e3a5f", fg: "#93c5fd" },
+  tool_retrieval:       { bg: "#713f12", fg: "#fde047" },
+  context_compressed:   { bg: "#365314", fg: "#bef264" },
+  context_breakdown:    { bg: "#164e63", fg: "#67e8f9" },
+  token_usage:          { bg: "#333",    fg: "#999"    },
+  error:                { bg: "#7f1d1d", fg: "#fca5a5" },
+  harness:              { bg: "#78350f", fg: "#fbbf24" },
+  response:             { bg: "#166534", fg: "#86efac" },
+};
+
+function LogsTab({ channelId }: { channelId: string }) {
+  const router = useRouter();
+  const { data, isLoading } = useLogs({ channel_id: channelId, page_size: 20 });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.rows?.length) return <EmptyState message="No log entries yet." />;
+
+  return (
+    <>
+      <Section title={`Recent Logs (${data.rows.length} of ${data.total})`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {data.rows.map((row: LogRow) => {
+            const evType = row.kind === "tool_call" ? "tool_call" : row.event_type || "trace_event";
+            const name = row.kind === "tool_call" ? row.tool_name : row.event_name || row.event_type;
+            const c = LOG_TYPE_COLORS[evType] ?? { bg: "#333", fg: "#999" };
+            return (
+              <div
+                key={row.id}
+                onClick={() => row.correlation_id && router.push(`/admin/logs/${row.correlation_id}` as any)}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+                  cursor: row.correlation_id ? "pointer" : "default",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
+                    background: c.bg, color: c.fg, whiteSpace: "nowrap", flexShrink: 0,
+                  }}>
+                    {evType}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#e5e5e5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {name || "—"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10, color: "#555" }}>
+                    {row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+                  </span>
+                  {row.correlation_id && (
+                    <span style={{ fontSize: 10, color: "#444", fontFamily: "monospace" }}>
+                      {row.correlation_id.substring(0, 8)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Pressable
+        onPress={() => router.push(`/admin/logs?channel_id=${channelId}` as any)}
+        style={{
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+          alignSelf: "flex-start",
+        }}
+      >
+        <Text style={{ fontSize: 13, color: "#3b82f6" }}>View all in Logs</Text>
+        <ExternalLink size={12} color="#3b82f6" />
+      </Pressable>
     </>
   );
 }
