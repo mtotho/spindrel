@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Plus, Zap, ZapOff, ExternalLink } from "lucide-react";
+import { Plus, ExternalLink, Server } from "lucide-react";
 import { useProviders, useTestProvider, type ProviderItem } from "@/src/api/hooks/useProviders";
 import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
 
@@ -21,6 +21,41 @@ function TypeBadge({ type }: { type: string }) {
     }}>
       {type}
     </span>
+  );
+}
+
+function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey: boolean }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", gap: 8,
+      padding: "16px 20px", background: "#111", borderRadius: 10,
+      border: "1px solid rgba(59,130,246,0.2)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Server size={14} color="#93c5fd" />
+        <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+          LiteLLM (.env fallback)
+        </span>
+        <span style={{
+          padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+          background: "rgba(59,130,246,0.15)", color: "#93c5fd",
+        }}>
+          built-in
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#86efac" }}>active</span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#666" }}>
+        {baseUrl && (
+          <span style={{ fontFamily: "monospace", color: "#888" }}>{baseUrl}</span>
+        )}
+        <span style={{ color: hasKey ? "#555" : "#444" }}>
+          {hasKey ? "API key set" : "No API key"}
+        </span>
+      </div>
+      <div style={{ fontSize: 10, color: "#444" }}>
+        Bots with no provider assigned use this fallback. Configure via <code style={{ color: "#555" }}>LITELLM_BASE_URL</code> / <code style={{ color: "#555" }}>LITELLM_API_KEY</code> in .env.
+      </div>
+    </div>
   );
 }
 
@@ -109,9 +144,13 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 
 export default function ProvidersScreen() {
   const router = useRouter();
-  const { data: providers, isLoading } = useProviders();
+  const { data, isLoading } = useProviders();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+
+  const providers = data?.providers;
+  const envBaseUrl = data?.env_fallback_base_url;
+  const envHasKey = data?.env_fallback_has_key ?? false;
 
   if (isLoading) {
     return (
@@ -153,40 +192,47 @@ export default function ProvidersScreen() {
         padding: isWide ? 20 : 12,
         gap: isWide ? 12 : 10,
       }}>
-        {(!providers || providers.length === 0) && (
+        {/* .env fallback card — always show when URL is set */}
+        {envBaseUrl && (
+          <EnvFallbackCard baseUrl={envBaseUrl} hasKey={envHasKey} />
+        )}
+
+        {(!providers || providers.length === 0) && !envBaseUrl && (
           <div style={{
             padding: 40, textAlign: "center", fontSize: 13,
           }}>
             <div style={{ color: "#555", marginBottom: 8 }}>No providers configured.</div>
             <div style={{ color: "#444", fontSize: 12 }}>
-              The server will use the <code style={{ color: "#666" }}>LITELLM_BASE_URL</code> / <code style={{ color: "#666" }}>LITELLM_API_KEY</code> from your .env file as the default provider.
+              Set <code style={{ color: "#666" }}>LITELLM_BASE_URL</code> / <code style={{ color: "#666" }}>LITELLM_API_KEY</code> in .env or add a provider above.
             </div>
           </div>
         )}
 
         {/* Grid on wide, stack on mobile */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(380px, 1fr))" : "1fr",
-          gap: isWide ? 12 : 10,
-        }}>
-          {providers?.map((p) => (
-            <ProviderCard
-              key={p.id}
-              provider={p}
-              isWide={isWide}
-              onPress={() => router.push(`/admin/providers/${p.id}` as any)}
-            />
-          ))}
-        </div>
+        {providers && providers.length > 0 && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(380px, 1fr))" : "1fr",
+            gap: isWide ? 12 : 10,
+          }}>
+            {providers.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                isWide={isWide}
+                onPress={() => router.push(`/admin/providers/${p.id}` as any)}
+              />
+            ))}
+          </div>
+        )}
 
-        {/* Env fallback info */}
+        {/* Fallback note when DB providers exist */}
         {providers && providers.length > 0 && (
           <div style={{
             padding: 12, fontSize: 11, color: "#444", borderTop: "1px solid #1a1a1a",
-            marginTop: 8,
+            marginTop: 4,
           }}>
-            Bots with no provider assigned will use the .env <code style={{ color: "#555" }}>LITELLM_BASE_URL</code> fallback.
+            Bots with no provider assigned use the first enabled <code style={{ color: "#555" }}>litellm</code> provider, or the .env fallback if none exist.
           </div>
         )}
       </ScrollView>

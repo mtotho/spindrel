@@ -74,7 +74,13 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
     return "".join(text_parts), attachments, file_metadata
 
 
-async def _handle_client_actions(client, channel: str, actions: list) -> None:
+_DEFAULT_UPLOAD_USERNAME = "Attachment"
+_DEFAULT_UPLOAD_ICON = ":camera:"
+
+
+async def _handle_client_actions(client, channel: str, actions: list, *,
+                                 thread_ts: str | None = None,
+                                 identity: dict | None = None) -> None:
     for action in actions or []:
         if action.get("type") not in ("upload_image", "upload_file"):
             continue
@@ -86,11 +92,25 @@ async def _handle_client_actions(client, channel: str, actions: list) -> None:
         except Exception:
             continue
         caption = action.get("caption") or None
+        # Post caption as attributed message (file uploads always show as the app)
+        if caption:
+            msg_kwargs: dict = {
+                "channel": channel,
+                "text": caption,
+                "username": (identity or {}).get("username") or _DEFAULT_UPLOAD_USERNAME,
+                "icon_emoji": (identity or {}).get("icon_emoji") or _DEFAULT_UPLOAD_ICON,
+            }
+            if thread_ts:
+                msg_kwargs["thread_ts"] = thread_ts
+            try:
+                await client.chat_postMessage(**msg_kwargs)
+            except Exception:
+                logger.warning("_handle_client_actions: failed to post caption message", exc_info=True)
         await client.files_upload_v2(
             channel=channel,
             content=img_bytes,
             filename=action.get("filename") or "generated.png",
-            initial_comment=caption,
+            thread_ts=thread_ts,
         )
 
 
@@ -188,7 +208,8 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                 # Handle child bot's client_actions (e.g. image uploads)
                 child_actions = event.get("client_actions") or []
                 if child_actions:
-                    await _handle_client_actions(client, thinking_channel, child_actions)
+                    await _handle_client_actions(client, thinking_channel, child_actions,
+                                                thread_ts=thread_ts, identity=child_identity)
             elif etype == "response":
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []
@@ -227,7 +248,8 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                             **identity,
                         )
         if thinking_channel:
-            await _handle_client_actions(client, thinking_channel, client_actions)
+            await _handle_client_actions(client, thinking_channel, client_actions,
+                                        thread_ts=thread_ts, identity=identity)
     except Exception as e:
         logger.exception("Agent dispatch error for channel %s", channel)
         if thinking_ts and thinking_channel:

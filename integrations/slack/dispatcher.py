@@ -56,6 +56,8 @@ class SlackDispatcher:
                     thread_ts=thread_ts,
                     reply_in_thread=reply_in_thread,
                     action=action,
+                    username=attrs.get("username"),
+                    icon_emoji=attrs.get("icon_emoji"),
                 )
 
     async def post_message(self, dispatch_config: dict, text: str, *,
@@ -87,6 +89,8 @@ class SlackDispatcher:
                         thread_ts=thread_ts,
                         reply_in_thread=reply_in_thread,
                         action=action,
+                        username=attrs.get("username"),
+                        icon_emoji=attrs.get("icon_emoji"),
                     )
 
         return ok

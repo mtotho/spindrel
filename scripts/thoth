@@ -41,8 +41,14 @@ def run(cmd, check=True, shell=True, **kwargs):
     return result
 
 
+def _daemon_reload():
+    """Reload systemd unit files if they changed on disk."""
+    run("sudo systemctl daemon-reload")
+
+
 def cmd_start(args):
     """Start thoth services."""
+    _daemon_reload()
     print("Starting services...")
     for svc in SERVICES:
         run(f"sudo systemctl start {svc}.service")
@@ -57,6 +63,7 @@ def cmd_stop(args):
 
 def cmd_restart(args):
     """Restart thoth services."""
+    _daemon_reload()
     print("Restarting services...")
     for svc in SERVICES:
         run(f"sudo systemctl restart {svc}.service")

@@ -226,20 +226,16 @@ async def post_attachment(attachment_id: str, caption: str = "") -> str:
     })
 
 
-_DEFAULT_DESCRIBE_PROMPT = (
-    "Describe what you see in this image in detail. Include objects, people, "
-    "text, colors, and any notable features."
-)
-
-
 @register({
     "type": "function",
     "function": {
         "name": "describe_attachment",
         "description": (
-            "Use a vision model to describe or answer questions about an image attachment. "
-            "Pass a prompt to ask specific questions (e.g. 'Is there anyone at the front door?') "
-            "or omit it for a general description. Works with image attachments only."
+            "Describe or answer questions about an image attachment. "
+            "Without a prompt, returns the existing auto-generated description (no extra LLM call). "
+            "With a prompt, makes a fresh vision model call to answer the specific question "
+            "(e.g. 'Is there anyone at the front door?', 'How many cars are in the driveway?'). "
+            "Works with image attachments only."
         ),
         "parameters": {
             "type": "object",
@@ -250,7 +246,7 @@ _DEFAULT_DESCRIBE_PROMPT = (
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "Question or instruction for the vision model. Defaults to a general description if omitted.",
+                    "description": "Specific question for the vision model. If omitted, returns the existing auto-generated description.",
                 },
             },
             "required": ["attachment_id"],
@@ -258,9 +254,7 @@ _DEFAULT_DESCRIBE_PROMPT = (
     },
 })
 async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
-    from app.config import settings
     from app.services.attachments import get_attachment_by_id
-    from app.services.providers import get_llm_client
 
     try:
         att_uuid = uuid.UUID(attachment_id)
@@ -271,17 +265,35 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
     if att is None:
         return json.dumps({"error": f"Attachment {attachment_id} not found."})
 
-    if not att.file_data:
-        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
-
     mime = att.mime_type or ""
     if not mime.startswith("image/"):
         return json.dumps({"error": f"describe_attachment only supports images, got {mime}"})
 
+    text_prompt = (prompt or "").strip()
+
+    # No custom prompt — return existing description if available
+    if not text_prompt:
+        if att.description:
+            return json.dumps({
+                "attachment_id": attachment_id,
+                "filename": att.filename,
+                "description": att.description,
+            })
+        # No description yet (sweep hasn't run) — fall back to a vision call
+        text_prompt = (
+            "Describe what you see in this image in detail. Include objects, people, "
+            "text, colors, and any notable features."
+        )
+
+    # Custom prompt or missing description — make a fresh vision call
+    if not att.file_data:
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+    from app.config import settings
+    from app.services.providers import get_llm_client
+
     b64 = base64.b64encode(att.file_data).decode("ascii")
     data_url = f"data:{mime};base64,{b64}"
-
-    text_prompt = (prompt or "").strip() or _DEFAULT_DESCRIBE_PROMPT
     model = settings.ATTACHMENT_SUMMARY_MODEL
 
     try:

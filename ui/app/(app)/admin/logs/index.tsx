@@ -194,19 +194,19 @@ export default function LogsScreen() {
 
       {/* Column headers */}
       <div style={{
-        display: "flex", gap: 0,
+        display: "flex", gap: 12,
         padding: isMobile ? "6px 12px" : "6px 20px",
         borderBottom: "1px solid #2a2a2a",
         fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}>
-        <span style={{ width: isMobile ? 55 : 90 }}>Time</span>
-        <span style={{ width: 100 }}>Type</span>
+        <span style={{ width: isMobile ? 60 : 120 }}>Time</span>
+        <span style={{ width: 120 }}>Type</span>
         <span style={{ flex: 1, minWidth: 0 }}>Name / Detail</span>
-        {!isMobile && <span style={{ width: 80 }}>Bot</span>}
-        <span style={{ width: isMobile ? 70 : 90 }}>Correlation</span>
+        {!isMobile && <span style={{ width: 90 }}>Bot</span>}
+        <span style={{ width: isMobile ? 70 : 100 }}>Correlation</span>
         {!isMobile && <span style={{ width: 60, textAlign: "right" }}>Duration</span>}
-        <span style={{ width: 50, textAlign: "right" }}>Status</span>
+        <span style={{ width: 40, textAlign: "right" }}>Status</span>
       </div>
 
       {/* Body */}
@@ -281,7 +281,7 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
   return (
     <div
       style={{
-        display: "flex", gap: 0, alignItems: "center",
+        display: "flex", gap: 12, alignItems: "center",
         padding: isMobile ? "6px 12px" : "6px 20px",
         borderBottom: "1px solid #1a1a1a",
         fontSize: 12,
@@ -290,7 +290,7 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
       onClick={() => row.correlation_id && onCorrelationPress(row.correlation_id)}
     >
       {/* Time */}
-      <span style={{ width: isMobile ? 55 : 90, color: "#666", fontSize: 11, flexShrink: 0 }}>
+      <span style={{ width: isMobile ? 60 : 120, color: "#666", fontSize: 11, flexShrink: 0 }}>
         {isMobile ? fmtTime(row.created_at) : (
           <>
             <span style={{ color: "#555" }}>{fmtDate(row.created_at)} </span>
@@ -300,7 +300,7 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
       </span>
 
       {/* Type badge */}
-      <span style={{ width: 100, flexShrink: 0 }}>
+      <span style={{ width: 120, flexShrink: 0 }}>
         <TypeBadge type={rowType} />
       </span>
 
@@ -320,13 +320,13 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
 
       {/* Bot */}
       {!isMobile && (
-        <span style={{ width: 80, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
+        <span style={{ width: 90, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
           {row.bot_id || "—"}
         </span>
       )}
 
       {/* Correlation */}
-      <span style={{ width: isMobile ? 70 : 90, color: "#555", fontFamily: "monospace", fontSize: 10, flexShrink: 0 }}>
+      <span style={{ width: isMobile ? 70 : 100, color: "#555", fontFamily: "monospace", fontSize: 10, flexShrink: 0 }}>
         {row.correlation_id?.substring(0, isMobile ? 8 : 12) || "—"}
       </span>
 
@@ -338,7 +338,7 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
       )}
 
       {/* Status */}
-      <span style={{ width: 50, textAlign: "right", flexShrink: 0 }}>
+      <span style={{ width: 40, textAlign: "right", flexShrink: 0 }}>
         {hasError ? (
           <span style={{ fontSize: 10, fontWeight: 600, color: "#fca5a5" }}>ERR</span>
         ) : (

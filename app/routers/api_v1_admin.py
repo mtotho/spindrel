@@ -2423,15 +2423,26 @@ def _provider_to_out(row: ProviderConfigRow) -> ProviderOut:
     )
 
 
-@router.get("/providers", response_model=list[ProviderOut])
+class ProviderListOut(BaseModel):
+    providers: list[ProviderOut]
+    env_fallback_base_url: Optional[str] = None
+    env_fallback_has_key: bool = False
+
+
+@router.get("/providers", response_model=ProviderListOut)
 async def admin_list_providers(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth),
 ):
+    from app.config import settings as _settings
     rows = (await db.execute(
         select(ProviderConfigRow).order_by(ProviderConfigRow.created_at)
     )).scalars().all()
-    return [_provider_to_out(r) for r in rows]
+    return ProviderListOut(
+        providers=[_provider_to_out(r) for r in rows],
+        env_fallback_base_url=_settings.LITELLM_BASE_URL or None,
+        env_fallback_has_key=bool(_settings.LITELLM_API_KEY),
+    )
 
 
 @router.get("/providers/{provider_id}", response_model=ProviderOut)
