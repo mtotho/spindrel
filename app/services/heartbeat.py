@@ -48,17 +48,33 @@ def is_quiet_hours(now_local: datetime, quiet_range: tuple[time, time]) -> bool:
         return current >= start or current < end
 
 
-def get_effective_interval(hb_interval: int) -> int:
-    """Return the effective interval in minutes, respecting quiet hours."""
-    quiet = parse_quiet_hours(settings.HEARTBEAT_QUIET_HOURS)
+def _resolve_quiet_range(hb: "ChannelHeartbeat | None" = None) -> tuple[time, time] | None:
+    """Return the quiet-hours range for a heartbeat, falling back to global config."""
+    if hb is not None and hb.quiet_start is not None and hb.quiet_end is not None:
+        return (hb.quiet_start, hb.quiet_end)
+    return parse_quiet_hours(settings.HEARTBEAT_QUIET_HOURS)
+
+
+def _resolve_tz(hb: "ChannelHeartbeat | None" = None) -> zoneinfo.ZoneInfo:
+    """Return the timezone for a heartbeat, falling back to global config."""
+    tz_name = (hb.timezone if hb is not None and hb.timezone else None) or settings.TIMEZONE
+    try:
+        return zoneinfo.ZoneInfo(tz_name)
+    except (KeyError, Exception):
+        return zoneinfo.ZoneInfo("UTC")
+
+
+def get_effective_interval(hb_interval: int, hb: "ChannelHeartbeat | None" = None) -> int:
+    """Return the effective interval in minutes, respecting quiet hours.
+
+    If *hb* is provided, uses its per-heartbeat quiet hours / timezone.
+    Falls back to global HEARTBEAT_QUIET_HOURS / TIMEZONE settings.
+    """
+    quiet = _resolve_quiet_range(hb)
     if quiet is None:
         return hb_interval
 
-    try:
-        tz = zoneinfo.ZoneInfo(settings.TIMEZONE)
-    except (KeyError, Exception):
-        tz = zoneinfo.ZoneInfo("UTC")
-
+    tz = _resolve_tz(hb)
     now_local = datetime.now(tz)
     if is_quiet_hours(now_local, quiet):
         quiet_interval = settings.HEARTBEAT_QUIET_INTERVAL_MINUTES
@@ -68,21 +84,21 @@ def get_effective_interval(hb_interval: int) -> int:
     return hb_interval
 
 
+def _is_heartbeat_in_quiet_hours(hb: ChannelHeartbeat) -> bool:
+    """Check if a specific heartbeat is currently in its quiet window."""
+    quiet = _resolve_quiet_range(hb)
+    if quiet is None:
+        return False
+    tz = _resolve_tz(hb)
+    return is_quiet_hours(datetime.now(tz), quiet)
+
+
 async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
     """Return heartbeats that are enabled and due (next_run_at <= now).
 
-    Returns an empty list during quiet hours when the quiet interval is 0
-    (heartbeats disabled).
+    Filters out heartbeats that are currently in their quiet window
+    (per-heartbeat or global) when HEARTBEAT_QUIET_INTERVAL_MINUTES == 0.
     """
-    quiet = parse_quiet_hours(settings.HEARTBEAT_QUIET_HOURS)
-    if quiet is not None:
-        try:
-            tz = zoneinfo.ZoneInfo(settings.TIMEZONE)
-        except (KeyError, Exception):
-            tz = zoneinfo.ZoneInfo("UTC")
-        if is_quiet_hours(datetime.now(tz), quiet) and settings.HEARTBEAT_QUIET_INTERVAL_MINUTES == 0:
-            return []
-
     now = datetime.now(timezone.utc)
     async with async_session() as db:
         stmt = (
@@ -94,7 +110,16 @@ async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
             )
             .limit(20)
         )
-        return list((await db.execute(stmt)).scalars().all())
+        candidates = list((await db.execute(stmt)).scalars().all())
+
+    # Filter out heartbeats in their quiet window
+    result = []
+    for hb in candidates:
+        if _is_heartbeat_in_quiet_hours(hb) and settings.HEARTBEAT_QUIET_INTERVAL_MINUTES == 0:
+            logger.debug("Heartbeat %s skipped (quiet hours)", hb.id)
+            continue
+        result.append(hb)
+    return result
 
 
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
@@ -166,7 +191,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # Advance schedule — use effective interval (may be extended during quiet hours)
         heartbeat = await db.get(ChannelHeartbeat, hb.id)
         if heartbeat:
-            effective = get_effective_interval(heartbeat.interval_minutes)
+            effective = get_effective_interval(heartbeat.interval_minutes, heartbeat)
             heartbeat.last_run_at = now
             heartbeat.next_run_at = now + timedelta(minutes=effective if effective > 0 else heartbeat.interval_minutes)
             heartbeat.updated_at = now
