@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""
 
+    # Frigate NVR
+    FRIGATE_URL: str = ""  # e.g. http://192.168.1.x:5000
+    FRIGATE_API_KEY: str = ""  # optional; only if behind an auth proxy
+
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
     SLACK_BOT_TOKEN: str = ""  # xoxb-... used for channel name lookup in admin UI

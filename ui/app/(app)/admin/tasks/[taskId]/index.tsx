@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
@@ -55,6 +55,9 @@ export default function TaskDetailScreen() {
   const deleteMut = useDeleteTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
+
+  const { width: winWidth } = useWindowDimensions();
+  const isWide = winWidth >= 768;
 
   const [prompt, setPrompt] = useState("");
   const [botId, setBotId] = useState("");
@@ -171,16 +174,21 @@ export default function TaskDetailScreen() {
       )}
 
       {/* Body */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* Left panel */}
-        <div style={{ flex: 3, display: "flex", flexDirection: "column", borderRight: "1px solid #2a2a2a", overflow: "auto" }}>
-          <div style={{ padding: "16px 20px", flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+        ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
+      }}>
+        {/* Prompt + Result/Error */}
+        <div style={{
+          ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+          display: "flex", flexDirection: "column",
+        }}>
+          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
             <LlmPrompt
               value={prompt}
               onChange={setPrompt}
               label="Prompt"
               placeholder="Task prompt..."
-              rows={12}
+              rows={isWide ? 12 : 6}
             />
 
             {task?.result && (
@@ -211,8 +219,12 @@ export default function TaskDetailScreen() {
           </div>
         </div>
 
-        {/* Right panel */}
-        <div style={{ flex: 2, overflow: "auto", padding: "16px 20px" }}>
+        {/* Metadata fields */}
+        <div style={{
+          ...(isWide ? { flex: 2 } : {}),
+          padding: "16px 20px",
+          borderTop: isWide ? "none" : "1px solid #2a2a2a",
+        }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <Section title="Configuration">
               <FormRow label="Bot">
@@ -316,7 +328,7 @@ export default function TaskDetailScreen() {
             )}
           </div>
         </div>
-      </div>
+      </ScrollView>
     </View>
   );
 }
