@@ -254,6 +254,12 @@ async def admin_channel_detail(request: Request, channel_id: uuid.UUID):
         names = await _fetch_slack_channel_names([slack_id])
         slack_name = names.get(slack_id)
 
+    try:
+        from app.services.providers import get_available_models_grouped
+        model_groups = await get_available_models_grouped()
+    except Exception:
+        model_groups = []
+
     return templates.TemplateResponse("admin/channel_detail.html", {
         "request": request,
         "channel": channel,
@@ -263,6 +269,7 @@ async def admin_channel_detail(request: Request, channel_id: uuid.UUID):
         "active_msg_count": active_msg_count,
         "last_user_msg": last_user_msg,
         "completions_json": completions_json,
+        "model_groups": model_groups,
         "settings_compaction_interval": settings.COMPACTION_INTERVAL,
         "settings_compaction_keep_turns": settings.COMPACTION_KEEP_TURNS,
     })
@@ -281,6 +288,10 @@ async def admin_channel_settings_save(
     compaction_interval: str = Form(""),
     compaction_keep_turns: str = Form(""),
     memory_knowledge_compaction_prompt: str = Form(""),
+    context_compression: str = Form(""),
+    compression_model: str = Form(""),
+    compression_threshold: str = Form(""),
+    compression_keep_turns: str = Form(""),
     elevation_enabled: str = Form(""),
     elevation_threshold: str = Form(""),
     elevated_model: str = Form(""),
@@ -300,6 +311,16 @@ async def admin_channel_settings_save(
         channel.compaction_interval = int(compaction_interval) if compaction_interval.strip() else None
         channel.compaction_keep_turns = int(compaction_keep_turns) if compaction_keep_turns.strip() else None
         channel.memory_knowledge_compaction_prompt = memory_knowledge_compaction_prompt.strip() or None
+        channel.context_compression = {"true": True, "false": False}.get(context_compression.strip().lower())
+        channel.compression_model = compression_model.strip() or None
+        try:
+            channel.compression_threshold = int(compression_threshold.strip()) if compression_threshold.strip() else None
+        except ValueError:
+            channel.compression_threshold = None
+        try:
+            channel.compression_keep_turns = int(compression_keep_turns.strip()) if compression_keep_turns.strip() else None
+        except ValueError:
+            channel.compression_keep_turns = None
         channel.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
         try:
             channel.elevation_threshold = float(elevation_threshold.strip()) if elevation_threshold.strip() else None
@@ -312,12 +333,19 @@ async def admin_channel_settings_save(
         all_bots = (await db.execute(select(BotRow).order_by(BotRow.name))).scalars().all()
         completions_json = await _build_completions_json(db)
 
+    try:
+        from app.services.providers import get_available_models_grouped
+        model_groups = await get_available_models_grouped()
+    except Exception:
+        model_groups = []
+
     return templates.TemplateResponse("admin/channel_settings_section.html", {
         "request": request,
         "channel": channel,
         "all_bots": all_bots,
         "saved": True,
         "completions_json": completions_json,
+        "model_groups": model_groups,
         "settings_compaction_interval": settings.COMPACTION_INTERVAL,
         "settings_compaction_keep_turns": settings.COMPACTION_KEEP_TURNS,
     })

@@ -1,11 +1,14 @@
 """HTTP calls to the agent server (chat, bots, sessions)."""
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 import httpx
 
 from slack_settings import AGENT_BASE_URL, API_KEY
 from session_helpers import slack_client_id
+
+logger = logging.getLogger(__name__)
 
 http = httpx.AsyncClient()
 
@@ -214,6 +217,7 @@ async def stream_chat(
         payload["dispatch_config"] = dispatch_config
     if msg_metadata:
         payload["msg_metadata"] = msg_metadata
+    logger.info("stream_chat payload keys=%s file_metadata_count=%d", list(payload.keys()), len(payload.get("file_metadata", [])))
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as sc:
         async with sc.stream(
             "POST",

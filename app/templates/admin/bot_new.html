@@ -9,6 +9,14 @@
 
 <form method="post" action="/admin/bots" class="max-w-3xl space-y-8">
 
+  {% if model_groups %}
+  <datalist id="litellm-models">
+    {% for group in model_groups %}{% for m in group.models %}
+    <option value="{{ m.id }}">{{ group.provider_name }}</option>
+    {% endfor %}{% endfor %}
+  </datalist>
+  {% endif %}
+
   <!-- Identity -->
   <section>
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Identity</h2>
@@ -72,10 +80,11 @@
     pin.classList.toggle('opacity-30', !toolCb.checked);
     if (!toolCb.checked) pin.checked = false;
   }
-  function toolsData(retrieval, trc) {
+  function toolsData(retrieval, trc, cc) {
     return {
       retrieval: retrieval,
       trc: Object.assign({ exclude_tools: [] }, trc),
+      cc: Object.assign({}, cc),
       get excludeTools() { return this.trc.exclude_tools || []; },
       isExcluded(name) { return this.excludeTools.includes(name); },
       toggleExclude(name) {
@@ -97,10 +106,21 @@
         return 'inherit';
       },
       get showExclude() { return this.trc.enabled !== false; },
+      setCCEnabled(v) {
+        if (v === 'true') { this.cc.enabled = true; }
+        else if (v === 'false') { this.cc.enabled = false; }
+        else { const c = {...this.cc}; delete c.enabled; this.cc = c; }
+      },
+      get ccEnabledVal() {
+        if (this.cc.enabled === true) return 'true';
+        if (this.cc.enabled === false) return 'false';
+        return 'inherit';
+      },
+      get ccEnabled() { return this.cc.enabled !== false; },
     };
   }
   </script>
-  <section x-data="toolsData(true, {})">
+  <section x-data="toolsData(true, {}, {})">
     <h2 class="text-lg font-semibold text-gray-200 mb-4 pb-2 border-b border-gray-700">Tools</h2>
     <div class="space-y-5">
 
@@ -240,6 +260,43 @@
             <input type="number" x-model.number="trc.max_tokens" placeholder="global · 300"
               class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
             <p class="text-xs text-gray-600 mt-1">how long the generated summary can be</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Context Compression -->
+      <div class="pt-3 border-t border-gray-700">
+        <input type="hidden" name="compression_config_json" :value="JSON.stringify(cc)" />
+        <div class="flex items-center gap-3 mb-2">
+          <span class="text-sm font-medium text-gray-200">Context Compression</span>
+          <select @change="setCCEnabled($event.target.value)" :value="ccEnabledVal"
+            class="ml-auto bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-indigo-500">
+            <option value="inherit">inherit global</option>
+            <option value="true">force on</option>
+            <option value="false">force off</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-500 mb-2" x-show="ccEnabled">
+          Summarises conversation history via a cheap model before each expensive LLM call.
+          The agent gets a drill-down tool to fetch specific messages when the summary isn't enough.
+        </p>
+        <div class="grid grid-cols-3 gap-3" x-show="ccEnabled">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Trigger size (chars)</label>
+            <input type="number" x-model.number="cc.threshold" placeholder="global · 20000"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+            <p class="text-xs text-gray-600 mt-1">compress if conversation longer than this</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Compression model</label>
+            <input type="text" x-model="cc.model" placeholder="global model" list="litellm-models"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500 font-mono" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Keep turns (verbatim)</label>
+            <input type="number" x-model.number="cc.keep_turns" placeholder="global · 2"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+            <p class="text-xs text-gray-600 mt-1">recent user turns kept uncompressed</p>
           </div>
         </div>
       </div>

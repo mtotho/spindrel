@@ -21,6 +21,7 @@
     <option value="context_injection_summary" {% if event_type_filter == 'context_injection_summary' %}selected{% endif %}>Context Injection</option>
     <option value="compaction_start" {% if event_type_filter == 'compaction_start' %}selected{% endif %}>Compaction Start</option>
     <option value="compaction_done" {% if event_type_filter == 'compaction_done' %}selected{% endif %}>Compaction Done</option>
+    <option value="context_compressed" {% if event_type_filter == 'context_compressed' %}selected{% endif %}>Context Compressed</option>
     <option value="harness" {% if event_type_filter == 'harness' %}selected{% endif %}>Harness (external CLI)</option>
     <option value="error" {% if event_type_filter == 'error' %}selected{% endif %}>Error</option>
   </select>
@@ -70,6 +71,8 @@
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/50 text-yellow-300">tool_rag</span>
           {% elif obj.event_type == 'compaction_start' or obj.event_type == 'compaction_done' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-orange-900/50 text-orange-300">compaction</span>
+          {% elif obj.event_type == 'context_compressed' %}
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-lime-900/50 text-lime-300">compression</span>
           {% elif obj.event_type == 'tool_result_summarization' %}
           <span class="px-2 py-0.5 rounded text-xs font-medium bg-pink-900/50 text-pink-300">summarization</span>
           {% elif obj.event_type == 'context_injection_summary' %}

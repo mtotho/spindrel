@@ -72,7 +72,7 @@ class TestPostMessageWithSlackFile:
                     "message": "Check this file",
                     "bot_id": "test-bot",
                     "file_metadata": [_make_file_metadata()],
-                    "msg_metadata": {"source": "slack"},
+                    "msg_metadazta": {"source": "slack"},
                 },
                 headers=AUTH_HEADERS,
             )

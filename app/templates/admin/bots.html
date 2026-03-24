@@ -64,6 +64,14 @@
           {% endif %}
         </div>
       </div>
+      {% if bot.compression_config and bot.compression_config.get('enabled') == true %}
+      <div>
+        <span class="text-gray-500">Compression</span>
+        <div class="mt-0.5">
+          <span class="text-lime-400 text-xs">enabled</span>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </a>
   {% else %}

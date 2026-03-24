@@ -1,3 +1,10 @@
+{% if model_groups %}
+<datalist id="litellm-models">
+  {% for group in model_groups %}{% for m in group.models %}
+  <option value="{{ m.id }}">{{ group.provider_name }}</option>
+  {% endfor %}{% endfor %}
+</datalist>
+{% endif %}
 <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Settings</h2>
 {% if saved is defined and saved %}
 <div class="mb-3 text-xs text-green-400">Settings saved.</div>
@@ -116,6 +123,43 @@
     </div>
   </div>
 
+  {# Context Compression #}
+  <div>
+    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-2 border-t border-gray-700 pt-4">Context Compression</h3>
+    <p class="text-xs text-gray-600 mb-3">Per-channel compression overrides. Summarises old turns via a cheap model before each LLM call. Leave blank to inherit from bot/global settings.</p>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Enable Compression</label>
+        <select name="context_compression"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+          <option value="" {% if channel.context_compression is none %}selected{% endif %}>Inherit (default)</option>
+          <option value="true" {% if channel.context_compression == true %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if channel.context_compression == false and channel.context_compression is not none %}selected{% endif %}>Disabled</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Compression Model</label>
+        <input name="compression_model" type="text" list="litellm-models"
+          value="{{ channel.compression_model or '' }}" placeholder="inherit"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mt-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Trigger Threshold <span class="text-gray-600">(chars)</span></label>
+        <input name="compression_threshold" type="number" min="1000"
+          value="{{ channel.compression_threshold or '' }}" placeholder="inherit (20000)"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Keep Turns <span class="text-gray-600">(verbatim)</span></label>
+        <input name="compression_keep_turns" type="number" min="0"
+          value="{{ channel.compression_keep_turns or '' }}" placeholder="inherit (2)"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  </div>
+
   {# Model Elevation #}
   <div>
     <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-2 border-t border-gray-700 pt-4">Model Elevation</h3>
@@ -138,7 +182,7 @@
       </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1">Elevated Model</label>
-        <input name="elevated_model" type="text"
+        <input name="elevated_model" type="text" list="litellm-models"
           value="{{ channel.elevated_model or '' }}" placeholder="inherit"
           class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500" />
       </div>

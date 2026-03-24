@@ -59,10 +59,14 @@
   </div>
   {% endif %}
 
-  <div class="grid grid-cols-3 gap-3 text-xs">
+  <div class="grid grid-cols-4 gap-3 text-xs">
     <div>
       <span class="text-gray-500">Compaction</span>
       <div class="text-gray-300 mt-0.5">{{ 'enabled' if bot.context_compaction else 'disabled' }}</div>
+    </div>
+    <div>
+      <span class="text-gray-500">Compression</span>
+      <div class="text-gray-300 mt-0.5">{% if bot.compression_config and bot.compression_config.get('enabled') == true %}enabled{% elif bot.compression_config and bot.compression_config.get('enabled') == false %}disabled{% else %}inherit{% endif %}</div>
     </div>
     <div>
       <span class="text-gray-500">Tool RAG</span>

@@ -40,6 +40,12 @@ current_session_depth: ContextVar[int] = ContextVar("current_session_depth", def
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
 
+# Stores the pre-compression conversation messages for the get_message_detail drill-down tool.
+# Set to a list when context compression is active; None otherwise.
+current_compression_history: ContextVar[list | None] = ContextVar(
+    "current_compression_history", default=None
+)
+
 # Accumulates child-bot Slack posts from immediate delegation so run_stream() can
 # emit them as delegation_post events BEFORE the parent's response event.
 # Set to a list by the outermost run_stream(); None means post immediately.

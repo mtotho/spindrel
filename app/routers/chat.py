@@ -88,6 +88,7 @@ async def _create_attachments_from_metadata(
     """Create attachment records from file metadata. Awaited before next turn."""
     from app.services.attachments import create_attachment
 
+    logger.info("Creating %d attachment(s) for message %s channel %s", len(file_metadata), message_id, channel_id)
     for fm in file_metadata:
         try:
             import base64 as _b64
@@ -212,8 +213,8 @@ async def chat(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
-    logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  message=%r",
-                req.bot_id, channel_id, session_id, req.passive, message[:80])
+    logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
+                req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
 
     # Passive path: store message without running agent
     if req.passive:
@@ -250,6 +251,7 @@ async def chat(
         correlation_id=correlation_id,
         msg_metadata=req.msg_metadata,
     )
+    logger.info("POST /chat persist: user_msg_id=%s  file_metadata=%d", user_msg_id, len(req.file_metadata))
     if req.file_metadata and user_msg_id:
         source = (req.msg_metadata or {}).get("source", "web")
         await _create_attachments_from_metadata(
@@ -313,8 +315,8 @@ async def chat_stream(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
-    logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  message=%r",
-                req.bot_id, channel_id, session_id, req.passive, message[:80])
+    logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
+                req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
 
     # Passive path: store message and return empty stream
     if req.passive:
@@ -407,6 +409,7 @@ async def chat_stream(
                 correlation_id=correlation_id,
                 msg_metadata=req.msg_metadata,
             )
+            logger.info("POST /chat/stream persist: user_msg_id=%s  file_metadata=%d", user_msg_id, len(req.file_metadata))
             if req.file_metadata and user_msg_id:
                 source = (req.msg_metadata or {}).get("source", "web")
                 await _create_attachments_from_metadata(

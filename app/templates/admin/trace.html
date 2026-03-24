@@ -54,6 +54,7 @@
     {% set is_tool = item.kind == 'tool_call' %}
     {% set is_harness_tool = is_tool and obj.tool_type == 'harness' %}
     {% set is_harness_te = item.kind == 'trace_event' and obj.event_type == 'harness' %}
+    {% set is_compression = item.kind == 'trace_event' and obj.event_type == 'context_compressed' %}
     {% set is_msg = item.kind == 'message' %}
     {% set is_response = item.kind == 'trace_event' and obj.event_type == 'response' %}
 
@@ -64,6 +65,7 @@
         {% elif is_response %}border-green-400 bg-green-900
         {% elif is_rag %}border-purple-400 bg-purple-900
         {% elif is_tool_rag %}border-yellow-400 bg-yellow-900
+        {% elif is_compression %}border-lime-400 bg-lime-950
         {% elif is_context_breakdown %}border-cyan-500 bg-cyan-950
         {% elif is_tokens %}border-gray-500 bg-gray-800
         {% elif is_harness_tool or is_harness_te %}border-amber-400 bg-amber-950
@@ -136,6 +138,8 @@
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-violet-900/50 text-violet-300 shrink-0">pinned</span>
             {% elif obj.event_type == 'tool_retrieval' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/50 text-yellow-300 shrink-0">tool_rag</span>
+            {% elif obj.event_type == 'context_compressed' %}
+            <span class="px-2 py-0.5 rounded text-xs font-medium bg-lime-900/50 text-lime-300 shrink-0">compression</span>
             {% elif obj.event_type == 'context_breakdown' %}
             <span class="px-2 py-0.5 rounded text-xs font-medium bg-cyan-900/50 text-cyan-300 shrink-0">ctx</span>
             {% elif obj.event_type == 'token_usage' %}
@@ -173,6 +177,9 @@
             {% if obj.data and obj.data.get('threshold') is not none %}
             <span class="text-gray-600 text-xs font-mono">threshold={{ obj.data.get('threshold') }}</span>
             {% endif %}
+            {% elif is_compression and obj.data %}
+            <span class="text-lime-300 text-xs font-mono">{{ "{:,}".format(obj.data.get('original_chars', 0)) }} → {{ "{:,}".format(obj.data.get('compressed_chars', 0)) }} chars</span>
+            <span class="text-gray-500 text-xs">({{ obj.data.get('original_messages', 0) }} → {{ obj.data.get('compressed_messages', 0) }} msgs)</span>
             {% elif is_context_breakdown and obj.data %}
             {% set bd = obj.data.get('breakdown', {}) %}
             {% set total_chars = obj.data.get('total_chars', 0) %}
@@ -299,6 +306,9 @@ function buildEventText(evt) {
   } else if (evt.event_type === 'memory_injection' && evt.data) {
     const sim = evt.data.best_similarity != null ? `${evt.data.best_similarity.toFixed(2)}` : '';
     lines.push(`[memory${sim ? ':' + sim : ''}]${evt.data.preview ? ' "' + evt.data.preview.substring(0, 80) + '"' : ''}`);
+  } else if (evt.event_type === 'context_compressed' && evt.data) {
+    const d = evt.data;
+    lines.push(`[context_compressed] ${d.original_chars || 0} → ${d.compressed_chars || 0} chars (${d.original_messages || 0} → ${d.compressed_messages || 0} msgs)`);
   } else if (evt.event_type === 'context_breakdown' && evt.data) {
     lines.push(`[context_breakdown] iter=${evt.data.iteration || 1} total=${evt.data.total_chars || 0} chars`);
     if (evt.data.breakdown) {
