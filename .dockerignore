@@ -1,0 +1,11 @@
+ui/node_modules
+ui/dist
+ui/.expo
+android-client
+.git
+__pycache__
+*.pyc
+.env
+.env.*
+PLANS
+docs

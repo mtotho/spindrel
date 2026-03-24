@@ -10,7 +10,6 @@ import {
   Server,
   Database,
   FileText,
-  ScrollText,
   GitBranch,
   HardDrive,
   ChevronLeft,
@@ -32,7 +31,6 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "AGENTS",
     items: [
       { label: "Bots", href: "/admin/bots", icon: Bot },
-      { label: "Sessions", href: "/admin/sessions", icon: ScrollText },
     ],
   },
   {
@@ -66,13 +64,13 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link href={item.href as any} asChild>
       <Pressable
-        className={`flex-row items-center gap-3 rounded-md px-3 py-2 ${
+        className={`flex-row items-center gap-3 rounded-md px-3 py-1.5 ${
           active ? "bg-accent/20" : "hover:bg-surface-overlay"
         }`}
       >
-        <Icon size={16} color={active ? "#3b82f6" : "#999999"} />
+        <Icon size={14} color={active ? "#3b82f6" : "#999999"} />
         <Text
-          className={`text-sm ${active ? "text-accent font-medium" : "text-text-muted"}`}
+          className={`text-xs ${active ? "text-accent font-medium" : "text-text-muted"}`}
         >
           {item.label}
         </Text>
@@ -101,26 +99,32 @@ export function Sidebar() {
   }
 
   return (
-    <View className="w-60 bg-surface border-r border-surface-border flex-1">
+    <View className="w-48 bg-surface border-r border-surface-border flex-1">
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-surface-border">
-          <Text className="text-text font-semibold text-base">Agent</Text>
+        {/* Header — Thoth branding */}
+        <View className="flex-row items-center justify-between px-3 py-3 border-b border-surface-border">
+          <View className="flex-row items-center gap-2">
+            <View className="w-6 h-6 rounded bg-accent/20 items-center justify-center">
+              <Text className="text-accent text-xs font-bold">T</Text>
+            </View>
+            <Text className="text-text font-semibold text-sm">Thoth</Text>
+          </View>
           <Pressable onPress={toggleSidebar} className="p-1">
-            <ChevronLeft size={16} color="#999999" />
+            <ChevronLeft size={14} color="#999999" />
           </Pressable>
         </View>
 
         {/* Channels */}
-        <View className="px-2 py-3">
-          <View className="flex-row items-center justify-between px-2 mb-2">
-            <Text className="text-text-dim text-xs font-semibold tracking-wider">
+        <View className="px-1.5 py-2">
+          <View className="flex-row items-center justify-between px-2 mb-1">
+            <Text className="text-text-dim text-[10px] font-semibold tracking-wider">
               CHANNELS
             </Text>
           </View>
           {channels?.map((channel) => {
             const bot = botMap.get(channel.bot_id);
             const isActive = pathname.includes(channel.id);
+            const displayName = (channel as any).display_name || channel.name || channel.client_id;
             return (
               <Link
                 key={channel.id}
@@ -128,25 +132,25 @@ export function Sidebar() {
                 asChild
               >
                 <Pressable
-                  className={`flex-row items-center gap-3 rounded-md px-3 py-2 ${
+                  className={`flex-row items-center gap-2 rounded-md px-2 py-1.5 ${
                     isActive ? "bg-accent/20" : "hover:bg-surface-overlay"
                   }`}
                 >
                   <MessageSquare
-                    size={16}
+                    size={14}
                     color={isActive ? "#3b82f6" : "#999999"}
                   />
                   <View className="flex-1 min-w-0">
                     <Text
-                      className={`text-sm truncate ${
+                      className={`text-xs truncate ${
                         isActive ? "text-accent font-medium" : "text-text"
                       }`}
                       numberOfLines={1}
                     >
-                      {channel.display_name || channel.client_id}
+                      {displayName}
                     </Text>
                     {bot && (
-                      <Text className="text-xs text-text-dim" numberOfLines={1}>
+                      <Text className="text-[10px] text-text-dim" numberOfLines={1}>
                         {bot.name}
                       </Text>
                     )}
@@ -159,8 +163,8 @@ export function Sidebar() {
 
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
-          <View key={section.title} className="px-2 py-2">
-            <Text className="text-text-dim text-xs font-semibold tracking-wider px-2 mb-1">
+          <View key={section.title} className="px-1.5 py-1">
+            <Text className="text-text-dim text-[10px] font-semibold tracking-wider px-2 mb-0.5">
               {section.title}
             </Text>
             {section.items.map((item) => (
@@ -175,11 +179,11 @@ export function Sidebar() {
       </ScrollView>
 
       {/* Settings footer */}
-      <View className="border-t border-surface-border p-2">
+      <View className="border-t border-surface-border p-1.5">
         <Link href="/(app)/settings" asChild>
-          <Pressable className="flex-row items-center gap-3 rounded-md px-3 py-2 hover:bg-surface-overlay">
-            <Settings size={16} color="#999999" />
-            <Text className="text-sm text-text-muted">Settings</Text>
+          <Pressable className="flex-row items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-overlay">
+            <Settings size={14} color="#999999" />
+            <Text className="text-xs text-text-muted">Settings</Text>
           </Pressable>
         </Link>
       </View>

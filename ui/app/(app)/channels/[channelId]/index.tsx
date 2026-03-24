@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
-import { View, Text, FlatList, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
+import { useLocalSearchParams, Link } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { Settings } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -28,7 +29,7 @@ export default function ChatScreen() {
   const setError = useChatStore((s) => s.setError);
 
   // Load session messages
-  const { isLoading } = useQuery({
+  const { data: sessionMessages, isLoading } = useQuery({
     queryKey: ["session-messages", channel?.active_session_id],
     queryFn: async () => {
       if (!channel?.active_session_id) return [];
@@ -38,10 +39,14 @@ export default function ChatScreen() {
       return session.messages ?? [];
     },
     enabled: !!channel?.active_session_id,
-    onSuccess: (messages: Message[]) => {
-      if (channelId) setMessages(channelId, messages);
-    },
   });
+
+  // Sync fetched messages into the chat store
+  useEffect(() => {
+    if (channelId && sessionMessages) {
+      setMessages(channelId, sessionMessages);
+    }
+  }, [channelId, sessionMessages]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -74,7 +79,7 @@ export default function ChatScreen() {
       chatStream.mutate({
         message: text,
         bot_id: channel.bot_id,
-        client_id: channel.client_id,
+        client_id: channel.client_id ?? "",
         channel_id: channelId,
       });
     },
@@ -94,12 +99,19 @@ export default function ChatScreen() {
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
         <View className="flex-1 min-w-0">
           <Text className="text-text font-semibold" numberOfLines={1}>
-            {channel?.display_name || channel?.client_id || "Chat"}
+            {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
           </Text>
           {bot && (
             <Text className="text-text-muted text-xs">{bot.name}</Text>
           )}
         </View>
+        {channelId && (
+          <Link href={`/channels/${channelId}/settings` as any} asChild>
+            <Pressable className="p-2 rounded-md hover:bg-surface-overlay">
+              <Settings size={16} color="#999999" />
+            </Pressable>
+          </Link>
+        )}
       </View>
 
       {/* Messages */}

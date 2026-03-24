@@ -50,5 +50,11 @@ services:
       - CONCURRENT=5
     restart: unless-stopped
 
+  ui:
+    build: ./ui
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+
 volumes:
   pgdata:
