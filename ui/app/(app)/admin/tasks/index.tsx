@@ -1,11 +1,17 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Plus, X, Trash2,
   Clock, AlertCircle, CheckCircle2, Loader2, RefreshCw, Calendar,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
+import { useBots } from "@/src/api/hooks/useBots";
+import { useChannels } from "@/src/api/hooks/useChannels";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
+import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
 interface TaskItem {
   id: string;
@@ -63,6 +69,25 @@ const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any }> = {
   failed: { bg: "#7f1d1d", fg: "#fca5a5", icon: AlertCircle },
 };
 
+const STATUS_OPTIONS = [
+  { label: "Pending", value: "pending" },
+  { label: "Running", value: "running" },
+  { label: "Complete", value: "complete" },
+  { label: "Failed", value: "failed" },
+  { label: "Cancelled", value: "cancelled" },
+];
+
+const TASK_TYPE_OPTIONS = [
+  { label: "Scheduled", value: "scheduled" },
+  { label: "Heartbeat", value: "heartbeat" },
+  { label: "Delegation", value: "delegation" },
+  { label: "Harness", value: "harness" },
+  { label: "Exec", value: "exec" },
+  { label: "Callback", value: "callback" },
+  { label: "API", value: "api" },
+  { label: "Agent", value: "agent" },
+];
+
 function startOfDay(d: Date) {
   const r = new Date(d);
   r.setHours(0, 0, 0, 0);
@@ -81,6 +106,13 @@ function fmtDate(d: Date) {
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtDatetime(iso: string | null | undefined) {
+  if (!iso) return "\u2014";
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 function getTaskTime(t: TaskItem): Date {
@@ -171,21 +203,25 @@ function TypeBadge({ type }: { type: string }) {
 // ---------------------------------------------------------------------------
 // Task card on timeline
 // ---------------------------------------------------------------------------
-function TaskCard({ task, isPast }: { task: TaskItem; isPast: boolean }) {
+function TaskCard({ task, isPast, onPress }: { task: TaskItem; isPast: boolean; onPress: () => void }) {
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const isRecurring = !!task.recurrence;
   const time = task.scheduled_at || task.created_at;
 
   return (
-    <div style={{
-      padding: "8px 12px", borderRadius: 8,
-      background: isPast ? "#111" : "#1a1a1a",
-      border: `1px solid ${isPast ? "#1a1a1a" : "#2a2a2a"}`,
-      opacity: isPast ? 0.5 : 1,
-      transition: "opacity 0.2s",
-      marginBottom: 4,
-    }}>
+    <div
+      onClick={onPress}
+      style={{
+        padding: "8px 12px", borderRadius: 8,
+        background: isPast ? "#111" : "#1a1a1a",
+        border: `1px solid ${isPast ? "#1a1a1a" : "#2a2a2a"}`,
+        opacity: isPast ? 0.5 : 1,
+        transition: "opacity 0.2s",
+        marginBottom: 4,
+        cursor: "pointer",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon size={13} color={s.fg} />
         <span style={{ fontSize: 12, fontWeight: 600, color: s.fg }}>{task.status}</span>
@@ -231,10 +267,9 @@ function TaskCard({ task, isPast }: { task: TaskItem; isPast: boolean }) {
 // ---------------------------------------------------------------------------
 // Day column
 // ---------------------------------------------------------------------------
-function DayColumn({ date, tasks }: { date: Date; tasks: TaskItem[] }) {
+function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
   const now = new Date();
   const showNow = isToday(date);
-  const dayStart = startOfDay(date);
 
   // Group tasks by hour
   const hourGroups = useMemo(() => {
@@ -283,6 +318,7 @@ function DayColumn({ date, tasks }: { date: Date; tasks: TaskItem[] }) {
                   key={t.id}
                   task={t}
                   isPast={getTaskTime(t) < now && t.status !== "running"}
+                  onPress={() => onTaskPress(t)}
                 />
               ))}
             </div>
@@ -294,12 +330,364 @@ function DayColumn({ date, tasks }: { date: Date; tasks: TaskItem[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Task Editor (near-fullscreen overlay)
+// ---------------------------------------------------------------------------
+function TaskEditor({
+  taskId,
+  onClose,
+  onSaved,
+}: {
+  taskId: string | null; // null = create mode
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isCreate = !taskId;
+  const { data: existingTask, isLoading: loadingTask } = useTask(taskId ?? undefined);
+  const createMut = useCreateTask();
+  const updateMut = useUpdateTask(taskId ?? undefined);
+  const deleteMut = useDeleteTask();
+  const { data: bots } = useBots();
+  const { data: channels } = useChannels();
+
+  // Form state
+  const [prompt, setPrompt] = useState("");
+  const [botId, setBotId] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [status, setStatus] = useState("pending");
+  const [taskType, setTaskType] = useState("scheduled");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [recurrence, setRecurrence] = useState("");
+  const [triggerRagLoop, setTriggerRagLoop] = useState(false);
+  const [modelOverride, setModelOverride] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  // Populate form when existing task loads
+  if (!isCreate && existingTask && !initialized) {
+    setPrompt(existingTask.prompt || "");
+    setBotId(existingTask.bot_id || "");
+    setChannelId(existingTask.channel_id || "");
+    setStatus(existingTask.status || "pending");
+    setTaskType(existingTask.task_type || "scheduled");
+    setScheduledAt(existingTask.scheduled_at ? new Date(existingTask.scheduled_at).toISOString().slice(0, 16) : "");
+    setRecurrence(existingTask.recurrence || "");
+    setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(existingTask.callback_config?.model_override || "");
+    setInitialized(true);
+  }
+
+  // Set defaults for create mode
+  if (isCreate && !initialized && bots && bots.length > 0) {
+    setBotId(bots[0].id);
+    setInitialized(true);
+  }
+
+  const saving = createMut.isPending || updateMut.isPending;
+
+  const handleSave = useCallback(async () => {
+    if (!prompt.trim() || !botId) return;
+    try {
+      if (isCreate) {
+        await createMut.mutateAsync({
+          prompt,
+          bot_id: botId,
+          channel_id: channelId || null,
+          scheduled_at: scheduledAt || null,
+          recurrence: recurrence || null,
+          task_type: taskType,
+          trigger_rag_loop: triggerRagLoop,
+          model_override: modelOverride || null,
+        });
+      } else {
+        await updateMut.mutateAsync({
+          prompt,
+          bot_id: botId,
+          status,
+          scheduled_at: scheduledAt || null,
+          recurrence: recurrence || null,
+          task_type: taskType,
+          trigger_rag_loop: triggerRagLoop,
+          model_override: modelOverride || null,
+        });
+      }
+      onSaved();
+    } catch {
+      // error is shown via mutation state
+    }
+  }, [prompt, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved]);
+
+  const handleDelete = useCallback(async () => {
+    if (!taskId || !confirm("Delete this task?")) return;
+    await deleteMut.mutateAsync(taskId);
+    onSaved();
+  }, [taskId, deleteMut, onSaved]);
+
+  if (typeof document === "undefined") return null;
+  const ReactDOM = require("react-dom");
+
+  const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
+  const channelOptions = [
+    { label: "\u2014 None \u2014", value: "" },
+    ...(channels || []).map((c: any) => ({
+      label: c.display_name || c.name || c.id,
+      value: String(c.id),
+    })),
+  ];
+
+  return ReactDOM.createPortal(
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 10000,
+      background: "rgba(0,0,0,0.85)", display: "flex", flexDirection: "column",
+    }}>
+      {/* Header */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "12px 20px", borderBottom: "1px solid #333", flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ color: "#e5e5e5", fontSize: 16, fontWeight: 700 }}>
+            {isCreate ? "New Task" : "Edit Task"}
+          </span>
+          {!isCreate && existingTask && (
+            <span style={{ color: "#555", fontSize: 12, fontFamily: "monospace" }}>
+              {taskId?.slice(0, 8)}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {!isCreate && (
+            <button
+              onClick={handleDelete}
+              disabled={deleteMut.isPending}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 14px", fontSize: 13, border: "1px solid #7f1d1d", borderRadius: 6,
+                background: "transparent", color: "#fca5a5", cursor: "pointer",
+              }}
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || !prompt.trim() || !botId}
+            style={{
+              padding: "6px 20px", fontSize: 13, fontWeight: 600, border: "none", borderRadius: 6,
+              background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
+              color: (!prompt.trim() || !botId) ? "#666" : "#fff",
+              cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving ? "Saving..." : isCreate ? "Create" : "Save"}
+          </button>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
+          >
+            <X size={20} color="#999" />
+          </button>
+        </div>
+      </div>
+
+      {/* Error display */}
+      {(createMut.error || updateMut.error || deleteMut.error) && (
+        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+          {(createMut.error || updateMut.error || deleteMut.error)?.message || "An error occurred"}
+        </div>
+      )}
+
+      {/* Body */}
+      {(!isCreate && loadingTask) ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color="#3b82f6" />
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+          {/* Left panel — Prompt + Result/Error */}
+          <div style={{ flex: 3, display: "flex", flexDirection: "column", borderRight: "1px solid #2a2a2a", overflow: "auto" }}>
+            <div style={{ padding: "16px 20px", flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
+              <LlmPrompt
+                value={prompt}
+                onChange={setPrompt}
+                label="Prompt"
+                placeholder="Task prompt... (type @ for autocomplete)"
+                rows={12}
+              />
+
+              {!isCreate && existingTask?.result && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Result</div>
+                  <div style={{
+                    padding: 12, borderRadius: 8, background: "#111", border: "1px solid #1a1a1a",
+                    fontSize: 12, color: "#86efac", whiteSpace: "pre-wrap",
+                    maxHeight: 300, overflow: "auto", fontFamily: "monospace",
+                  }}>
+                    {existingTask.result}
+                  </div>
+                </div>
+              )}
+
+              {!isCreate && existingTask?.error && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Error</div>
+                  <div style={{
+                    padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid #7f1d1d",
+                    fontSize: 12, color: "#fca5a5", whiteSpace: "pre-wrap",
+                    maxHeight: 200, overflow: "auto", fontFamily: "monospace",
+                  }}>
+                    {existingTask.error}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right panel — Metadata fields */}
+          <div style={{ flex: 2, overflow: "auto", padding: "16px 20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <Section title="Configuration">
+                <FormRow label="Bot">
+                  <SelectInput
+                    value={botId}
+                    onChange={setBotId}
+                    options={botOptions}
+                  />
+                </FormRow>
+
+                <FormRow label="Channel" description="Assign to a channel for dispatch">
+                  <SelectInput
+                    value={channelId}
+                    onChange={isCreate ? setChannelId : () => {}}
+                    options={channelOptions}
+                    style={isCreate ? {} : { opacity: 0.5, pointerEvents: "none" }}
+                  />
+                </FormRow>
+
+                {!isCreate && (
+                  <FormRow label="Status">
+                    <SelectInput
+                      value={status}
+                      onChange={setStatus}
+                      options={STATUS_OPTIONS}
+                    />
+                  </FormRow>
+                )}
+
+                <FormRow label="Task Type">
+                  <SelectInput
+                    value={taskType}
+                    onChange={setTaskType}
+                    options={TASK_TYPE_OPTIONS}
+                  />
+                </FormRow>
+              </Section>
+
+              <Section title="Scheduling">
+                <FormRow label="Scheduled At" description="ISO datetime or +30m, +2h, +1d">
+                  <TextInput
+                    value={scheduledAt}
+                    onChangeText={setScheduledAt}
+                    placeholder="e.g. +2h or 2026-03-25T10:00"
+                  />
+                </FormRow>
+
+                <FormRow label="Recurrence" description="Repeat interval: +1h, +1d, etc.">
+                  <TextInput
+                    value={recurrence}
+                    onChangeText={setRecurrence}
+                    placeholder="e.g. +1h, +1d"
+                  />
+                </FormRow>
+              </Section>
+
+              <Section title="Options">
+                <Toggle
+                  value={triggerRagLoop}
+                  onChange={setTriggerRagLoop}
+                  label="Trigger RAG Loop"
+                  description="Create follow-up agent turn after task completes"
+                />
+
+                <FormRow label="Model Override">
+                  <LlmModelDropdown
+                    value={modelOverride}
+                    onChange={setModelOverride}
+                    placeholder="Inherit from bot"
+                    allowClear
+                  />
+                </FormRow>
+              </Section>
+
+              {/* Read-only timing info in edit mode */}
+              {!isCreate && existingTask && (
+                <Section title="Timing">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <InfoRow label="Created" value={fmtDatetime(existingTask.created_at)} />
+                    <InfoRow label="Scheduled" value={fmtDatetime(existingTask.scheduled_at)} />
+                    <InfoRow label="Run At" value={fmtDatetime(existingTask.run_at)} />
+                    <InfoRow label="Completed" value={fmtDatetime(existingTask.completed_at)} />
+                    <InfoRow label="Retry Count" value={String(existingTask.retry_count)} />
+                  </div>
+                </Section>
+              )}
+
+              {/* Read-only dispatch info in edit mode */}
+              {!isCreate && existingTask && (
+                <Section title="Dispatch">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <InfoRow label="Type" value={existingTask.dispatch_type} />
+                    {existingTask.dispatch_config && (
+                      <div>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Config</div>
+                        <pre style={{
+                          fontSize: 10, color: "#888", background: "#111", padding: 8,
+                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
+                        }}>
+                          {JSON.stringify(existingTask.dispatch_config, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {existingTask.callback_config && (
+                      <div>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Callback Config</div>
+                        <pre style={{
+                          fontSize: 10, color: "#888", background: "#111", padding: 8,
+                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
+                        }}>
+                          {JSON.stringify(existingTask.callback_config, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </Section>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
+      <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>{value}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
+  const [editorTaskId, setEditorTaskId] = useState<string | null | undefined>(undefined); // undefined=closed, null=create, string=edit
+  const qc = useQueryClient();
 
   const rangeDays = viewMode === "day" ? 1 : 7;
   const rangeStart = baseDate;
@@ -331,6 +719,12 @@ export default function TasksScreen() {
   const goPrev = () => setBaseDate(addDays(baseDate, -rangeDays));
   const goNext = () => setBaseDate(addDays(baseDate, rangeDays));
 
+  const handleEditorClose = () => setEditorTaskId(undefined);
+  const handleEditorSaved = () => {
+    setEditorTaskId(undefined);
+    qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+  };
+
   return (
     <View className="flex-1 bg-surface">
       {/* Header bar */}
@@ -347,6 +741,19 @@ export default function TasksScreen() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* New Task button */}
+          <button
+            onClick={() => setEditorTaskId(null)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6, background: "#3b82f6", color: "#fff",
+            }}
+          >
+            <Plus size={14} />
+            New Task
+          </button>
+
           {/* View mode toggle */}
           <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
             {(["day", "week"] as ViewMode[]).map((m) => (
@@ -421,10 +828,24 @@ export default function TasksScreen() {
             borderLeft: "1px solid #2a2a2a",
           }}>
             {Object.entries(tasksByDay).map(([dayStr, tasks]) => (
-              <DayColumn key={dayStr} date={new Date(dayStr)} tasks={tasks} />
+              <DayColumn
+                key={dayStr}
+                date={new Date(dayStr)}
+                tasks={tasks}
+                onTaskPress={(t) => setEditorTaskId(t.id)}
+              />
             ))}
           </div>
         </ScrollView>
+      )}
+
+      {/* Task Editor overlay */}
+      {editorTaskId !== undefined && (
+        <TaskEditor
+          taskId={editorTaskId}
+          onClose={handleEditorClose}
+          onSaved={handleEditorSaved}
+        />
       )}
     </View>
   );

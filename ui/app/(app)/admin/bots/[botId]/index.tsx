@@ -1,26 +1,26 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { View, Text, ScrollView, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Save, Search, X, ChevronRight } from "lucide-react";
+import { ArrowLeft, Save, Search, X, Plus, Trash2, Package } from "lucide-react";
 import { useBotEditorData, useUpdateBot } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
-  TextInput, SelectInput, Toggle, FormRow, Section, Row, Col,
+  TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
-import type { BotConfig, SkillConfig, BotEditorData } from "@/src/types/api";
+import type { BotConfig, BotEditorData } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
-// Section definitions
+// Sections — Prompt & Persona adjacent, no compaction
 // ---------------------------------------------------------------------------
 const SECTIONS = [
   { key: "identity", label: "Identity" },
   { key: "prompt", label: "System Prompt" },
+  { key: "persona", label: "Persona" },
   { key: "tools", label: "Tools" },
   { key: "skills", label: "Skills" },
   { key: "memory", label: "Memory" },
   { key: "knowledge", label: "Knowledge" },
-  { key: "persona", label: "Persona" },
   { key: "elevation", label: "Elevation" },
   { key: "attachments", label: "Attachments" },
   { key: "workspace", label: "Workspace" },
@@ -32,7 +32,64 @@ const SECTIONS = [
 type SectionKey = (typeof SECTIONS)[number]["key"];
 
 // ---------------------------------------------------------------------------
-// Section nav sidebar
+// Large plain textarea (no @-tags) for system prompt & persona
+// ---------------------------------------------------------------------------
+function BigTextarea({
+  value,
+  onChange,
+  placeholder,
+  minRows = 24,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  minRows?: number;
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={minRows}
+      style={{
+        width: "100%", fontFamily: "monospace", fontSize: 13, lineHeight: "1.6",
+        padding: "12px 16px", borderRadius: 8,
+        border: "1px solid #333", background: "#0a0a0a", color: "#e5e7eb",
+        resize: "vertical", outline: "none", transition: "border-color 0.15s",
+        minHeight: minRows * 20,
+      }}
+      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; }}
+      onBlur={(e) => { e.target.style.borderColor = "#333"; }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic list editor (for env vars, ports, mounts, commands, patterns)
+// ---------------------------------------------------------------------------
+function ListEditor({
+  items,
+  onUpdate,
+  renderItem,
+  renderAdd,
+}: {
+  items: any[];
+  onUpdate: (items: any[]) => void;
+  renderItem: (item: any, idx: number, remove: () => void) => React.ReactNode;
+  renderAdd: (add: (item: any) => void) => React.ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {items.map((item, i) => (
+        <div key={i}>{renderItem(item, i, () => onUpdate(items.filter((_, j) => j !== i)))}</div>
+      ))}
+      {renderAdd((item) => onUpdate([...items, item]))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section nav
 // ---------------------------------------------------------------------------
 function SectionNav({
   active,
@@ -47,7 +104,7 @@ function SectionNav({
 }) {
   return (
     <div style={{
-      width: 160, flexShrink: 0, borderRight: "1px solid #1a1a1a",
+      width: 150, flexShrink: 0, borderRight: "1px solid #1a1a1a",
       paddingTop: 8, overflowY: "auto",
     }}>
       {SECTIONS.map((s) => {
@@ -57,14 +114,12 @@ function SectionNav({
             key={s.key}
             onClick={() => onSelect(s.key)}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              width: "100%", padding: "7px 12px", border: "none",
+              display: "block", width: "100%", padding: "7px 12px", border: "none",
               background: active === s.key ? "#1a1a1a" : "transparent",
               borderLeft: active === s.key ? "2px solid #3b82f6" : "2px solid transparent",
               color: dimmed ? "#333" : active === s.key ? "#e5e5e5" : "#888",
               fontSize: 12, fontWeight: active === s.key ? 600 : 400,
-              cursor: "pointer", textAlign: "left",
-              transition: "all 0.1s",
+              cursor: "pointer", textAlign: "left", transition: "all 0.1s",
             }}
           >
             {s.label}
@@ -76,76 +131,7 @@ function SectionNav({
 }
 
 // ---------------------------------------------------------------------------
-// Checkbox grid for multi-select (tools, skills, bots, etc)
-// ---------------------------------------------------------------------------
-function CheckboxGrid({
-  items,
-  selected,
-  onToggle,
-  filter,
-  columns = 2,
-  mono = true,
-}: {
-  items: { value: string; label?: string }[];
-  selected: string[];
-  onToggle: (v: string) => void;
-  filter?: string;
-  columns?: number;
-  mono?: boolean;
-}) {
-  const filtered = filter
-    ? items.filter(
-        (i) =>
-          i.value.toLowerCase().includes(filter.toLowerCase()) ||
-          (i.label || "").toLowerCase().includes(filter.toLowerCase())
-      )
-    : items;
-
-  if (filtered.length === 0) {
-    return <div style={{ color: "#555", fontSize: 11, padding: 8 }}>No matches</div>;
-  }
-
-  return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: `repeat(${columns}, 1fr)`,
-      gap: 2,
-    }}>
-      {filtered.map((item) => {
-        const checked = selected.includes(item.value);
-        return (
-          <label
-            key={item.value}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "4px 8px", borderRadius: 4, cursor: "pointer",
-              background: checked ? "rgba(59,130,246,0.1)" : "transparent",
-              border: `1px solid ${checked ? "#3b82f633" : "#1a1a1a"}`,
-              fontSize: 11,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={() => onToggle(item.value)}
-              style={{ accentColor: "#3b82f6" }}
-            />
-            <span style={{
-              color: checked ? "#93c5fd" : "#999",
-              fontFamily: mono ? "monospace" : "inherit",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }} title={item.label || item.value}>
-              {item.label || item.value}
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tool section with grouped display
+// Tools section — pack-level toggle + search + pin + no-summarize
 // ---------------------------------------------------------------------------
 function ToolsSection({
   editorData,
@@ -157,185 +143,264 @@ function ToolsSection({
   update: (patch: Partial<BotConfig>) => void;
 }) {
   const [toolFilter, setToolFilter] = useState("");
-
-  const toggleTool = useCallback((name: string) => {
-    const current = draft.local_tools || [];
-    update({
-      local_tools: current.includes(name)
-        ? current.filter((t) => t !== name)
-        : [...current, name],
-    });
-  }, [draft.local_tools, update]);
-
-  const togglePin = useCallback((name: string) => {
-    const current = draft.pinned_tools || [];
-    update({
-      pinned_tools: current.includes(name)
-        ? current.filter((t) => t !== name)
-        : [...current, name],
-    });
-  }, [draft.pinned_tools, update]);
-
-  const toggleMcp = useCallback((name: string) => {
-    const current = draft.mcp_servers || [];
-    update({
-      mcp_servers: current.includes(name)
-        ? current.filter((t) => t !== name)
-        : [...current, name],
-    });
-  }, [draft.mcp_servers, update]);
-
-  const toggleClient = useCallback((name: string) => {
-    const current = draft.client_tools || [];
-    update({
-      client_tools: current.includes(name)
-        ? current.filter((t) => t !== name)
-        : [...current, name],
-    });
-  }, [draft.client_tools, update]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const localTools = draft.local_tools || [];
   const pinnedTools = draft.pinned_tools || [];
+  const excludeTools: string[] = (draft.tool_result_config as any)?.exclude_tools || [];
+
+  const toggleTool = (name: string) => {
+    const next = localTools.includes(name)
+      ? localTools.filter((t) => t !== name)
+      : [...localTools, name];
+    update({ local_tools: next });
+  };
+
+  const togglePin = (name: string) => {
+    const next = pinnedTools.includes(name)
+      ? pinnedTools.filter((t) => t !== name)
+      : [...pinnedTools, name];
+    update({ pinned_tools: next });
+  };
+
+  const toggleNoSum = (name: string) => {
+    const next = excludeTools.includes(name)
+      ? excludeTools.filter((t) => t !== name)
+      : [...excludeTools, name];
+    update({ tool_result_config: { ...draft.tool_result_config, exclude_tools: next } });
+  };
+
+  const toggleMcp = (name: string) => {
+    const cur = draft.mcp_servers || [];
+    update({ mcp_servers: cur.includes(name) ? cur.filter((t) => t !== name) : [...cur, name] });
+  };
+
+  const toggleClient = (name: string) => {
+    const cur = draft.client_tools || [];
+    update({ client_tools: cur.includes(name) ? cur.filter((t) => t !== name) : [...cur, name] });
+  };
+
+  // Toggle all tools in a pack
+  const togglePack = (toolNames: string[]) => {
+    const allEnabled = toolNames.every((n) => localTools.includes(n));
+    if (allEnabled) {
+      update({ local_tools: localTools.filter((t) => !toolNames.includes(t)) });
+    } else {
+      const toAdd = toolNames.filter((n) => !localTools.includes(n));
+      update({ local_tools: [...localTools, ...toAdd] });
+    }
+  };
+
+  const q = toolFilter.toLowerCase();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Tool filter */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        background: "#111", border: "1px solid #333", borderRadius: 6,
-        padding: "4px 8px",
-      }}>
-        <Search size={12} color="#555" />
-        <input
-          type="text"
-          value={toolFilter}
-          onChange={(e) => setToolFilter(e.target.value)}
-          placeholder="Filter tools..."
-          style={{
-            flex: 1, background: "transparent", border: "none", outline: "none",
-            color: "#e5e5e5", fontSize: 12,
-          }}
-        />
-        {toolFilter && (
-          <button onClick={() => setToolFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-            <X size={12} color="#555" />
-          </button>
-        )}
+      {/* Search bar + counts */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, flex: 1,
+          background: "#111", border: "1px solid #333", borderRadius: 6, padding: "5px 10px",
+        }}>
+          <Search size={12} color="#555" />
+          <input
+            type="text" value={toolFilter}
+            onChange={(e) => setToolFilter(e.target.value)}
+            placeholder="Search tools..."
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }}
+          />
+          {toolFilter && (
+            <button onClick={() => setToolFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              <X size={10} color="#555" />
+            </button>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: "#555" }}>
+          {localTools.length} selected
+          {pinnedTools.length > 0 && <> · {pinnedTools.length} pinned</>}
+        </span>
       </div>
 
-      {/* Local tools by group */}
-      {editorData.tool_groups.map((group) => (
-        <div key={group.integration} style={{
-          border: "1px solid #1a1a1a", borderRadius: 8, overflow: "hidden",
-        }}>
-          <div style={{
-            padding: "6px 10px", background: "#0a0a0a",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
-            {!group.is_core && (
-              <span style={{
-                fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
-                background: "#92400e33", color: "#fbbf24",
-                textTransform: "uppercase", letterSpacing: "0.05em",
-              }}>
-                {group.integration}
-              </span>
-            )}
-            {group.is_core && (
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#888" }}>Core Tools</span>
-            )}
-            <span style={{ fontSize: 10, color: "#444", marginLeft: "auto" }}>{group.total}</span>
-          </div>
-          {group.packs.map((pack) => {
-            const filtered = toolFilter
-              ? pack.tools.filter((t) => t.name.toLowerCase().includes(toolFilter.toLowerCase()))
-              : pack.tools;
-            if (filtered.length === 0) return null;
-            return (
-              <div key={pack.pack}>
-                {group.packs.length > 1 && (
-                  <div style={{ padding: "3px 10px", background: "#0a0a0a66", fontSize: 10, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    {pack.pack}
-                  </div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, padding: 4 }}>
-                  {filtered.map((tool) => {
-                    const enabled = localTools.includes(tool.name);
-                    const pinned = pinnedTools.includes(tool.name);
-                    return (
-                      <div
-                        key={tool.name}
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#555" }}>
+        <span>✓ = enabled</span>
+        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>📌 = pinned (bypass RAG)</span>}
+        <span style={{ color: "#f97316" }}>🔇 = skip summarization</span>
+      </div>
+
+      {/* Local tool groups */}
+      {editorData.tool_groups.map((group) => {
+        const groupKey = group.integration;
+        return (
+          <div key={groupKey} style={{ border: "1px solid #1a1a1a", borderRadius: 8, overflow: "hidden" }}>
+            {/* Group header */}
+            <div style={{
+              padding: "6px 10px", background: "#0a0a0a",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              {group.is_core ? (
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#888" }}>Core</span>
+              ) : (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
+                  background: "#92400e33", color: "#fbbf24", textTransform: "uppercase",
+                }}>
+                  {group.integration}
+                </span>
+              )}
+              <span style={{ fontSize: 10, color: "#444", marginLeft: "auto" }}>{group.total}</span>
+            </div>
+
+            {/* Packs */}
+            {group.packs.map((pack) => {
+              const packKey = `${groupKey}::${pack.pack}`;
+              const filtered = q ? pack.tools.filter((t) => t.name.toLowerCase().includes(q)) : pack.tools;
+              if (filtered.length === 0) return null;
+
+              const packNames = pack.tools.map((t) => t.name);
+              const allEnabled = packNames.every((n) => localTools.includes(n));
+              const someEnabled = packNames.some((n) => localTools.includes(n));
+              const isCollapsed = !q && collapsed[packKey];
+
+              return (
+                <div key={pack.pack}>
+                  {/* Pack header with toggle-all */}
+                  {group.packs.length > 1 && (
+                    <div
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "4px 10px", background: "#0a0a0a66", cursor: "pointer",
+                        borderTop: "1px solid #111",
+                      }}
+                      onClick={() => setCollapsed((c) => ({ ...c, [packKey]: !c[packKey] }))}
+                    >
+                      <span style={{
+                        fontSize: 8, color: "#555", transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+                        transition: "transform 0.15s", display: "inline-block",
+                      }}>▶</span>
+                      <span style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", flex: 1 }}>
+                        {pack.pack}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePack(packNames); }}
                         style={{
-                          display: "flex", alignItems: "center", gap: 4,
-                          padding: "3px 6px", borderRadius: 3, fontSize: 11,
-                          background: enabled ? "rgba(59,130,246,0.08)" : "transparent",
-                          border: `1px solid ${enabled ? "#3b82f622" : "#1a1a1a"}`,
+                          background: "none", border: "1px solid #333", borderRadius: 4,
+                          padding: "1px 6px", fontSize: 9, cursor: "pointer",
+                          color: allEnabled ? "#f87171" : "#86efac",
                         }}
+                        title={allEnabled ? "Disable all" : "Enable all"}
                       >
-                        <input
-                          type="checkbox"
-                          checked={enabled}
-                          onChange={() => toggleTool(tool.name)}
-                          style={{ accentColor: "#3b82f6" }}
-                        />
-                        <span
-                          style={{
-                            fontFamily: "monospace", color: enabled ? "#93c5fd" : "#666",
-                            flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                          }}
-                          title={tool.name}
-                        >
-                          {tool.name}
-                        </span>
-                        {draft.tool_retrieval && enabled && (
-                          <button
-                            onClick={() => togglePin(tool.name)}
-                            title={pinned ? "Unpin" : "Pin (bypass RAG)"}
+                        {allEnabled ? "none" : someEnabled ? "all" : "all"}
+                      </button>
+                      <span style={{ fontSize: 9, color: "#444" }}>{packNames.filter((n) => localTools.includes(n)).length}/{packNames.length}</span>
+                    </div>
+                  )}
+
+                  {/* Tool rows */}
+                  {!isCollapsed && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, padding: 4 }}>
+                      {filtered.map((tool) => {
+                        const enabled = localTools.includes(tool.name);
+                        const pinned = pinnedTools.includes(tool.name);
+                        const noSum = excludeTools.includes(tool.name);
+                        return (
+                          <div
+                            key={tool.name}
                             style={{
-                              background: "none", border: "none", cursor: "pointer",
-                              fontSize: 10, padding: 0, opacity: pinned ? 1 : 0.3,
+                              display: "flex", alignItems: "center", gap: 4,
+                              padding: "3px 6px", borderRadius: 3, fontSize: 11,
+                              background: enabled ? "rgba(59,130,246,0.08)" : "transparent",
+                              border: `1px solid ${enabled ? "#3b82f622" : "transparent"}`,
                             }}
                           >
-                            📌
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                            <input
+                              type="checkbox" checked={enabled}
+                              onChange={() => toggleTool(tool.name)}
+                              style={{ accentColor: "#3b82f6" }}
+                            />
+                            <span
+                              style={{
+                                fontFamily: "monospace", color: enabled ? "#93c5fd" : "#555",
+                                flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                              }}
+                              title={tool.name}
+                            >
+                              {tool.name}
+                            </span>
+                            {enabled && draft.tool_retrieval && (
+                              <button
+                                onClick={() => togglePin(tool.name)}
+                                title={pinned ? "Unpin" : "Pin (bypass RAG)"}
+                                style={{
+                                  background: "none", border: "none", cursor: "pointer",
+                                  fontSize: 10, padding: 0, opacity: pinned ? 1 : 0.25,
+                                }}
+                              >📌</button>
+                            )}
+                            {enabled && (
+                              <button
+                                onClick={() => toggleNoSum(tool.name)}
+                                title={noSum ? "Allow summarization" : "Skip summarization"}
+                                style={{
+                                  background: "none", border: "none", cursor: "pointer",
+                                  fontSize: 10, padding: 0, opacity: noSum ? 1 : 0.25,
+                                }}
+                              >🔇</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+              );
+            })}
+          </div>
+        );
+      })}
 
       {/* MCP Servers */}
       {editorData.mcp_servers.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            MCP Servers
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>MCP Servers</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+            {editorData.mcp_servers.filter((s) => !q || s.toLowerCase().includes(q)).map((srv) => {
+              const on = (draft.mcp_servers || []).includes(srv);
+              return (
+                <label key={srv} style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                  borderRadius: 4, cursor: "pointer", fontSize: 11,
+                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
+                  border: `1px solid ${on ? "#3b82f622" : "transparent"}`,
+                }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleMcp(srv)} style={{ accentColor: "#3b82f6" }} />
+                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : "#555" }}>{srv}</span>
+                </label>
+              );
+            })}
           </div>
-          <CheckboxGrid
-            items={editorData.mcp_servers.map((s) => ({ value: s }))}
-            selected={draft.mcp_servers || []}
-            onToggle={toggleMcp}
-            filter={toolFilter}
-          />
         </div>
       )}
 
       {/* Client Tools */}
       {editorData.client_tools.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            Client Tools
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Client Tools</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+            {editorData.client_tools.filter((t) => !q || t.toLowerCase().includes(q)).map((tool) => {
+              const on = (draft.client_tools || []).includes(tool);
+              return (
+                <label key={tool} style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                  borderRadius: 4, cursor: "pointer", fontSize: 11,
+                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
+                  border: `1px solid ${on ? "#3b82f622" : "transparent"}`,
+                }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleClient(tool)} style={{ accentColor: "#3b82f6" }} />
+                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : "#555" }}>{tool}</span>
+                </label>
+              );
+            })}
           </div>
-          <CheckboxGrid
-            items={editorData.client_tools.map((t) => ({ value: t }))}
-            selected={draft.client_tools || []}
-            onToggle={toggleClient}
-            filter={toolFilter}
-          />
         </div>
       )}
 
@@ -345,7 +410,7 @@ function ToolsSection({
           value={draft.tool_retrieval ?? true}
           onChange={(v) => update({ tool_retrieval: v })}
           label="Tool Retrieval (RAG)"
-          description="Embed tool descriptions and select only relevant tools per turn. Pinned tools bypass filtering."
+          description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
         />
         {draft.tool_retrieval && (
           <div style={{ marginTop: 8, maxWidth: 200 }}>
@@ -353,8 +418,7 @@ function ToolsSection({
               <TextInput
                 value={String(draft.tool_similarity_threshold ?? "")}
                 onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
-                placeholder="0.35"
-                type="number"
+                placeholder="0.35" type="number"
               />
             </FormRow>
           </div>
@@ -364,45 +428,87 @@ function ToolsSection({
       {/* Tool Result Summarization */}
       <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Tool Result Summarization</div>
-        <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Summarizes large tool outputs before injecting into context.</div>
-        <SelectInput
-          value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
-          onChange={(v) => {
-            const trc = { ...draft.tool_result_config };
-            if (v === "true") trc.enabled = true;
-            else if (v === "false") trc.enabled = false;
-            else delete trc.enabled;
-            update({ tool_result_config: trc });
-          }}
-          options={[
-            { label: "Inherit global", value: "" },
-            { label: "Force on", value: "true" },
-            { label: "Force off", value: "false" },
-          ]}
-          style={{ maxWidth: 200 }}
-        />
+        <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Summarizes large tool outputs. Use 🔇 above to exclude tools.</div>
+        <Row gap={12}>
+          <Col>
+            <SelectInput
+              value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
+              onChange={(v) => {
+                const trc = { ...draft.tool_result_config };
+                if (v === "true") trc.enabled = true;
+                else if (v === "false") trc.enabled = false;
+                else delete trc.enabled;
+                update({ tool_result_config: trc });
+              }}
+              options={[
+                { label: "Inherit global", value: "" },
+                { label: "Force on", value: "true" },
+                { label: "Force off", value: "false" },
+              ]}
+            />
+          </Col>
+          <Col>
+            <FormRow label="Trigger size (chars)">
+              <TextInput
+                value={String((draft.tool_result_config as any)?.threshold ?? "")}
+                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
+                placeholder="global (3000)" type="number"
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Max summary tokens">
+              <TextInput
+                value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
+                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
+                placeholder="global (300)" type="number"
+              />
+            </FormRow>
+          </Col>
+        </Row>
       </div>
 
       {/* Context Compression */}
       <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Context Compression</div>
-        <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Summarizes conversation history via a cheap model before each expensive LLM call.</div>
-        <SelectInput
-          value={draft.compression_config?.enabled === true ? "true" : draft.compression_config?.enabled === false ? "false" : ""}
-          onChange={(v) => {
-            const cc = { ...draft.compression_config };
-            if (v === "true") cc.enabled = true;
-            else if (v === "false") cc.enabled = false;
-            else delete cc.enabled;
-            update({ compression_config: cc });
-          }}
-          options={[
-            { label: "Inherit global", value: "" },
-            { label: "Force on", value: "true" },
-            { label: "Force off", value: "false" },
-          ]}
-          style={{ maxWidth: 200 }}
-        />
+        <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Summarizes conversation history via a cheap model before each LLM call.</div>
+        <Row gap={12}>
+          <Col>
+            <SelectInput
+              value={draft.compression_config?.enabled === true ? "true" : draft.compression_config?.enabled === false ? "false" : ""}
+              onChange={(v) => {
+                const cc = { ...draft.compression_config };
+                if (v === "true") cc.enabled = true;
+                else if (v === "false") cc.enabled = false;
+                else delete cc.enabled;
+                update({ compression_config: cc });
+              }}
+              options={[
+                { label: "Inherit global", value: "" },
+                { label: "Force on", value: "true" },
+                { label: "Force off", value: "false" },
+              ]}
+            />
+          </Col>
+          <Col>
+            <FormRow label="Trigger size (chars)">
+              <TextInput
+                value={String((draft.compression_config as any)?.threshold ?? "")}
+                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, threshold: v ? parseInt(v) : undefined } })}
+                placeholder="global (20000)" type="number"
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Keep turns (verbatim)">
+              <TextInput
+                value={String((draft.compression_config as any)?.keep_turns ?? "")}
+                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, keep_turns: v ? parseInt(v) : undefined } })}
+                placeholder="global (2)" type="number"
+              />
+            </FormRow>
+          </Col>
+        </Row>
       </div>
     </div>
   );
@@ -412,26 +518,19 @@ function ToolsSection({
 // Skills section
 // ---------------------------------------------------------------------------
 function SkillsSection({
-  editorData,
-  draft,
-  update,
-}: {
-  editorData: BotEditorData;
-  draft: BotConfig;
-  update: (patch: Partial<BotConfig>) => void;
-}) {
+  editorData, draft, update,
+}: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void }) {
   const [filter, setFilter] = useState("");
   const skills = draft.skills || [];
-
   const isSelected = (id: string) => skills.some((s) => s.id === id);
   const getEntry = (id: string) => skills.find((s) => s.id === id);
 
   const toggle = (id: string) => {
-    if (isSelected(id)) {
-      update({ skills: skills.filter((s) => s.id !== id) });
-    } else {
-      update({ skills: [...skills, { id, mode: "on_demand" }] });
-    }
+    update({
+      skills: isSelected(id)
+        ? skills.filter((s) => s.id !== id)
+        : [...skills, { id, mode: "on_demand" }],
+    });
   };
 
   const setMode = (id: string, mode: string) => {
@@ -443,12 +542,10 @@ function SkillsSection({
   };
 
   const filtered = filter
-    ? editorData.all_skills.filter(
-        (s) =>
-          s.id.toLowerCase().includes(filter.toLowerCase()) ||
-          s.name.toLowerCase().includes(filter.toLowerCase()) ||
-          (s.description || "").toLowerCase().includes(filter.toLowerCase())
-      )
+    ? editorData.all_skills.filter((s) =>
+        s.id.toLowerCase().includes(filter.toLowerCase()) ||
+        s.name.toLowerCase().includes(filter.toLowerCase()) ||
+        (s.description || "").toLowerCase().includes(filter.toLowerCase()))
     : editorData.all_skills;
 
   return (
@@ -458,43 +555,28 @@ function SkillsSection({
         <strong style={{ color: "#888" }}>pinned</strong>: full content every turn.{" "}
         <strong style={{ color: "#888" }}>rag</strong>: semantic similarity per turn.
       </div>
-
       {editorData.all_skills.length > 6 && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", alignItems: "center", gap: 6,
           background: "#111", border: "1px solid #333", borderRadius: 6, padding: "4px 8px",
         }}>
           <Search size={12} color="#555" />
-          <input
-            type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter skills..."
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }}
-          />
+          <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter skills..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }} />
         </div>
       )}
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         {filtered.map((skill) => {
           const sel = isSelected(skill.id);
           const entry = getEntry(skill.id);
           return (
-            <div
-              key={skill.id}
-              style={{
-                padding: 8, borderRadius: 6,
-                background: sel ? "rgba(59,130,246,0.06)" : "#0a0a0a",
-                border: `1px solid ${sel ? "#3b82f633" : "#1a1a1a"}`,
-              }}
-            >
+            <div key={skill.id} style={{
+              padding: 8, borderRadius: 6,
+              background: sel ? "rgba(59,130,246,0.06)" : "#0a0a0a",
+              border: `1px solid ${sel ? "#3b82f633" : "#1a1a1a"}`,
+            }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={sel}
-                  onChange={() => toggle(skill.id)}
-                  style={{ accentColor: "#3b82f6", marginTop: 2 }}
-                />
+                <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: "#3b82f6", marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ fontSize: 12, fontWeight: 500, color: sel ? "#93c5fd" : "#999" }}>{skill.name}</span>
@@ -509,14 +591,8 @@ function SkillsSection({
               </label>
               {sel && entry && (
                 <div style={{ marginTop: 6, marginLeft: 22 }}>
-                  <select
-                    value={entry.mode || "on_demand"}
-                    onChange={(e) => setMode(skill.id, e.target.value)}
-                    style={{
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      padding: "2px 8px", fontSize: 11, color: "#e5e5e5",
-                    }}
-                  >
+                  <select value={entry.mode || "on_demand"} onChange={(e) => setMode(skill.id, e.target.value)}
+                    style={{ background: "#111", border: "1px solid #333", borderRadius: 4, padding: "2px 8px", fontSize: 11, color: "#e5e5e5" }}>
                     <option value="on_demand">on_demand</option>
                     <option value="pinned">pinned</option>
                     <option value="rag">rag</option>
@@ -527,6 +603,307 @@ function SkillsSection({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Workspace section — full Docker/Host/Indexing config
+// ---------------------------------------------------------------------------
+function WorkspaceSection({
+  editorData, draft, update,
+}: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void }) {
+  const ws = draft.workspace || { enabled: false };
+  const docker = ws.docker || {};
+  const host = ws.host || {};
+  const indexing = ws.indexing || {};
+
+  const setWs = (patch: Record<string, any>) => update({ workspace: { ...ws, ...patch } });
+  const setDocker = (patch: Record<string, any>) => setWs({ docker: { ...docker, ...patch } });
+  const setHost = (patch: Record<string, any>) => setWs({ host: { ...host, ...patch } });
+  const setIndexing = (patch: Record<string, any>) => setWs({ indexing: { ...indexing, ...patch } });
+
+  // Env var add state
+  const [newEnvKey, setNewEnvKey] = useState("");
+  const [newEnvVal, setNewEnvVal] = useState("");
+  const [newHostPort, setNewHostPort] = useState("");
+  const [newContainerPort, setNewContainerPort] = useState("");
+  const [newMountHost, setNewMountHost] = useState("");
+  const [newMountContainer, setNewMountContainer] = useState("");
+  const [newMountMode, setNewMountMode] = useState("rw");
+  const [newCmd, setNewCmd] = useState("");
+  const [newCmdSubs, setNewCmdSubs] = useState("");
+  const [newBlocked, setNewBlocked] = useState("");
+  const [newEnvPass, setNewEnvPass] = useState("");
+  const [newPattern, setNewPattern] = useState("");
+
+  const envEntries = Object.entries(docker.env || {});
+  const ports: any[] = docker.ports || [];
+  const mounts: any[] = docker.mounts || [];
+  const commands: any[] = host.commands || [];
+  const blocked: string[] = host.blocked_patterns || [];
+  const envPass: string[] = host.env_passthrough || [];
+  const patterns: string[] = indexing.patterns || [];
+
+  const rowStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: 6, padding: "3px 6px",
+    background: "#111", borderRadius: 4, fontSize: 11,
+  };
+  const removeBtn = (onClick: () => void) => (
+    <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#f87171", fontSize: 12 }}>×</button>
+  );
+  const addBtn = (label: string, onClick: () => void) => (
+    <button onClick={onClick} style={{
+      padding: "3px 10px", fontSize: 11, background: "#1a1a1a", border: "1px solid #333",
+      borderRadius: 4, color: "#888", cursor: "pointer",
+    }}>{label}</button>
+  );
+  const miniInput = (value: string, onChange: (v: string) => void, placeholder: string, style?: React.CSSProperties) => (
+    <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+      style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 4, padding: "3px 6px", fontSize: 11, color: "#e5e5e5", outline: "none", ...style }}
+      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+    />
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Toggle value={ws.enabled ?? false} onChange={(v) => setWs({ enabled: v })} label="Enable Workspace"
+        description="Auto-injects exec_command, search_workspace, delegate_to_exec tools." />
+
+      {ws.enabled && (
+        <>
+          <Row gap={12}>
+            <Col>
+              <FormRow label="Type">
+                <SelectInput value={ws.type || "docker"} onChange={(v) => setWs({ type: v })}
+                  options={[{ label: "Docker Container", value: "docker" }, { label: "Host Execution", value: "host" }]} />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Timeout (seconds)">
+                <TextInput value={String(ws.timeout ?? "")} onChangeText={(v) => setWs({ timeout: v ? parseInt(v) : null })} placeholder="30" type="number" />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Max Output Bytes">
+                <TextInput value={String(ws.max_output_bytes ?? "")} onChangeText={(v) => setWs({ max_output_bytes: v ? parseInt(v) : null })} placeholder="65536" type="number" />
+              </FormRow>
+            </Col>
+          </Row>
+
+          {/* Docker panel */}
+          {(ws.type || "docker") === "docker" && (
+            <div style={{ borderLeft: "2px solid #1e3a5f", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
+              <Row gap={12}>
+                <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
+                <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(v) => setDocker({ network: v })}
+                  options={[{ label: "none", value: "none" }, { label: "bridge", value: "bridge" }, { label: "host", value: "host" }]} /></FormRow></Col>
+              </Row>
+              <Row gap={12}>
+                <Col><FormRow label="Run as User"><TextInput value={docker.user || ""} onChangeText={(v) => setDocker({ user: v })} placeholder="image default" /></FormRow></Col>
+                <Col><FormRow label="CPUs"><TextInput value={String(docker.cpus ?? "")} onChangeText={(v) => setDocker({ cpus: v ? parseFloat(v) : null })} placeholder="unlimited" type="number" /></FormRow></Col>
+                <Col><FormRow label="Memory"><TextInput value={docker.memory || ""} onChangeText={(v) => setDocker({ memory: v })} placeholder="e.g. 512m, 2g" /></FormRow></Col>
+              </Row>
+              <Toggle value={docker.read_only_root ?? false} onChange={(v) => setDocker({ read_only_root: v })} label="Read-only root filesystem" />
+
+              {/* Env vars */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
+                {envEntries.map(([k, v]) => (
+                  <div key={k} style={rowStyle}>
+                    <span style={{ fontFamily: "monospace", color: "#93c5fd", width: 120 }}>{k}</span>
+                    <span style={{ color: "#555" }}>=</span>
+                    <span style={{ fontFamily: "monospace", color: "#888", flex: 1 }}>{v as string}</span>
+                    {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newEnvKey, setNewEnvKey, "KEY", { width: 120 })}
+                  <span style={{ color: "#555", fontSize: 11 }}>=</span>
+                  {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
+                  {addBtn("Add", () => {
+                    if (newEnvKey.trim()) { setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } }); setNewEnvKey(""); setNewEnvVal(""); }
+                  })}
+                </div>
+              </div>
+
+              {/* Ports */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
+                {ports.map((p: any, i: number) => (
+                  <div key={i} style={rowStyle}>
+                    <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
+                    {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newHostPort, setNewHostPort, "host (opt)", { width: 90 })}
+                  <span style={{ color: "#555", fontSize: 11 }}>:</span>
+                  {miniInput(newContainerPort, setNewContainerPort, "container", { width: 90 })}
+                  {addBtn("Add", () => {
+                    if (newContainerPort.trim()) { setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] }); setNewHostPort(""); setNewContainerPort(""); }
+                  })}
+                </div>
+              </div>
+
+              {/* Mounts */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Extra Volume Mounts</div>
+                <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
+                {mounts.map((m: any, i: number) => (
+                  <div key={i} style={rowStyle}>
+                    <span style={{ fontFamily: "monospace", color: "#93c5fd", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
+                    {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1 })}
+                  <span style={{ color: "#555", fontSize: 11 }}>:</span>
+                  {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1 })}
+                  <select value={newMountMode} onChange={(e) => setNewMountMode(e.target.value)}
+                    style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 4, padding: "3px 4px", fontSize: 11, color: "#e5e5e5", width: 50 }}>
+                    <option value="rw">rw</option>
+                    <option value="ro">ro</option>
+                  </select>
+                  {addBtn("Add", () => {
+                    if (newMountHost.trim() && newMountContainer.trim()) {
+                      setDocker({ mounts: [...mounts, { host_path: newMountHost.trim(), container_path: newMountContainer.trim(), mode: newMountMode }] });
+                      setNewMountHost(""); setNewMountContainer(""); setNewMountMode("rw");
+                    }
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Host panel */}
+          {ws.type === "host" && (
+            <div style={{ borderLeft: "2px solid #166534", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Host Settings</div>
+              <FormRow label="Custom Root"><TextInput value={host.root || ""} onChangeText={(v) => setHost({ root: v })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
+
+              {/* Commands */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Allowed Commands</div>
+                <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
+                {commands.map((cmd: any, i: number) => (
+                  <div key={i} style={rowStyle}>
+                    <span style={{ fontFamily: "monospace", color: "#818cf8", width: 80 }}>{cmd.name}</span>
+                    <span style={{ color: "#888", flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
+                    {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newCmd, setNewCmd, "binary", { width: 100 })}
+                  {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
+                  {addBtn("Add", () => {
+                    if (newCmd.trim()) {
+                      const subs = newCmdSubs.trim() ? newCmdSubs.split(",").map((s) => s.trim()).filter(Boolean) : [];
+                      setHost({ commands: [...commands, { name: newCmd.trim(), subcommands: subs }] });
+                      setNewCmd(""); setNewCmdSubs("");
+                    }
+                  })}
+                </div>
+              </div>
+
+              {/* Blocked patterns */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {blocked.map((pat, i) => (
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#111", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#fbbf24" }}>
+                      {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newBlocked, setNewBlocked, "regex pattern", { flex: 1 })}
+                  {addBtn("Add", () => { if (newBlocked.trim()) { setHost({ blocked_patterns: [...blocked, newBlocked.trim()] }); setNewBlocked(""); } })}
+                </div>
+              </div>
+
+              {/* Env passthrough */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {envPass.map((v, i) => (
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#111", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#93c5fd" }}>
+                      {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {miniInput(newEnvPass, setNewEnvPass, "ENV_VAR_NAME", { width: 160 })}
+                  {addBtn("Add", () => { if (newEnvPass.trim()) { setHost({ env_passthrough: [...envPass, newEnvPass.trim()] }); setNewEnvPass(""); } })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Indexing panel */}
+          <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Workspace Indexing</div>
+              <Toggle value={indexing.enabled !== false} onChange={(v) => setIndexing({ enabled: v })} label="Enable" />
+              {indexing.enabled !== false && (
+                <Toggle value={indexing.watch !== false} onChange={(v) => setIndexing({ watch: v })} label="Watch" />
+              )}
+            </div>
+            {indexing.enabled !== false && (
+              <>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>File Patterns</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {patterns.map((pat, i) => (
+                      <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#111", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#93c5fd" }}>
+                        {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    {miniInput(newPattern, setNewPattern, "**/*.py", { width: 160 })}
+                    {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
+                  </div>
+                </div>
+                <Row gap={12}>
+                  <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
+                </Row>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Sandbox profiles */}
+      {editorData.all_sandbox_profiles.length > 0 && (
+        <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Docker Sandbox Profiles</div>
+          <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Restrict which profiles this bot can use.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+            {editorData.all_sandbox_profiles.map((p) => {
+              const on = (draft.docker_sandbox_profiles || []).includes(p.name);
+              return (
+                <label key={p.name} style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                  borderRadius: 4, cursor: "pointer", fontSize: 11,
+                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
+                }}>
+                  <input type="checkbox" checked={on} style={{ accentColor: "#3b82f6" }}
+                    onChange={() => {
+                      const cur = draft.docker_sandbox_profiles || [];
+                      update({ docker_sandbox_profiles: on ? cur.filter((n) => n !== p.name) : [...cur, p.name] });
+                    }} />
+                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : "#555" }}>{p.name}</span>
+                  {p.description && <span style={{ color: "#444", marginLeft: 4 }}>{p.description}</span>}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -547,11 +924,8 @@ export default function BotEditorScreen() {
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Initialize draft from editor data
   useEffect(() => {
-    if (editorData?.bot && !draft) {
-      setDraft({ ...editorData.bot });
-    }
+    if (editorData?.bot && !draft) setDraft({ ...editorData.bot });
   }, [editorData]);
 
   const update = useCallback((patch: Partial<BotConfig>) => {
@@ -562,64 +936,42 @@ export default function BotEditorScreen() {
 
   const handleSave = useCallback(async () => {
     if (!draft || !botId) return;
-    // Build the update payload — send memory/knowledge as memory_config/knowledge_config
     const payload: any = { ...draft };
-    if (draft.memory) {
-      payload.memory_config = draft.memory;
-      delete payload.memory;
-    }
-    if (draft.knowledge) {
-      payload.knowledge_config = draft.knowledge;
-      delete payload.knowledge;
-    }
-    // Remove read-only fields
-    delete payload.id;
-    delete payload.created_at;
-    delete payload.updated_at;
-    // Remove null/undefined to use PATCH semantics
-    for (const key of Object.keys(payload)) {
-      if (payload[key] === undefined) delete payload[key];
-    }
+    if (draft.memory) { payload.memory_config = draft.memory; delete payload.memory; }
+    if (draft.knowledge) { payload.knowledge_config = draft.knowledge; delete payload.knowledge; }
+    delete payload.id; delete payload.created_at; delete payload.updated_at;
+    for (const key of Object.keys(payload)) { if (payload[key] === undefined) delete payload[key]; }
     try {
       await updateMutation.mutateAsync(payload);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (e) {
-      // Error handled by mutation state
-    }
+    } catch (_) { /* handled by mutation state */ }
   }, [draft, botId, updateMutation]);
 
-  // Search matching - which sections contain matching field names
   const matchingSections = useMemo(() => {
     if (!filter) return new Set<SectionKey>(SECTIONS.map((s) => s.key));
     const q = filter.toLowerCase();
     const match = new Set<SectionKey>();
-    // Simple keyword matching per section
     const keywords: Record<SectionKey, string[]> = {
       identity: ["id", "name", "model", "provider"],
       prompt: ["system", "prompt"],
+      persona: ["persona", "personality", "tone"],
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization", "compression"],
       skills: ["skill"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],
-      persona: ["persona"],
       elevation: ["elevation", "elevate", "threshold"],
       attachments: ["attachment", "summarization", "vision"],
-      workspace: ["workspace", "docker", "host", "exec", "sandbox", "index"],
+      workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
       delegation: ["delegat", "harness", "bot"],
       display: ["display", "avatar", "icon", "slack", "emoji"],
       advanced: ["audio", "compaction", "interval", "keep_turns"],
     };
     for (const [key, kws] of Object.entries(keywords)) {
-      if (kws.some((kw) => kw.includes(q) || q.includes(kw))) {
-        match.add(key as SectionKey);
-      }
+      if (kws.some((kw) => kw.includes(q) || q.includes(kw))) match.add(key as SectionKey);
     }
-    // Also match section labels
-    for (const s of SECTIONS) {
-      if (s.label.toLowerCase().includes(q)) match.add(s.key);
-    }
+    for (const s of SECTIONS) { if (s.label.toLowerCase().includes(q)) match.add(s.key); }
     return match;
   }, [filter]);
 
@@ -638,42 +990,26 @@ export default function BotEditorScreen() {
         display: "flex", alignItems: "center", gap: 12,
         padding: "10px 16px", borderBottom: "1px solid #1a1a1a",
       }}>
-        <button
-          onClick={() => router.back()}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
-        >
+        <button onClick={() => router.back()} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
           <ArrowLeft size={16} color="#888" />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>{draft.name}</div>
           <div style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{draft.id}</div>
         </div>
-
-        {/* Search */}
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
-          background: "#111", border: "1px solid #333", borderRadius: 6,
-          padding: "4px 10px", width: 200,
+          background: "#111", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", width: 180,
         }}>
           <Search size={12} color="#555" />
-          <input
-            type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Find setting..."
-            style={{
-              flex: 1, background: "transparent", border: "none", outline: "none",
-              color: "#e5e5e5", fontSize: 12,
-            }}
-          />
+          <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }} />
           {filter && (
             <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
               <X size={10} color="#555" />
             </button>
           )}
         </div>
-
-        {/* Save */}
         <button
           onClick={handleSave}
           disabled={!dirty || updateMutation.isPending}
@@ -691,28 +1027,18 @@ export default function BotEditorScreen() {
         </button>
       </div>
 
-      {/* Error banner */}
       {updateMutation.isError && (
         <div style={{ padding: "8px 16px", background: "#7f1d1d33", color: "#fca5a5", fontSize: 12 }}>
           {(updateMutation.error as Error)?.message || "Failed to save"}
         </div>
       )}
 
-      {/* Body: nav + content */}
+      {/* Body */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <SectionNav
-          active={activeSection}
-          onSelect={setActiveSection}
-          filter={filter}
-          matchingSections={matchingSections}
-        />
+        <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} />
 
-        <ScrollView
-          ref={scrollRef}
-          className="flex-1"
-          contentContainerStyle={{ padding: 20, maxWidth: 800 }}
-        >
-          {/* Identity */}
+        <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 20, maxWidth: 800 }}>
+
           {activeSection === "identity" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Identity</div>
@@ -724,36 +1050,44 @@ export default function BotEditorScreen() {
                 </Col>
                 <Col>
                   <FormRow label="Display Name">
-                    <TextInput
-                      value={draft.name}
-                      onChangeText={(v) => update({ name: v })}
-                    />
+                    <TextInput value={draft.name} onChangeText={(v) => update({ name: v })} />
                   </FormRow>
                 </Col>
               </Row>
               <FormRow label="Model">
-                <LlmModelDropdown
-                  value={draft.model}
-                  onChange={(v) => update({ model: v })}
-                />
+                <LlmModelDropdown value={draft.model} onChange={(v) => update({ model: v })} />
               </FormRow>
             </div>
           )}
 
-          {/* System Prompt */}
           {activeSection === "prompt" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>System Prompt</div>
-              <LlmPrompt
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>System Prompt</div>
+              <BigTextarea
                 value={draft.system_prompt || ""}
                 onChange={(v) => update({ system_prompt: v })}
-                rows={16}
                 placeholder="Enter system prompt..."
+                minRows={28}
               />
             </div>
           )}
 
-          {/* Tools */}
+          {activeSection === "persona" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Persona</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Injects a persistent personality/tone as a separate system message (distinct from the system prompt).</div>
+              <Toggle value={draft.persona ?? false} onChange={(v) => update({ persona: v })} label="Enable Persona" />
+              {draft.persona && (
+                <BigTextarea
+                  value={draft.persona_content || ""}
+                  onChange={(v) => update({ persona_content: v })}
+                  placeholder="Describe the bot's personality, tone, and style..."
+                  minRows={20}
+                />
+              )}
+            </div>
+          )}
+
           {activeSection === "tools" && (
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 12 }}>Tools</div>
@@ -761,7 +1095,6 @@ export default function BotEditorScreen() {
             </div>
           )}
 
-          {/* Skills */}
           {activeSection === "skills" && (
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 12 }}>Skills</div>
@@ -769,468 +1102,221 @@ export default function BotEditorScreen() {
             </div>
           )}
 
-          {/* Memory */}
           {activeSection === "memory" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Memory</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Short facts stored between turns. Relevant memories retrieved by semantic similarity each turn.
-              </div>
-              <Toggle
-                value={draft.memory?.enabled ?? false}
-                onChange={(v) => update({ memory: { ...draft.memory, enabled: v } })}
-                label="Enable Memory"
-              />
-              <Toggle
-                value={draft.memory?.cross_channel ?? false}
-                onChange={(v) => update({ memory: { ...draft.memory, cross_channel: v } })}
-                label="Cross-Channel"
-                description="Share memories across all channels for this client+bot"
-              />
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Memory</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Short facts stored between turns. Relevant memories retrieved by semantic similarity.</div>
+              <Toggle value={draft.memory?.enabled ?? false} onChange={(v) => update({ memory: { ...draft.memory, enabled: v } })} label="Enable Memory" />
+              <Toggle value={draft.memory?.cross_channel ?? false} onChange={(v) => update({ memory: { ...draft.memory, cross_channel: v } })}
+                label="Cross-Channel" description="Share memories across all channels for this client+bot" />
               <Row>
                 <Col>
                   <FormRow label="Similarity Threshold">
-                    <TextInput
-                      value={String(draft.memory?.similarity_threshold ?? 0.45)}
-                      onChangeText={(v) => update({ memory: { ...draft.memory, similarity_threshold: v ? parseFloat(v) : 0.45 } })}
-                      type="number"
-                    />
+                    <TextInput value={String(draft.memory?.similarity_threshold ?? 0.45)}
+                      onChangeText={(v) => update({ memory: { ...draft.memory, similarity_threshold: v ? parseFloat(v) : 0.45 } })} type="number" />
                   </FormRow>
                 </Col>
                 <Col>
                   <FormRow label="Max Inject Chars">
-                    <TextInput
-                      value={String(draft.memory_max_inject_chars ?? "")}
-                      onChangeText={(v) => update({ memory_max_inject_chars: v ? parseInt(v) : null })}
-                      placeholder="default (3000)"
-                      type="number"
-                    />
+                    <TextInput value={String(draft.memory_max_inject_chars ?? "")}
+                      onChangeText={(v) => update({ memory_max_inject_chars: v ? parseInt(v) : null })} placeholder="3000" type="number" />
                   </FormRow>
                 </Col>
               </Row>
               <FormRow label="Memory Prompt" description="Guidance on what the bot should remember">
-                <LlmPrompt
-                  value={draft.memory?.prompt || ""}
+                <LlmPrompt value={draft.memory?.prompt || ""}
                   onChange={(v) => update({ memory: { ...draft.memory, prompt: v || undefined } })}
-                  rows={4}
-                  placeholder="Specific guidance on what's worth remembering..."
-                />
+                  rows={4} placeholder="Specific guidance on what's worth remembering..." />
               </FormRow>
             </div>
           )}
 
-          {/* Knowledge */}
           {activeSection === "knowledge" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Knowledge</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Longer-form documents written by the bot via write_knowledge. Retrieved by semantic similarity per turn.
-              </div>
-              <Toggle
-                value={draft.knowledge?.enabled ?? false}
-                onChange={(v) => update({ knowledge: { ...draft.knowledge, enabled: v } })}
-                label="Enable Knowledge"
-              />
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Knowledge</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Longer-form documents written by the bot. Retrieved by semantic similarity per turn.</div>
+              <Toggle value={draft.knowledge?.enabled ?? false} onChange={(v) => update({ knowledge: { ...draft.knowledge, enabled: v } })} label="Enable Knowledge" />
               <div style={{ maxWidth: 300 }}>
                 <FormRow label="Max Inject Chars">
-                  <TextInput
-                    value={String(draft.knowledge_max_inject_chars ?? "")}
-                    onChangeText={(v) => update({ knowledge_max_inject_chars: v ? parseInt(v) : null })}
-                    placeholder="default (8000)"
-                    type="number"
-                  />
+                  <TextInput value={String(draft.knowledge_max_inject_chars ?? "")}
+                    onChangeText={(v) => update({ knowledge_max_inject_chars: v ? parseInt(v) : null })} placeholder="8000" type="number" />
                 </FormRow>
               </div>
             </div>
           )}
 
-          {/* Persona */}
-          {activeSection === "persona" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Persona</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Injects a persistent personality/tone as a separate system message.
-              </div>
-              <Toggle
-                value={draft.persona ?? false}
-                onChange={(v) => update({ persona: v })}
-                label="Enable Persona"
-              />
-              {draft.persona && (
-                <LlmPrompt
-                  value={draft.persona_content || ""}
-                  onChange={(v) => update({ persona_content: v })}
-                  label="Persona Content"
-                  rows={8}
-                  placeholder="Describe the bot's personality, tone, and style..."
-                />
-              )}
-            </div>
-          )}
-
-          {/* Elevation */}
           {activeSection === "elevation" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Model Elevation</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Automatically elevate to a more capable model for complex requests.
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Model Elevation</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Automatically elevate to a more capable model for complex requests.</div>
               <SelectInput
                 value={draft.elevation_enabled === true ? "true" : draft.elevation_enabled === false ? "false" : ""}
                 onChange={(v) => update({ elevation_enabled: v === "true" ? true : v === "false" ? false : null })}
-                options={[
-                  { label: "Inherit (default)", value: "" },
-                  { label: "Enabled", value: "true" },
-                  { label: "Disabled", value: "false" },
-                ]}
+                options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
                 style={{ maxWidth: 200 }}
               />
               <Row>
                 <Col>
                   <FormRow label="Threshold (0.0-1.0)">
-                    <TextInput
-                      value={String(draft.elevation_threshold ?? "")}
-                      onChangeText={(v) => update({ elevation_threshold: v ? parseFloat(v) : null })}
-                      placeholder="inherit"
-                      type="number"
-                    />
+                    <TextInput value={String(draft.elevation_threshold ?? "")}
+                      onChangeText={(v) => update({ elevation_threshold: v ? parseFloat(v) : null })} placeholder="inherit" type="number" />
                   </FormRow>
                 </Col>
                 <Col>
                   <FormRow label="Elevated Model">
-                    <LlmModelDropdown
-                      value={draft.elevated_model || ""}
-                      onChange={(v) => update({ elevated_model: v || null })}
-                      placeholder="inherit"
-                    />
+                    <LlmModelDropdown value={draft.elevated_model || ""} onChange={(v) => update({ elevated_model: v || null })} placeholder="inherit" />
                   </FormRow>
                 </Col>
               </Row>
             </div>
           )}
 
-          {/* Attachments */}
           {activeSection === "attachments" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Attachment Summarization</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Override global attachment summarization settings for this bot.
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Attachment Summarization</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Override global attachment summarization settings.</div>
               <SelectInput
                 value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""}
                 onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })}
-                options={[
-                  { label: "Inherit (default)", value: "" },
-                  { label: "Enabled", value: "true" },
-                  { label: "Disabled", value: "false" },
-                ]}
+                options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
                 style={{ maxWidth: 200 }}
               />
               <Row>
                 <Col>
                   <FormRow label="Vision / Summary Model">
-                    <TextInput
-                      value={draft.attachment_summary_model ?? ""}
-                      onChangeText={(v) => update({ attachment_summary_model: v || null })}
-                      placeholder="inherit"
-                    />
+                    <TextInput value={draft.attachment_summary_model ?? ""}
+                      onChangeText={(v) => update({ attachment_summary_model: v || undefined })} placeholder="inherit" />
                   </FormRow>
                 </Col>
                 <Col>
                   <FormRow label="Text Max Chars">
-                    <TextInput
-                      value={String(draft.attachment_text_max_chars ?? "")}
-                      onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v) : null })}
-                      placeholder="inherit (40000)"
-                      type="number"
-                    />
+                    <TextInput value={String(draft.attachment_text_max_chars ?? "")}
+                      onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v) : null })} placeholder="40000" type="number" />
                   </FormRow>
                 </Col>
               </Row>
-              <div style={{ maxWidth: 300 }}>
+              <div style={{ maxWidth: 200 }}>
                 <FormRow label="Vision Concurrency">
-                  <TextInput
-                    value={String(draft.attachment_vision_concurrency ?? "")}
-                    onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })}
-                    placeholder="inherit (3)"
-                    type="number"
-                  />
+                  <TextInput value={String(draft.attachment_vision_concurrency ?? "")}
+                    onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })} placeholder="3" type="number" />
                 </FormRow>
               </div>
             </div>
           )}
 
-          {/* Workspace */}
           {activeSection === "workspace" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Workspace</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Unified execution environment. When enabled, exec_command, search_workspace, and delegate_to_exec tools are auto-injected.
-              </div>
-              <Toggle
-                value={draft.workspace?.enabled ?? false}
-                onChange={(v) => update({ workspace: { ...draft.workspace, enabled: v } })}
-                label="Enable Workspace"
-              />
-              {draft.workspace?.enabled && (
-                <>
-                  <SelectInput
-                    value={draft.workspace?.type || "docker"}
-                    onChange={(v) => update({ workspace: { ...draft.workspace, type: v } })}
-                    options={[
-                      { label: "Docker Container", value: "docker" },
-                      { label: "Host Execution", value: "host" },
-                    ]}
-                    style={{ maxWidth: 200 }}
-                  />
-                  <Row>
-                    <Col>
-                      <FormRow label="Timeout (seconds)">
-                        <TextInput
-                          value={String(draft.workspace?.timeout ?? "")}
-                          onChangeText={(v) => update({ workspace: { ...draft.workspace, timeout: v ? parseInt(v) : null } })}
-                          placeholder="default (30)"
-                          type="number"
-                        />
-                      </FormRow>
-                    </Col>
-                    <Col>
-                      <FormRow label="Max Output Bytes">
-                        <TextInput
-                          value={String(draft.workspace?.max_output_bytes ?? "")}
-                          onChangeText={(v) => update({ workspace: { ...draft.workspace, max_output_bytes: v ? parseInt(v) : null } })}
-                          placeholder="default (65536)"
-                          type="number"
-                        />
-                      </FormRow>
-                    </Col>
-                  </Row>
-
-                  {draft.workspace?.type === "docker" && (
-                    <div style={{ borderLeft: "2px solid #1e3a5f", paddingLeft: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Docker Settings</div>
-                      <Row>
-                        <Col>
-                          <FormRow label="Image">
-                            <TextInput
-                              value={draft.workspace?.docker?.image || ""}
-                              onChangeText={(v) => update({ workspace: { ...draft.workspace, docker: { ...draft.workspace?.docker, image: v } } })}
-                              placeholder="python:3.12-slim"
-                            />
-                          </FormRow>
-                        </Col>
-                        <Col>
-                          <FormRow label="Network Mode">
-                            <SelectInput
-                              value={draft.workspace?.docker?.network || "none"}
-                              onChange={(v) => update({ workspace: { ...draft.workspace, docker: { ...draft.workspace?.docker, network: v } } })}
-                              options={[
-                                { label: "none (no network)", value: "none" },
-                                { label: "bridge", value: "bridge" },
-                                { label: "host", value: "host" },
-                              ]}
-                            />
-                          </FormRow>
-                        </Col>
-                      </Row>
-                    </div>
-                  )}
-
-                  {draft.workspace?.type === "host" && (
-                    <div style={{ borderLeft: "2px solid #166534", paddingLeft: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Host Settings</div>
-                      <FormRow label="Custom Root">
-                        <TextInput
-                          value={draft.workspace?.host?.root || ""}
-                          onChangeText={(v) => update({ workspace: { ...draft.workspace, host: { ...draft.workspace?.host, root: v } } })}
-                          placeholder="auto: ~/.agent-workspaces/<bot-id>/"
-                        />
-                      </FormRow>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Docker Sandbox Profiles */}
-              {editorData.all_sandbox_profiles.length > 0 && (
-                <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Docker Sandbox Profiles</div>
-                  <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>
-                    Restrict which profiles this bot can use.
-                  </div>
-                  <CheckboxGrid
-                    items={editorData.all_sandbox_profiles.map((p) => ({
-                      value: p.name,
-                      label: p.description ? `${p.name} — ${p.description}` : p.name,
-                    }))}
-                    selected={draft.docker_sandbox_profiles || []}
-                    onToggle={(name) => {
-                      const current = draft.docker_sandbox_profiles || [];
-                      update({
-                        docker_sandbox_profiles: current.includes(name)
-                          ? current.filter((n) => n !== name)
-                          : [...current, name],
-                      });
-                    }}
-                  />
-                </div>
-              )}
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 12 }}>Workspace</div>
+              <WorkspaceSection editorData={editorData} draft={draft} update={update} />
             </div>
           )}
 
-          {/* Delegation */}
           {activeSection === "delegation" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Delegation</div>
-              <div style={{ fontSize: 11, color: "#555" }}>
-                Allow this bot to delegate work to other bots or external harnesses.
-              </div>
-
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Delegation</div>
+              <div style={{ fontSize: 11, color: "#555" }}>Allow this bot to delegate work to other bots or external harnesses.</div>
               {editorData.all_bots.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Delegate-to Bots
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Delegate-to Bots</div>
+                  <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>@-tagged bots in messages bypass this list.</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                    {editorData.all_bots.map((b) => {
+                      const on = (draft.delegation_config?.delegate_bots || draft.delegate_bots || []).includes(b.id);
+                      return (
+                        <label key={b.id} style={{
+                          display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                          borderRadius: 4, cursor: "pointer", fontSize: 11,
+                          background: on ? "rgba(139,92,246,0.08)" : "transparent",
+                        }}>
+                          <input type="checkbox" checked={on} style={{ accentColor: "#8b5cf6" }}
+                            onChange={() => {
+                              const dc = { ...draft.delegation_config };
+                              const cur: string[] = dc.delegate_bots || draft.delegate_bots || [];
+                              dc.delegate_bots = on ? cur.filter((x: string) => x !== b.id) : [...cur, b.id];
+                              update({ delegation_config: dc });
+                            }} />
+                          <span style={{ color: on ? "#c4b5fd" : "#555" }}>{b.name}</span>
+                          <span style={{ color: "#444", fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
+                        </label>
+                      );
+                    })}
                   </div>
-                  <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>
-                    These bots can be called via delegate_to_agent. @-tagged bots bypass this list.
-                  </div>
-                  <CheckboxGrid
-                    items={editorData.all_bots.map((b) => ({ value: b.id, label: `${b.name} (${b.id})` }))}
-                    selected={draft.delegation_config?.delegate_bots || draft.delegate_bots || []}
-                    onToggle={(id) => {
-                      const dc = { ...draft.delegation_config };
-                      const current = dc.delegate_bots || draft.delegate_bots || [];
-                      dc.delegate_bots = current.includes(id)
-                        ? current.filter((b: string) => b !== id)
-                        : [...current, id];
-                      update({ delegation_config: dc });
-                    }}
-                    mono={false}
-                  />
                 </div>
               )}
-
               {editorData.all_harnesses.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Harness Access
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Harness Access</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                    {editorData.all_harnesses.map((h) => {
+                      const on = (draft.delegation_config?.harness_access || draft.harness_access || []).includes(h);
+                      return (
+                        <label key={h} style={{
+                          display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+                          borderRadius: 4, cursor: "pointer", fontSize: 11,
+                          background: on ? "rgba(139,92,246,0.08)" : "transparent",
+                        }}>
+                          <input type="checkbox" checked={on} style={{ accentColor: "#8b5cf6" }}
+                            onChange={() => {
+                              const dc = { ...draft.delegation_config };
+                              const cur: string[] = dc.harness_access || draft.harness_access || [];
+                              dc.harness_access = on ? cur.filter((x: string) => x !== h) : [...cur, h];
+                              update({ delegation_config: dc });
+                            }} />
+                          <span style={{ fontFamily: "monospace", color: on ? "#c4b5fd" : "#555" }}>{h}</span>
+                        </label>
+                      );
+                    })}
                   </div>
-                  <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>
-                    External CLI harnesses this bot can invoke via delegate_to_harness.
-                  </div>
-                  <CheckboxGrid
-                    items={editorData.all_harnesses.map((h) => ({ value: h }))}
-                    selected={draft.delegation_config?.harness_access || draft.harness_access || []}
-                    onToggle={(h) => {
-                      const dc = { ...draft.delegation_config };
-                      const current = dc.harness_access || draft.harness_access || [];
-                      dc.harness_access = current.includes(h)
-                        ? current.filter((x: string) => x !== h)
-                        : [...current, h];
-                      update({ delegation_config: dc });
-                    }}
-                  />
                 </div>
               )}
-
               {editorData.all_bots.length === 0 && editorData.all_harnesses.length === 0 && (
                 <div style={{ color: "#555", fontSize: 12 }}>No other bots or harnesses configured.</div>
               )}
             </div>
           )}
 
-          {/* Display */}
           {activeSection === "display" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Display</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Display</div>
               <Row>
                 <Col>
                   <FormRow label="Display Name">
-                    <TextInput
-                      value={draft.display_name || ""}
-                      onChangeText={(v) => update({ display_name: v || undefined })}
-                      placeholder={draft.name}
-                    />
+                    <TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} />
                   </FormRow>
                 </Col>
                 <Col>
                   <FormRow label="Avatar URL">
-                    <TextInput
-                      value={draft.avatar_url || ""}
-                      onChangeText={(v) => update({ avatar_url: v || undefined })}
-                      placeholder="https://..."
-                    />
+                    <TextInput value={draft.avatar_url || ""} onChangeText={(v) => update({ avatar_url: v || undefined })} placeholder="https://..." />
                   </FormRow>
                 </Col>
               </Row>
-
               <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Slack</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#555", textTransform: "uppercase", marginBottom: 8 }}>Slack</div>
                 <div style={{ maxWidth: 300 }}>
                   <FormRow label="Icon Emoji" description="Overrides Avatar URL in Slack. Requires chat:write.customize.">
-                    <TextInput
-                      value={draft.integration_config?.slack?.icon_emoji || ""}
+                    <TextInput value={draft.integration_config?.slack?.icon_emoji || ""}
                       onChangeText={(v) => {
                         const ic = { ...draft.integration_config };
                         ic.slack = { ...(ic.slack || {}), icon_emoji: v || undefined };
                         update({ integration_config: ic });
-                      }}
-                      placeholder=":robot_face:"
-                    />
+                      }} placeholder=":robot_face:" />
                   </FormRow>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Advanced */}
           {activeSection === "advanced" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Advanced</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Advanced</div>
               <FormRow label="Audio Input">
-                <SelectInput
-                  value={draft.audio_input || "transcribe"}
-                  onChange={(v) => update({ audio_input: v })}
-                  options={[
-                    { label: "transcribe (Whisper STT)", value: "transcribe" },
-                    { label: "native (multimodal)", value: "native" },
-                  ]}
-                  style={{ maxWidth: 300 }}
-                />
+                <SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })}
+                  options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}
+                  style={{ maxWidth: 300 }} />
               </FormRow>
-              <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 8 }}>Context Compaction</div>
-                <Toggle
-                  value={draft.context_compaction ?? true}
-                  onChange={(v) => update({ context_compaction: v })}
-                  label="Enable Compaction"
-                  description="Summarise conversation history when it gets too long."
-                />
-                <Row gap={12}>
-                  <Col>
-                    <FormRow label="Compaction Interval (turns)">
-                      <TextInput
-                        value={String(draft.compaction_interval ?? "")}
-                        onChangeText={(v) => update({ compaction_interval: v ? parseInt(v) : null })}
-                        placeholder="default"
-                        type="number"
-                      />
-                    </FormRow>
-                  </Col>
-                  <Col>
-                    <FormRow label="Keep Turns (verbatim)">
-                      <TextInput
-                        value={String(draft.compaction_keep_turns ?? "")}
-                        onChangeText={(v) => update({ compaction_keep_turns: v ? parseInt(v) : null })}
-                        placeholder="default"
-                        type="number"
-                      />
-                    </FormRow>
-                  </Col>
-                </Row>
-              </div>
             </div>
           )}
+
         </ScrollView>
       </div>
     </View>
