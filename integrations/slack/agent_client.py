@@ -157,6 +157,15 @@ async def fetch_session_context_compressed(session_id: str) -> dict:
     return r.json()
 
 
+async def fetch_session_context_diagnostics(session_id: str) -> dict:
+    r = await http.get(
+        f"{AGENT_BASE_URL}/sessions/{session_id}/context/diagnostics",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 async def fetch_session_context_contents(session_id: str, compress: bool = True) -> dict:
     r = await http.get(
         f"{AGENT_BASE_URL}/sessions/{session_id}/context/contents",

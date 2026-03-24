@@ -10,6 +10,7 @@ from agent_client import (
     fetch_session_context,
     fetch_session_context_compressed,
     fetch_session_context_contents,
+    fetch_session_context_diagnostics,
     fetch_todos,
     get_channel_session_id,
     list_bots,
@@ -291,7 +292,17 @@ def register_slash_commands(app):
         total_messages = data.get("total_messages", 0)
         iteration = data.get("iteration")
 
-        header = f"*Context Breakdown* — {total_messages} messages / {total_chars:,} chars"
+        # Show compression info if available (from the same LLM call)
+        comp_info = data.get("compression")
+        if comp_info:
+            orig_msgs = comp_info.get("original_messages", "?")
+            orig_chars = comp_info.get("original_chars", 0)
+            comp_chars = comp_info.get("compressed_chars", 0)
+            saved_pct = round((1 - comp_chars / orig_chars) * 100, 1) if orig_chars else 0
+            header = (f"*Last LLM Call* — {orig_msgs} msgs → *{total_messages} msgs* "
+                      f"({orig_chars:,} → {total_chars:,} chars, {saved_pct}% compressed)")
+        else:
+            header = f"*Last LLM Call* — {total_messages} messages / {total_chars:,} chars"
         if iteration:
             header += f" — iter {iteration}"
 
@@ -305,12 +316,51 @@ def register_slash_commands(app):
         lines.append(f"{'total':<22} {total_chars:>7,}")
         lines.append("```")
 
+        # Fetch diagnostics (compaction + compression settings & status)
+        try:
+            diag = await fetch_session_context_diagnostics(session_id)
+            cpt = diag.get("compaction", {})
+            cmp = diag.get("compression", {})
+            lines.append("")
+            lines.append("*Diagnostics*")
+            lines.append(f"DB: {diag.get('total_messages', '?')} total messages, "
+                         f"{diag.get('total_user_turns', '?')} user turns")
+            # Compaction status
+            if cpt.get("enabled"):
+                status_parts = [f"interval={cpt['interval']}", f"keep_turns={cpt['keep_turns']}"]
+                if cpt.get("has_watermark"):
+                    status_parts.append(
+                        f"turns_since_watermark={cpt['user_turns_since_watermark']}"
+                    )
+                    remaining = cpt.get("turns_until_next")
+                    if remaining is not None and remaining > 0:
+                        status_parts.append(f"next_in={remaining} turns")
+                    elif remaining == 0:
+                        status_parts.append("*will fire on next message*")
+                else:
+                    status_parts.append("no watermark (never compacted)")
+                if cpt.get("last_compaction_at"):
+                    status_parts.append(f"last={cpt['last_compaction_at'][:16]}")
+                lines.append(f"Compaction: {' · '.join(status_parts)}")
+                # Show what _load_messages returns
+                ctx_msgs = cpt.get("msgs_since_watermark", diag.get("total_messages", "?"))
+                lines.append(f"Context window: {ctx_msgs} msgs (system + summary + msgs since watermark)")
+            else:
+                lines.append("Compaction: disabled")
+            # Compression status
+            if cmp.get("enabled"):
+                lines.append(f"Compression: keep_turns={cmp['keep_turns']}, "
+                             f"threshold={cmp['threshold_chars']:,} chars")
+            else:
+                lines.append("Compression: disabled")
+        except Exception as e:
+            lines.append(f"\n_Diagnostics failed: {e}_")
+
         # Fetch compressed estimate (runs the cheap model)
         try:
             comp = await fetch_session_context_compressed(session_id)
             comp_data = comp.get("compressed")
             if comp_data:
-                # "original" = raw stored messages (no RAG injections)
                 orig_chars = comp.get("total_chars", 0)
                 orig_msgs = comp.get("total_messages", 0)
                 comp_total = comp_data.get("total_chars", 0)
@@ -318,11 +368,11 @@ def register_slash_commands(app):
                 saved = comp.get("chars_saved", 0)
                 pct = comp.get("reduction_pct", 0)
                 lines.append("")
-                lines.append(f"*Compression* — {orig_msgs} msgs / {orig_chars:,} chars → "
+                lines.append(f"*Compression Estimate* — {orig_msgs} msgs / {orig_chars:,} chars → "
                              f"{comp_msgs} msgs / {comp_total:,} chars "
                              f"(_saves {saved:,} chars · {pct}% reduction_)")
-                lines.append("_Note: above breakdown includes RAG-injected content "
-                             "(knowledge, plans, skills, etc.); compression operates on stored messages only._")
+                lines.append("_Note: breakdown above includes RAG-injected content; "
+                             "compression estimate operates on stored messages only._")
                 comp_breakdown = comp_data.get("breakdown", {})
                 comp_rows = sorted(comp_breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
                 lines.append("```")
