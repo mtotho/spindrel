@@ -3,7 +3,7 @@ compression, knowledge, enriched."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -104,12 +104,26 @@ class HeartbeatConfigOut(BaseModel):
     prompt: str = ""
     dispatch_results: bool = True
     trigger_response: bool = False
+    quiet_start: Optional[str] = None
+    quiet_end: Optional[str] = None
+    timezone: Optional[str] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm_heartbeat(cls, hb: ChannelHeartbeat) -> "HeartbeatConfigOut":
+        data = {c: getattr(hb, c) for c in [
+            "id", "channel_id", "enabled", "interval_minutes", "model",
+            "model_provider_id", "prompt", "dispatch_results", "trigger_response",
+            "timezone", "last_run_at", "next_run_at", "created_at", "updated_at",
+        ]}
+        data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
+        data["quiet_end"] = hb.quiet_end.strftime("%H:%M") if hb.quiet_end else None
+        return cls(**data)
 
 
 class HeartbeatHistoryTaskOut(BaseModel):
@@ -137,6 +151,9 @@ class HeartbeatUpdate(BaseModel):
     prompt: str = ""
     dispatch_results: bool = True
     trigger_response: bool = False
+    quiet_start: Optional[str] = None  # "HH:MM" or null
+    quiet_end: Optional[str] = None    # "HH:MM" or null
+    timezone: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -487,7 +504,7 @@ async def admin_channel_heartbeat_get(
         )
     )).scalar_one()
 
-    config_out = HeartbeatConfigOut.model_validate(heartbeat) if heartbeat else None
+    config_out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat) if heartbeat else None
 
     history_out = [
         HeartbeatHistoryTaskOut(

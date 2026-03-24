@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, Time, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -586,6 +586,9 @@ class ChannelHeartbeat(Base):
     trigger_response: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     last_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    quiet_start: Mapped[time | None] = mapped_column(Time, nullable=True)
+    quiet_end: Mapped[time | None] = mapped_column(Time, nullable=True)
+    timezone: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
