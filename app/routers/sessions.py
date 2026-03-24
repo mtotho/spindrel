@@ -7,9 +7,11 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import func
+
 from app.agent.bots import get_bot
 from app.config import settings
-from app.db.models import Memory, Message, Plan, PlanItem, Session, TraceEvent
+from app.db.models import Channel, Memory, Message, Plan, PlanItem, Session, TraceEvent
 from app.dependencies import get_db, verify_auth
 from app.services.compaction import run_compaction_forced
 
@@ -102,7 +104,8 @@ async def get_session_context(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth),
 ):
-    """Return the most recent context_breakdown trace event for the session."""
+    """Return the most recent context_breakdown trace event for the session,
+    plus last compression info if available."""
     result = await db.execute(
         select(TraceEvent)
         .where(TraceEvent.session_id == session_id, TraceEvent.event_type == "context_breakdown")
@@ -112,12 +115,32 @@ async def get_session_context(
     event = result.scalar_one_or_none()
     if event is None or not event.data:
         return {"breakdown": None, "total_chars": 0, "total_messages": 0, "iteration": None, "created_at": None}
+
+    # Also fetch the last context_compressed event from the same correlation
+    compression_info = None
+    correlation_id = event.correlation_id
+    if correlation_id:
+        comp_result = await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.session_id == session_id,
+                TraceEvent.correlation_id == correlation_id,
+                TraceEvent.event_type == "context_compressed",
+            )
+            .order_by(TraceEvent.created_at.desc())
+            .limit(1)
+        )
+        comp_event = comp_result.scalar_one_or_none()
+        if comp_event and comp_event.data:
+            compression_info = comp_event.data
+
     return {
         "breakdown": event.data.get("breakdown"),
         "total_chars": event.data.get("total_chars", 0),
         "total_messages": event.data.get("total_messages", 0),
         "iteration": event.data.get("iteration"),
         "created_at": event.created_at.isoformat() if event.created_at else None,
+        "compression": compression_info,
     }
 
 
@@ -256,6 +279,118 @@ async def get_session_context_contents(
             len(str(m.get("content", ""))) for m in display_messages
         ),
         "messages": display_messages,
+    }
+
+
+@router.get("/{session_id}/context/diagnostics")
+async def get_session_context_diagnostics(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Return compaction + compression diagnostic info for a session."""
+    from app.services.compaction import (
+        _get_compaction_interval,
+        _get_compaction_keep_turns,
+        _is_compaction_enabled,
+    )
+    from app.services.compression import (
+        _get_compression_keep_turns,
+        _get_compression_threshold,
+        _is_compression_enabled,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    bot = get_bot(session.bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    channel: Channel | None = None
+    if session.channel_id:
+        channel = await db.get(Channel, session.channel_id)
+
+    # Count total messages and user messages in session
+    total_msg_count = (await db.execute(
+        select(func.count()).where(Message.session_id == session_id)
+    )).scalar() or 0
+
+    total_user_count = (await db.execute(
+        select(func.count())
+        .where(Message.session_id == session_id)
+        .where(Message.role == "user")
+    )).scalar() or 0
+
+    # Count user messages since watermark (what compaction checks)
+    if session.summary_message_id:
+        watermark_msg = await db.get(Message, session.summary_message_id)
+        watermark_created = watermark_msg.created_at if watermark_msg else None
+        if watermark_msg:
+            user_since_watermark = (await db.execute(
+                select(func.count())
+                .where(Message.session_id == session_id)
+                .where(Message.role == "user")
+                .where(Message.created_at > watermark_msg.created_at)
+            )).scalar() or 0
+            msgs_since_watermark = (await db.execute(
+                select(func.count())
+                .where(Message.session_id == session_id)
+                .where(Message.created_at > watermark_msg.created_at)
+            )).scalar() or 0
+        else:
+            user_since_watermark = total_user_count
+            msgs_since_watermark = total_msg_count
+            watermark_created = None
+    else:
+        user_since_watermark = total_user_count
+        msgs_since_watermark = total_msg_count
+        watermark_created = None
+
+    # Last compaction trace event
+    last_compaction = (await db.execute(
+        select(TraceEvent)
+        .where(TraceEvent.session_id == session_id)
+        .where(TraceEvent.event_type == "compaction_done")
+        .order_by(TraceEvent.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    compaction_enabled = _is_compaction_enabled(bot, channel)
+    compaction_interval = _get_compaction_interval(bot, channel) if compaction_enabled else None
+    compaction_keep_turns = _get_compaction_keep_turns(bot, channel) if compaction_enabled else None
+
+    compression_enabled = _is_compression_enabled(bot, channel)
+    compression_keep_turns = _get_compression_keep_turns(bot, channel) if compression_enabled else None
+    compression_threshold = _get_compression_threshold(bot, channel) if compression_enabled else None
+
+    return {
+        "session_id": str(session_id),
+        "total_messages": total_msg_count,
+        "total_user_turns": total_user_count,
+        "compaction": {
+            "enabled": compaction_enabled,
+            "interval": compaction_interval,
+            "keep_turns": compaction_keep_turns,
+            "has_summary": bool(session.summary),
+            "has_watermark": bool(session.summary_message_id),
+            "watermark_created_at": watermark_created.isoformat() if watermark_created else None,
+            "user_turns_since_watermark": user_since_watermark,
+            "msgs_since_watermark": msgs_since_watermark,
+            "turns_until_next": (
+                max(0, compaction_interval - user_since_watermark)
+                if compaction_enabled and compaction_interval else None
+            ),
+            "last_compaction_at": (
+                last_compaction.created_at.isoformat() if last_compaction else None
+            ),
+        },
+        "compression": {
+            "enabled": compression_enabled,
+            "keep_turns": compression_keep_turns,
+            "threshold_chars": compression_threshold,
+        },
     }
 
 
