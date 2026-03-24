@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot
 from app.db.models import Channel, Task
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -85,7 +85,7 @@ async def admin_list_tasks(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """List tasks with optional filters. `after`/`before` are ISO datetime strings filtering on scheduled_at or created_at."""
     stmt = select(Task).order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
@@ -149,7 +149,7 @@ async def admin_list_tasks(
 async def admin_get_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Get a single task with all fields."""
     task = await db.get(Task, task_id)
@@ -162,7 +162,7 @@ async def admin_get_task(
 async def admin_create_task(
     body: TaskCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Create a new task. If channel_id is provided, resolve dispatch info from the channel."""
     from app.tools.local.tasks import _parse_scheduled_at
@@ -225,7 +225,7 @@ async def admin_update_task(
     task_id: uuid.UUID,
     body: TaskUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Update task fields. Only provided fields are changed."""
     from app.tools.local.tasks import _parse_scheduled_at
@@ -270,7 +270,7 @@ async def admin_update_task(
 async def admin_delete_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Delete a task."""
     task = await db.get(Task, task_id)

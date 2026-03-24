@@ -12,7 +12,7 @@ from sqlalchemy import func
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.models import Channel, Memory, Message, Plan, PlanItem, Session, TraceEvent
-from app.dependencies import get_db, verify_auth, verify_auth_or_user
+from app.dependencies import get_db, verify_auth_or_user
 from app.services.compaction import run_compaction_forced
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])

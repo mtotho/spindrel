@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, ProviderConfig as ProviderConfigRow
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -98,7 +98,7 @@ def _provider_to_out(row: ProviderConfigRow) -> ProviderOut:
 @router.get("/providers", response_model=ProviderListOut)
 async def admin_list_providers(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.config import settings as _settings
     rows = (await db.execute(
@@ -115,7 +115,7 @@ async def admin_list_providers(
 async def admin_get_provider(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     row = await db.get(ProviderConfigRow, provider_id)
     if not row:
@@ -127,7 +127,7 @@ async def admin_get_provider(
 async def admin_create_provider(
     body: ProviderCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     pid = body.id.strip()
     if not pid or not body.display_name.strip():
@@ -175,7 +175,7 @@ async def admin_update_provider(
     provider_id: str,
     body: ProviderUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     row = await db.get(ProviderConfigRow, provider_id)
     if not row:
@@ -227,7 +227,7 @@ async def admin_update_provider(
 async def admin_delete_provider(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     bots_using = (await db.execute(
         select(BotRow.id).where(BotRow.model_provider_id == provider_id)
@@ -251,7 +251,7 @@ async def admin_delete_provider(
 @router.post("/providers/{provider_id}/test", response_model=ProviderTestResult)
 async def admin_test_provider(
     provider_id: str,
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     from app.services.providers import get_llm_client, get_provider, load_providers as _reload
 

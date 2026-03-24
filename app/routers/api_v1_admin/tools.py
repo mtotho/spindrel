@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ToolEmbedding
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
@@ -43,7 +43,7 @@ class ToolOut(BaseModel):
 @router.get("/tools", response_model=list[ToolOut])
 async def admin_list_tools(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List all indexed tools."""
     rows = (await db.execute(
@@ -58,7 +58,7 @@ async def admin_list_tools(
 async def admin_get_tool(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get a single tool by ID (UUID) or tool_key."""
     # Try UUID first

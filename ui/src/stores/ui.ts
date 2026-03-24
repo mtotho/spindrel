@@ -22,8 +22,12 @@ export const useUIStore = create<UIState>()((set) => ({
   mobileSidebarOpen: false,
   detailPanel: { type: null, id: null },
   toggleSidebar: () =>
-    set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  openMobileSidebar: () => set({ mobileSidebarOpen: true }),
+    set((s) => ({
+      sidebarCollapsed: !s.sidebarCollapsed,
+      // Collapsing on mobile should dismiss the overlay
+      ...(!s.sidebarCollapsed ? { mobileSidebarOpen: false } : {}),
+    })),
+  openMobileSidebar: () => set({ mobileSidebarOpen: true, sidebarCollapsed: false }),
   closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
   openDetail: (type, id, data) =>
     set({ detailPanel: { type, id, data } }),
