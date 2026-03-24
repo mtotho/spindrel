@@ -86,9 +86,8 @@ async def frigate_list_cameras() -> str:
     "function": {
         "name": "frigate_get_events",
         "description": (
-            "Get detection events from Frigate NVR cameras. Returns event IDs, labels, "
-            "timestamps, zones, and scores. Use frigate_snapshot/frigate_event_snapshot/"
-            "frigate_event_clip to download media for specific events. "
+            "Get detection events from Frigate NVR cameras. Returns compact event summaries. "
+            "Use frigate_event_snapshot/frigate_event_clip to download media for specific events. "
             "Pagination: use 'before' with the start_time of the last event to get the next page."
         ),
         "parameters": {
@@ -116,11 +115,7 @@ async def frigate_list_cameras() -> str:
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max events to return (default 10, max 50).",
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Minimum detection confidence score (0-1). Use to filter out low-confidence detections.",
+                    "description": "Max events to return (default 20).",
                 },
                 "has_clip": {
                     "type": "boolean",
@@ -129,11 +124,6 @@ async def frigate_list_cameras() -> str:
                 "has_snapshot": {
                     "type": "boolean",
                     "description": "Only return events that have a snapshot image available.",
-                },
-                "sort": {
-                    "type": "string",
-                    "description": "Sort order: 'score' (highest confidence first) or 'date' (newest first, default).",
-                    "enum": ["score", "date"],
                 },
                 "favorites": {
                     "type": "boolean",
@@ -149,17 +139,14 @@ async def frigate_get_events(
     zone: Optional[str] = None,
     after: Optional[float] = None,
     before: Optional[float] = None,
-    limit: int = 10,
-    min_score: Optional[float] = None,
+    limit: int = 20,
     has_clip: Optional[bool] = None,
     has_snapshot: Optional[bool] = None,
-    sort: Optional[str] = None,
     favorites: Optional[bool] = None,
 ) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
     try:
-        limit = max(1, min(limit, 50))
         params: dict = {"limit": limit}
         if camera:
             params["camera"] = camera
@@ -171,33 +158,40 @@ async def frigate_get_events(
             params["after"] = after
         if before is not None:
             params["before"] = before
-        if min_score is not None:
-            params["min_score"] = min_score
         if has_clip is not None:
             params["has_clip"] = 1 if has_clip else 0
         if has_snapshot is not None:
             params["has_snapshot"] = 1 if has_snapshot else 0
-        if sort:
-            params["sort"] = sort
         if favorites is not None:
             params["favorites"] = 1 if favorites else 0
 
         events = await _get("/api/events", params=params)
         results = []
         for ev in events:
-            eid = ev.get("id", "")
-            results.append({
-                "id": eid,
+            data = ev.get("data") or {}
+            entry: dict = {
+                "id": ev.get("id", ""),
                 "camera": ev.get("camera"),
                 "label": ev.get("label"),
-                "sub_label": ev.get("sub_label"),
-                "top_score": round(ev.get("top_score") or 0, 3),
+                "score": round(data.get("score") or data.get("top_score") or ev.get("top_score") or 0, 3),
                 "start_time": ev.get("start_time"),
                 "end_time": ev.get("end_time"),
                 "zones": ev.get("zones", []),
                 "has_snapshot": ev.get("has_snapshot", False),
                 "has_clip": ev.get("has_clip", False),
-            })
+            }
+            # Only include optional fields when present
+            if ev.get("sub_label"):
+                entry["sub_label"] = ev["sub_label"]
+            if data.get("description"):
+                entry["description"] = data["description"]
+            if data.get("type"):
+                entry["type"] = data["type"]
+            if data.get("recognized_license_plate"):
+                entry["license_plate"] = data["recognized_license_plate"]
+            if data.get("attributes"):
+                entry["attributes"] = data["attributes"]
+            results.append(entry)
         has_more = len(results) == limit
         resp: dict = {"events": results, "count": len(results)}
         if has_more and results:

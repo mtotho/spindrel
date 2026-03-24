@@ -5,7 +5,7 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
-import { MessageInput } from "@/src/components/chat/MessageInput";
+import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
@@ -14,7 +14,7 @@ import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
-import type { Message } from "@/src/types/api";
+import type { Message, ChatAttachment, ChatFileMetadata } from "@/src/types/api";
 
 interface MessagePage {
   messages: Message[];
@@ -92,7 +92,7 @@ export default function ChatScreen() {
   });
 
   const handleSend = useCallback(
-    (text: string) => {
+    (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
       addMessage(channelId, {
@@ -105,11 +105,37 @@ export default function ChatScreen() {
 
       startStreaming(channelId);
 
+      // Build attachment payloads
+      let attachments: ChatAttachment[] | undefined;
+      let file_metadata: ChatFileMetadata[] | undefined;
+      if (files && files.length > 0) {
+        attachments = [];
+        file_metadata = [];
+        for (const pf of files) {
+          if (pf.file.type.startsWith("image/")) {
+            attachments.push({
+              type: "image",
+              content: pf.base64,
+              mime_type: pf.file.type,
+              name: pf.file.name,
+            });
+          }
+          file_metadata.push({
+            filename: pf.file.name,
+            mime_type: pf.file.type,
+            size_bytes: pf.file.size,
+            file_data: pf.base64,
+          });
+        }
+      }
+
       chatStream.mutate({
         message: text,
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
+        ...(attachments?.length ? { attachments } : {}),
+        ...(file_metadata?.length ? { file_metadata } : {}),
       });
     },
     [channelId, channel]

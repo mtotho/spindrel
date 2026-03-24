@@ -79,7 +79,10 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         attachment_summary_model=getattr(bot, "attachment_summary_model", None),
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
-        delegation_config=getattr(bot, "delegation_config", {}),
+        delegation_config={
+            "delegate_bots": bot.delegate_bots or [],
+            "harness_access": bot.harness_access or [],
+        },
         created_at=bot.created_at.isoformat() if hasattr(bot, "created_at") and bot.created_at else None,
         updated_at=bot.updated_at.isoformat() if hasattr(bot, "updated_at") and bot.updated_at else None,
     )
