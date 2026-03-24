@@ -245,6 +245,9 @@ This is a backend change that can be deferred — the Expo app should abstract a
 - **Session management**: List sessions, switch, delete, view context breakdown
 - **Plan viewer**: Session plans with status toggles (inline in chat or side panel)
 
+
+
+
 #### Admin Features (parity with current dashboard)
 - **Dashboard**: Stats overview (sessions, memories, knowledge, tools, sandboxes)
 - **Bot management**: Full CRUD with YAML-equivalent form (system prompt editor, tool selection, model picker, all bot config fields)

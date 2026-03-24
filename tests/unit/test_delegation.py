@@ -384,3 +384,64 @@ class TestPostChildResponse:
             bot_id="bot",
         )
         assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# run_deferred propagates channel_id
+# ---------------------------------------------------------------------------
+
+class TestRunDeferredChannelId:
+    @pytest.mark.asyncio
+    async def test_channel_id_set_on_task(self):
+        """run_deferred must set channel_id on the Task so the child bot can access attachments."""
+        svc = DelegationService()
+        parent = _make_parent_bot()
+        channel_id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.services.delegation.async_session", return_value=cm):
+            await svc.run_deferred(
+                parent_bot=parent,
+                delegate_bot_id="child-bot",
+                prompt="generate an image",
+                dispatch_type="slack",
+                dispatch_config={"channel_id": "C123", "token": "xoxb-test"},
+                scheduled_at=None,
+                client_id="slack:C123",
+                parent_session_id=uuid.uuid4(),
+                channel_id=channel_id,
+            )
+
+        db.add.assert_called_once()
+        task = db.add.call_args[0][0]
+        assert task.channel_id == channel_id
+
+    @pytest.mark.asyncio
+    async def test_channel_id_none_when_not_provided(self):
+        """channel_id defaults to None when not provided (backwards compat)."""
+        svc = DelegationService()
+        parent = _make_parent_bot()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.services.delegation.async_session", return_value=cm):
+            await svc.run_deferred(
+                parent_bot=parent,
+                delegate_bot_id="child-bot",
+                prompt="test",
+                dispatch_type="none",
+                dispatch_config={},
+                scheduled_at=None,
+            )
+
+        task = db.add.call_args[0][0]
+        assert task.channel_id is None

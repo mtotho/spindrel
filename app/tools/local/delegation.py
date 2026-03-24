@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.agent.context import (
     current_bot_id,
+    current_channel_id,
     current_client_id,
     current_correlation_id,
     current_dispatch_config,
@@ -83,6 +84,7 @@ async def delegate_to_agent(
 
     session_id = current_session_id.get()
     client_id = current_client_id.get()
+    channel_id = current_channel_id.get()
     parent_bot_id = current_bot_id.get() or "default"
     dispatch_type = current_dispatch_type.get()
     dispatch_config = dict(current_dispatch_config.get() or {})
@@ -123,6 +125,7 @@ async def delegate_to_agent(
             scheduled_at=sched_dt,
             client_id=client_id,
             parent_session_id=session_id,
+            channel_id=channel_id,
             reply_in_thread=reply_in_thread,
             notify_parent=notify_parent,
         )

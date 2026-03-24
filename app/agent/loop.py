@@ -633,6 +633,7 @@ async def run(
                     text=event.get("text", ""),
                     bot_id=event.get("bot_id") or "",
                     reply_in_thread=event.get("reply_in_thread", False),
+                    client_actions=event.get("client_actions", []),
                 )
             except Exception:
                 logger.warning("run(): delegation_post failed for bot %s", event.get("bot_id"))
