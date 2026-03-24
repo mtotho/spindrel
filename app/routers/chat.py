@@ -112,8 +112,10 @@ async def _create_attachments_from_metadata(
 async def _resolve_channel_and_session(
     db: AsyncSession,
     req: ChatRequest,
-) -> tuple[uuid.UUID | None, uuid.UUID, list[dict], bool]:
-    """Resolve channel + session from the request. Returns (channel_id, session_id, messages, is_integration)."""
+):
+    """Resolve channel + session from the request. Returns (channel, session_id, messages, is_integration)."""
+    from app.db.models import Channel
+
     is_integration = _is_integration_client(req.client_id)
 
     # Resolve channel
@@ -137,7 +139,25 @@ async def _resolve_channel_and_session(
         channel_id=channel.id,
     )
 
-    return channel.id, session_id, messages, is_integration
+    return channel, session_id, messages, is_integration
+
+
+async def _mirror_to_integration(
+    channel, text: str, *,
+    bot_id: str | None = None,
+    client_actions: list[dict] | None = None,
+) -> None:
+    """Fire-and-forget mirror to channel's integration dispatcher."""
+    if not channel.integration or not channel.dispatch_config:
+        return
+    from app.agent import dispatchers
+    try:
+        await dispatchers.get(channel.integration).post_message(
+            channel.dispatch_config, text,
+            bot_id=bot_id, client_actions=client_actions,
+        )
+    except Exception:
+        logger.warning("Mirror to %s failed", channel.integration, exc_info=True)
 
 
 @router.get("/bots")
@@ -209,9 +229,11 @@ async def chat(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel_id, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    channel_id = channel.id
 
     logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
@@ -233,6 +255,10 @@ async def chat(
 
     from_index = len(messages)
     correlation_id = uuid.uuid4()
+
+    # Mirror user message to integration (skip if request came from an integration)
+    if not is_integration:
+        await _mirror_to_integration(channel, message)
 
     try:
         result = await run(
@@ -264,6 +290,13 @@ async def chat(
         dispatch_type=req.dispatch_type,
         dispatch_config=req.dispatch_config,
     )
+
+    # Mirror response to integration
+    if not is_integration and result.response:
+        await _mirror_to_integration(
+            channel, result.response,
+            bot_id=req.bot_id, client_actions=result.client_actions,
+        )
 
     return ChatResponse(
         session_id=session_id,
@@ -311,9 +344,11 @@ async def chat_stream(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel_id, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
+
+    channel_id = channel.id
 
     logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
@@ -392,6 +427,14 @@ async def chat_stream(
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
             )
+
+            # Mirror user message to integration (skip if request came from an integration)
+            if not is_integration:
+                await _mirror_to_integration(channel, message)
+
+            response_text = ""
+            response_actions = None
+
             stream = run_stream(
                 messages, bot, message,
                 session_id=session_id, client_id=req.client_id,
@@ -408,6 +451,10 @@ async def chat_stream(
                 if event is None:
                     yield ": keepalive\n\n"
                     continue
+                # Capture response for mirroring
+                if event.get("type") == "response":
+                    response_text = event.get("text", "")
+                    response_actions = event.get("client_actions")
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
 
@@ -416,6 +463,13 @@ async def chat_stream(
                 correlation_id=correlation_id,
                 msg_metadata=req.msg_metadata,
             )
+
+            # Mirror response to integration
+            if not is_integration and response_text:
+                await _mirror_to_integration(
+                    channel, response_text,
+                    bot_id=req.bot_id, client_actions=response_actions,
+                )
 
             maybe_compact(
                 session_id, bot, messages,

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Settings } from "lucide-react";
+import { Settings, Menu } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
+import { useUIStore } from "@/src/stores/ui";
 import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
@@ -28,6 +29,8 @@ export default function ChatScreen() {
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -72,15 +75,15 @@ export default function ChatScreen() {
     }
   }, [channelId, pages]);
 
-  // Scroll to bottom on initial load
-  useEffect(() => {
-    if (!isLoading && chatState.messages.length > 0 && !didInitScroll.current) {
+  // Scroll to bottom when content size changes (reliable for initial load + new messages)
+  const handleContentSizeChange = useCallback((_w: number, h: number) => {
+    if (!didInitScroll.current && h > 0) {
       didInitScroll.current = true;
-      requestAnimationFrame(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      });
+      flatListRef.current?.scrollToEnd({ animated: false });
+    } else if (isAtBottom) {
+      flatListRef.current?.scrollToEnd({ animated: true });
     }
-  }, [isLoading, chatState.messages.length]);
+  }, [isAtBottom]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -118,15 +121,6 @@ export default function ChatScreen() {
     [channelId, channel]
   );
 
-  // Auto-scroll when new messages arrive (only if user is near bottom)
-  useEffect(() => {
-    if (isAtBottom && (chatState.messages.length > 0 || chatState.streamingContent)) {
-      requestAnimationFrame(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      });
-    }
-  }, [chatState.messages.length, chatState.streamingContent, isAtBottom]);
-
   // Track scroll position — auto-scroll when near bottom, load more when near top
   const handleScroll = useCallback((e: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -149,6 +143,11 @@ export default function ChatScreen() {
     <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
+        {sidebarCollapsed && (
+          <Pressable onPress={toggleSidebar} className="p-1.5 rounded-md hover:bg-surface-overlay">
+            <Menu size={18} color="#9ca3af" />
+          </Pressable>
+        )}
         <View className="flex-1 min-w-0">
           <Text className="text-text font-semibold" numberOfLines={1}>
             {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
@@ -180,6 +179,7 @@ export default function ChatScreen() {
           contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
           onScroll={handleScroll}
           scrollEventThrottle={100}
+          onContentSizeChange={handleContentSizeChange}
           ListHeaderComponent={
             isFetchingNextPage ? (
               <View className="items-center py-3">
