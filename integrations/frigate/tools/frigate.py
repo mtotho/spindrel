@@ -161,7 +161,7 @@ async def frigate_get_events(
                 "camera": ev.get("camera"),
                 "label": ev.get("label"),
                 "sub_label": ev.get("sub_label"),
-                "top_score": round(ev.get("top_score", 0), 3),
+                "top_score": round(ev.get("top_score") or 0, 3),
                 "start_time": ev.get("start_time"),
                 "end_time": ev.get("end_time"),
                 "zones": ev.get("zones", []),
