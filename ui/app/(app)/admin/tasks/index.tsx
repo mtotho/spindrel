@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, Plus, X, Trash2,
@@ -348,6 +348,8 @@ function TaskEditor({
   const deleteMut = useDeleteTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
+  const { width: winWidth } = useWindowDimensions();
+  const isWide = winWidth >= 768;
 
   // Form state
   const [prompt, setPrompt] = useState("");
@@ -436,7 +438,7 @@ function TaskEditor({
   return ReactDOM.createPortal(
     <div style={{
       position: "fixed", inset: 0, zIndex: 10000,
-      background: "rgba(0,0,0,0.85)", display: "flex", flexDirection: "column",
+      background: "#0a0a0a", display: "flex", flexDirection: "column",
     }}>
       {/* Header */}
       <div style={{
@@ -502,16 +504,21 @@ function TaskEditor({
           <ActivityIndicator color="#3b82f6" />
         </div>
       ) : (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-          {/* Left panel — Prompt + Result/Error */}
-          <div style={{ flex: 3, display: "flex", flexDirection: "column", borderRight: "1px solid #2a2a2a", overflow: "auto" }}>
-            <div style={{ padding: "16px 20px", flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+          ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
+        }}>
+          {/* Prompt + Result/Error */}
+          <div style={{
+            ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+            display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
               <LlmPrompt
                 value={prompt}
                 onChange={setPrompt}
                 label="Prompt"
                 placeholder="Task prompt... (type @ for autocomplete)"
-                rows={12}
+                rows={isWide ? 12 : 6}
               />
 
               {!isCreate && existingTask?.result && (
@@ -542,8 +549,12 @@ function TaskEditor({
             </div>
           </div>
 
-          {/* Right panel — Metadata fields */}
-          <div style={{ flex: 2, overflow: "auto", padding: "16px 20px" }}>
+          {/* Metadata fields */}
+          <div style={{
+            ...(isWide ? { flex: 2 } : {}),
+            padding: "16px 20px",
+            borderTop: isWide ? "none" : "1px solid #2a2a2a",
+          }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <Section title="Configuration">
                 <FormRow label="Bot">
@@ -663,7 +674,7 @@ function TaskEditor({
               )}
             </div>
           </div>
-        </div>
+        </ScrollView>
       )}
     </div>,
     document.body,
