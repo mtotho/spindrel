@@ -1,153 +1,65 @@
 import { useCallback, useState, useEffect } from "react";
-import { View, Text, Pressable, ScrollView, Switch } from "react-native";
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
   useChannel,
 } from "@/src/api/hooks/useChannels";
-import { useBot } from "@/src/api/hooks/useBots";
 import { useBots } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import {
+  Section, FormRow, TextInput, SelectInput, Toggle,
+  Row, Col, TabBar, EmptyState,
+  triStateOptions, triStateValue, triStateParse,
+} from "@/src/components/shared/FormControls";
+import { apiFetch } from "@/src/api/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
-// Tiny form helpers
+// Interval options for heartbeat
 // ---------------------------------------------------------------------------
-
-function Section({ title, description, children }: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View className="bg-surface-raised border border-surface-border rounded-lg p-4 gap-3">
-      <View>
-        <Text className="text-text text-sm font-semibold">{title}</Text>
-        {description && (
-          <Text className="text-text-dim text-xs mt-0.5">{description}</Text>
-        )}
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function FormRow({ label, description, children }: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View className="gap-1">
-      <Text className="text-text-dim text-xs">{label}</Text>
-      {children}
-      {description && (
-        <Text className="text-text-dim/70 text-[10px]">{description}</Text>
-      )}
-    </View>
-  );
-}
-
-function TextInput({ value, onChangeText, placeholder, type = "text" }: {
-  value: string;
-  onChangeText: (t: string) => void;
-  placeholder?: string;
-  type?: string;
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e: any) => onChangeText(e.target?.value ?? "")}
-      placeholder={placeholder}
-      style={{
-        background: "#111111",
-        border: "1px solid #333333",
-        borderRadius: 8,
-        padding: "6px 12px",
-        color: "#e5e5e5",
-        fontSize: 13,
-        width: "100%",
-        outline: "none",
-      }}
-    />
-  );
-}
-
-function Toggle({ value, onChange, label, description }: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  description?: string;
-}) {
-  return (
-    <Pressable
-      onPress={() => onChange(!value)}
-      className="flex-row items-start gap-3 py-1"
-    >
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: "#333333", true: "#3b82f6" }}
-        thumbColor="#e5e5e5"
-        style={{ transform: [{ scale: 0.75 }] }}
-      />
-      <View className="flex-1">
-        <Text className="text-text text-xs">{label}</Text>
-        {description && (
-          <Text className="text-text-dim text-[10px]">{description}</Text>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
-function SelectInput({ value, onChange, options }: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { label: string; value: string }[];
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e: any) => onChange(e.target?.value ?? "")}
-      style={{
-        background: "#111111",
-        border: "1px solid #333333",
-        borderRadius: 8,
-        padding: "6px 12px",
-        color: "#e5e5e5",
-        fontSize: 13,
-        width: "100%",
-        outline: "none",
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
+const INTERVAL_OPTIONS = [
+  { label: "5 minutes", value: "5" },
+  { label: "15 minutes", value: "15" },
+  { label: "30 minutes", value: "30" },
+  { label: "1 hour", value: "60" },
+  { label: "2 hours", value: "120" },
+  { label: "4 hours", value: "240" },
+  { label: "8 hours", value: "480" },
+  { label: "12 hours", value: "720" },
+  { label: "24 hours", value: "1440" },
+];
 
 // ---------------------------------------------------------------------------
-// Main settings screen
+// Tab definitions
 // ---------------------------------------------------------------------------
+const TABS = [
+  { key: "general", label: "General" },
+  { key: "sessions", label: "Sessions" },
+  { key: "heartbeat", label: "Heartbeat" },
+  { key: "memories", label: "Memories" },
+  { key: "tasks", label: "Tasks" },
+  { key: "plans", label: "Plans" },
+  { key: "compression", label: "Compression" },
+];
 
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 export default function ChannelSettingsScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: channel } = useChannel(channelId);
-  const { data: bot } = useBot(channel?.bot_id);
   const { data: settings, isLoading } = useChannelSettings(channelId);
   const { data: bots } = useBots();
   const updateMutation = useUpdateChannelSettings(channelId!);
 
-  // Local form state (initialized from server)
+  const [tab, setTab] = useState("general");
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
@@ -185,64 +97,100 @@ export default function ChannelSettingsScreen() {
   const handleSave = useCallback(async () => {
     await updateMutation.mutateAsync(form);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 2500);
   }, [form, updateMutation]);
 
   if (isLoading || !settings) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <Text className="text-text-dim text-sm">Loading settings...</Text>
+        <ActivityIndicator color="#3b82f6" />
       </View>
     );
   }
-
-  const triStateValue = (v: boolean | undefined | null): string =>
-    v === true ? "true" : v === false ? "false" : "";
-  const triStateOptions = [
-    { label: "Inherit (default)", value: "" },
-    { label: "Enabled", value: "true" },
-    { label: "Disabled", value: "false" },
-  ];
 
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
-        <Pressable onPress={() => router.back()} className="p-1">
-          <ArrowLeft size={18} color="#999999" />
+        <Pressable onPress={() => router.back()} className="p-1 rounded hover:bg-surface-overlay">
+          <ArrowLeft size={18} color="#999" />
         </Pressable>
         <View className="flex-1 min-w-0">
           <Text className="text-text font-semibold text-sm" numberOfLines={1}>
-            Channel Settings
+            {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
           </Text>
           <Text className="text-text-dim text-xs" numberOfLines={1}>
-            {(channel as any)?.display_name || channel?.name || channel?.client_id}
+            Channel Settings
           </Text>
         </View>
-        <Pressable
-          onPress={handleSave}
-          disabled={updateMutation.isPending}
-          className={`flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-            saved ? "bg-green-600/20" : "bg-accent hover:bg-accent-hover"
-          }`}
-        >
-          {saved ? (
-            <>
-              <Check size={14} color="#22c55e" />
-              <Text className="text-green-400 text-xs font-medium">Saved</Text>
-            </>
-          ) : (
-            <Text className="text-white text-xs font-medium">
-              {updateMutation.isPending ? "Saving..." : "Save"}
-            </Text>
-          )}
-        </Pressable>
+        {tab === "general" && (
+          <Pressable
+            onPress={handleSave}
+            disabled={updateMutation.isPending}
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 14,
+              paddingVertical: 7,
+              borderRadius: 8,
+              backgroundColor: saved ? "rgba(34,197,94,0.15)" : "#3b82f6",
+            }}
+          >
+            {saved ? (
+              <>
+                <Check size={14} color="#22c55e" />
+                <Text style={{ color: "#22c55e", fontSize: 13, fontWeight: "600" }}>Saved</Text>
+              </>
+            ) : (
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                {updateMutation.isPending ? "Saving..." : "Save"}
+              </Text>
+            )}
+          </Pressable>
+        )}
       </View>
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 16, maxWidth: 640 }}>
-        {/* Basic Settings */}
-        <Section title="General">
-          <View className="gap-3">
+      {/* Tabs */}
+      <View className="px-4 pt-2">
+        <TabBar tabs={TABS} active={tab} onChange={setTab} />
+      </View>
+
+      {/* Tab content */}
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ padding: 20, gap: 20, maxWidth: 680 }}
+        key={tab}
+      >
+        {tab === "general" && (
+          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} />
+        )}
+        {tab === "sessions" && <SessionsTab channelId={channelId!} />}
+        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
+        {tab === "memories" && <MemoriesTab channelId={channelId!} />}
+        {tab === "tasks" && <TasksTab channelId={channelId!} />}
+        {tab === "plans" && <PlansTab channelId={channelId!} />}
+        {tab === "compression" && <CompressionTab channelId={channelId!} />}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ===========================================================================
+// General Tab — settings form
+// ===========================================================================
+function GeneralTab({ form, patch, bots, settings }: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  bots: any[] | undefined;
+  settings: ChannelSettings;
+}) {
+  return (
+    <>
+      <Section title="General">
+        <Row>
+          <Col>
             <FormRow label="Display Name" description="Label shown in sidebar. Does not affect routing.">
               <TextInput
                 value={form.name ?? ""}
@@ -250,193 +198,635 @@ export default function ChannelSettingsScreen() {
                 placeholder="Channel name"
               />
             </FormRow>
+          </Col>
+          <Col>
             <FormRow label="Bot">
               <SelectInput
                 value={form.bot_id ?? ""}
                 onChange={(v) => patch("bot_id", v)}
-                options={
-                  bots?.map((b) => ({ label: `${b.name} (${b.id})`, value: b.id })) ?? []
-                }
+                options={bots?.map((b) => ({ label: `${b.name} (${b.id})`, value: b.id })) ?? []}
               />
             </FormRow>
-          </View>
-        </Section>
+          </Col>
+        </Row>
+      </Section>
 
-        {/* Behavior */}
-        <Section title="Behavior">
-          <Toggle
-            value={form.require_mention ?? true}
-            onChange={(v) => patch("require_mention", v)}
-            label="Require @mention"
-            description="Only @mentions trigger the bot; other messages stored as context."
-          />
-          <Toggle
-            value={form.passive_memory ?? true}
-            onChange={(v) => patch("passive_memory", v)}
-            label="Passive memory"
-            description="Include passive messages in memory compaction."
-          />
-          <Toggle
-            value={form.workspace_rag ?? true}
-            onChange={(v) => patch("workspace_rag", v)}
-            label="Workspace RAG"
-            description="Auto-inject relevant workspace files into context each turn."
-          />
-        </Section>
+      <Section title="Behavior">
+        <Toggle
+          value={form.require_mention ?? true}
+          onChange={(v) => patch("require_mention", v)}
+          label="Require @mention"
+          description="Only @mentions trigger the bot; other messages stored as context."
+        />
+        <Toggle
+          value={form.passive_memory ?? true}
+          onChange={(v) => patch("passive_memory", v)}
+          label="Passive memory"
+          description="Include passive messages in memory compaction."
+        />
+        <Toggle
+          value={form.workspace_rag ?? true}
+          onChange={(v) => patch("workspace_rag", v)}
+          label="Workspace RAG"
+          description="Auto-inject relevant workspace files into context each turn."
+        />
+      </Section>
 
-        {/* Compaction */}
-        <Section
-          title="Compaction"
-          description="Auto-summarizes old turns so the context window never fills up."
-        >
-          <Toggle
-            value={form.context_compaction ?? true}
-            onChange={(v) => patch("context_compaction", v)}
-            label="Enable auto-compaction"
-          />
-          {form.context_compaction && (
-            <View className="gap-3 mt-1">
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <FormRow label="Interval (user turns)">
-                    <TextInput
-                      value={form.compaction_interval?.toString() ?? ""}
-                      onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
-                      placeholder="default"
-                      type="number"
-                    />
-                  </FormRow>
-                </View>
-                <View className="flex-1">
-                  <FormRow label="Keep Turns">
-                    <TextInput
-                      value={form.compaction_keep_turns?.toString() ?? ""}
-                      onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                      placeholder="default"
-                      type="number"
-                    />
-                  </FormRow>
-                </View>
-              </View>
-              <LlmPrompt
-                value={form.memory_knowledge_compaction_prompt ?? ""}
-                onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                label="Memory/Knowledge Compaction Prompt"
-                placeholder="Leave blank to use the global default prompt..."
-                helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
-                rows={4}
+      <Section title="Compaction" description="Auto-summarizes old turns so the context window never fills up.">
+        <Toggle
+          value={form.context_compaction ?? true}
+          onChange={(v) => patch("context_compaction", v)}
+          label="Enable auto-compaction"
+        />
+        {form.context_compaction && (
+          <>
+            <Row>
+              <Col>
+                <FormRow label="Interval (user turns)">
+                  <TextInput
+                    value={form.compaction_interval?.toString() ?? ""}
+                    onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Keep Turns">
+                  <TextInput
+                    value={form.compaction_keep_turns?.toString() ?? ""}
+                    onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+            <LlmPrompt
+              value={form.memory_knowledge_compaction_prompt ?? ""}
+              onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+              label="Memory/Knowledge Compaction Prompt"
+              placeholder="Leave blank to use the global default prompt..."
+              helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+              rows={5}
+            />
+          </>
+        )}
+      </Section>
+
+      <Section title="Context Compression" description="Summarises old turns via a cheap model before each LLM call. Leave blank to inherit.">
+        <Row>
+          <Col>
+            <FormRow label="Enable Compression">
+              <SelectInput
+                value={triStateValue(form.context_compression)}
+                onChange={(v) => patch("context_compression", triStateParse(v))}
+                options={triStateOptions}
               />
-            </View>
-          )}
-        </Section>
-
-        {/* Context Compression */}
-        <Section
-          title="Context Compression"
-          description="Summarises old turns via a cheap model before each LLM call. Leave blank to inherit."
-        >
-          <View className="gap-3">
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                <FormRow label="Enable Compression">
-                  <SelectInput
-                    value={triStateValue(form.context_compression)}
-                    onChange={(v) =>
-                      patch("context_compression", v === "true" ? true : v === "false" ? false : undefined)
-                    }
-                    options={triStateOptions}
-                  />
-                </FormRow>
-              </View>
-              <View className="flex-1">
-                <LlmModelDropdown
-                  label="Compression Model"
-                  value={form.compression_model ?? ""}
-                  onChange={(v) => patch("compression_model", v || undefined)}
-                  placeholder="inherit"
-                />
-              </View>
-            </View>
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                <FormRow label="Trigger Threshold (chars)">
-                  <TextInput
-                    value={form.compression_threshold?.toString() ?? ""}
-                    onChangeText={(v) => patch("compression_threshold", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="inherit (20000)"
-                    type="number"
-                  />
-                </FormRow>
-              </View>
-              <View className="flex-1">
-                <FormRow label="Keep Turns (verbatim)">
-                  <TextInput
-                    value={form.compression_keep_turns?.toString() ?? ""}
-                    onChangeText={(v) => patch("compression_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="inherit (2)"
-                    type="number"
-                  />
-                </FormRow>
-              </View>
-            </View>
-          </View>
-        </Section>
-
-        {/* Model Elevation */}
-        <Section
-          title="Model Elevation"
-          description="Per-channel elevation overrides. Leave blank to inherit from global settings."
-        >
-          <View className="gap-3">
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                <FormRow label="Enable Elevation">
-                  <SelectInput
-                    value={triStateValue(form.elevation_enabled)}
-                    onChange={(v) =>
-                      patch("elevation_enabled", v === "true" ? true : v === "false" ? false : undefined)
-                    }
-                    options={triStateOptions}
-                  />
-                </FormRow>
-              </View>
-              <View className="flex-1">
-                <FormRow label="Threshold (0.0–1.0)">
-                  <TextInput
-                    value={form.elevation_threshold?.toString() ?? ""}
-                    onChangeText={(v) => patch("elevation_threshold", v ? parseFloat(v) || undefined : undefined)}
-                    placeholder="inherit"
-                    type="number"
-                  />
-                </FormRow>
-              </View>
-            </View>
+            </FormRow>
+          </Col>
+          <Col>
             <LlmModelDropdown
-              label="Elevated Model"
-              value={form.elevated_model ?? ""}
-              onChange={(v) => patch("elevated_model", v || undefined)}
+              label="Compression Model"
+              value={form.compression_model ?? ""}
+              onChange={(v) => patch("compression_model", v || undefined)}
               placeholder="inherit"
             />
-          </View>
-        </Section>
+          </Col>
+        </Row>
+        <Row>
+          <Col>
+            <FormRow label="Trigger Threshold (chars)">
+              <TextInput
+                value={form.compression_threshold?.toString() ?? ""}
+                onChangeText={(v) => patch("compression_threshold", v ? parseInt(v) || undefined : undefined)}
+                placeholder="inherit (20000)"
+                type="number"
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Keep Turns (verbatim)">
+              <TextInput
+                value={form.compression_keep_turns?.toString() ?? ""}
+                onChangeText={(v) => patch("compression_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                placeholder="inherit (2)"
+                type="number"
+              />
+            </FormRow>
+          </Col>
+        </Row>
+      </Section>
 
-        {/* Metadata */}
-        <View className="opacity-50 gap-1 pb-4">
-          <Text className="text-text-dim text-[10px]">
-            ID: {settings.id}
-          </Text>
-          {settings.client_id && (
-            <Text className="text-text-dim text-[10px]">
-              client_id: {settings.client_id}
-            </Text>
+      <Section title="Model Elevation" description="Per-channel elevation overrides. Leave blank to inherit.">
+        <Row>
+          <Col>
+            <FormRow label="Enable Elevation">
+              <SelectInput
+                value={triStateValue(form.elevation_enabled)}
+                onChange={(v) => patch("elevation_enabled", triStateParse(v))}
+                options={triStateOptions}
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Threshold (0.0–1.0)">
+              <TextInput
+                value={form.elevation_threshold?.toString() ?? ""}
+                onChangeText={(v) => patch("elevation_threshold", v ? parseFloat(v) || undefined : undefined)}
+                placeholder="inherit"
+                type="number"
+              />
+            </FormRow>
+          </Col>
+        </Row>
+        <LlmModelDropdown
+          label="Elevated Model"
+          value={form.elevated_model ?? ""}
+          onChange={(v) => patch("elevated_model", v || undefined)}
+          placeholder="inherit"
+        />
+      </Section>
+
+      {/* Metadata */}
+      <div style={{ opacity: 0.4, fontSize: 11, color: "#666", display: "flex", gap: 16 }}>
+        <span>ID: {settings.id}</span>
+        {settings.client_id && <span>client_id: {settings.client_id}</span>}
+        {settings.integration && <span>integration: {settings.integration}</span>}
+      </div>
+    </>
+  );
+}
+
+// ===========================================================================
+// Sessions Tab
+// ===========================================================================
+function SessionsTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-sessions", channelId],
+    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/sessions`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.length) return <EmptyState message="No sessions yet." />;
+
+  return (
+    <Section title="Session History">
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.map((s: any) => (
+          <div key={s.id} style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+          }}>
+            <div>
+              <div style={{ fontSize: 13, color: "#e5e5e5", fontFamily: "monospace" }}>
+                {s.id?.substring(0, 12)}...
+                {s.title && <span style={{ fontFamily: "sans-serif", marginLeft: 8, color: "#999" }}>{s.title}</span>}
+              </div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                {s.message_count ?? 0} messages
+                {s.last_active && <span> · {new Date(s.last_active).toLocaleString()}</span>}
+              </div>
+            </div>
+            {s.is_active && (
+              <span style={{ fontSize: 10, background: "#166534", color: "#86efac", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>
+                ACTIVE
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ===========================================================================
+// Heartbeat Tab
+// ===========================================================================
+function HeartbeatTab({ channelId }: { channelId: string }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-heartbeat", channelId],
+    queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/heartbeat`),
+  });
+
+  const [hbForm, setHbForm] = useState<any>(null);
+  const [hbSaved, setHbSaved] = useState(false);
+
+  useEffect(() => {
+    if (data?.config) {
+      setHbForm({
+        interval_minutes: data.config.interval_minutes ?? 60,
+        model: data.config.model ?? "",
+        model_provider_id: data.config.model_provider_id ?? "",
+        prompt: data.config.prompt ?? "",
+        dispatch_results: data.config.dispatch_results ?? true,
+        trigger_response: data.config.trigger_response ?? false,
+      });
+    } else if (data && !data.config) {
+      setHbForm({
+        interval_minutes: 60,
+        model: "",
+        model_provider_id: "",
+        prompt: "",
+        dispatch_results: true,
+        trigger_response: false,
+      });
+    }
+  }, [data]);
+
+  const toggleMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/toggle`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] }),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: any) => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
+      setHbSaved(true);
+      setTimeout(() => setHbSaved(false), 2500);
+    },
+  });
+
+  const fireMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/fire`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] }),
+  });
+
+  if (isLoading || !hbForm) return <ActivityIndicator color="#3b82f6" />;
+
+  const enabled = data?.config?.enabled ?? false;
+
+  return (
+    <>
+      {/* Enable toggle + save */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Section title="Heartbeat">
+          <div />
+        </Section>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => toggleMutation.mutate()}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
+              background: enabled ? "#166534" : "#333",
+              color: enabled ? "#86efac" : "#999",
+            }}
+          >
+            <span style={{
+              width: 8, height: 8, borderRadius: 4,
+              background: enabled ? "#86efac" : "#666",
+            }} />
+            {enabled ? "Enabled" : "Disabled"}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ opacity: enabled ? 1 : 0.5 }}>
+        <Row>
+          <Col>
+            <FormRow label="Interval">
+              <SelectInput
+                value={hbForm.interval_minutes?.toString() ?? "60"}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v) }))}
+                options={INTERVAL_OPTIONS}
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <LlmModelDropdown
+              label="Model"
+              value={hbForm.model ?? ""}
+              onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
+              placeholder="Select model..."
+            />
+          </Col>
+        </Row>
+
+        <div style={{ marginTop: 16 }}>
+          <LlmPrompt
+            value={hbForm.prompt ?? ""}
+            onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
+            label="Heartbeat Prompt"
+            placeholder="Enter the heartbeat prompt..."
+            helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
+            rows={10}
+          />
+        </div>
+
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+          <Toggle
+            value={hbForm.dispatch_results ?? true}
+            onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
+            label="Post results to channel"
+          />
+          <Toggle
+            value={hbForm.trigger_response ?? false}
+            onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
+            label="Trigger agent response after posting"
+            description="After posting the heartbeat result, the bot will process it and respond again."
+          />
+        </div>
+
+        <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
+          <button
+            onClick={() => saveMutation.mutate(hbForm)}
+            style={{
+              padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: hbSaved ? "rgba(34,197,94,0.15)" : "#3b82f6",
+              color: hbSaved ? "#22c55e" : "#fff",
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            {hbSaved ? "Saved!" : saveMutation.isPending ? "Saving..." : "Save Heartbeat"}
+          </button>
+          <button
+            onClick={() => fireMutation.mutate()}
+            disabled={!hbForm.prompt}
+            style={{
+              padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: hbForm.prompt ? "#92400e" : "#333",
+              color: hbForm.prompt ? "#fcd34d" : "#666",
+              fontSize: 13, fontWeight: 500,
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <Play size={12} color={hbForm.prompt ? "#fcd34d" : "#666"} />
+            Run Now
+          </button>
+        </div>
+      </div>
+
+      {/* Status + History */}
+      {data?.config && (
+        <div style={{ marginTop: 24, borderTop: "1px solid #333", paddingTop: 16 }}>
+          <div style={{ fontSize: 12, color: "#666", display: "flex", gap: 16, marginBottom: 12 }}>
+            {data.config.last_run_at && (
+              <span>Last run: <span style={{ color: "#999" }}>{new Date(data.config.last_run_at).toLocaleString()}</span></span>
+            )}
+            {data.config.next_run_at && enabled && (
+              <span>Next run: <span style={{ color: "#999" }}>{new Date(data.config.next_run_at).toLocaleString()}</span></span>
+            )}
+          </div>
+
+          {data.history?.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#666", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
+                Recent Runs
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {data.history.map((t: any) => (
+                  <div key={t.id} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+                  }}>
+                    <div style={{ fontSize: 12, color: "#999" }}>
+                      {new Date(t.created_at).toLocaleString()}
+                    </div>
+                    <span style={{
+                      fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                      background: t.status === "complete" ? "#166534" : t.status === "failed" ? "#7f1d1d" : "#333",
+                      color: t.status === "complete" ? "#86efac" : t.status === "failed" ? "#fca5a5" : "#999",
+                    }}>
+                      {t.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
-          {settings.integration && (
-            <Text className="text-text-dim text-[10px]">
-              integration: {settings.integration}
-            </Text>
-          )}
-        </View>
-      </ScrollView>
-    </View>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ===========================================================================
+// Memories Tab
+// ===========================================================================
+function MemoriesTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-memories", channelId],
+    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/memories`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.length) return <EmptyState message="No memories yet." />;
+
+  return (
+    <Section title={`Memories (${data.length})`}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.map((m: any) => (
+          <div key={m.id} style={{
+            padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+          }}>
+            {m.title && (
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", marginBottom: 4 }}>{m.title}</div>
+            )}
+            <div style={{ fontSize: 12, color: "#999", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "hidden" }}>
+              {m.content?.substring(0, 300)}{m.content?.length > 300 ? "..." : ""}
+            </div>
+            <div style={{ fontSize: 10, color: "#555", marginTop: 6 }}>
+              {new Date(m.created_at).toLocaleString()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ===========================================================================
+// Tasks Tab
+// ===========================================================================
+function TasksTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-tasks", channelId],
+    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/tasks`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.length) return <EmptyState message="No tasks yet." />;
+
+  const statusColors: Record<string, { bg: string; fg: string }> = {
+    pending: { bg: "#333", fg: "#999" },
+    running: { bg: "#1e3a5f", fg: "#93c5fd" },
+    complete: { bg: "#166534", fg: "#86efac" },
+    failed: { bg: "#7f1d1d", fg: "#fca5a5" },
+  };
+
+  return (
+    <Section title={`Tasks (${data.length})`}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.map((t: any) => {
+          const sc = statusColors[t.status] || statusColors.pending;
+          return (
+            <div key={t.id} style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+            }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
+                  {t.id?.substring(0, 12)}...
+                </div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                  {t.dispatch_type || "none"} · {new Date(t.created_at).toLocaleString()}
+                </div>
+                {t.prompt && (
+                  <div style={{ fontSize: 11, color: "#888", marginTop: 4, maxWidth: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.prompt.substring(0, 100)}
+                  </div>
+                )}
+              </div>
+              <span style={{
+                fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                background: sc.bg, color: sc.fg,
+              }}>
+                {t.status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// ===========================================================================
+// Plans Tab
+// ===========================================================================
+function PlansTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-plans", channelId],
+    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/plans`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data?.length) return <EmptyState message="No plans yet." />;
+
+  const statusColors: Record<string, { bg: string; fg: string }> = {
+    active: { bg: "#1e3a5f", fg: "#93c5fd" },
+    complete: { bg: "#166534", fg: "#86efac" },
+    abandoned: { bg: "#333", fg: "#999" },
+  };
+
+  return (
+    <Section title={`Plans (${data.length})`}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {data.map((p: any) => {
+          const sc = statusColors[p.status] || statusColors.active;
+          return (
+            <div key={p.id} style={{
+              padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>
+                  {p.title || "Untitled Plan"}
+                </div>
+                <span style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                  background: sc.bg, color: sc.fg,
+                }}>
+                  {p.status}
+                </span>
+              </div>
+              {p.description && (
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{p.description}</div>
+              )}
+              {p.items?.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {p.items.map((item: any) => (
+                    <div key={item.id} style={{ display: "flex", gap: 8, fontSize: 12, color: "#999" }}>
+                      <span style={{
+                        color: item.status === "done" ? "#86efac" : item.status === "in_progress" ? "#93c5fd" : item.status === "skipped" ? "#666" : "#999",
+                      }}>
+                        {item.status === "done" ? "✓" : item.status === "in_progress" ? "→" : item.status === "skipped" ? "—" : "○"}
+                      </span>
+                      <span style={{ color: item.status === "done" ? "#86efac" : "#999" }}>
+                        {item.content}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// ===========================================================================
+// Compression Tab
+// ===========================================================================
+function CompressionTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-compression", channelId],
+    queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/compression`),
+  });
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data) return <EmptyState message="No compression data." />;
+
+  return (
+    <>
+      {data.effective_config && (
+        <Section title="Effective Config">
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            {Object.entries(data.effective_config).map(([k, v]) => (
+              <div key={k} style={{ fontSize: 12 }}>
+                <span style={{ color: "#666" }}>{k}: </span>
+                <span style={{ color: "#999" }}>{String(v ?? "—")}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {data.stats && (
+        <Section title="Stats">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {[
+              ["Compressions", data.stats.total_compressions],
+              ["Chars Saved", data.stats.total_chars_saved?.toLocaleString()],
+              ["Msgs Saved", data.stats.total_msgs_saved],
+              ["Avg Reduction", data.stats.avg_reduction_pct ? `${data.stats.avg_reduction_pct.toFixed(0)}%` : "—"],
+            ].map(([label, val]) => (
+              <div key={String(label)} style={{
+                padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+              }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#e5e5e5" }}>{val ?? 0}</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {data.events?.length > 0 && (
+        <Section title={`Recent Events (${data.events.length})`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {data.events.map((e: any) => (
+              <div key={e.id} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+                fontSize: 12,
+              }}>
+                <span style={{ color: "#999" }}>{new Date(e.created_at).toLocaleString()}</span>
+                <span style={{ color: "#666" }}>
+                  {e.data?.original_chars ?? "?"} → {e.data?.compressed_chars ?? "?"} chars
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+    </>
   );
 }
