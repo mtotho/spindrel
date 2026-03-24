@@ -1,4 +1,4 @@
-import { useAuthStore } from "../stores/auth";
+import { useAuthStore, getAuthToken } from "../stores/auth";
 
 class ApiError extends Error {
   constructor(
@@ -11,21 +11,54 @@ class ApiError extends Error {
   }
 }
 
+/** Try to refresh the access token using the stored refresh token.
+ *  Returns the new access token on success, null on failure. */
+async function tryRefresh(): Promise<string | null> {
+  const { serverUrl, refreshToken } = useAuthStore.getState();
+  if (!serverUrl || !refreshToken) return null;
+  try {
+    const res = await fetch(`${serverUrl}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    useAuthStore.getState().setAccessToken(data.access_token);
+    return data.access_token as string;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const { serverUrl, apiKey } = useAuthStore.getState();
+  const { serverUrl } = useAuthStore.getState();
   if (!serverUrl) throw new Error("Server not configured");
 
+  const token = getAuthToken();
   const url = `${serverUrl}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers as Record<string, string>),
   };
 
-  const res = await fetch(url, { ...options, headers });
+  let res = await fetch(url, { ...options, headers });
+
+  // Auto-refresh on 401 if we have a refresh token
+  if (res.status === 401 && useAuthStore.getState().refreshToken) {
+    const newToken = await tryRefresh();
+    if (newToken) {
+      headers.Authorization = `Bearer ${newToken}`;
+      res = await fetch(url, { ...options, headers });
+    } else {
+      // Refresh failed — clear auth and force re-login
+      useAuthStore.getState().clear();
+    }
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => null);

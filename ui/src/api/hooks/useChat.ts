@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useAuthStore } from "../../stores/auth";
+import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type { ChatRequest, SSEEvent } from "../../types/api";
 
@@ -12,16 +12,17 @@ interface UseChatStreamOptions {
 export function useChatStream(options: UseChatStreamOptions) {
   return useMutation({
     mutationFn: async (request: ChatRequest) => {
-      const { serverUrl, apiKey } = useAuthStore.getState();
+      const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
 
+      const token = getAuthToken();
       const ctrl = new AbortController();
 
       await fetchEventSource(`${serverUrl}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(request),
         signal: ctrl.signal,

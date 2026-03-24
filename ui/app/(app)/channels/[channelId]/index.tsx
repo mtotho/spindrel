@@ -150,10 +150,13 @@ export default function ChatScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Show hamburger/back on mobile
+  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+
   return (
-    <View className="flex-1 bg-surface">
+    <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
+      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
         {columns === "single" && (
           <Pressable onPress={goBack} className="p-1.5 rounded-md hover:bg-surface-overlay">
             <ArrowLeft size={18} color="#9ca3af" />
@@ -192,6 +195,7 @@ export default function ChatScreen() {
         <FlatList
           ref={flatListRef}
           inverted
+          style={{ flex: 1 }}
           data={invertedData}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <MessageBubble message={item} botName={bot?.name} />}

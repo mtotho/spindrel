@@ -24,6 +24,8 @@ dependencies = [
     "python-multipart",
     "watchfiles",
     "pathspec",
+    "pyjwt",
+    "bcrypt",
 ]
 
 [project.optional-dependencies]

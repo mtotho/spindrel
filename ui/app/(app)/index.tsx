@@ -1,28 +1,53 @@
-import { View, Text } from "react-native";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link } from "expo-router";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { useUIStore } from "@/src/stores/ui";
 import {
   MessageSquare,
   Bot,
   Activity,
+  Menu,
 } from "lucide-react";
 
 export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+  const columns = useResponsiveColumns();
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+
+  const showHamburger = columns === "single" || sidebarCollapsed;
 
   return (
-    <View className="flex-1 bg-surface p-6">
-      <View className="max-w-2xl w-full mx-auto gap-6">
-        {/* Header */}
-        <View className="gap-1">
-          <Text className="text-text text-xl font-bold">Channels</Text>
-          <Text className="text-text-muted text-sm">
-            Select a channel to start chatting
-          </Text>
+    <View className="flex-1 bg-surface">
+      {/* Mobile header bar */}
+      {showHamburger && (
+        <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
+          <Pressable
+            onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
+            className="p-1.5 rounded-md hover:bg-surface-overlay"
+          >
+            <Menu size={18} color="#9ca3af" />
+          </Pressable>
+          <Text className="text-text font-semibold">Channels</Text>
         </View>
+      )}
+
+      <ScrollView className="flex-1" contentContainerStyle={{ padding: 24 }}>
+        <View className="max-w-2xl w-full mx-auto gap-6">
+          {/* Header */}
+          {!showHamburger && (
+            <View className="gap-1">
+              <Text className="text-text text-xl font-bold">Channels</Text>
+              <Text className="text-text-muted text-sm">
+                Select a channel to start chatting
+              </Text>
+            </View>
+          )}
 
         {/* Channel list */}
         {channelsError ? (
@@ -77,7 +102,8 @@ export default function HomeScreen() {
             })}
           </View>
         )}
-      </View>
+        </View>
+      </ScrollView>
     </View>
   );
 }

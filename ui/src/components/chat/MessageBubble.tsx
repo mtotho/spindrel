@@ -1,5 +1,5 @@
 import { View, Text, Platform } from "react-native";
-import { useAuthStore } from "../../stores/auth";
+import { useAuthStore, getAuthToken } from "../../stores/auth";
 import type { Message, AttachmentBrief } from "../../types/api";
 
 interface Props {
@@ -180,7 +180,7 @@ function MarkdownContent({
 
 function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
   const serverUrl = useAuthStore((s) => s.serverUrl);
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const token = getAuthToken();
   const images = attachments.filter(
     (a) => a.type === "image" && a.has_file_data
   );
@@ -195,12 +195,12 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
       {images.map((img) => (
         <a
           key={img.id}
-          href={`${serverUrl}/api/v1/attachments/${img.id}/file${apiKey ? `?token=${apiKey}` : ""}`}
+          href={`${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`}
           target="_blank"
           rel="noopener noreferrer"
         >
           <img
-            src={`${serverUrl}/api/v1/attachments/${img.id}/file${apiKey ? `?token=${apiKey}` : ""}`}
+            src={`${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`}
             alt={img.description || img.filename}
             style={{
               maxWidth: "100%",

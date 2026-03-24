@@ -16,7 +16,7 @@ from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.db.models import Task as TaskModel
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth, verify_auth_or_user
 from app.services import session_locks
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id
 from app.services.compaction import maybe_compact
@@ -76,6 +76,12 @@ class ChatResponse(BaseModel):
 
 def _is_integration_client(client_id: str) -> bool:
     return is_integration_client_id(client_id)
+
+
+def _extract_user(auth_result):
+    """Extract User object from auth_result if JWT-authenticated, else None."""
+    from app.db.models import User
+    return auth_result if isinstance(auth_result, User) else None
 
 
 async def _create_attachments_from_metadata(
@@ -146,6 +152,7 @@ async def _mirror_to_integration(
     channel, text: str, *,
     bot_id: str | None = None,
     is_user_message: bool = False,
+    user=None,
     client_actions: list[dict] | None = None,
 ) -> None:
     """Fire-and-forget mirror to channel's integration dispatcher."""
@@ -153,18 +160,28 @@ async def _mirror_to_integration(
         return
     from app.agent import dispatchers
     try:
-        mirror_text = f"[web] {text}" if is_user_message else text
+        # For user messages with authenticated user: use their display name + icon
+        # For anonymous user messages: fall back to [web] prefix
+        user_attrs: dict = {}
+        if is_user_message and user:
+            from integrations.slack.client import user_attribution
+            user_attrs = user_attribution(user)
+        elif is_user_message:
+            text = f"[web] {text}"
+
         await dispatchers.get(channel.integration).post_message(
-            channel.dispatch_config, mirror_text,
-            bot_id=bot_id, client_actions=client_actions,
+            channel.dispatch_config, text,
+            bot_id=bot_id if not is_user_message else None,
+            client_actions=client_actions,
             reply_in_thread=False,
+            **user_attrs,
         )
     except Exception:
         logger.warning("Mirror to %s failed", channel.integration, exc_info=True)
 
 
 @router.get("/bots")
-async def bots(_auth: str = Depends(verify_auth)):
+async def bots(_auth=Depends(verify_auth_or_user)):
     result = []
     for b in list_bots():
         entry: dict = {"id": b.id, "name": b.name, "model": b.model}
@@ -199,8 +216,9 @@ def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> str:
 async def chat(
     req: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    auth_result=Depends(verify_auth_or_user),
 ):
+    user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
 
     # Resolve audio: if audio_data provided but not native mode, transcribe first
@@ -261,7 +279,7 @@ async def chat(
 
     # Mirror user message to integration (skip if caller already handles delivery)
     if not req.dispatch_config:
-        await _mirror_to_integration(channel, message, is_user_message=True)
+        await _mirror_to_integration(channel, message, is_user_message=True, user=user)
 
     try:
         result = await run(
@@ -314,8 +332,9 @@ async def chat_stream(
     req: ChatRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    auth_result=Depends(verify_auth_or_user),
 ):
+    user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
 
     # Resolve audio
@@ -433,7 +452,7 @@ async def chat_stream(
 
             # Mirror user message to integration (skip if caller already handles delivery)
             if not req.dispatch_config:
-                await _mirror_to_integration(channel, message, is_user_message=True)
+                await _mirror_to_integration(channel, message, is_user_message=True, user=user)
 
             response_text = ""
             response_actions = None
@@ -522,7 +541,7 @@ class ToolResultRequest(BaseModel):
 @router.post("/chat/tool_result")
 async def submit_tool_result(
     req: ToolResultRequest,
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     logger.info("POST /chat/tool_result  request_id=%s  result_len=%d", req.request_id, len(req.result))
     if not resolve_pending(req.request_id, req.result):

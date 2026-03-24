@@ -41,3 +41,18 @@ export function useUpdateBot(botId: string | undefined) {
     },
   });
 }
+
+export function useCreateBot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<BotConfig> & { id: string; name: string; model: string }) =>
+      apiFetch<BotConfig>("/api/v1/admin/bots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bots"] });
+    },
+  });
+}

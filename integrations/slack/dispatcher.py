@@ -62,8 +62,10 @@ class SlackDispatcher:
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
                            client_actions: list[dict] | None = None) -> bool:
-        """Post a message to Slack via the shared client, optionally with bot attribution."""
+        """Post a message to Slack via the shared client, optionally with bot/user attribution."""
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")
         token = dispatch_config.get("token")
@@ -71,7 +73,19 @@ class SlackDispatcher:
             logger.warning("SlackDispatcher.post_message: missing channel_id or token")
             return False
 
-        attrs = bot_attribution(bot_id) if bot_id else {}
+        # If caller provides explicit username/icon (e.g. user mirror), use those.
+        # Otherwise fall back to bot attribution.
+        if username or icon_emoji or icon_url:
+            attrs: dict = {}
+            if username:
+                attrs["username"] = username
+            if icon_emoji:
+                attrs["icon_emoji"] = icon_emoji
+            elif icon_url:
+                attrs["icon_url"] = icon_url
+        else:
+            attrs = bot_attribution(bot_id) if bot_id else {}
+
         ok = await post_message(
             token, channel_id, text,
             thread_ts=thread_ts,

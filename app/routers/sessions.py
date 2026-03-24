@@ -12,7 +12,7 @@ from sqlalchemy import func
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.models import Channel, Memory, Message, Plan, PlanItem, Session, TraceEvent
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth, verify_auth_or_user
 from app.services.compaction import run_compaction_forced
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -49,7 +49,7 @@ class SessionDetail(BaseModel):
 async def list_sessions(
     client_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     stmt = select(Session).order_by(Session.last_active.desc())
     if client_id:
@@ -62,7 +62,7 @@ async def list_sessions(
 async def get_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     session = await db.get(Session, session_id)
     if session is None:
@@ -87,7 +87,7 @@ async def get_session_messages(
     limit: int = 50,
     before: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Cursor-based paginated messages. Returns newest first. Use `before` with the oldest message id to load older messages."""
     session = await db.get(Session, session_id)
@@ -119,7 +119,7 @@ async def get_session_messages(
 async def delete_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     session = await db.get(Session, session_id)
     if session is None:
@@ -141,7 +141,7 @@ async def delete_session(
 async def get_session_context(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Return the most recent context_breakdown trace event for the session,
     plus last compression info if available."""
@@ -187,7 +187,7 @@ async def get_session_context(
 async def get_session_context_compressed(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Run compression on the current session messages and return both breakdowns.
 
@@ -262,7 +262,7 @@ async def get_session_context_contents(
     session_id: uuid.UUID,
     compress: bool = True,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Dump the actual messages that would go to the model.
 
@@ -325,7 +325,7 @@ async def get_session_context_contents(
 async def get_session_context_diagnostics(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Return compaction + compression diagnostic info for a session."""
     from app.services.compaction import (
@@ -438,7 +438,7 @@ async def get_session_plans(
     session_id: uuid.UUID,
     status: Optional[str] = "active",
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Return plans for a session with their items."""
     stmt = select(Plan).where(Plan.session_id == session_id)
@@ -478,7 +478,7 @@ async def update_plan_status(
     plan_id: uuid.UUID,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Update a plan's status. Body: {status: active|complete|abandoned}"""
     plan = await db.get(Plan, plan_id)
@@ -499,7 +499,7 @@ async def update_plan_item_status(
     item_position: int,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Update a plan item's status by 1-based position. Body: {status: pending|in_progress|done|skipped}"""
     plan = await db.get(Plan, plan_id)
@@ -529,7 +529,7 @@ class SummarizeResponse(BaseModel):
 async def summarize_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Force full compaction: memory phase (if bot has memory/persona/knowledge) then summary. Sets watermark so the summary is used on next load."""
     try:

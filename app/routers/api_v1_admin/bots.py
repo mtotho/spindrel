@@ -91,24 +91,38 @@ async def admin_bot_editor_data(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth),
 ):
-    """Get bot config + all available options for the editor UI."""
+    """Get bot config + all available options for the editor UI.
+
+    Use bot_id="new" to get a blank default bot for the create form.
+    """
     from app.agent.bots import list_bots as _list_bots
     from app.agent.persona import get_persona
     from app.services.harness import harness_service
     from app.tools.mcp import _servers
     from app.tools.client_tools import _client_tools
 
-    try:
-        bot = get_bot(bot_id)
-    except Exception:
-        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+    is_new = bot_id == "new"
 
-    persona_content, all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
-        get_persona(bot_id),
-        _fetch_all_skills(db),
-        _fetch_tool_rows(db),
-        _fetch_sandbox_profiles(db),
-    )
+    if is_new:
+        bot_out = BotOut(id="", name="", model="", system_prompt="")
+        all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
+            _fetch_all_skills(db),
+            _fetch_tool_rows(db),
+            _fetch_sandbox_profiles(db),
+        )
+    else:
+        try:
+            bot = get_bot(bot_id)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+        persona_content, all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
+            get_persona(bot_id),
+            _fetch_all_skills(db),
+            _fetch_tool_rows(db),
+            _fetch_sandbox_profiles(db),
+        )
+        bot_out = _bot_to_out(bot, persona_content=persona_content)
 
     tool_groups = _build_tool_groups(tool_rows)
     mcp_servers = sorted(_servers.keys())
@@ -137,7 +151,7 @@ async def admin_bot_editor_data(
     ]
 
     return BotEditorDataOut(
-        bot=_bot_to_out(bot, persona_content=persona_content),
+        bot=bot_out,
         tool_groups=[ToolGroupOut(**g) for g in tool_groups],
         mcp_servers=mcp_servers,
         client_tools=client_tools,
@@ -285,6 +299,106 @@ async def admin_bot_update(
     bot = get_bot(bot_id)
     pc = await get_persona(bot_id)
     return _bot_to_out(bot, persona_content=pc)
+
+
+# ---------------------------------------------------------------------------
+# Bot create (JSON POST)
+# ---------------------------------------------------------------------------
+
+class BotCreateIn(BaseModel):
+    id: str
+    name: str
+    model: str
+    system_prompt: Optional[str] = ""
+    model_provider_id: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    local_tools: Optional[list[str]] = None
+    mcp_servers: Optional[list[str]] = None
+    client_tools: Optional[list[str]] = None
+    pinned_tools: Optional[list[str]] = None
+    skills: Optional[list[dict]] = None
+    tool_retrieval: Optional[bool] = True
+    tool_similarity_threshold: Optional[float] = None
+    tool_result_config: Optional[dict] = None
+    compression_config: Optional[dict] = None
+    persona: Optional[bool] = False
+    persona_content: Optional[str] = None
+    context_compaction: Optional[bool] = True
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_model: Optional[str] = None
+    audio_input: Optional[str] = "transcribe"
+    memory_config: Optional[dict] = None
+    knowledge_config: Optional[dict] = None
+    memory_max_inject_chars: Optional[int] = None
+    knowledge_max_inject_chars: Optional[int] = None
+    integration_config: Optional[dict] = None
+    workspace: Optional[dict] = None
+    docker_sandbox_profiles: Optional[list[str]] = None
+    delegation_config: Optional[dict] = None
+    elevation_enabled: Optional[bool] = None
+    elevation_threshold: Optional[float] = None
+    elevated_model: Optional[str] = None
+    attachment_summarization_enabled: Optional[bool] = None
+    attachment_summary_model: Optional[str] = None
+    attachment_text_max_chars: Optional[int] = None
+    attachment_vision_concurrency: Optional[int] = None
+
+
+@router.post("/bots", response_model=BotOut, status_code=201)
+async def admin_bot_create(
+    data: BotCreateIn = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Create a new bot."""
+    import re
+    from app.agent.bots import reload_bots
+    from app.agent.persona import write_persona
+
+    if not data.id or not re.match(r"^[a-z0-9_-]+$", data.id):
+        raise HTTPException(status_code=400, detail="Bot ID must be lowercase alphanumeric with hyphens/underscores")
+    if not data.name:
+        raise HTTPException(status_code=400, detail="Bot name is required")
+    if not data.model:
+        raise HTTPException(status_code=400, detail="Model is required")
+
+    existing = await db.get(BotRow, data.id)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Bot already exists: {data.id}")
+
+    fields = data.model_dump(exclude_none=True)
+    persona_content_val = fields.pop("persona_content", None)
+
+    row = BotRow(
+        id=fields.pop("id"),
+        name=fields.pop("name"),
+        model=fields.pop("model"),
+        system_prompt=fields.pop("system_prompt", ""),
+    )
+
+    if "memory_config" in fields:
+        row.memory_config = fields.pop("memory_config")
+    if "knowledge_config" in fields:
+        row.knowledge_config = fields.pop("knowledge_config")
+    if "skills" in fields:
+        row.skills = fields.pop("skills")
+
+    for key, val in fields.items():
+        if hasattr(row, key):
+            setattr(row, key, val)
+
+    db.add(row)
+    await db.commit()
+
+    if persona_content_val:
+        await write_persona(data.id, persona_content_val)
+
+    await reload_bots()
+
+    bot = get_bot(data.id)
+    return _bot_to_out(bot)
 
 
 # ---------------------------------------------------------------------------

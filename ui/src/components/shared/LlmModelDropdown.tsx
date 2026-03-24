@@ -93,7 +93,7 @@ export function LlmModelDropdown({
               {/* Backdrop */}
               <div
                 onClick={() => setOpen(false)}
-                style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+                style={{ position: "fixed", inset: 0, zIndex: 50000 }}
               />
               {/* Dropdown panel */}
               <div
@@ -103,7 +103,7 @@ export function LlmModelDropdown({
                   left: pos.left,
                   width: Math.max(pos.width, 320),
                   maxHeight: 340,
-                  zIndex: 9999,
+                  zIndex: 50001,
                   background: "#1a1a1a",
                   border: "1px solid #333",
                   borderRadius: 10,

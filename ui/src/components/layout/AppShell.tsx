@@ -12,7 +12,7 @@ export function AppShell() {
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
 
   return (
-    <View className="flex-1 flex-row bg-surface">
+    <View className="flex-1 flex-row bg-surface overflow-hidden">
       {/* Sidebar — hidden on single column (mobile), shown as overlay when toggled */}
       {columns !== "single" && <Sidebar />}
 

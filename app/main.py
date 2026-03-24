@@ -167,11 +167,12 @@ if _cors_origins:
     )
 
 # Register routers
-from app.routers import admin, chat, sessions, transcribe  # noqa: E402
+from app.routers import admin, auth, chat, sessions, transcribe  # noqa: E402
 from app.routers.admin_channels import api_router as _slack_api_router  # noqa: E402
 from app.routers.api_v1 import router as _api_v1_router  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(transcribe.router)

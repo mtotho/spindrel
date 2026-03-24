@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown } from "lucide-react";
-import { useBotEditorData, useUpdateBot } from "@/src/api/hooks/useBots";
+import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
 import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { useGoBack } from "@/src/hooks/useGoBack";
@@ -1054,10 +1054,13 @@ function WorkspaceSection({
 // ---------------------------------------------------------------------------
 export default function BotEditorScreen() {
   const { botId } = useLocalSearchParams<{ botId: string }>();
+  const isNew = botId === "new";
+  const router = useRouter();
   const goBack = useGoBack("/admin/bots");
   const { data: editorData, isLoading } = useBotEditorData(botId);
-  const { data: elevationData } = useBotElevation(botId);
-  const updateMutation = useUpdateBot(botId);
+  const { data: elevationData } = useBotElevation(isNew ? undefined : botId);
+  const updateMutation = useUpdateBot(isNew ? undefined : botId);
+  const createMutation = useCreateBot();
   const scrollRef = useRef<ScrollView>(null);
 
   const { width: windowWidth } = useWindowDimensions();
@@ -1070,7 +1073,10 @@ export default function BotEditorScreen() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (editorData?.bot && !draft) setDraft({ ...editorData.bot });
+    if (editorData?.bot && !draft) {
+      setDraft({ ...editorData.bot });
+      if (isNew) setDirty(true);
+    }
   }, [editorData]);
 
   const update = useCallback((patch: Partial<BotConfig>) => {
@@ -1079,20 +1085,29 @@ export default function BotEditorScreen() {
     setSaved(false);
   }, []);
 
+  const saveMutation = isNew ? createMutation : updateMutation;
+
   const handleSave = useCallback(async () => {
-    if (!draft || !botId) return;
+    if (!draft) return;
     const payload: any = { ...draft };
     if (draft.memory) { payload.memory_config = draft.memory; delete payload.memory; }
     if (draft.knowledge) { payload.knowledge_config = draft.knowledge; delete payload.knowledge; }
-    delete payload.id; delete payload.created_at; delete payload.updated_at;
+    if (!isNew) { delete payload.id; }
+    delete payload.created_at; delete payload.updated_at;
     for (const key of Object.keys(payload)) { if (payload[key] === undefined) delete payload[key]; }
     try {
-      await updateMutation.mutateAsync(payload);
+      if (isNew) {
+        if (!payload.id || !payload.name || !payload.model) return;
+        await createMutation.mutateAsync(payload);
+        router.replace(`/admin/bots/${payload.id}`);
+      } else {
+        await updateMutation.mutateAsync(payload);
+      }
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (_) { /* handled by mutation state */ }
-  }, [draft, botId, updateMutation]);
+  }, [draft, isNew, createMutation, updateMutation, router]);
 
   const matchingSections = useMemo(() => {
     if (!filter) return new Set<SectionKey>(SECTIONS.map((s) => s.key));
@@ -1139,8 +1154,8 @@ export default function BotEditorScreen() {
           <ArrowLeft size={16} color="#888" />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>{draft.name}</div>
-          <div style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{draft.id}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>{isNew ? "New Bot" : draft.name}</div>
+          {!isNew && <div style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{draft.id}</div>}
         </div>
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
@@ -1157,24 +1172,24 @@ export default function BotEditorScreen() {
         </div>
         <button
           onClick={handleSave}
-          disabled={!dirty || updateMutation.isPending}
+          disabled={!dirty || saveMutation.isPending}
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 16px", borderRadius: 6, border: "none",
             background: dirty ? "#3b82f6" : "#1a1a1a",
             color: dirty ? "#fff" : "#555",
             fontSize: 12, fontWeight: 600, cursor: dirty ? "pointer" : "default",
-            opacity: updateMutation.isPending ? 0.6 : 1,
+            opacity: saveMutation.isPending ? 0.6 : 1,
           }}
         >
           <Save size={13} />
-          {updateMutation.isPending ? "Saving..." : saved ? "Saved!" : "Save"}
+          {saveMutation.isPending ? "Saving..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
         </button>
       </div>
 
-      {updateMutation.isError && (
+      {saveMutation.isError && (
         <div style={{ padding: "8px 16px", background: "#7f1d1d33", color: "#fca5a5", fontSize: 12 }}>
-          {(updateMutation.error as Error)?.message || "Failed to save"}
+          {(saveMutation.error as Error)?.message || "Failed to save"}
         </div>
       )}
 
@@ -1197,7 +1212,12 @@ export default function BotEditorScreen() {
               <Row>
                 <Col>
                   <FormRow label="Bot ID">
-                    <TextInput value={draft.id} onChangeText={() => {}} style={{ opacity: 0.5, cursor: "not-allowed" }} />
+                    <TextInput
+                      value={draft.id}
+                      onChangeText={isNew ? (v) => update({ id: v.toLowerCase().replace(/[^a-z0-9_-]/g, "") }) : () => {}}
+                      style={isNew ? {} : { opacity: 0.5, cursor: "not-allowed" }}
+                      placeholder="my-bot-id"
+                    />
                   </FormRow>
                 </Col>
                 <Col>
