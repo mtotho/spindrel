@@ -59,7 +59,8 @@ class SlackDispatcher:
                 )
 
     async def post_message(self, dispatch_config: dict, text: str, *,
-                           bot_id: str | None = None, reply_in_thread: bool = True) -> bool:
+                           bot_id: str | None = None, reply_in_thread: bool = True,
+                           client_actions: list[dict] | None = None) -> bool:
         """Post a message to Slack via the shared client, optionally with bot attribution."""
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")
@@ -69,12 +70,26 @@ class SlackDispatcher:
             return False
 
         attrs = bot_attribution(bot_id) if bot_id else {}
-        return await post_message(
+        ok = await post_message(
             token, channel_id, text,
             thread_ts=thread_ts,
             reply_in_thread=reply_in_thread,
             **attrs,
         )
+
+        if ok:
+            from integrations.slack.uploads import upload_image
+            for action in (client_actions or []):
+                if action.get("type") == "upload_image":
+                    await upload_image(
+                        token=token,
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        reply_in_thread=reply_in_thread,
+                        action=action,
+                    )
+
+        return ok
 
 
 register("slack", SlackDispatcher())
