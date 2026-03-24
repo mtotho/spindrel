@@ -322,15 +322,14 @@ class TestElevationLogging:
              patch("app.agent.elevation_log._LOG_PATH", str(log_path)):
             yield log_path
 
-    def test_log_entry_written(self, tmp_log_dir):
+    @pytest.mark.asyncio
+    async def test_log_entry_written(self, tmp_log_dir):
         from app.agent.elevation_log import log_elevation
         decision = ElevationDecision(
             model=ELEVATED_MODEL, was_elevated=True, score=0.65,
             rules_fired=["code_content"], signal_breakdown={"code_content": 0.14},
         )
-        entry_id = asyncio.get_event_loop().run_until_complete(
-            log_elevation(decision, bot_id="test-bot")
-        )
+        entry_id = await log_elevation(decision, bot_id="test-bot")
         assert tmp_log_dir.exists()
         lines = tmp_log_dir.read_text().strip().split("\n")
         assert len(lines) == 1
@@ -339,15 +338,14 @@ class TestElevationLogging:
         assert data["was_elevated"] is True
         assert data["bot_id"] == "test-bot"
 
-    def test_log_entry_schema(self, tmp_log_dir):
+    @pytest.mark.asyncio
+    async def test_log_entry_schema(self, tmp_log_dir):
         from app.agent.elevation_log import log_elevation
         decision = ElevationDecision(
             model=BOT_MODEL, was_elevated=False, score=0.1,
             rules_fired=[], signal_breakdown={},
         )
-        asyncio.get_event_loop().run_until_complete(
-            log_elevation(decision, bot_id="b")
-        )
+        await log_elevation(decision, bot_id="b")
         data = json.loads(tmp_log_dir.read_text().strip())
         required_fields = {
             "id", "turn_id", "timestamp", "bot_id", "channel_id",
@@ -356,18 +354,15 @@ class TestElevationLogging:
         }
         assert required_fields <= set(data.keys())
 
-    def test_backfill_tokens_and_latency(self, tmp_log_dir):
+    @pytest.mark.asyncio
+    async def test_backfill_tokens_and_latency(self, tmp_log_dir):
         from app.agent.elevation_log import backfill_elevation_log, log_elevation
         decision = ElevationDecision(
             model=ELEVATED_MODEL, was_elevated=True, score=0.5,
             rules_fired=[], signal_breakdown={},
         )
-        entry_id = asyncio.get_event_loop().run_until_complete(
-            log_elevation(decision, bot_id="b")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            backfill_elevation_log(entry_id, tokens_used=1234, latency_ms=567)
-        )
+        entry_id = await log_elevation(decision, bot_id="b")
+        await backfill_elevation_log(entry_id, tokens_used=1234, latency_ms=567)
         lines = tmp_log_dir.read_text().strip().split("\n")
         assert len(lines) == 2
         backfill = json.loads(lines[1])
