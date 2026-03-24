@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
+    # Context compression (pre-turn summarization via cheap model)
+    CONTEXT_COMPRESSION_ENABLED: bool = False
+    CONTEXT_COMPRESSION_MODEL: str = ""          # empty = use COMPACTION_MODEL
+    CONTEXT_COMPRESSION_THRESHOLD: int = 20000   # chars of conversation history to trigger
+    CONTEXT_COMPRESSION_KEEP_TURNS: int = 2      # recent user turns kept verbatim
+    CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS: int = 2000
+
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this

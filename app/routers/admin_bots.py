@@ -130,7 +130,7 @@ async def admin_bot_new(request: Request):
         local_tools=[], mcp_servers=[], client_tools=[], pinned_tools=[],
         skills=[], docker_sandbox_profiles=[],
         tool_retrieval=True, tool_similarity_threshold=None,
-        tool_result_config={},
+        tool_result_config={}, compression_config={},
         persona=False, context_compaction=True,
         compaction_interval=None, compaction_keep_turns=None,
         compaction_model=None, memory_knowledge_compaction_prompt=None,
@@ -203,6 +203,7 @@ async def admin_bot_create(
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
     tool_result_config_json: str = Form(default="{}"),
+    compression_config_json: str = Form(default="{}"),
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
@@ -252,6 +253,11 @@ async def admin_bot_create(
         tool_result_config = json.loads(tool_result_config_json or "{}")
     except json.JSONDecodeError:
         tool_result_config = {}
+
+    try:
+        compression_config = json.loads(compression_config_json or "{}")
+    except json.JSONDecodeError:
+        compression_config = {}
 
     try:
         delegation_config = json.loads(delegation_config_json or "{}")
@@ -313,6 +319,7 @@ async def admin_bot_create(
         avatar_url=avatar_url.strip() or None,
         integration_config=json.loads(integration_config_json or "{}"),
         tool_result_config=tool_result_config,
+        compression_config=compression_config,
         knowledge_max_inject_chars=_int_or_none(knowledge_max_inject_chars),
         memory_max_inject_chars=_int_or_none(memory_max_inject_chars),
         delegation_config=delegation_config,
@@ -496,6 +503,7 @@ async def admin_bot_update(
     host_exec_config_json: str = Form(default='{"enabled": false}'),
     filesystem_access_json: str = Form(default="[]"),
     tool_result_config_json: str = Form(default="{}"),
+    compression_config_json: str = Form(default="{}"),
     knowledge_max_inject_chars: str = Form(""),
     memory_max_inject_chars: str = Form(""),
     delegation_config_json: str = Form(default="{}"),
@@ -541,6 +549,11 @@ async def admin_bot_update(
         tool_result_config = json.loads(tool_result_config_json or "{}")
     except json.JSONDecodeError:
         tool_result_config = {}
+
+    try:
+        compression_config = json.loads(compression_config_json or "{}")
+    except json.JSONDecodeError:
+        compression_config = {}
 
     try:
         delegation_config = json.loads(delegation_config_json or "{}")
@@ -607,6 +620,7 @@ async def admin_bot_update(
         row.avatar_url = avatar_url.strip() or None
         row.integration_config = json.loads(integration_config_json or "{}")
         row.tool_result_config = tool_result_config
+        row.compression_config = compression_config
         row.knowledge_max_inject_chars = _int_or_none(knowledge_max_inject_chars)
         row.memory_max_inject_chars = _int_or_none(memory_max_inject_chars)
         row.delegation_config = delegation_config

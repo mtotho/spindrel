@@ -474,20 +474,73 @@ async def run_stream(
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 
+    # --- Context compression (pre-turn) ---
+    _compression_active = False
+    _full_messages: list[dict] | None = None
+    _pre_loop_len = 0
+    loop_messages = messages
+    loop_turn_start = turn_start
+    loop_user_msg_index = user_msg_index
+
+    from app.services.compression import compress_context
+    from app.agent.context import current_compression_history
+    _comp_result = await compress_context(
+        messages, bot, user_message,
+        channel_id=channel_id,
+        provider_id=provider_id_override or bot.model_provider_id,
+    )
+    if _comp_result is not None:
+        _compressed, _drilldown = _comp_result
+        _compression_active = True
+        _full_messages = list(messages)
+        current_compression_history.set(_drilldown)
+        detail_schema = get_local_tool_schemas(["get_message_detail"])
+        pre_selected_tools = (pre_selected_tools or []) + detail_schema
+
+        _original_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        _compressed_chars = sum(len(str(m.get("content", ""))) for m in _compressed)
+
+        loop_messages = _compressed
+        _pre_loop_len = len(_compressed)
+        loop_turn_start = _pre_loop_len
+        # Recalculate user_msg_index for compressed list (needed for native audio)
+        if user_msg_index is not None:
+            loop_user_msg_index = None
+            for _ci in range(len(_compressed) - 1, -1, -1):
+                if _compressed[_ci].get("role") == "user":
+                    loop_user_msg_index = _ci
+                    break
+
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="context_compressed",
+                data={
+                    "original_chars": _original_chars,
+                    "compressed_chars": _compressed_chars,
+                    "original_messages": len(messages),
+                    "compressed_messages": len(_compressed),
+                },
+            ))
+        yield {"type": "context_compressed", "original_chars": _original_chars, "compressed_chars": _compressed_chars}
+
     # Only the outermost run_stream buffers the response and emits delegation_post events.
     # Nested calls (child agents inside delegate_to_agent) just pass events through.
     if _is_outermost_stream:
         _last_response: dict | None = None
         async for event in run_agent_tool_loop(
-            messages,
+            loop_messages,
             bot,
             session_id=session_id,
             client_id=client_id,
             model_override=model_override,
             provider_id_override=provider_id_override,
-            turn_start=turn_start,
+            turn_start=loop_turn_start,
             native_audio=native_audio,
-            user_msg_index=user_msg_index,
+            user_msg_index=loop_user_msg_index,
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
             channel_id=channel_id,
@@ -509,20 +562,29 @@ async def run_stream(
             yield _last_response
     else:
         async for event in run_agent_tool_loop(
-            messages,
+            loop_messages,
             bot,
             session_id=session_id,
             client_id=client_id,
             model_override=model_override,
             provider_id_override=provider_id_override,
-            turn_start=turn_start,
+            turn_start=loop_turn_start,
             native_audio=native_audio,
-            user_msg_index=user_msg_index,
+            user_msg_index=loop_user_msg_index,
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
             channel_id=channel_id,
         ):
             yield event
+
+    # Restore original messages if compression was active — ensures persist_turn()
+    # sees full history + new turn messages (not the compressed view).
+    if _compression_active and _full_messages is not None:
+        new_msgs = loop_messages[_pre_loop_len:]
+        messages.clear()
+        messages.extend(_full_messages)
+        messages.extend(new_msgs)
+        current_compression_history.set(None)
 
 
 async def run(

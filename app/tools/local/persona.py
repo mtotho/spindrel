@@ -31,25 +31,25 @@ EDIT_PERSONA_DESCRIPTION = (
 
 
 
-@register({
-    "type": "function",
-    "function": {
-        "name": "update_persona",
-        "description": UPDATE_PERSONA_DESCRIPTION,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "Full persona layer content. Replaces the existing layer entirely.",
-                },
-            },
-            "required": ["content"],
-        },
-    },
-})
-async def update_persona_tool(content: str) -> str:
-    raise NotImplementedError("update_persona must be called via call_persona_tool with bot_id injected")
+# @register({
+#     "type": "function",
+#     "function": {
+#         "name": "update_persona",
+#         "description": UPDATE_PERSONA_DESCRIPTION,
+#         "parameters": {
+#             "type": "object",
+#             "properties": {
+#                 "content": {
+#                     "type": "string",
+#                     "description": "Full persona layer content. Replaces the existing layer entirely.",
+#                 },
+#             },
+#             "required": ["content"],
+#         },
+#     },
+# })
+# async def update_persona_tool(content: str) -> str:
+#     raise NotImplementedError("update_persona must be called via call_persona_tool with bot_id injected")
 
 
 async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
@@ -57,14 +57,14 @@ async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
         args = json.loads(arguments_json) if arguments_json else {}
     except json.JSONDecodeError:
         return "Invalid tool arguments."
-    if name == "update_persona":
-        content = (args.get("content") or "").strip()
-        if not content:
-            return "No content provided; persona not updated."
-        ok, err = await write_persona(bot_id, content)
-        if ok:
-            return "Persona updated."
-        return f"Failed to update persona: {err}" if err else "Failed to update persona."
+    # if name == "update_persona":
+    #     content = (args.get("content") or "").strip()
+    #     if not content:
+    #         return "No content provided; persona not updated."
+    #     ok, err = await write_persona(bot_id, content)
+    #     if ok:
+    #         return "Persona updated."
+    #     return f"Failed to update persona: {err}" if err else "Failed to update persona."
     if name == "append_to_persona":
         content = (args.get("content") or "").strip()
         if not content:

@@ -75,7 +75,7 @@ async def get_attachment(attachment_id: str) -> str:
             "properties": {
                 "channel_id": {
                     "type": "string",
-                    "description": "Channel UUID to list attachments for. Defaults to current channel if omitted.",
+                    "description": "OPTIONAL:Channel UUID to list attachments for. Defaults to current channel if omitted.",
                 },
                 "limit": {
                     "type": "integer",
@@ -110,7 +110,9 @@ async def list_attachments(
         try:
             ch_id = uuid.UUID(channel_id)
         except ValueError:
-            return json.dumps({"error": "Invalid channel_id — must be a valid UUID."})
+            # LLM may pass a Slack channel ID (e.g. C06RY3YBSLE) — fall back to current context
+            logger.warning("list_attachments: invalid UUID %r, falling back to current_channel_id", channel_id)
+            ch_id = current_channel_id.get()
     else:
         ch_id = current_channel_id.get()
 
