@@ -14,7 +14,7 @@ from app.agent.tools import (
     warm_mcp_tool_index_for_all_bots,
 )
 from app.config import settings
-from app.db.engine import run_migrations
+from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
 from app.tools.mcp import load_mcp_config
 
