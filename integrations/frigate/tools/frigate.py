@@ -1,6 +1,5 @@
 """Frigate NVR camera tools. Requires FRIGATE_URL in .env."""
 
-import base64
 import json
 import logging
 from typing import Optional
@@ -286,7 +285,7 @@ async def frigate_get_stats() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Media posting helpers
+# Media download helpers
 # ---------------------------------------------------------------------------
 
 
@@ -299,17 +298,16 @@ async def _get_bytes(path: str, params: dict | None = None, timeout: float = 30.
         return resp.content
 
 
-async def _post_media(
+async def _download_media(
     path: str,
     *,
     params: dict | None = None,
     filename: str,
     mime_type: str,
-    caption: str = "",
     max_bytes: int | None = None,
     timeout: float = 30.0,
 ) -> str:
-    """Download binary from Frigate → persist as attachment → return client_action."""
+    """Download binary from Frigate → persist as attachment → return attachment_id."""
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
 
@@ -322,51 +320,40 @@ async def _post_media(
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     source = current_dispatch_type.get() or "web"
-
     is_image = mime_type.startswith("image/")
-    action_type = "upload_image" if is_image else "upload_file"
 
-    try:
-        await create_attachment(
-            message_id=None,
-            channel_id=channel_id,
-            filename=filename,
-            mime_type=mime_type,
-            size_bytes=len(data),
-            posted_by=bot_id or "frigate",
-            source_integration=source,
-            file_data=data,
-            attachment_type="image" if is_image else "video",
-            bot_id=bot_id,
-        )
-    except Exception:
-        logger.warning("Failed to persist frigate attachment %s", filename, exc_info=True)
+    att = await create_attachment(
+        message_id=None,
+        channel_id=channel_id,
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=len(data),
+        posted_by=bot_id or "frigate",
+        source_integration=source,
+        file_data=data,
+        attachment_type="image" if is_image else "video",
+        bot_id=bot_id,
+    )
 
-    b64 = base64.b64encode(data).decode("ascii")
     return json.dumps({
-        "message": f"Posted {filename}" + (f": {caption}" if caption else ""),
-        "client_action": {
-            "type": action_type,
-            "data": b64,
-            "filename": filename,
-            "caption": caption,
-        },
+        "attachment_id": str(att.id),
+        "filename": filename,
+        "size_bytes": len(data),
     })
 
 
 # ---------------------------------------------------------------------------
-# Media posting tools
+# Media download tools (return attachment_id — use post_attachment to display)
 # ---------------------------------------------------------------------------
 
 
 @register({
     "type": "function",
     "function": {
-        "name": "frigate_post_camera_snapshot",
+        "name": "frigate_snapshot",
         "description": (
-            "Post the latest camera snapshot image directly into the chat. "
-            "Downloads the current frame from a Frigate camera and uploads it inline. "
-            "Use this instead of frigate_get_snapshot_url when you want the image visible in chat."
+            "Download the latest snapshot from a Frigate camera and save it as an attachment. "
+            "Returns an attachment_id. Use post_attachment to display it in chat."
         ),
         "parameters": {
             "type": "object",
@@ -388,7 +375,7 @@ async def _post_media(
         },
     },
 })
-async def frigate_post_camera_snapshot(
+async def frigate_snapshot(
     camera: str,
     bounding_box: bool = True,
     quality: int = 70,
@@ -401,28 +388,26 @@ async def frigate_post_camera_snapshot(
             params["bbox"] = 1
         if quality != 70:
             params["quality"] = quality
-        return await _post_media(
+        return await _download_media(
             f"/api/{camera}/latest.jpg",
             params=params,
             filename=f"{camera}_snapshot.jpg",
             mime_type="image/jpeg",
-            caption=f"Latest snapshot from {camera}",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
-        logger.exception("frigate_post_camera_snapshot failed")
+        logger.exception("frigate_snapshot failed")
         return _error(str(e))
 
 
 @register({
     "type": "function",
     "function": {
-        "name": "frigate_post_event_snapshot",
+        "name": "frigate_event_snapshot",
         "description": (
-            "Post the snapshot image from a Frigate detection event into the chat. "
-            "Downloads the event's best snapshot and uploads it inline. "
-            "Use after frigate_get_events to show what was detected."
+            "Download the snapshot image from a Frigate detection event and save it as an attachment. "
+            "Returns an attachment_id. Use post_attachment to display it in chat."
         ),
         "parameters": {
             "type": "object",
@@ -436,31 +421,29 @@ async def frigate_post_camera_snapshot(
         },
     },
 })
-async def frigate_post_event_snapshot(event_id: str) -> str:
+async def frigate_event_snapshot(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
     try:
-        return await _post_media(
+        return await _download_media(
             f"/api/events/{event_id}/snapshot.jpg",
             filename=f"event_{event_id}_snapshot.jpg",
             mime_type="image/jpeg",
-            caption=f"Event {event_id} snapshot",
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
-        logger.exception("frigate_post_event_snapshot failed")
+        logger.exception("frigate_event_snapshot failed")
         return _error(str(e))
 
 
 @register({
     "type": "function",
     "function": {
-        "name": "frigate_post_event_clip",
+        "name": "frigate_event_clip",
         "description": (
-            "Post the video clip from a Frigate detection event into the chat. "
-            "Downloads the event's MP4 clip and uploads it inline. "
-            "Use after frigate_get_events to show the full event recording. "
+            "Download the video clip from a Frigate detection event and save it as an attachment. "
+            "Returns an attachment_id. Use post_attachment to display it in chat. "
             "Max file size: 50 MB."
         ),
         "parameters": {
@@ -475,33 +458,32 @@ async def frigate_post_event_snapshot(event_id: str) -> str:
         },
     },
 })
-async def frigate_post_event_clip(event_id: str) -> str:
+async def frigate_event_clip(event_id: str) -> str:
     if not settings.FRIGATE_URL:
         return _error("FRIGATE_URL is not configured")
     try:
-        return await _post_media(
+        return await _download_media(
             f"/api/events/{event_id}/clip.mp4",
             filename=f"event_{event_id}_clip.mp4",
             mime_type="video/mp4",
-            caption=f"Event {event_id} clip",
             max_bytes=settings.FRIGATE_MAX_CLIP_BYTES,
             timeout=120.0,
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
-        logger.exception("frigate_post_event_clip failed")
+        logger.exception("frigate_event_clip failed")
         return _error(str(e))
 
 
 @register({
     "type": "function",
     "function": {
-        "name": "frigate_post_recording_clip",
+        "name": "frigate_recording_clip",
         "description": (
-            "Post a recording clip from a Frigate camera for a specific time range. "
-            "Frigate stitches the recording on-the-fly, so this may take a moment. "
-            "Max duration: 10 minutes. Max file size: 50 MB. "
+            "Download a recording clip from a Frigate camera for a specific time range "
+            "and save it as an attachment. Returns an attachment_id. Use post_attachment "
+            "to display it in chat. Max duration: 10 minutes. Max file size: 50 MB. "
             "Timestamps are Unix epoch seconds."
         ),
         "parameters": {
@@ -524,7 +506,7 @@ async def frigate_post_event_clip(event_id: str) -> str:
         },
     },
 })
-async def frigate_post_recording_clip(
+async def frigate_recording_clip(
     camera: str,
     start_time: float,
     end_time: float,
@@ -541,16 +523,15 @@ async def frigate_post_recording_clip(
     try:
         start_ts = str(int(start_time))
         end_ts = str(int(end_time))
-        return await _post_media(
+        return await _download_media(
             f"/api/{camera}/start/{start_ts}/end/{end_ts}/clip.mp4",
             filename=f"{camera}_{start_ts}_{end_ts}.mp4",
             mime_type="video/mp4",
-            caption=f"Recording from {camera}",
             max_bytes=settings.FRIGATE_MAX_CLIP_BYTES,
             timeout=120.0,
         )
     except httpx.HTTPStatusError as e:
         return _error(f"Frigate API error: HTTP {e.response.status_code}")
     except Exception as e:
-        logger.exception("frigate_post_recording_clip failed")
+        logger.exception("frigate_recording_clip failed")
         return _error(str(e))

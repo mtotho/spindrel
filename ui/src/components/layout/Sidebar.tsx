@@ -9,7 +9,6 @@ import {
   Wrench,
   Server,
   FileText,
-  GitBranch,
   HardDrive,
   ChevronLeft,
   ChevronRight,
@@ -43,7 +42,6 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "AUTOMATION",
     items: [
       { label: "Tasks", href: "/admin/tasks", icon: ClipboardList },
-      { label: "Delegations", href: "/admin/delegations", icon: GitBranch },
     ],
   },
   {

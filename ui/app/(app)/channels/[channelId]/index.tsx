@@ -143,7 +143,9 @@ export default function ChatScreen() {
             {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
           </Text>
           {bot && (
-            <Text className="text-text-muted text-xs">{bot.name}</Text>
+            <Link href={`/admin/bots/${bot.id}` as any}>
+              <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
+            </Link>
           )}
         </View>
         {channelId && (
