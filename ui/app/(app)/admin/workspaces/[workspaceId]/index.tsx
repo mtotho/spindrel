@@ -467,6 +467,8 @@ export default function WorkspaceDetailScreen() {
   const [image, setImage] = useState("agent-workspace:latest");
   const [network, setNetwork] = useState("none");
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [ports, setPorts] = useState<{ host: string; container: string }[]>([]);
+  const [mounts, setMounts] = useState<{ host_path: string; container_path: string; mode: string }[]>([]);
   const [cpus, setCpus] = useState("");
   const [memoryLimit, setMemoryLimit] = useState("");
   const [dockerUser, setDockerUser] = useState("");
@@ -479,6 +481,14 @@ export default function WorkspaceDetailScreen() {
     setImage(workspace.image || "agent-workspace:latest");
     setNetwork(workspace.network || "none");
     setEnv(workspace.env || {});
+    setPorts((workspace.ports || []).map((p: any) =>
+      typeof p === "string"
+        ? { host: p.split(":")[0] || "", container: p.split(":")[1] || "" }
+        : { host: String(p.host || ""), container: String(p.container || "") }
+    ));
+    setMounts((workspace.mounts || []).map((m: any) => ({
+      host_path: m.host_path || "", container_path: m.container_path || "", mode: m.mode || "rw",
+    })));
     setCpus(workspace.cpus ? String(workspace.cpus) : "");
     setMemoryLimit(workspace.memory_limit || "");
     setDockerUser(workspace.docker_user || "");
@@ -491,12 +501,16 @@ export default function WorkspaceDetailScreen() {
   const handleSave = useCallback(async () => {
     if (isNew) {
       if (!name.trim()) return;
+      const validPorts = ports.filter((p) => p.host && p.container);
+      const validMounts = mounts.filter((m) => m.host_path && m.container_path);
       await createMut.mutateAsync({
         name: name.trim(),
         description: description || undefined,
         image: image || undefined,
         network: network || undefined,
         env: Object.keys(env).length ? env : undefined,
+        ports: validPorts.length ? validPorts : undefined,
+        mounts: validMounts.length ? validMounts : undefined,
         cpus: cpus ? parseFloat(cpus) : undefined,
         memory_limit: memoryLimit || undefined,
         docker_user: dockerUser || undefined,
@@ -504,19 +518,23 @@ export default function WorkspaceDetailScreen() {
       });
       goBack();
     } else {
+      const validPorts = ports.filter((p) => p.host && p.container);
+      const validMounts = mounts.filter((m) => m.host_path && m.container_path);
       await updateMut.mutateAsync({
         name: name.trim() || undefined,
         description,
         image: image || undefined,
         network: network || undefined,
         env: Object.keys(env).length ? env : undefined,
+        ports: validPorts.length ? validPorts : undefined,
+        mounts: validMounts.length ? validMounts : undefined,
         cpus: cpus ? parseFloat(cpus) : undefined,
         memory_limit: memoryLimit || undefined,
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
       });
     }
-  }, [isNew, name, description, image, network, env, cpus, memoryLimit, dockerUser, readOnlyRoot, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -664,6 +682,142 @@ export default function WorkspaceDetailScreen() {
           {/* Environment */}
           <Section title="Environment Variables" description="Injected into the container. AGENT_SERVER_URL and AGENT_SERVER_API_KEY are auto-injected.">
             <EnvEditor env={env} onChange={setEnv} />
+          </Section>
+
+          {/* Port Mappings */}
+          <Section title="Port Mappings" description="Map host ports to container ports">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {ports.map((p, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    value={p.host}
+                    onChange={(e) => {
+                      const next = [...ports];
+                      next[i] = { ...next[i], host: e.target.value };
+                      setPorts(next);
+                    }}
+                    placeholder="Host port"
+                    style={{
+                      flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      outline: "none",
+                    }}
+                  />
+                  <span style={{ color: "#555" }}>:</span>
+                  <input
+                    value={p.container}
+                    onChange={(e) => {
+                      const next = [...ports];
+                      next[i] = { ...next[i], container: e.target.value };
+                      setPorts(next);
+                    }}
+                    placeholder="Container port"
+                    style={{
+                      flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() => setPorts(ports.filter((_, j) => j !== i))}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: "#666", padding: 2, flexShrink: 0,
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setPorts([...ports, { host: "", container: "" }])}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                  border: "1px solid #333", borderRadius: 5,
+                  background: "transparent", color: "#999", cursor: "pointer",
+                  alignSelf: "flex-start",
+                }}
+              >
+                <Plus size={12} /> Add Port
+              </button>
+            </div>
+          </Section>
+
+          {/* Volume Mounts */}
+          <Section title="Extra Mounts" description="/workspace is always mounted. Add additional host paths here.">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {mounts.map((m, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    value={m.host_path}
+                    onChange={(e) => {
+                      const next = [...mounts];
+                      next[i] = { ...next[i], host_path: e.target.value };
+                      setMounts(next);
+                    }}
+                    placeholder="Host path"
+                    style={{
+                      flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      outline: "none",
+                    }}
+                  />
+                  <span style={{ color: "#555" }}>→</span>
+                  <input
+                    value={m.container_path}
+                    onChange={(e) => {
+                      const next = [...mounts];
+                      next[i] = { ...next[i], container_path: e.target.value };
+                      setMounts(next);
+                    }}
+                    placeholder="Container path"
+                    style={{
+                      flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      outline: "none",
+                    }}
+                  />
+                  <select
+                    value={m.mode}
+                    onChange={(e) => {
+                      const next = [...mounts];
+                      next[i] = { ...next[i], mode: e.target.value };
+                      setMounts(next);
+                    }}
+                    style={{
+                      background: "#111", border: "1px solid #333", borderRadius: 5,
+                      padding: "3px 6px", color: "#ccc", fontSize: 11, cursor: "pointer",
+                      outline: "none", flexShrink: 0,
+                    }}
+                  >
+                    <option value="rw">rw</option>
+                    <option value="ro">ro</option>
+                  </select>
+                  <button
+                    onClick={() => setMounts(mounts.filter((_, j) => j !== i))}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: "#666", padding: 2, flexShrink: 0,
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setMounts([...mounts, { host_path: "", container_path: "", mode: "rw" }])}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                  border: "1px solid #333", borderRadius: 5,
+                  background: "transparent", color: "#999", cursor: "pointer",
+                  alignSelf: "flex-start",
+                }}
+              >
+                <Plus size={12} /> Add Mount
+              </button>
+            </div>
           </Section>
 
           {/* Container controls (only for existing workspaces) */}
