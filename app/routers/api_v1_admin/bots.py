@@ -83,6 +83,8 @@ class BotEditorDataOut(BaseModel):
     all_bots: list[dict] = []
     all_harnesses: list[str] = []
     all_sandbox_profiles: list[dict] = []
+    model_param_definitions: list[dict] = []
+    model_param_support: dict[str, list[str]] = {}
 
 
 @router.get("/bots/{bot_id}/editor-data")
@@ -150,6 +152,8 @@ async def admin_bot_editor_data(
         for p in sandbox_rows
     ]
 
+    from app.agent.model_params import MODEL_PARAM_SUPPORT, PARAM_DEFINITIONS
+
     return BotEditorDataOut(
         bot=bot_out,
         tool_groups=[ToolGroupOut(**g) for g in tool_groups],
@@ -159,6 +163,8 @@ async def admin_bot_editor_data(
         all_bots=all_bots_out,
         all_harnesses=all_harnesses,
         all_sandbox_profiles=sandbox_profiles,
+        model_param_definitions=PARAM_DEFINITIONS,
+        model_param_support={k: sorted(v) for k, v in MODEL_PARAM_SUPPORT.items()},
     )
 
 
@@ -247,6 +253,7 @@ class BotUpdateIn(BaseModel):
     integration_config: Optional[dict] = None
     workspace: Optional[dict] = None
     docker_sandbox_profiles: Optional[list[str]] = None
+    model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -255,6 +262,7 @@ class BotUpdateIn(BaseModel):
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
+    user_id: Optional[str] = None
 
 
 @router.put("/bots/{bot_id}", response_model=BotOut)
@@ -283,6 +291,12 @@ async def admin_bot_update(
 
     if "skills" in updates:
         row.skills = updates.pop("skills")
+
+    # Convert user_id string to UUID
+    if "user_id" in updates:
+        import uuid as _uuid
+        uid = updates.pop("user_id")
+        row.user_id = _uuid.UUID(uid) if uid else None
 
     for key, val in updates.items():
         if hasattr(row, key):
@@ -336,6 +350,7 @@ class BotCreateIn(BaseModel):
     integration_config: Optional[dict] = None
     workspace: Optional[dict] = None
     docker_sandbox_profiles: Optional[list[str]] = None
+    model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -344,6 +359,7 @@ class BotCreateIn(BaseModel):
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
+    user_id: Optional[str] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -384,6 +400,12 @@ async def admin_bot_create(
         row.knowledge_config = fields.pop("knowledge_config")
     if "skills" in fields:
         row.skills = fields.pop("skills")
+
+    # Convert user_id string to UUID
+    if "user_id" in fields:
+        import uuid as _uuid
+        uid = fields.pop("user_id")
+        row.user_id = _uuid.UUID(uid) if uid else None
 
     for key, val in fields.items():
         if hasattr(row, key):

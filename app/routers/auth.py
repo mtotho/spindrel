@@ -90,6 +90,11 @@ class UpdateProfileRequest(BaseModel):
     integration_config: dict | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 def _user_response(user) -> UserResponse:
     return UserResponse(
         id=str(user.id),
@@ -207,6 +212,13 @@ async def auth_logout(req: LogoutRequest, db: AsyncSession = Depends(get_db)):
 # Authenticated endpoints (JWT required)
 # ---------------------------------------------------------------------------
 
+@router.get("/integrations")
+async def auth_integrations():
+    """List active integrations and their identity fields for profile linking."""
+    from integrations import discover_identity_fields
+    return discover_identity_fields()
+
+
 @router.get("/me", response_model=UserResponse)
 async def auth_me(user=Depends(verify_user)):
     return _user_response(user)
@@ -231,3 +243,24 @@ async def auth_update_me(
     await db.commit()
     await db.refresh(user)
     return _user_response(user)
+
+
+@router.post("/me/change-password")
+async def auth_change_password(
+    req: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    from app.services.auth import hash_password
+    user = await get_user_by_id(db, user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.auth_method != "local" or not user.password_hash:
+        raise HTTPException(status_code=400, detail="Password change only available for local auth")
+    if not verify_password(req.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    user.password_hash = hash_password(req.new_password)
+    await db.commit()
+    return {"status": "ok"}

@@ -98,6 +98,9 @@ class Settings(BaseSettings):
 
     # Workspaces
     WORKSPACE_BASE_DIR: str = "~/.agent-workspaces"
+    WORKSPACE_DEFAULT_IMAGE: str = "agent-workspace:latest"
+    # Public URL of this server (injected into workspace containers)
+    SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
 
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False

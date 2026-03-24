@@ -10,8 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Attachment, Channel, KnowledgeAccess, Message, Session, Task
-from app.dependencies import get_db, verify_auth
-from app.services.channels import get_or_create_channel, ensure_active_session, reset_channel_session, switch_channel_session
+from app.dependencies import get_db, verify_auth_or_user
+from app.services.channels import apply_channel_visibility, get_or_create_channel, ensure_active_session, reset_channel_session, switch_channel_session
 from app.services.sessions import store_passive_message
 from app.tools.local.search_history import _build_query, _serialize_messages
 
@@ -41,6 +41,8 @@ class ChannelOut(BaseModel):
     active_session_id: Optional[uuid.UUID]
     require_mention: bool
     passive_memory: bool
+    private: bool = False
+    user_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: datetime
 
@@ -105,7 +107,7 @@ class HistoryMessageOut(BaseModel):
 async def create_channel(
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Create or retrieve a channel."""
     from app.agent.bots import get_bot
@@ -132,10 +134,11 @@ async def list_channels(
     integration: Optional[str] = None,
     bot_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with optional filters."""
     stmt = select(Channel).order_by(Channel.created_at.desc())
+    stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
     if bot_id:
@@ -148,7 +151,7 @@ async def list_channels(
 async def get_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get channel info."""
     channel = await db.get(Channel, channel_id)
@@ -162,7 +165,7 @@ async def update_channel(
     channel_id: uuid.UUID,
     body: ChannelUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -200,7 +203,7 @@ async def inject_channel_message(
     channel_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Inject a message into a channel's active session."""
     channel = await db.get(Channel, channel_id)
@@ -248,7 +251,7 @@ async def inject_channel_message(
 async def reset_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Reset a channel's session. Old session preserved, new one becomes active."""
     channel = await db.get(Channel, channel_id)
@@ -274,7 +277,7 @@ async def switch_session(
     channel_id: uuid.UUID,
     body: SwitchSessionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Switch a channel's active session to an existing session."""
     channel = await db.get(Channel, channel_id)
@@ -298,7 +301,7 @@ async def switch_session(
 async def list_channel_knowledge(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List knowledge entries accessible to this channel."""
     from app.db.models import BotKnowledge
@@ -340,7 +343,7 @@ async def search_channel_messages(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Search messages across all sessions in a channel."""
     channel = await db.get(Channel, channel_id)
@@ -377,7 +380,7 @@ class AttachmentStatsOut(BaseModel):
 async def get_attachment_stats(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get attachment storage stats and effective retention config for a channel."""
     channel = await db.get(Channel, channel_id)

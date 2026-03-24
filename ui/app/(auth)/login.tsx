@@ -16,7 +16,12 @@ export default function LoginScreen() {
   const setServer = useAuthStore((s) => s.setServer);
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const [serverUrl, setServerUrl] = useState("");
+  const [serverUrl, setServerUrl] = useState(() => {
+    if (typeof window !== "undefined") {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+    return "http://localhost:8000";
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");

@@ -56,6 +56,15 @@ def format_memory_search_hit(memory_id: uuid.UUID, content: str, created_at) -> 
     return f"id: {memory_id}\n{body}"
 
 
+def _get_user_bot_ids(user_id: str | None) -> list[str] | None:
+    """Return bot IDs owned by the given user, or None if no user scoping."""
+    if not user_id:
+        return None
+    from app.agent.bots import list_bots
+    ids = [b.id for b in list_bots() if b.user_id == user_id]
+    return ids if ids else None
+
+
 def memory_scope_where(
     session_id: uuid.UUID,
     client_id: str,
@@ -65,10 +74,14 @@ def memory_scope_where(
     cross_client: bool,
     cross_bot: bool,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ):
     """SQLAlchemy filter for memories visible under the same rules as retrieval.
 
     Returns None when no row filter is needed (widest / global scope).
+
+    When user_id is provided and cross_bot is True, memory is scoped to bots
+    owned by the same user instead of being fully open.
     """
     if not cross_channel:
         # Narrowest scope: same channel + same bot
@@ -81,9 +94,15 @@ def memory_scope_where(
     if cross_channel and cross_client and not cross_bot:
         return Memory.bot_id == bot_id
     if cross_channel and not cross_client and cross_bot:
+        user_bot_ids = _get_user_bot_ids(user_id)
+        if user_bot_ids is not None:
+            return and_(Memory.client_id == client_id, Memory.bot_id.in_(user_bot_ids))
         return Memory.client_id == client_id
     if cross_channel and cross_client and cross_bot:
-        return None
+        user_bot_ids = _get_user_bot_ids(user_id)
+        if user_bot_ids is not None:
+            return Memory.bot_id.in_(user_bot_ids)
+        return None  # no user_id = see everything (old behavior)
     # Fallback
     if channel_id is not None:
         return and_(Memory.channel_id == channel_id, Memory.bot_id == bot_id)
@@ -100,6 +119,7 @@ def _apply_memory_scope(
     cross_client: bool,
     cross_bot: bool,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ):
     clause = memory_scope_where(
         session_id, client_id, bot_id,
@@ -107,6 +127,7 @@ def _apply_memory_scope(
         cross_client=cross_client,
         cross_bot=cross_bot,
         channel_id=channel_id,
+        user_id=user_id,
     )
     if clause is not None:
         return stmt.where(clause)
@@ -123,6 +144,7 @@ async def retrieve_memory_matches(
     cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> tuple[list[tuple[uuid.UUID, str, datetime | None, float]], float]:
     """Vector search; returns (memory_id, raw_content, created_at, similarity) per hit, plus best similarity."""
     try:
@@ -143,6 +165,7 @@ async def retrieve_memory_matches(
         cross_client=cross_client,
         cross_bot=cross_bot,
         channel_id=channel_id,
+        user_id=user_id,
     )
 
     try:
@@ -236,15 +259,13 @@ async def retrieve_memories(
     cross_bot: bool = False,
     similarity_threshold: float = settings.MEMORY_SIMILARITY_THRESHOLD,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> tuple[list[str], float]:
     """Search the memories table for relevant past summaries.
 
     By default, scoped to the current channel.
     If cross_channel is True, widens to all channels for this client_id.
-
-    Note: setting MEMORY_SIMILARITY_THRESHOLD higher will make memory retrieval stricter
-    (only highly similar memories will be returned), while setting it lower will recall more loosely-related memories.
-
+    If user_id is provided with cross_bot=True, scopes to bots owned by that user.
     """
     matches, best_similarity = await retrieve_memory_matches(
         query=query,
@@ -256,6 +277,7 @@ async def retrieve_memories(
         cross_bot=cross_bot,
         similarity_threshold=similarity_threshold,
         channel_id=channel_id,
+        user_id=user_id,
     )
     chunks = [
         _format_memory_for_context(content, created_at)
@@ -274,6 +296,7 @@ async def delete_memory_scoped(
     cross_client: bool,
     cross_bot: bool,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> tuple[bool, str | None]:
     """Delete one memory row if it exists and falls under the given scope."""
     stmt = delete(Memory).where(Memory.id == memory_id)
@@ -283,6 +306,7 @@ async def delete_memory_scoped(
         cross_client=cross_client,
         cross_bot=cross_bot,
         channel_id=channel_id,
+        user_id=user_id,
     )
     if clause is not None:
         stmt = stmt.where(clause)
@@ -311,6 +335,7 @@ async def merge_memories_scoped(
     cross_bot: bool,
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> tuple[bool, str | None, uuid.UUID | None]:
     """Replace several memories with one new row (re-embedded). Order follows memory_ids."""
     unique_ids = list(dict.fromkeys(memory_ids))
@@ -322,6 +347,7 @@ async def merge_memories_scoped(
         cross_client=cross_client,
         cross_bot=cross_bot,
         channel_id=channel_id,
+        user_id=user_id,
     )
     stmt = select(Memory).where(Memory.id.in_(unique_ids))
     clause = memory_scope_where(session_id, client_id, bot_id, **scope_kw)

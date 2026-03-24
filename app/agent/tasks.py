@@ -377,7 +377,7 @@ async def run_exec_task(task: Task) -> None:
             result = await sandbox_service.exec(instance, script)
         elif bot.workspace.enabled:
             from app.services.workspace import workspace_service
-            ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "")
+            ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "", bot=bot)
             # Convert to sandbox-compatible result
             from dataclasses import dataclass as _dc
             @_dc

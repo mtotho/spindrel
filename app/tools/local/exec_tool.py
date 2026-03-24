@@ -199,7 +199,7 @@ async def _exec_sync(
         if bot.workspace.enabled:
             from app.services.workspace import workspace_service
             exec_res = await workspace_service.exec(
-                bot.id, script, bot.workspace, working_directory or "",
+                bot.id, script, bot.workspace, working_directory or "", bot=bot,
             )
             output: dict = {
                 "exit_code": exec_res.exit_code,

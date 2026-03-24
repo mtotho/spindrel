@@ -93,6 +93,12 @@ async def dispatch_tool_call(
             "merge_memories",
             "promote_memories_to_knowledge",
         ) and session_id and client_id:
+            # Get user_id for user-scoped cross-bot memory
+            try:
+                from app.agent.bots import get_bot as _get_bot
+                _user_id = _get_bot(bot_id).user_id
+            except Exception:
+                _user_id = None
             result = await call_memory_tool(
                 name,
                 args or "{}",
@@ -102,6 +108,7 @@ async def dispatch_tool_call(
                 bot_memory,
                 correlation_id=correlation_id,
                 channel_id=channel_id,
+                user_id=_user_id,
             )
         elif name in ("update_persona", "append_to_persona", "edit_persona"):
             result = await call_persona_tool(name, args or "{}", bot_id)

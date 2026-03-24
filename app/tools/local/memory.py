@@ -31,6 +31,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _current_user_id() -> str | None:
+    """Get the owner user_id for the current bot (for user-scoped memory)."""
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return None
+    try:
+        from app.agent.bots import get_bot
+        return get_bot(bot_id).user_id
+    except Exception:
+        return None
+
 SEARCH_MEMORIES_DESCRIPTION = (
     "Search long-term memory by semantic similarity. Memories relevant to the user's "
     "message are already injected into your context (see 'Relevant memories from past "
@@ -137,6 +149,7 @@ async def search_memories(query: str) -> str:
         cross_bot=cross_bot,
         similarity_threshold=threshold,
         channel_id=channel_id_val,
+        user_id=_current_user_id(),
     )
     if not matches:
         return "No relevant memories found."
@@ -297,6 +310,7 @@ async def search_memories_impl(
     cross_bot: bool = True,
     similarity_threshold: float | None = None,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> str:
     """Search memories; caller passes session_id, client_id, and scope."""
     query = (query or "").strip()
@@ -313,6 +327,7 @@ async def search_memories_impl(
         cross_bot=cross_bot,
         similarity_threshold=threshold,
         channel_id=channel_id,
+        user_id=user_id,
     )
     if not matches:
         return "No relevant memories found."
@@ -352,6 +367,7 @@ async def purge_memory_impl(
     client_id: str,
     bot_id: str,
     memory_config: "MemoryConfig",
+    user_id: str | None = None,
 ) -> str:
     mid = _parse_uuid(memory_id)
     if mid is None:
@@ -364,6 +380,7 @@ async def purge_memory_impl(
         cross_channel=memory_config.cross_channel,
         cross_client=memory_config.cross_client,
         cross_bot=memory_config.cross_bot,
+        user_id=user_id,
     )
     if ok:
         return "Memory deleted."
@@ -378,6 +395,7 @@ async def merge_memories_impl(
     bot_id: str,
     memory_config: "MemoryConfig",
     correlation_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> str:
     parsed = _parse_memory_id_list(memory_ids)
     if parsed is None:
@@ -392,6 +410,7 @@ async def merge_memories_impl(
         cross_client=memory_config.cross_client,
         cross_bot=memory_config.cross_bot,
         correlation_id=correlation_id,
+        user_id=user_id,
     )
     if ok and new_id:
         return f"Memories merged into new id: {new_id}."
@@ -515,6 +534,7 @@ async def call_memory_tool(
     *,
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> str:
     """Run a memory tool with session_id, client_id, and config injected by the loop. No context vars."""
     try:
@@ -532,6 +552,7 @@ async def call_memory_tool(
             cross_bot=memory_config.cross_bot,
             similarity_threshold=memory_config.similarity_threshold,
             channel_id=channel_id,
+            user_id=user_id,
         )
     if name == "save_memory":
         return await save_memory_impl(args.get("content", ""), session_id, client_id, bot_id, channel_id=channel_id)
@@ -542,6 +563,7 @@ async def call_memory_tool(
             client_id,
             bot_id,
             memory_config,
+            user_id=user_id,
         )
     if name == "merge_memories":
         return await merge_memories_impl(
@@ -552,6 +574,7 @@ async def call_memory_tool(
             bot_id,
             memory_config,
             correlation_id,
+            user_id=user_id,
         )
     if name == "promote_memories_to_knowledge":
         return await promote_memories_to_knowledge_impl(

@@ -9,9 +9,9 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
-  TextInput, SelectInput, Toggle, FormRow, Row, Col,
+  TextInput, SelectInput, Toggle, FormRow, Row, Col, Slider,
 } from "@/src/components/shared/FormControls";
-import type { BotConfig, BotEditorData } from "@/src/types/api";
+import type { BotConfig, BotEditorData, ModelParamDefinition } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
 // Sections — Prompt & Persona adjacent, no compaction
@@ -178,6 +178,99 @@ function SectionNav({
           >
             {s.label}
           </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Model parameters section
+// ---------------------------------------------------------------------------
+function ModelParamsSection({
+  definitions,
+  support,
+  model,
+  params,
+  onChange,
+}: {
+  definitions: ModelParamDefinition[];
+  support: Record<string, string[]>;
+  model: string;
+  params: Record<string, number>;
+  onChange: (p: Record<string, number>) => void;
+}) {
+  // Derive provider family from model string
+  const family = model.includes("/") ? model.split("/")[0].toLowerCase() : "openai";
+  const supported = new Set(support[family] || support["_default"] || ["temperature", "max_tokens"]);
+
+  const setParam = (name: string, value: number | undefined) => {
+    const next = { ...params };
+    if (value === undefined) {
+      delete next[name];
+    } else {
+      next[name] = value;
+    }
+    onChange(next);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginTop: 4 }}>Model Parameters</div>
+      {definitions.map((def) => {
+        const isSupported = supported.has(def.name);
+        const hasValue = params[def.name] !== undefined;
+        const currentValue = hasValue ? params[def.name] : (def.default ?? 0);
+
+        return (
+          <FormRow key={def.name} label={def.label} description={!isSupported ? `Not supported by ${family} models` : def.description}>
+            {def.type === "slider" ? (
+              <Slider
+                value={currentValue}
+                onChange={(v) => setParam(def.name, v)}
+                min={def.min}
+                max={def.max}
+                step={def.step}
+                disabled={!isSupported}
+                defaultValue={def.default}
+              />
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number"
+                  value={hasValue ? params[def.name] : ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") {
+                      setParam(def.name, undefined);
+                    } else {
+                      setParam(def.name, parseInt(v, 10));
+                    }
+                  }}
+                  placeholder={def.default != null ? `Default: ${def.default}` : "Model default"}
+                  min={def.min}
+                  max={def.max}
+                  disabled={!isSupported}
+                  style={{
+                    background: "#111", border: "1px solid #333", borderRadius: 8,
+                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, width: 160,
+                    outline: "none", opacity: isSupported ? 1 : 0.4,
+                  }}
+                />
+                {hasValue && (
+                  <button
+                    onClick={() => setParam(def.name, undefined)}
+                    style={{
+                      fontSize: 10, color: "#666", background: "#1a1a1a", border: "1px solid #333",
+                      borderRadius: 4, padding: "2px 6px", cursor: "pointer",
+                    }}
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+            )}
+          </FormRow>
         );
       })}
     </div>
@@ -1114,7 +1207,7 @@ export default function BotEditorScreen() {
     const q = filter.toLowerCase();
     const match = new Set<SectionKey>();
     const keywords: Record<SectionKey, string[]> = {
-      identity: ["id", "name", "model", "provider"],
+      identity: ["id", "name", "model", "provider", "temperature", "params", "creativity"],
       prompt: ["system", "prompt"],
       persona: ["persona", "personality", "tone"],
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization", "compression"],
@@ -1229,6 +1322,15 @@ export default function BotEditorScreen() {
               <FormRow label="Model">
                 <LlmModelDropdown value={draft.model} onChange={(v) => update({ model: v })} />
               </FormRow>
+              {editorData.model_param_definitions?.length > 0 && (
+                <ModelParamsSection
+                  definitions={editorData.model_param_definitions}
+                  support={editorData.model_param_support}
+                  model={draft.model}
+                  params={draft.model_params || {}}
+                  onChange={(p) => update({ model_params: p })}
+                />
+              )}
             </div>
           )}
 

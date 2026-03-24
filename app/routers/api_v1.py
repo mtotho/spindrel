@@ -9,6 +9,7 @@ from app.routers.api_v1_sessions import router as sessions_router
 from app.routers.api_v1_tasks import router as tasks_router
 from app.routers.api_v1_todos import router as todos_router
 from app.routers.api_v1_users import router as users_router
+from app.routers.api_v1_workspaces import router as workspaces_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
@@ -19,3 +20,4 @@ router.include_router(sessions_router)
 router.include_router(tasks_router)
 router.include_router(todos_router)
 router.include_router(users_router)
+router.include_router(workspaces_router)

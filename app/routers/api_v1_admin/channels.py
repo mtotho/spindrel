@@ -25,7 +25,8 @@ from app.db.models import (
     Task,
     TraceEvent,
 )
-from app.dependencies import get_db, verify_auth
+from app.dependencies import get_db, verify_auth_or_user
+from app.services.channels import apply_channel_visibility
 
 from ._helpers import _heartbeat_correlation_ids
 from ._schemas import MemoryListOut, MemoryOut
@@ -46,6 +47,8 @@ class ChannelOut(BaseModel):
     active_session_id: Optional[uuid.UUID] = None
     require_mention: bool = True
     passive_memory: bool = True
+    private: bool = False
+    user_id: Optional[uuid.UUID] = None
     display_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -293,10 +296,11 @@ async def admin_channels_list(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with pagination and optional filters."""
     stmt = select(Channel).order_by(Channel.updated_at.desc())
+    stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
     if bot_id:
@@ -323,7 +327,7 @@ async def admin_channels_list(
 async def admin_channel_detail(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Channel detail with linked entity counts."""
     channel = await db.get(Channel, channel_id)
@@ -378,7 +382,7 @@ async def admin_channel_detail(
 async def admin_channel_settings(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get full channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -392,7 +396,7 @@ async def admin_channel_settings_update(
     channel_id: uuid.UUID,
     body: ChannelSettingsUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -423,7 +427,7 @@ async def admin_channel_settings_update(
 async def admin_channel_sessions(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List sessions for a channel (last 20, ordered by last_active desc, with message counts)."""
     channel = await db.get(Channel, channel_id)
@@ -474,7 +478,7 @@ async def admin_channel_sessions(
 async def admin_channel_heartbeat_get(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get heartbeat config and recent history for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -531,7 +535,7 @@ async def admin_channel_heartbeat_update(
     channel_id: uuid.UUID,
     body: HeartbeatUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Update heartbeat settings."""
     channel = await db.get(Channel, channel_id)
@@ -571,7 +575,7 @@ async def admin_channel_heartbeat_update(
 async def admin_channel_heartbeat_toggle(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Toggle heartbeat enabled state."""
     channel = await db.get(Channel, channel_id)
@@ -609,7 +613,7 @@ async def admin_channel_heartbeat_toggle(
 async def admin_channel_heartbeat_fire(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Fire heartbeat immediately."""
     from app.services.heartbeat import fire_heartbeat
@@ -635,7 +639,7 @@ async def admin_channel_heartbeat_fire(
 async def admin_channel_memories(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List recent memories for a channel (15, ordered by created_at desc)."""
     channel = await db.get(Channel, channel_id)
@@ -674,7 +678,7 @@ async def admin_channel_memories(
 async def admin_channel_tasks(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List recent tasks for a channel (10, ordered by created_at desc)."""
     channel = await db.get(Channel, channel_id)
@@ -718,7 +722,7 @@ async def admin_channel_tasks(
 async def admin_channel_plans(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """List plans with items for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -767,7 +771,7 @@ async def admin_channel_plans(
 async def admin_channel_compression(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    _auth: str = Depends(verify_auth_or_user),
 ):
     """Get compression stats from TraceEvent context_compressed events."""
     from app.services.compression import (
@@ -856,7 +860,7 @@ async def admin_channel_compression(
 async def get_channel_knowledge(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Return knowledge entries scoped to this channel."""
     stmt = (
@@ -933,10 +937,11 @@ async def admin_channels_enriched(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth),
+    auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with integration-resolved display names."""
     stmt = select(Channel).order_by(Channel.updated_at.desc())
+    stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
     if bot_id:

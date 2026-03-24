@@ -2,13 +2,17 @@
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
 from app.db.models import Channel, Session
+
+if TYPE_CHECKING:
+    from app.db.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ async def get_or_create_channel(
     integration: str | None = None,
     name: str | None = None,
     dispatch_config: dict | None = None,
+    user_id: uuid.UUID | None = None,
+    private: bool = False,
 ) -> Channel:
     """Find or create a channel. Returns the Channel row.
 
@@ -90,6 +96,8 @@ async def get_or_create_channel(
             client_id=client_id,
             integration=integration,
             dispatch_config=dispatch_config,
+            private=private,
+            user_id=user_id,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -104,6 +112,8 @@ async def get_or_create_channel(
         bot_id=bot_id,
         integration=integration,
         dispatch_config=dispatch_config,
+        private=private,
+        user_id=user_id,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -189,3 +199,42 @@ async def switch_channel_session(
     await db.flush()
     await db.commit()
     return session_id
+
+
+def apply_channel_visibility(stmt, user):
+    """Apply visibility filter to a channel query based on the authenticated user.
+
+    - Admin users (or API key auth — user is a string) see all channels.
+    - Regular users see: public channels + their own private channels.
+    """
+    from app.db.models import User
+    if user is None or not isinstance(user, User):
+        # API key auth or no user — see everything
+        return stmt
+    if user.is_admin:
+        return stmt
+    return stmt.where(
+        or_(
+            Channel.private == False,  # noqa: E712
+            Channel.user_id == user.id,
+        )
+    )
+
+
+async def resolve_integration_user(
+    db: AsyncSession,
+    integration: str,
+    integration_user_id: str,
+) -> "User | None":
+    """Look up a system User by their integration identity.
+
+    Searches User.integration_config->'{integration}'->>'user_id' for a match.
+    Returns the User or None.
+    """
+    from app.db.models import User
+    stmt = select(User).where(
+        User.integration_config[integration]["user_id"].astext == integration_user_id,
+        User.is_active == True,  # noqa: E712
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()

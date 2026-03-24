@@ -65,6 +65,38 @@ def discover_integrations() -> list[tuple[str, APIRouter]]:
     return results
 
 
+def discover_identity_fields() -> list[dict]:
+    """Discover integration identity fields for user profile linking.
+
+    Returns list of dicts: {id, name, fields: [{key, label, description}]}
+    Only includes integrations that have a config.py with IDENTITY_FIELDS.
+    """
+    results: list[dict] = []
+
+    for candidate in sorted(_INTEGRATIONS_DIR.iterdir()):
+        if not candidate.is_dir() or candidate.name.startswith("_"):
+            continue
+
+        config_file = candidate / "config.py"
+        if not config_file.exists():
+            continue
+
+        integration_id = candidate.name
+        try:
+            module = importlib.import_module(f"integrations.{integration_id}.config")
+            fields = getattr(module, "IDENTITY_FIELDS", None)
+            if fields:
+                results.append({
+                    "id": integration_id,
+                    "name": integration_id.capitalize(),
+                    "fields": fields,
+                })
+        except Exception:
+            logger.exception("Failed to load identity fields for integration %r", integration_id)
+
+    return results
+
+
 def discover_processes() -> list[dict]:
     """Discover integration background processes.
 
