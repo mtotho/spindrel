@@ -38,10 +38,6 @@ class Settings(BaseSettings):
     SEARXNG_URL: str = "http://searxng:8080"
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
 
-    # Bennie Loggins (pet health API)
-    BENNIE_LOGGINS_BASE_URL: str = "https://bennieloggins.com"
-    BENNIE_LOGGINS_API_KEY: str = ""
-
     # Context compaction
     COMPACTION_MODEL: str = "gemini/gemini-2.5-flash"
     COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
@@ -155,6 +151,13 @@ class Settings(BaseSettings):
     ATTACHMENT_MAX_SIZE_BYTES: int | None = None  # global default, None = no limit
     ATTACHMENT_TYPES_ALLOWED: list[str] | None = None  # global default, None = all types
     ATTACHMENT_RETENTION_SWEEP_INTERVAL_S: int = 3600  # 1 hour between sweeps
+
+    # User authentication (JWT + Google OAuth)
+    JWT_SECRET: str = ""  # auto-generated on first startup if empty
+    JWT_ACCESS_EXPIRY: int = 3600  # 1 hour
+    JWT_REFRESH_EXPIRY: int = 2592000  # 30 days
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
 
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""

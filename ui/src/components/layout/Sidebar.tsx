@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
+  Users,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useChannels } from "../../api/hooks/useChannels";
@@ -50,6 +51,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Tools", href: "/admin/tools", icon: Wrench },
       { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "Sandboxes", href: "/admin/sandboxes", icon: HardDrive },
+      { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
     ],
   },

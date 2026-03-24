@@ -200,7 +200,7 @@ export function MessageInput({ onSend, disabled }: Props) {
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
-      <View className="border-t border-surface-border bg-surface">
+      <View className="border-t border-surface-border bg-surface" style={{ flexShrink: 0 }}>
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div

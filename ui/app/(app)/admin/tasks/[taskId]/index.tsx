@@ -47,6 +47,137 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Scheduled At picker — datetime-local + quick offset presets
+// ---------------------------------------------------------------------------
+const SCHEDULE_PRESETS = [
+  { label: "+30m", value: "+30m" },
+  { label: "+1h", value: "+1h" },
+  { label: "+2h", value: "+2h" },
+  { label: "+6h", value: "+6h" },
+  { label: "+1d", value: "+1d" },
+  { label: "+7d", value: "+7d" },
+];
+
+function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isRelative = /^\+\d+[smhd]$/.test(value);
+
+  return (
+    <FormRow label="Scheduled At">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            onClick={() => onChange("")}
+            style={{
+              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6,
+              background: !value ? "#3b82f6" : "#1a1a1a",
+              color: !value ? "#fff" : "#888",
+            }}
+          >
+            Now
+          </button>
+          {SCHEDULE_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => onChange(p.value)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 6,
+                background: value === p.value ? "#3b82f6" : "#1a1a1a",
+                color: value === p.value ? "#fff" : "#888",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="datetime-local"
+          value={isRelative ? "" : value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            background: "#111", border: "1px solid #333", borderRadius: 8,
+            padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
+            outline: "none", colorScheme: "dark",
+          }}
+        />
+        {isRelative && (
+          <div style={{ fontSize: 10, color: "#666" }}>
+            Relative: runs {value} from now
+          </div>
+        )}
+      </div>
+    </FormRow>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recurrence picker — preset pills + custom input
+// ---------------------------------------------------------------------------
+const RECURRENCE_PRESETS = [
+  { label: "None", value: "" },
+  { label: "30 min", value: "+30m" },
+  { label: "1 hour", value: "+1h" },
+  { label: "2 hours", value: "+2h" },
+  { label: "6 hours", value: "+6h" },
+  { label: "12 hours", value: "+12h" },
+  { label: "Daily", value: "+1d" },
+  { label: "Weekly", value: "+7d" },
+];
+
+function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
+  const showCustom = !!value && !isPreset;
+
+  return (
+    <FormRow label="Recurrence">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {RECURRENCE_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => onChange(p.value)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 6,
+                background: value === p.value ? (p.value ? "#92400e" : "#333") : "#1a1a1a",
+                color: value === p.value ? (p.value ? "#fcd34d" : "#e5e5e5") : "#888",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+          <button
+            onClick={() => { if (!showCustom) onChange("+3h"); }}
+            style={{
+              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6,
+              background: showCustom ? "#92400e" : "#1a1a1a",
+              color: showCustom ? "#fcd34d" : "#888",
+            }}
+          >
+            Custom
+          </button>
+        </div>
+        {showCustom && (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="+3h, +45m, etc."
+            style={{
+              background: "#111", border: "1px solid #333", borderRadius: 8,
+              padding: "7px 12px", color: "#e5e5e5", fontSize: 13, outline: "none",
+              maxWidth: 200,
+            }}
+          />
+        )}
+      </div>
+    </FormRow>
+  );
+}
+
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
   return (
     <button
@@ -289,21 +420,8 @@ export default function TaskDetailScreen() {
             </Section>
 
             <Section title="Scheduling">
-              <FormRow label="Scheduled At" description="ISO datetime or +30m, +2h, +1d">
-                <TextInput
-                  value={scheduledAt}
-                  onChangeText={setScheduledAt}
-                  placeholder="e.g. +2h or 2026-03-25T10:00"
-                />
-              </FormRow>
-
-              <FormRow label="Recurrence" description="Repeat interval: +1h, +1d, etc.">
-                <TextInput
-                  value={recurrence}
-                  onChangeText={setRecurrence}
-                  placeholder="e.g. +1h, +1d"
-                />
-              </FormRow>
+              <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
+              <RecurrencePicker value={recurrence} onChange={setRecurrence} />
             </Section>
 
             <Section title="Options">

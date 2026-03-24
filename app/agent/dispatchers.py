@@ -23,6 +23,8 @@ class Dispatcher(Protocol):
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None: ...
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
                            client_actions: list[dict] | None = None) -> bool: ...
 
 
@@ -47,6 +49,8 @@ class _NoneDispatcher:
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
                            client_actions: list[dict] | None = None) -> bool:
         return False
 
@@ -66,6 +70,8 @@ class _WebhookDispatcher:
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
                            client_actions: list[dict] | None = None) -> bool:
         return False
 
@@ -101,6 +107,8 @@ class _InternalDispatcher:
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
                            client_actions: list[dict] | None = None) -> bool:
         return False
 

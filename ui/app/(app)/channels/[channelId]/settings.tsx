@@ -115,9 +115,9 @@ export default function ChannelSettingsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-surface">
+    <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
+      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
         <Pressable onPress={goBack} className="p-1 rounded hover:bg-surface-overlay">
           <ArrowLeft size={18} color="#999" />
         </Pressable>

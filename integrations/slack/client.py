@@ -39,6 +39,23 @@ def bot_attribution(bot_id: str) -> dict:
     return attrs
 
 
+def user_attribution(user) -> dict:
+    """Return Slack payload fields for user identity (username, icon_emoji, icon_url).
+
+    Same pattern as bot_attribution() — uses chat:write.customize scope.
+    Accepts a User ORM object (or any object with display_name, integration_config, avatar_url).
+    """
+    attrs: dict = {}
+    if user.display_name:
+        attrs["username"] = user.display_name
+    slack_cfg = (user.integration_config or {}).get("slack", {})
+    if slack_cfg.get("icon_emoji"):
+        attrs["icon_emoji"] = slack_cfg["icon_emoji"]
+    elif user.avatar_url:
+        attrs["icon_url"] = user.avatar_url
+    return attrs
+
+
 async def post_message(
     token: str,
     channel_id: str,

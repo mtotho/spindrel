@@ -203,9 +203,14 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Task card on timeline
+// Task card on timeline — hover brings to front
 // ---------------------------------------------------------------------------
-function TaskCard({ task, isPast, onPress }: { task: TaskItem; isPast: boolean; onPress: () => void }) {
+function TaskCard({
+  task, isPast, onPress, style: extraStyle,
+}: {
+  task: TaskItem; isPast: boolean; onPress: () => void; style?: React.CSSProperties;
+}) {
+  const [hovered, setHovered] = useState(false);
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const isRecurring = !!task.recurrence;
@@ -214,14 +219,18 @@ function TaskCard({ task, isPast, onPress }: { task: TaskItem; isPast: boolean; 
   return (
     <div
       onClick={onPress}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         padding: "8px 12px", borderRadius: 8,
-        background: isPast ? "#111" : "#1a1a1a",
-        border: `1px solid ${isPast ? "#1a1a1a" : "#2a2a2a"}`,
-        opacity: isPast ? 0.5 : 1,
-        transition: "opacity 0.2s",
-        marginBottom: 4,
+        background: hovered ? "#222" : isPast ? "#111" : "#1a1a1a",
+        border: `1px solid ${hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
+        opacity: isPast && !hovered ? 0.5 : 1,
+        transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
         cursor: "pointer",
+        boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
+        zIndex: hovered ? 100 : undefined,
+        ...extraStyle,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -267,21 +276,35 @@ function TaskCard({ task, isPast, onPress }: { task: TaskItem; isPast: boolean; 
 }
 
 // ---------------------------------------------------------------------------
-// Day column
+// Day column — positions each task at its exact minute with stacking offsets
 // ---------------------------------------------------------------------------
+const CARD_HEIGHT_PX = 80; // approximate height of a task card
+const CARD_MIN_GAP = 4;    // minimum gap between overlapping cards
+
 function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
   const now = new Date();
   const showNow = isToday(date);
 
-  // Group tasks by hour
-  const hourGroups = useMemo(() => {
-    const groups: Record<number, TaskItem[]> = {};
-    for (const t of tasks) {
+  // Position tasks by exact minute with overlap detection
+  const positioned = useMemo(() => {
+    const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
+    const items: { task: TaskItem; topPx: number; indentLevel: number }[] = [];
+
+    for (const t of sorted) {
       const taskTime = getTaskTime(t);
-      const hour = taskTime.getHours();
-      (groups[hour] ??= []).push(t);
+      const minutes = taskTime.getHours() * 60 + taskTime.getMinutes();
+      const topPx = minutes; // 1px per minute in the 1440px timeline
+
+      // Check overlap with previous items
+      let indent = 0;
+      for (const prev of items) {
+        if (topPx < prev.topPx + CARD_HEIGHT_PX + CARD_MIN_GAP && prev.indentLevel === indent) {
+          indent++;
+        }
+      }
+      items.push({ task: t, topPx, indentLevel: indent });
     }
-    return groups;
+    return items;
   }, [tasks]);
 
   return (
@@ -306,26 +329,22 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
         <HourLabels />
         {showNow && <NowLine />}
 
-        {/* Render tasks at their time positions */}
-        {Object.entries(hourGroups).map(([hourStr, hTasks]) => {
-          const hour = Number(hourStr);
-          const pct = (hour / 24) * 100;
-          return (
-            <div key={hour} style={{
-              position: "absolute", left: 52, right: 8, top: `${pct}%`,
-              zIndex: 2,
-            }}>
-              {hTasks.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  isPast={getTaskTime(t) < now && t.status !== "running"}
-                  onPress={() => onTaskPress(t)}
-                />
-              ))}
-            </div>
-          );
-        })}
+        {/* Render each task at its exact minute position */}
+        {positioned.map(({ task: t, topPx, indentLevel }) => (
+          <TaskCard
+            key={t.id}
+            task={t}
+            isPast={getTaskTime(t) < now && t.status !== "running"}
+            onPress={() => onTaskPress(t)}
+            style={{
+              position: "absolute",
+              top: topPx,
+              left: 52 + indentLevel * 16,
+              right: 8 - indentLevel * 8,
+              zIndex: 2 + indentLevel,
+            }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -361,6 +380,141 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
       </div>
       {!compact && (enabled ? "Enabled" : "Disabled")}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled At picker — datetime-local + quick offset presets
+// ---------------------------------------------------------------------------
+const SCHEDULE_PRESETS = [
+  { label: "+30m", value: "+30m" },
+  { label: "+1h", value: "+1h" },
+  { label: "+2h", value: "+2h" },
+  { label: "+6h", value: "+6h" },
+  { label: "+1d", value: "+1d" },
+  { label: "+7d", value: "+7d" },
+];
+
+function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // Check if current value is a relative offset
+  const isRelative = /^\+\d+[smhd]$/.test(value);
+  const activePreset = SCHEDULE_PRESETS.find((p) => p.value === value);
+
+  return (
+    <FormRow label="Scheduled At">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Quick preset pills */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            onClick={() => onChange("")}
+            style={{
+              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6,
+              background: !value ? "#3b82f6" : "#1a1a1a",
+              color: !value ? "#fff" : "#888",
+            }}
+          >
+            Now
+          </button>
+          {SCHEDULE_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => onChange(p.value)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 6,
+                background: value === p.value ? "#3b82f6" : "#1a1a1a",
+                color: value === p.value ? "#fff" : "#888",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {/* datetime-local input for exact time */}
+        <input
+          type="datetime-local"
+          value={isRelative ? "" : value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            background: "#111", border: "1px solid #333", borderRadius: 8,
+            padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
+            outline: "none", colorScheme: "dark",
+          }}
+        />
+        {isRelative && (
+          <div style={{ fontSize: 10, color: "#666" }}>
+            Relative: runs {value} from now
+          </div>
+        )}
+      </div>
+    </FormRow>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recurrence picker — preset pills + custom input
+// ---------------------------------------------------------------------------
+const RECURRENCE_PRESETS = [
+  { label: "None", value: "" },
+  { label: "30 min", value: "+30m" },
+  { label: "1 hour", value: "+1h" },
+  { label: "2 hours", value: "+2h" },
+  { label: "6 hours", value: "+6h" },
+  { label: "12 hours", value: "+12h" },
+  { label: "Daily", value: "+1d" },
+  { label: "Weekly", value: "+7d" },
+];
+
+function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
+  const showCustom = !!value && !isPreset;
+
+  return (
+    <FormRow label="Recurrence">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {RECURRENCE_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => onChange(p.value)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 6,
+                background: value === p.value ? (p.value ? "#92400e" : "#333") : "#1a1a1a",
+                color: value === p.value ? (p.value ? "#fcd34d" : "#e5e5e5") : "#888",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+          <button
+            onClick={() => { if (!showCustom) onChange("+3h"); }}
+            style={{
+              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+              borderRadius: 6,
+              background: showCustom ? "#92400e" : "#1a1a1a",
+              color: showCustom ? "#fcd34d" : "#888",
+            }}
+          >
+            Custom
+          </button>
+        </div>
+        {showCustom && (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="+3h, +45m, etc."
+            style={{
+              background: "#111", border: "1px solid #333", borderRadius: 8,
+              padding: "7px 12px", color: "#e5e5e5", fontSize: 13, outline: "none",
+              maxWidth: 200,
+            }}
+          />
+        )}
+      </div>
+    </FormRow>
   );
 }
 
@@ -644,21 +798,8 @@ function TaskEditor({
               </Section>
 
               <Section title="Scheduling">
-                <FormRow label="Scheduled At" description="ISO datetime or +30m, +2h, +1d">
-                  <TextInput
-                    value={scheduledAt}
-                    onChangeText={setScheduledAt}
-                    placeholder="e.g. +2h or 2026-03-25T10:00"
-                  />
-                </FormRow>
-
-                <FormRow label="Recurrence" description="Repeat interval: +1h, +1d, etc.">
-                  <TextInput
-                    value={recurrence}
-                    onChangeText={setRecurrence}
-                    placeholder="e.g. +1h, +1d"
-                  />
-                </FormRow>
+                <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
+                <RecurrencePicker value={recurrence} onChange={setRecurrence} />
               </Section>
 
               <Section title="Options">

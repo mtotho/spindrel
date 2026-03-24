@@ -12,17 +12,22 @@ touching core code.
 
 Each integration lives under `integrations/<name>/`. The auto-discovery system scans
 this directory at startup. All files are optional except your integration must have at
-least one of `router.py` or `dispatcher.py` to do anything useful.
+least one of `router.py`, `dispatcher.py`, or `tools/*.py` to do anything useful.
 
 ```
 integrations/
 ├── __init__.py          # auto-discovery (don't edit)
+├── _register.py         # tool registration shim (don't edit)
 ├── utils.py             # helpers: ingest_document, inject_message, etc.
 └── mygithub/            # your integration folder
     ├── __init__.py      # optional: id, name, version metadata
+    ├── config.py        # integration-specific settings (Pydantic BaseSettings)
     ├── router.py        # HTTP endpoints → registered at /integrations/mygithub/
     ├── dispatcher.py    # task result delivery → called by the task worker
-    └── process.py       # background process → auto-started by dev-server.sh
+    ├── process.py       # background process → auto-started by dev-server.sh
+    └── tools/
+        ├── __init__.py
+        └── my_tool.py   # agent tools — auto-discovered by the loader
 ```
 
 ### What each file does
@@ -33,6 +38,79 @@ integrations/
 | `dispatcher.py` | Yes — imported to trigger `register()` | Deliver completed task results to your service |
 | `process.py` | Via `dev-server.sh` | Declare a background process (e.g. a Bolt app) |
 | `__init__.py` | Yes (as package) | Optional metadata: `id`, `name`, `version` |
+| `config.py` | No (imported by your tools) | Integration-specific env var settings |
+| `tools/*.py` | Yes — auto-discovered | Agent tools (underscore-prefixed files skipped) |
+| `skills/*.md` | Yes — synced at startup | Skill documents ingested into the skill system |
+
+---
+
+## Agent Tools
+
+Integration tools live in `integrations/<name>/tools/*.py`. The loader auto-discovers
+them at startup — any `*.py` file (except underscore-prefixed) is imported and its
+`@register`-decorated functions become available as agent tools.
+
+### Registration
+
+Import `register` from the shim at `integrations/_register.py`:
+
+```python
+from integrations._register import register
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "my_tool",
+        "description": "Does something useful.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+})
+async def my_tool() -> str:
+    return '{"result": "ok"}'
+```
+
+When running inside the agent server, this resolves to the real registry. When
+developing an integration **outside** the server (standalone repo, tests, etc.),
+it falls back to a stub that attaches the schema to the function — no server
+dependency needed.
+
+**If you're building an external integration**, you only need this stub:
+
+```python
+# Minimal drop-in replacement for integrations/_register.py
+def register(schema, *, source_dir=None):
+    def decorator(func):
+        func._tool_schema = schema
+        return func
+    return decorator
+```
+
+To deploy: drop your integration folder into `integrations/` and add your tool
+directory to `TOOL_DIRS` (or rely on the `integrations/*/tools/` auto-discovery).
+
+### Config
+
+Integration-specific settings go in your own `config.py` — **not** in `app/config.py`:
+
+```python
+# integrations/mygithub/config.py
+from pydantic_settings import BaseSettings
+
+class MyConfig(BaseSettings):
+    MYGITHUB_TOKEN: str = ""
+    MYGITHUB_WEBHOOK_SECRET: str = ""
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+settings = MyConfig()
+```
+
+Then import from your tools: `from integrations.mygithub.config import settings`.
+
+### Shared helpers
+
+Use underscore-prefixed files for shared code within your integration (the loader
+skips them): `integrations/<name>/tools/_helpers.py`.
 
 ---
 
@@ -299,7 +377,9 @@ See [example.md](example.md) for the minimal `integrations/example/` scaffold.
 
 ## What Integration Code Must Not Do
 
-- Import from `app/agent/`, `app/services/`, or `app/tools/` directly (except `app/agent/dispatchers` for `register()` and `app/agent/bots` for `get_bot()` in dispatchers)
+- Import from `app/` directly — use `integrations/_register.py` for tool registration, `integrations/utils.py` for helpers, and keep config in your own `config.py`
+  - Exception: dispatchers may import `app/agent/dispatchers` for `register()` and `app/agent/bots` for `get_bot()`
+- Put integration-specific config in `app/config.py` — create your own `integrations/<name>/config.py`
 - Duplicate Slack API call logic — use `integrations/slack/client.py` for messages and `integrations/slack/uploads.py` for file uploads
 - Add new columns to core models (`Bot`, `Task`, `Session`) for integration-specific data — use `dispatch_config`, `integration_config` JSONB fields, or add your own table
 - Edit `app/main.py`, `app/agent/tasks.py`, or `app/agent/dispatchers.py` (unless adding a core delivery mechanism)

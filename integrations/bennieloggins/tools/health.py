@@ -1,7 +1,4 @@
-"""
-Tools for querying Bennie's pet health data — summary, poop logs, puke logs, vet visits.
-Uses BENNIE_LOGGINS_BASE_URL and BENNIE_LOGGINS_API_KEY from settings.
-"""
+"""Bennie Loggins read-only health tools — summary, poop logs, puke logs, vet visits."""
 
 import json
 import logging
@@ -9,8 +6,8 @@ from typing import Optional
 
 import httpx
 
-from app.config import settings
-from app.tools.registry import register
+from integrations.bennieloggins.config import settings
+from integrations._register import register
 
 logger = logging.getLogger(__name__)
 

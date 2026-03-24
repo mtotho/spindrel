@@ -292,6 +292,28 @@ export interface SSEEvent {
   data: unknown;
 }
 
+// Auth types
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string;
+  avatar_url: string | null;
+  integration_config: Record<string, any>;
+  is_admin: boolean;
+  auth_method: string;
+}
+
+export interface AuthStatus {
+  setup_required: boolean;
+  google_enabled: boolean;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  user: AuthUser;
+}
+
 // Admin types
 export interface AdminStats {
   sessions: number;
