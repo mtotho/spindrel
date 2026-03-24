@@ -40,6 +40,7 @@ class DelegationService:
         depth: int,
         root_session_id: uuid.UUID,
         client_id: str | None = None,
+        channel_id: uuid.UUID | None = None,
         ephemeral_delegate: bool = False,
         reply_in_thread: bool = False,
     ) -> str:
@@ -84,6 +85,7 @@ class DelegationService:
                 id=child_session_id,
                 client_id=client_id or "delegation",
                 bot_id=delegate_bot_id,
+                channel_id=channel_id,
                 parent_session_id=parent_session_id,
                 root_session_id=child_root_id,
                 depth=child_depth,
@@ -120,6 +122,7 @@ class DelegationService:
                 client_id=client_id,
                 bot_id=delegate_bot_id,
                 correlation_id=correlation_id,
+                channel_id=channel_id,
                 dispatch_type=dispatch_type,
                 dispatch_config=dispatch_config,
                 session_depth=child_depth,
@@ -135,6 +138,7 @@ class DelegationService:
                 session_id=child_session_id,
                 client_id=client_id,
                 correlation_id=correlation_id,
+                channel_id=channel_id,
                 dispatch_type=dispatch_type,
                 dispatch_config=dispatch_config,
             ):
