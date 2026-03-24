@@ -22,16 +22,63 @@ export interface BotConfig {
   slack_icon_emoji?: string;
 }
 
-// Channel types
+// Channel types (matches server ChannelOut)
 export interface Channel {
   id: string;
-  client_id: string;
+  name: string;
   bot_id: string;
+  client_id?: string;
+  integration?: string;
   active_session_id?: string;
-  integration_type?: string;
+  require_mention: boolean;
+  passive_memory: boolean;
   display_name?: string;
   created_at: string;
   updated_at: string;
+}
+
+// Full channel settings (matches server ChannelSettingsOut)
+export interface ChannelSettings {
+  id: string;
+  name: string;
+  bot_id: string;
+  client_id?: string;
+  integration?: string;
+  active_session_id?: string;
+  require_mention: boolean;
+  passive_memory: boolean;
+  workspace_rag: boolean;
+  context_compaction: boolean;
+  compaction_interval?: number;
+  compaction_keep_turns?: number;
+  memory_knowledge_compaction_prompt?: string;
+  context_compression?: boolean;
+  compression_model?: string;
+  compression_threshold?: number;
+  compression_keep_turns?: number;
+  elevation_enabled?: boolean;
+  elevation_threshold?: number;
+  elevated_model?: string;
+}
+
+// Model types
+export interface LlmModel {
+  id: string;
+  display: string;
+  max_tokens?: number;
+}
+
+export interface ModelGroup {
+  provider_id?: string;
+  provider_name: string;
+  provider_type: string;
+  models: LlmModel[];
+}
+
+// Completions for @-tag autocomplete
+export interface CompletionItem {
+  value: string;
+  label: string;
 }
 
 // Session types

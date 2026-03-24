@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 export default function HomeScreen() {
-  const { data: channels, isLoading: channelsLoading } = useChannels();
+  const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
@@ -25,7 +25,14 @@ export default function HomeScreen() {
         </View>
 
         {/* Channel list */}
-        {channelsLoading ? (
+        {channelsError ? (
+          <View className="items-center py-12 gap-2">
+            <Text className="text-red-400 text-sm font-semibold">Failed to load channels</Text>
+            <Text className="text-text-dim text-xs text-center max-w-xs">
+              {channelsError instanceof Error ? channelsError.message : "Unknown error"}
+            </Text>
+          </View>
+        ) : channelsLoading ? (
           <View className="items-center py-12">
             <Activity size={24} color="#666666" className="animate-spin" />
           </View>
@@ -50,16 +57,16 @@ export default function HomeScreen() {
                     </View>
                     <View className="flex-1 min-w-0">
                       <Text className="text-text font-medium" numberOfLines={1}>
-                        {channel.display_name || channel.client_id}
+                        {channel.display_name || channel.name || channel.client_id}
                       </Text>
                       <View className="flex-row items-center gap-2 mt-1">
                         <Bot size={12} color="#999999" />
                         <Text className="text-text-muted text-xs">
                           {bot?.name ?? channel.bot_id}
                         </Text>
-                        {channel.integration_type && (
+                        {channel.integration && (
                           <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                            {channel.integration_type}
+                            {channel.integration}
                           </Text>
                         )}
                       </View>
