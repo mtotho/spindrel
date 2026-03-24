@@ -6,17 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 from app.agent.context import (
     current_bot_id,
-    current_channel_id,
     current_client_id,
     current_correlation_id,
     current_dispatch_config,
     current_dispatch_type,
-    current_ephemeral_delegates,
-    current_root_session_id,
-    current_session_depth,
     current_session_id,
 )
-from app.config import settings
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -27,11 +22,9 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "delegate_to_agent",
         "description": (
-            "Preferred way to run a sub-agent. Use mode=immediate (default) to run the child bot "
-            "now and get its response back synchronously — use this unless you have a reason to defer. "
-            "Use mode=deferred to schedule it as a background task. "
-            "The child's result is automatically posted to the originating channel. "
-            "Do NOT use create_task for cross-bot work; use this tool instead."
+            "Delegate work to another bot. Creates a background task that the child bot executes "
+            "asynchronously. The child's result is automatically posted to the originating channel "
+            "when complete. Do NOT use create_task for cross-bot work; use this tool instead."
         ),
         "parameters": {
             "type": "object",
@@ -44,20 +37,11 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": "The full prompt/instructions for the delegate agent.",
                 },
-                "mode": {
-                    "type": "string",
-                    "enum": ["immediate", "deferred"],
-                    "default": "deferred",
-                    "description": (
-                        "immediate: run the child agent now and return its response synchronously. "
-                        "deferred (default): create a scheduled task (use only when you explicitly want async/later execution)."
-                    ),
-                },
                 "scheduled_at": {
                     "type": "string",
                     "description": (
-                        "Deferred mode only. When to run. ISO 8601 datetime or relative offset: "
-                        "+30m, +2h, +1d. Omit to run immediately after task is picked up."
+                        "When to run. ISO 8601 datetime or relative offset: "
+                        "+30m, +2h, +1d. Omit to run as soon as the task worker picks it up."
                     ),
                 },
                 "reply_in_thread": {
@@ -72,7 +56,7 @@ logger = logging.getLogger(__name__)
                     "type": "boolean",
                     "default": True,
                     "description": (
-                        "Deferred mode only. When true (default), the parent agent automatically runs again "
+                        "When true (default), the parent agent automatically runs again "
                         "once the sub-agent completes, receiving the sub-agent's result as input so it can "
                         "synthesize or react. Set false for fire-and-forget tasks where the parent doesn't "
                         "need to react."
@@ -86,7 +70,6 @@ logger = logging.getLogger(__name__)
 async def delegate_to_agent(
     bot_id: str,
     prompt: str,
-    mode: str = "immediate",
     scheduled_at: str | None = None,
     reply_in_thread: bool = False,
     notify_parent: bool = True,
@@ -100,16 +83,9 @@ async def delegate_to_agent(
 
     session_id = current_session_id.get()
     client_id = current_client_id.get()
-    channel_id = current_channel_id.get()
     parent_bot_id = current_bot_id.get() or "default"
     dispatch_type = current_dispatch_type.get()
     dispatch_config = dict(current_dispatch_config.get() or {})
-    depth = current_session_depth.get()
-    root_sid = current_root_session_id.get()
-
-    # Root session is the current session if not already in a delegation chain
-    if root_sid is None:
-        root_sid = session_id
 
     try:
         parent_bot = get_bot(parent_bot_id)
@@ -129,59 +105,32 @@ async def delegate_to_agent(
         logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
         bot_id = resolved.id
 
-    # Check if bot_id was @-tagged in the user message (ephemeral override, bypasses allowlist)
-    ephemeral = bot_id in (current_ephemeral_delegates.get() or [])
-
-    if mode == "deferred":
-        sched_dt: datetime | None = None
-        if scheduled_at:
-            try:
-                from app.tools.local.tasks import _parse_scheduled_at
-                sched_dt = _parse_scheduled_at(scheduled_at)
-            except ValueError as exc:
-                return json.dumps({"error": str(exc)})
-
+    sched_dt: datetime | None = None
+    if scheduled_at:
         try:
-            task_id = await delegation_service.run_deferred(
-                parent_bot=parent_bot,
-                delegate_bot_id=bot_id,
-                prompt=prompt,
-                dispatch_type=dispatch_type,
-                dispatch_config=dispatch_config,
-                scheduled_at=sched_dt,
-                client_id=client_id,
-                parent_session_id=session_id,
-                reply_in_thread=reply_in_thread,
-                notify_parent=notify_parent,
-            )
-            return f"Deferred delegation task created: {task_id}"
-        except DelegationError as exc:
-            return json.dumps({"error": str(exc)})
-        except Exception as exc:
-            logger.exception("delegate_to_agent deferred failed")
+            from app.tools.local.tasks import _parse_scheduled_at
+            sched_dt = _parse_scheduled_at(scheduled_at)
+        except ValueError as exc:
             return json.dumps({"error": str(exc)})
 
-    # Immediate mode
     try:
-        response = await delegation_service.run_immediate(
-            parent_session_id=session_id,
+        task_id = await delegation_service.run_deferred(
             parent_bot=parent_bot,
             delegate_bot_id=bot_id,
             prompt=prompt,
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
-            depth=depth,
-            root_session_id=root_sid,
+            scheduled_at=sched_dt,
             client_id=client_id,
-            channel_id=channel_id,
-            ephemeral_delegate=ephemeral,
+            parent_session_id=session_id,
             reply_in_thread=reply_in_thread,
+            notify_parent=notify_parent,
         )
-        return response or "(child agent returned no response)"
+        return f"Delegation task created: {task_id}"
     except DelegationError as exc:
         return json.dumps({"error": str(exc)})
     except Exception as exc:
-        logger.exception("delegate_to_agent immediate failed")
+        logger.exception("delegate_to_agent failed")
         return json.dumps({"error": str(exc)})
 
 
