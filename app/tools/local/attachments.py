@@ -224,3 +224,86 @@ async def post_attachment(attachment_id: str, caption: str = "") -> str:
             "caption": caption,
         },
     })
+
+
+_DEFAULT_DESCRIBE_PROMPT = (
+    "Describe what you see in this image in detail. Include objects, people, "
+    "text, colors, and any notable features."
+)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "describe_attachment",
+        "description": (
+            "Use a vision model to describe or answer questions about an image attachment. "
+            "Pass a prompt to ask specific questions (e.g. 'Is there anyone at the front door?') "
+            "or omit it for a general description. Works with image attachments only."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The UUID of the image attachment to analyze.",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Question or instruction for the vision model. Defaults to a general description if omitted.",
+                },
+            },
+            "required": ["attachment_id"],
+        },
+    },
+})
+async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
+    from app.config import settings
+    from app.services.attachments import get_attachment_by_id
+    from app.services.providers import get_llm_client
+
+    try:
+        att_uuid = uuid.UUID(attachment_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+    att = await get_attachment_by_id(att_uuid)
+    if att is None:
+        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+
+    if not att.file_data:
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+    mime = att.mime_type or ""
+    if not mime.startswith("image/"):
+        return json.dumps({"error": f"describe_attachment only supports images, got {mime}"})
+
+    b64 = base64.b64encode(att.file_data).decode("ascii")
+    data_url = f"data:{mime};base64,{b64}"
+
+    text_prompt = (prompt or "").strip() or _DEFAULT_DESCRIBE_PROMPT
+    model = settings.ATTACHMENT_SUMMARY_MODEL
+
+    try:
+        response = await get_llm_client().chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text_prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }],
+            max_tokens=1000,
+            temperature=0.3,
+        )
+        description = (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.exception("describe_attachment vision call failed")
+        return json.dumps({"error": f"Vision model error: {e}"})
+
+    return json.dumps({
+        "attachment_id": attachment_id,
+        "filename": att.filename,
+        "description": description,
+    })
