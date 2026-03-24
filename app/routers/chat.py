@@ -148,14 +148,22 @@ async def _mirror_to_integration(
     client_actions: list[dict] | None = None,
 ) -> None:
     """Fire-and-forget mirror to channel's integration dispatcher."""
+    logger.info(
+        "Mirror check: channel=%s integration=%s dispatch_config=%s",
+        channel.id, channel.integration, bool(channel.dispatch_config),
+    )
     if not channel.integration or not channel.dispatch_config:
+        logger.info("Mirror skipped: integration=%s dispatch_config=%s", channel.integration, channel.dispatch_config)
         return
     from app.agent import dispatchers
     try:
-        await dispatchers.get(channel.integration).post_message(
+        dispatcher = dispatchers.get(channel.integration)
+        logger.info("Mirror dispatching via %s to %s", channel.integration, type(dispatcher).__name__)
+        await dispatcher.post_message(
             channel.dispatch_config, text,
             bot_id=bot_id, client_actions=client_actions,
         )
+        logger.info("Mirror dispatched successfully")
     except Exception:
         logger.warning("Mirror to %s failed", channel.integration, exc_info=True)
 
