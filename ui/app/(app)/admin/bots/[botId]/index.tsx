@@ -3,6 +3,7 @@ import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "
 import { useLocalSearchParams } from "expo-router";
 import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown } from "lucide-react";
 import { useBotEditorData, useUpdateBot } from "@/src/api/hooks/useBots";
+import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -1055,6 +1056,7 @@ export default function BotEditorScreen() {
   const { botId } = useLocalSearchParams<{ botId: string }>();
   const goBack = useGoBack("/admin/bots");
   const { data: editorData, isLoading } = useBotEditorData(botId);
+  const { data: elevationData } = useBotElevation(botId);
   const updateMutation = useUpdateBot(botId);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -1371,6 +1373,82 @@ export default function BotEditorScreen() {
                   </div>
                 </Col>
               </Row>
+
+              {/* Elevation observability */}
+              {elevationData && (
+                <>
+                  {/* Stats bar */}
+                  <div style={{
+                    display: "flex", gap: 16, flexWrap: "wrap",
+                    background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 14,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Stats</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>
+                      Total: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.total_decisions}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#888" }}>
+                      Elevated: <span style={{ color: "#f59e0b" }}>{elevationData.stats.elevated_count}</span>
+                      {" "}({(elevationData.stats.elevation_rate * 100).toFixed(1)}%)
+                    </div>
+                    <div style={{ fontSize: 11, color: "#888" }}>
+                      Avg score: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_score.toFixed(3)}</span>
+                    </div>
+                    {elevationData.stats.avg_latency_ms != null && (
+                      <div style={{ fontSize: 11, color: "#888" }}>
+                        Avg latency: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_latency_ms}ms</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recent decisions */}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginTop: 8 }}>Recent Decisions</div>
+                  {elevationData.recent.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>No elevation decisions recorded yet.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {elevationData.recent.map((entry) => (
+                        <div key={entry.id} style={{
+                          background: entry.was_elevated ? "#1a1f1a" : "#1a1a1a",
+                          border: `1px solid ${entry.was_elevated ? "#2a3a2a" : "#2a2a2a"}`,
+                          borderRadius: 6, padding: 10,
+                          display: "flex", flexDirection: "column", gap: 4,
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+                                background: entry.was_elevated ? "#f59e0b22" : "#33333366",
+                                color: entry.was_elevated ? "#f59e0b" : "#888",
+                              }}>
+                                {entry.was_elevated ? "ELEVATED" : "BASE"}
+                              </span>
+                              <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>
+                                {entry.model_chosen}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 10, color: "#666" }}>
+                              {new Date(entry.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#888" }}>
+                            <span>score: <span style={{ color: "#e5e5e5" }}>{entry.classifier_score.toFixed(3)}</span></span>
+                            {entry.tokens_used != null && <span>tokens: {entry.tokens_used}</span>}
+                            {entry.latency_ms != null && <span>latency: {entry.latency_ms}ms</span>}
+                          </div>
+                          {entry.rules_fired.length > 0 && (
+                            <div style={{ fontSize: 10, color: "#6b9" }}>
+                              rules: {entry.rules_fired.join(", ")}
+                            </div>
+                          )}
+                          {entry.elevation_reason && (
+                            <div style={{ fontSize: 10, color: "#999" }}>{entry.elevation_reason}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

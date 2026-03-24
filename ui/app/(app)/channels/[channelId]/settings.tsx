@@ -20,6 +20,7 @@ import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
+import { useChannelElevation } from "@/src/api/hooks/useElevation";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -62,6 +63,7 @@ export default function ChannelSettingsScreen() {
   const { data: settings, isLoading } = useChannelSettings(channelId);
   const { data: bots } = useBots();
   const updateMutation = useUpdateChannelSettings(channelId!);
+  const { data: elevationData } = useChannelElevation(channelId);
 
   const [tab, setTab] = useState("general");
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
@@ -352,6 +354,80 @@ function GeneralTab({ form, patch, bots, settings }: {
           onChange={(v) => patch("elevated_model", v || undefined)}
           placeholder="inherit"
         />
+
+        {/* Elevation observability */}
+        {elevationData && (
+          <>
+            <div style={{
+              display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12,
+              background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 14,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Stats</div>
+              <div style={{ fontSize: 11, color: "#888" }}>
+                Total: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.total_decisions}</span>
+              </div>
+              <div style={{ fontSize: 11, color: "#888" }}>
+                Elevated: <span style={{ color: "#f59e0b" }}>{elevationData.stats.elevated_count}</span>
+                {" "}({(elevationData.stats.elevation_rate * 100).toFixed(1)}%)
+              </div>
+              <div style={{ fontSize: 11, color: "#888" }}>
+                Avg score: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_score.toFixed(3)}</span>
+              </div>
+              {elevationData.stats.avg_latency_ms != null && (
+                <div style={{ fontSize: 11, color: "#888" }}>
+                  Avg latency: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_latency_ms}ms</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginTop: 8 }}>Recent Decisions</div>
+            {elevationData.recent.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>No elevation decisions recorded yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {elevationData.recent.map((entry) => (
+                  <div key={entry.id} style={{
+                    background: entry.was_elevated ? "#1a1f1a" : "#1a1a1a",
+                    border: `1px solid ${entry.was_elevated ? "#2a3a2a" : "#2a2a2a"}`,
+                    borderRadius: 6, padding: 10,
+                    display: "flex", flexDirection: "column", gap: 4,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+                          background: entry.was_elevated ? "#f59e0b22" : "#33333366",
+                          color: entry.was_elevated ? "#f59e0b" : "#888",
+                        }}>
+                          {entry.was_elevated ? "ELEVATED" : "BASE"}
+                        </span>
+                        <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>
+                          {entry.model_chosen}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 10, color: "#666" }}>
+                        {new Date(entry.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#888" }}>
+                      <span>score: <span style={{ color: "#e5e5e5" }}>{entry.classifier_score.toFixed(3)}</span></span>
+                      {entry.tokens_used != null && <span>tokens: {entry.tokens_used}</span>}
+                      {entry.latency_ms != null && <span>latency: {entry.latency_ms}ms</span>}
+                    </div>
+                    {entry.rules_fired.length > 0 && (
+                      <div style={{ fontSize: 10, color: "#6b9" }}>
+                        rules: {entry.rules_fired.join(", ")}
+                      </div>
+                    )}
+                    {entry.elevation_reason && (
+                      <div style={{ fontSize: 10, color: "#999" }}>{entry.elevation_reason}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </Section>
 
       {/* Metadata */}

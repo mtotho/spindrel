@@ -689,6 +689,29 @@ class Todo(Base):
     )
 
 
+class ModelElevationLog(Base):
+    __tablename__ = "model_elevation_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    iteration: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    base_model: Mapped[str] = mapped_column(Text, nullable=False)
+    model_chosen: Mapped[str] = mapped_column(Text, nullable=False)
+    was_elevated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    classifier_score: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("0"))
+    elevation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rules_fired: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    signal_scores: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
+
+
 class PlanItem(Base):
     __tablename__ = "plan_items"
 

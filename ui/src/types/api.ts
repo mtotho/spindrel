@@ -132,6 +132,46 @@ export interface ChannelSettings {
   elevated_model?: string;
 }
 
+// Elevation types
+export interface ElevationLogEntry {
+  id: string;
+  turn_id?: string;
+  bot_id: string;
+  channel_id?: string;
+  iteration: number;
+  base_model: string;
+  model_chosen: string;
+  was_elevated: boolean;
+  classifier_score: number;
+  elevation_reason?: string;
+  rules_fired: string[];
+  signal_scores: Record<string, number>;
+  tokens_used?: number;
+  latency_ms?: number;
+  created_at: string;
+}
+
+export interface ElevationConfigOut {
+  enabled?: boolean;
+  threshold?: number;
+  elevated_model?: string;
+  effective_enabled: boolean;
+  effective_threshold: number;
+  effective_elevated_model: string;
+}
+
+export interface ElevationOverview {
+  config: ElevationConfigOut;
+  recent: ElevationLogEntry[];
+  stats: {
+    total_decisions: number;
+    elevated_count: number;
+    elevation_rate: number;
+    avg_score: number;
+    avg_latency_ms?: number;
+  };
+}
+
 // Model types
 export interface LlmModel {
   id: string;
