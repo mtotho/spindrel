@@ -109,9 +109,10 @@ class SharedWorkspaceService:
             "--name", container_name,
             "--network", ws.network or "none",
         ]
-        # Env vars
+        # Env vars (skip empty keys)
         for k, v in env.items():
-            cmd += ["-e", f"{k}={v}"]
+            if k:
+                cmd += ["-e", f"{k}={v}"]
         # Workspace volume
         cmd += ["-v", f"{host_root}:/workspace"]
         # Extra mounts

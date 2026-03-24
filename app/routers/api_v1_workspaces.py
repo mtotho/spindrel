@@ -157,7 +157,7 @@ async def create_workspace(
         description=body.description,
         image=body.image,
         network=body.network,
-        env=body.env,
+        env={k: v for k, v in body.env.items() if k},
         ports=body.ports,
         mounts=body.mounts,
         cpus=body.cpus,
@@ -206,7 +206,11 @@ async def update_workspace(
                   "cpus", "memory_limit", "docker_user", "read_only_root"):
         val = getattr(body, field, None)
         if val is not None:
-            setattr(ws, field, val.strip() if isinstance(val, str) else val)
+            if isinstance(val, str):
+                val = val.strip()
+            elif isinstance(val, dict) and field == "env":
+                val = {k: v for k, v in val.items() if k}
+            setattr(ws, field, val)
     ws.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(ws)

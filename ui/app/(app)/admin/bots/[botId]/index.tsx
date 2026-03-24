@@ -955,151 +955,198 @@ function WorkspaceSection({
     />
   );
 
+  const inSharedWorkspace = !!draft.shared_workspace_id;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Toggle value={ws.enabled ?? false} onChange={(v) => setWs({ enabled: v })} label="Enable Workspace"
-        description="Auto-injects exec_command, search_workspace, delegate_to_exec tools." />
 
-      {ws.enabled && (
+      {/* Shared workspace banner */}
+      {inSharedWorkspace && (
+        <div style={{
+          display: "flex", flexDirection: "column", gap: 8,
+          padding: "14px 16px", background: "rgba(139,92,246,0.06)",
+          border: "1px solid rgba(139,92,246,0.15)", borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Package size={14} color="#c4b5fd" />
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>Shared Workspace</span>
+            <span style={{
+              padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+              background: draft.shared_workspace_role === "orchestrator" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.1)",
+              color: draft.shared_workspace_role === "orchestrator" ? "#c4b5fd" : "#93c5fd",
+            }}>
+              {draft.shared_workspace_role || "member"}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: "#888", lineHeight: 1.5 }}>
+            This bot is connected to a shared workspace. Container settings (image, ports, mounts, env) are managed at the workspace level.
+            {draft.shared_workspace_role === "orchestrator"
+              ? " As orchestrator, this bot has full access to /workspace."
+              : " As a member, this bot is scoped to /workspace/bots/" + (draft.id || "...") + "/."
+            }
+          </div>
+          <a
+            href={`/admin/workspaces/${draft.shared_workspace_id}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: 12, fontWeight: 600, color: "#93c5fd",
+              textDecoration: "none", alignSelf: "flex-start",
+            }}
+          >
+            Open Workspace Settings &rarr;
+          </a>
+        </div>
+      )}
+
+      {/* Per-bot workspace toggle — only when NOT in a shared workspace */}
+      {!inSharedWorkspace && (
+        <Toggle value={ws.enabled ?? false} onChange={(v) => setWs({ enabled: v })} label="Enable Workspace"
+          description="Auto-injects exec_command, search_workspace, delegate_to_exec tools." />
+      )}
+
+      {(ws.enabled || inSharedWorkspace) && (
         <>
-          <Row gap={12}>
-            <Col>
-              <FormRow label="Type">
-                <SelectInput value={ws.type || "docker"} onChange={(v) => setWs({ type: v })}
-                  options={[{ label: "Docker Container", value: "docker" }, { label: "Host Execution", value: "host" }]} />
-              </FormRow>
-            </Col>
-            <Col>
-              <FormRow label="Timeout (seconds)">
-                <TextInput value={String(ws.timeout ?? "")} onChangeText={(v) => setWs({ timeout: v ? parseInt(v) : null })} placeholder="30" type="number" />
-              </FormRow>
-            </Col>
-            <Col>
-              <FormRow label="Max Output Bytes">
-                <TextInput value={String(ws.max_output_bytes ?? "")} onChangeText={(v) => setWs({ max_output_bytes: v ? parseInt(v) : null })} placeholder="65536" type="number" />
-              </FormRow>
-            </Col>
-          </Row>
-
-          {/* Docker panel */}
-          {(ws.type || "docker") === "docker" && (
-            <div style={{ borderLeft: "2px solid #1e3a5f", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
+          {/* Per-bot docker/host settings — only when NOT in a shared workspace */}
+          {!inSharedWorkspace && (
+            <>
               <Row gap={12}>
-                <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
-                <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(v) => setDocker({ network: v })}
-                  options={[{ label: "none", value: "none" }, { label: "bridge", value: "bridge" }, { label: "host", value: "host" }]} /></FormRow></Col>
+                <Col>
+                  <FormRow label="Type">
+                    <SelectInput value={ws.type || "docker"} onChange={(v) => setWs({ type: v })}
+                      options={[{ label: "Docker Container", value: "docker" }, { label: "Host Execution", value: "host" }]} />
+                  </FormRow>
+                </Col>
+                <Col>
+                  <FormRow label="Timeout (seconds)">
+                    <TextInput value={String(ws.timeout ?? "")} onChangeText={(v) => setWs({ timeout: v ? parseInt(v) : null })} placeholder="30" type="number" />
+                  </FormRow>
+                </Col>
+                <Col>
+                  <FormRow label="Max Output Bytes">
+                    <TextInput value={String(ws.max_output_bytes ?? "")} onChangeText={(v) => setWs({ max_output_bytes: v ? parseInt(v) : null })} placeholder="65536" type="number" />
+                  </FormRow>
+                </Col>
               </Row>
-              <Row gap={12}>
-                <Col><FormRow label="Run as User"><TextInput value={docker.user || ""} onChangeText={(v) => setDocker({ user: v })} placeholder="image default" /></FormRow></Col>
-                <Col><FormRow label="CPUs"><TextInput value={String(docker.cpus ?? "")} onChangeText={(v) => setDocker({ cpus: v ? parseFloat(v) : null })} placeholder="unlimited" type="number" /></FormRow></Col>
-                <Col><FormRow label="Memory"><TextInput value={docker.memory || ""} onChangeText={(v) => setDocker({ memory: v })} placeholder="e.g. 512m, 2g" /></FormRow></Col>
-              </Row>
-              <Toggle value={docker.read_only_root ?? false} onChange={(v) => setDocker({ read_only_root: v })} label="Read-only root filesystem" />
 
-              {/* Env vars */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
-                {envEntries.map(([k, v]) => (
-                  <div key={k} style={rowStyle}>
-                    <span style={{ fontFamily: "monospace", color: "#93c5fd", width: 120 }}>{k}</span>
-                    <span style={{ color: "#555" }}>=</span>
-                    <span style={{ fontFamily: "monospace", color: "#888", flex: 1 }}>{v as string}</span>
-                    {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
+              {/* Docker panel */}
+              {(ws.type || "docker") === "docker" && (
+                <div style={{ borderLeft: "2px solid #1e3a5f", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
+                  <Row gap={12}>
+                    <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
+                    <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(v) => setDocker({ network: v })}
+                      options={[{ label: "none", value: "none" }, { label: "bridge", value: "bridge" }, { label: "host", value: "host" }]} /></FormRow></Col>
+                  </Row>
+                  <Row gap={12}>
+                    <Col><FormRow label="Run as User"><TextInput value={docker.user || ""} onChangeText={(v) => setDocker({ user: v })} placeholder="image default" /></FormRow></Col>
+                    <Col><FormRow label="CPUs"><TextInput value={String(docker.cpus ?? "")} onChangeText={(v) => setDocker({ cpus: v ? parseFloat(v) : null })} placeholder="unlimited" type="number" /></FormRow></Col>
+                    <Col><FormRow label="Memory"><TextInput value={docker.memory || ""} onChangeText={(v) => setDocker({ memory: v })} placeholder="e.g. 512m, 2g" /></FormRow></Col>
+                  </Row>
+                  <Toggle value={docker.read_only_root ?? false} onChange={(v) => setDocker({ read_only_root: v })} label="Read-only root filesystem" />
+
+                  {/* Env vars */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
+                    {envEntries.map(([k, v]) => (
+                      <div key={k} style={rowStyle}>
+                        <span style={{ fontFamily: "monospace", color: "#93c5fd", width: 120 }}>{k}</span>
+                        <span style={{ color: "#555" }}>=</span>
+                        <span style={{ fontFamily: "monospace", color: "#888", flex: 1 }}>{v as string}</span>
+                        {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {miniInput(newEnvKey, setNewEnvKey, "KEY", { width: 120 })}
+                      <span style={{ color: "#555", fontSize: 11 }}>=</span>
+                      {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
+                      {addBtn("Add", () => {
+                        if (newEnvKey.trim()) { setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } }); setNewEnvKey(""); setNewEnvVal(""); }
+                      })}
+                    </div>
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  {miniInput(newEnvKey, setNewEnvKey, "KEY", { width: 120 })}
-                  <span style={{ color: "#555", fontSize: 11 }}>=</span>
-                  {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
-                  {addBtn("Add", () => {
-                    if (newEnvKey.trim()) { setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } }); setNewEnvKey(""); setNewEnvVal(""); }
-                  })}
-                </div>
-              </div>
 
-              {/* Ports */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
-                {ports.map((p: any, i: number) => (
-                  <div key={i} style={rowStyle}>
-                    <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
-                    {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
+                  {/* Ports */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
+                    {ports.map((p: any, i: number) => (
+                      <div key={i} style={rowStyle}>
+                        <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
+                        {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {miniInput(newHostPort, setNewHostPort, "host (opt)", { width: 90 })}
+                      <span style={{ color: "#555", fontSize: 11 }}>:</span>
+                      {miniInput(newContainerPort, setNewContainerPort, "container", { width: 90 })}
+                      {addBtn("Add", () => {
+                        if (newContainerPort.trim()) { setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] }); setNewHostPort(""); setNewContainerPort(""); }
+                      })}
+                    </div>
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  {miniInput(newHostPort, setNewHostPort, "host (opt)", { width: 90 })}
-                  <span style={{ color: "#555", fontSize: 11 }}>:</span>
-                  {miniInput(newContainerPort, setNewContainerPort, "container", { width: 90 })}
-                  {addBtn("Add", () => {
-                    if (newContainerPort.trim()) { setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] }); setNewHostPort(""); setNewContainerPort(""); }
-                  })}
-                </div>
-              </div>
 
-              {/* Mounts */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Extra Volume Mounts</div>
-                <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
-                {mounts.map((m: any, i: number) => (
-                  <div key={i} style={rowStyle}>
-                    <span style={{ fontFamily: "monospace", color: "#93c5fd", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
-                    {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
+                  {/* Mounts */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Extra Volume Mounts</div>
+                    <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
+                    {mounts.map((m: any, i: number) => (
+                      <div key={i} style={rowStyle}>
+                        <span style={{ fontFamily: "monospace", color: "#93c5fd", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
+                        {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1 })}
+                      <span style={{ color: "#555", fontSize: 11 }}>:</span>
+                      {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1 })}
+                      <select value={newMountMode} onChange={(e) => setNewMountMode(e.target.value)}
+                        style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 4, padding: "3px 4px", fontSize: 11, color: "#e5e5e5", width: 50 }}>
+                        <option value="rw">rw</option>
+                        <option value="ro">ro</option>
+                      </select>
+                      {addBtn("Add", () => {
+                        if (newMountHost.trim() && newMountContainer.trim()) {
+                          setDocker({ mounts: [...mounts, { host_path: newMountHost.trim(), container_path: newMountContainer.trim(), mode: newMountMode }] });
+                          setNewMountHost(""); setNewMountContainer(""); setNewMountMode("rw");
+                        }
+                      })}
+                    </div>
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1 })}
-                  <span style={{ color: "#555", fontSize: 11 }}>:</span>
-                  {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1 })}
-                  <select value={newMountMode} onChange={(e) => setNewMountMode(e.target.value)}
-                    style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 4, padding: "3px 4px", fontSize: 11, color: "#e5e5e5", width: 50 }}>
-                    <option value="rw">rw</option>
-                    <option value="ro">ro</option>
-                  </select>
-                  {addBtn("Add", () => {
-                    if (newMountHost.trim() && newMountContainer.trim()) {
-                      setDocker({ mounts: [...mounts, { host_path: newMountHost.trim(), container_path: newMountContainer.trim(), mode: newMountMode }] });
-                      setNewMountHost(""); setNewMountContainer(""); setNewMountMode("rw");
-                    }
-                  })}
                 </div>
-              </div>
-            </div>
-          )}
+              )}
 
-          {/* Host panel */}
-          {ws.type === "host" && (
-            <div style={{ borderLeft: "2px solid #166534", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Host Settings</div>
-              <FormRow label="Custom Root"><TextInput value={host.root || ""} onChangeText={(v) => setHost({ root: v })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
+              {/* Host panel */}
+              {ws.type === "host" && (
+                <div style={{ borderLeft: "2px solid #166534", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" }}>Host Settings</div>
+                  <FormRow label="Custom Root"><TextInput value={host.root || ""} onChangeText={(v) => setHost({ root: v })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
 
-              {/* Commands */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Allowed Commands</div>
-                <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
-                {commands.map((cmd: any, i: number) => (
-                  <div key={i} style={rowStyle}>
-                    <span style={{ fontFamily: "monospace", color: "#818cf8", width: 80 }}>{cmd.name}</span>
-                    <span style={{ color: "#888", flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
-                    {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
+                  {/* Commands */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Allowed Commands</div>
+                    <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
+                    {commands.map((cmd: any, i: number) => (
+                      <div key={i} style={rowStyle}>
+                        <span style={{ fontFamily: "monospace", color: "#818cf8", width: 80 }}>{cmd.name}</span>
+                        <span style={{ color: "#888", flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
+                        {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {miniInput(newCmd, setNewCmd, "binary", { width: 100 })}
+                      {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
+                      {addBtn("Add", () => {
+                        if (newCmd.trim()) {
+                          const subs = newCmdSubs.trim() ? newCmdSubs.split(",").map((s) => s.trim()).filter(Boolean) : [];
+                          setHost({ commands: [...commands, { name: newCmd.trim(), subcommands: subs }] });
+                          setNewCmd(""); setNewCmdSubs("");
+                        }
+                      })}
+                    </div>
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  {miniInput(newCmd, setNewCmd, "binary", { width: 100 })}
-                  {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
-                  {addBtn("Add", () => {
-                    if (newCmd.trim()) {
-                      const subs = newCmdSubs.trim() ? newCmdSubs.split(",").map((s) => s.trim()).filter(Boolean) : [];
-                      setHost({ commands: [...commands, { name: newCmd.trim(), subcommands: subs }] });
-                      setNewCmd(""); setNewCmdSubs("");
-                    }
-                  })}
-                </div>
-              </div>
 
-              {/* Blocked patterns */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
+                  {/* Blocked patterns */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {blocked.map((pat, i) => (
                     <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#111", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#fbbf24" }}>
@@ -1129,6 +1176,8 @@ function WorkspaceSection({
                 </div>
               </div>
             </div>
+          )}
+            </>
           )}
 
           {/* Indexing panel */}
