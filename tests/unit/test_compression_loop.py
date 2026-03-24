@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
-from app.agent.context import current_compression_history
+from app.agent.context import get_compression_history
 from app.agent.context_assembly import AssemblyResult
 
 
@@ -207,13 +207,14 @@ class TestCompressionMessageRestoration:
 # ContextVar lifecycle
 # ---------------------------------------------------------------------------
 
-class TestCompressionContextVar:
+class TestCompressionHistoryLifecycle:
     @pytest.mark.asyncio
-    async def test_contextvar_cleared_after_run(self):
-        """current_compression_history should be None after run_stream completes."""
+    async def test_history_cleared_after_run(self):
+        """Compression history should be cleared after run_stream completes."""
         from app.agent.loop import run_stream
 
         bot = _make_bot()
+        session_id = uuid.uuid4()
         messages = [
             {"role": "system", "content": "System prompt"},
             {"role": "user", "content": "question"},
@@ -227,8 +228,8 @@ class TestCompressionContextVar:
         drilldown = [{"role": "user", "content": "old msg"}]
 
         async def fake_tool_loop(msgs, *a, **kw):
-            # During the loop, the ContextVar should be set
-            assert current_compression_history.get() is not None
+            # During the loop, the history should be set
+            assert get_compression_history(kw.get("session_id")) is not None
             yield {"type": "response", "content": "ok"}
 
         p = _patch_stack()
@@ -236,8 +237,8 @@ class TestCompressionContextVar:
             mock_compress.return_value = (compressed_msgs, drilldown)
             mock_loop.side_effect = fake_tool_loop
 
-            async for _ in run_stream(messages, bot, "question", session_id=uuid.uuid4()):
+            async for _ in run_stream(messages, bot, "question", session_id=session_id):
                 pass
 
-        # After completion, ContextVar should be cleared
-        assert current_compression_history.get() is None
+        # After completion, history should be cleared
+        assert get_compression_history(session_id) is None

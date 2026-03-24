@@ -1,0 +1,81 @@
+<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Context Compression</h2>
+
+{# Status badge #}
+<div class="mb-4">
+  {% if compression_enabled %}
+  <span class="text-xs px-2 py-0.5 rounded-full bg-lime-900 text-lime-300">enabled</span>
+  <span class="text-xs text-gray-500 ml-2">
+    model: <span class="text-gray-400 font-mono">{{ compression_model }}</span>
+    &middot; threshold: <span class="text-gray-400">{{ "{:,}".format(compression_threshold) }} chars</span>
+    &middot; keep: <span class="text-gray-400">{{ compression_keep_turns }} turns</span>
+  </span>
+  {% else %}
+  <span class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-400">disabled</span>
+  <span class="text-xs text-gray-500 ml-2">Enable in the General &rarr; Settings tab or via bot config.</span>
+  {% endif %}
+</div>
+
+{% if stats.total_compressions > 0 %}
+{# Summary stats #}
+<div class="grid grid-cols-4 gap-4 mb-6">
+  <div class="bg-gray-900 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">Compressions</div>
+    <div class="text-lg font-semibold text-gray-200">{{ stats.total_compressions }}</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">Chars Saved</div>
+    <div class="text-lg font-semibold text-lime-400">{{ "{:,}".format(stats.total_chars_saved) }}</div>
+    <div class="text-xs text-gray-600">{{ "%.0f"|format(stats.avg_reduction_pct) }}% avg reduction</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">Msgs Removed</div>
+    <div class="text-lg font-semibold text-gray-200">{{ "{:,}".format(stats.total_msgs_saved) }}</div>
+  </div>
+  <div class="bg-gray-900 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">Avg Ratio</div>
+    <div class="text-lg font-semibold text-gray-200">{{ "%.1f"|format(stats.avg_ratio) }}x</div>
+    <div class="text-xs text-gray-600">{{ "{:,}".format(stats.avg_original) }} &rarr; {{ "{:,}".format(stats.avg_compressed) }} chars</div>
+  </div>
+</div>
+
+{# Recent compressions table #}
+<h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Recent Compressions</h3>
+<div class="overflow-x-auto">
+  <table class="w-full text-xs">
+    <thead>
+      <tr class="text-gray-500 border-b border-gray-700">
+        <th class="text-left py-2 pr-4 font-medium">Time</th>
+        <th class="text-right py-2 pr-4 font-medium">Original</th>
+        <th class="text-right py-2 pr-4 font-medium">Compressed</th>
+        <th class="text-right py-2 pr-4 font-medium">Saved</th>
+        <th class="text-right py-2 pr-4 font-medium">Reduction</th>
+        <th class="text-right py-2 pr-4 font-medium">Msgs</th>
+        <th class="text-left py-2 font-medium">Trace</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr class="border-b border-gray-800 hover:bg-gray-750">
+        <td class="py-2 pr-4 text-gray-400 whitespace-nowrap">{{ e.created_at | fmt_dt }}</td>
+        <td class="py-2 pr-4 text-right text-gray-300 font-mono">{{ "{:,}".format(e.data.original_chars) }}</td>
+        <td class="py-2 pr-4 text-right text-gray-300 font-mono">{{ "{:,}".format(e.data.compressed_chars) }}</td>
+        <td class="py-2 pr-4 text-right text-lime-400 font-mono">{{ "{:,}".format(e.data.original_chars - e.data.compressed_chars) }}</td>
+        <td class="py-2 pr-4 text-right text-gray-400">
+          {% if e.data.original_chars > 0 %}
+          {{ "%.0f"|format((1 - e.data.compressed_chars / e.data.original_chars) * 100) }}%
+          {% endif %}
+        </td>
+        <td class="py-2 pr-4 text-right text-gray-400">{{ e.data.original_messages }} &rarr; {{ e.data.compressed_messages }}</td>
+        <td class="py-2">
+          {% if e.correlation_id %}
+          <a href="/admin/traces/{{ e.correlation_id }}" class="text-indigo-400 hover:underline">trace</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-xs text-gray-600 italic">No compression events recorded yet.</p>
+{% endif %}

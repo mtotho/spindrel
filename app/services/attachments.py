@@ -72,7 +72,7 @@ async def _get_channel_for_retention(channel_id: uuid.UUID | None):
 
 
 async def create_attachment(
-    message_id: uuid.UUID,
+    message_id: uuid.UUID | None,
     channel_id: uuid.UUID | None,
     filename: str,
     mime_type: str,

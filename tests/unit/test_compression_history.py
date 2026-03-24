@@ -1,15 +1,19 @@
 """Tests for app.tools.local.compression_history — get_message_detail tool."""
 import json
+import uuid
 
 import pytest
 
-from app.agent.context import current_compression_history
+from app.agent.context import current_session_id, set_compression_history
 from app.tools.local.compression_history import get_message_detail, _format_detail
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+TEST_SESSION_ID = uuid.uuid4()
+
 
 def _history() -> list[dict]:
     return [
@@ -29,10 +33,11 @@ def _history() -> list[dict]:
 
 @pytest.fixture(autouse=True)
 def _reset_context():
-    """Reset the ContextVar before/after each test."""
-    token = current_compression_history.set(None)
+    """Set session_id ContextVar and clean up compression history."""
+    token = current_session_id.set(TEST_SESSION_ID)
     yield
-    current_compression_history.reset(token)
+    set_compression_history(TEST_SESSION_ID, None)
+    current_session_id.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +88,9 @@ class TestGetMessageDetailNoContext:
 class TestGetMessageDetailByIndex:
     @pytest.fixture(autouse=True)
     def _set_history(self):
-        token = current_compression_history.set(_history())
+        set_compression_history(TEST_SESSION_ID, _history())
         yield
-        current_compression_history.reset(token)
+        set_compression_history(TEST_SESSION_ID, None)
 
     @pytest.mark.asyncio
     async def test_single_message(self):
@@ -104,23 +109,19 @@ class TestGetMessageDetailByIndex:
     async def test_end_index_defaults_to_start(self):
         result = await get_message_detail(start_index=5)
         assert "[msg:5]" in result
-        # Should only contain one message
         assert "[msg:4]" not in result
         assert "[msg:6]" not in result
 
     @pytest.mark.asyncio
     async def test_clamps_to_valid_range(self):
         result = await get_message_detail(start_index=-5, end_index=100)
-        # Should clamp to 0 .. len-1
         assert "[msg:0]" in result
 
     @pytest.mark.asyncio
     async def test_max_20_messages(self):
-        # Create a large history
         big_history = [{"role": "user", "content": f"msg {i}"} for i in range(50)]
-        current_compression_history.set(big_history)
+        set_compression_history(TEST_SESSION_ID, big_history)
         result = await get_message_detail(start_index=0, end_index=49)
-        # Should cap at 20 messages (0..19)
         assert "[msg:19]" in result
         assert "[msg:20]" not in result
 
@@ -145,9 +146,9 @@ class TestGetMessageDetailByIndex:
 class TestGetMessageDetailByQuery:
     @pytest.fixture(autouse=True)
     def _set_history(self):
-        token = current_compression_history.set(_history())
+        set_compression_history(TEST_SESSION_ID, _history())
         yield
-        current_compression_history.reset(token)
+        set_compression_history(TEST_SESSION_ID, None)
 
     @pytest.mark.asyncio
     async def test_keyword_match(self):
@@ -174,9 +175,8 @@ class TestGetMessageDetailByQuery:
     @pytest.mark.asyncio
     async def test_keyword_max_20_results(self):
         big_history = [{"role": "user", "content": f"matching word {i}"} for i in range(50)]
-        current_compression_history.set(big_history)
+        set_compression_history(TEST_SESSION_ID, big_history)
         result = await get_message_detail(query="matching")
-        # Count [msg:N] occurrences
         import re
         matches = re.findall(r"\[msg:\d+\]", result)
         assert len(matches) <= 20
