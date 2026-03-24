@@ -1,6 +1,5 @@
 """Local tools: get_attachment, list_attachments — attachment access for the agent."""
 
-import base64
 import json
 import logging
 import uuid
@@ -15,10 +14,10 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "get_attachment",
         "description": (
-            "Fetch full attachment metadata and file bytes by ID. "
-            "Returns file_data_base64 — a base64-encoded version of the file bytes. "
-            "Pass this value directly as source_image_b64 to generate_image to edit the image. "
-            "Also returns description, filename, posted_by, posted_at, type, mime_type."
+            "Fetch attachment metadata by ID. Returns description, filename, posted_by, "
+            "posted_at, type, mime_type, and has_file_data (whether raw bytes are stored). "
+            "To edit an image, pass the attachment_id directly to generate_image — "
+            "do NOT use this tool to get base64 data for image editing."
         ),
         "parameters": {
             "type": "object",
@@ -56,7 +55,7 @@ async def get_attachment(attachment_id: str) -> str:
         "description": att.description,
         "description_model": att.description_model,
         "described_at": att.described_at.isoformat() if att.described_at else None,
-        "file_data_base64": base64.b64encode(att.file_data).decode() if att.file_data else None,
+        "has_file_data": att.file_data is not None,
     })
 
 
