@@ -170,7 +170,7 @@ export default function ChannelSettingsScreen() {
         key={tab}
       >
         {tab === "general" && (
-          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} />
+          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} />
         )}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
@@ -188,11 +188,12 @@ export default function ChannelSettingsScreen() {
 // ===========================================================================
 // General Tab — settings form
 // ===========================================================================
-function GeneralTab({ form, patch, bots, settings }: {
+function GeneralTab({ form, patch, bots, settings, elevationData }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   bots: any[] | undefined;
   settings: ChannelSettings;
+  elevationData: any;
 }) {
   return (
     <>
@@ -385,7 +386,7 @@ function GeneralTab({ form, patch, bots, settings }: {
               <div style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>No elevation decisions recorded yet.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {elevationData.recent.map((entry) => (
+                {elevationData.recent.map((entry: any) => (
                   <div key={entry.id} style={{
                     background: entry.was_elevated ? "#1a1f1a" : "#1a1a1a",
                     border: `1px solid ${entry.was_elevated ? "#2a3a2a" : "#2a2a2a"}`,
