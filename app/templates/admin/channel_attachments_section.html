@@ -99,72 +99,23 @@
   </button>
 </form>
 
-{# Attachment list #}
-<div class="mt-8">
-  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
-    Attachments
-    <span class="text-gray-600 font-normal">({{ attachment_list | length }}{% if attachment_list | length == 50 %}+{% endif %})</span>
-  </h2>
-  {% if attachment_list %}
-  <div class="space-y-2">
-    {% for att in attachment_list %}
-    <div class="bg-gray-900 rounded-lg border border-gray-700 px-4 py-3">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 mb-1">
-            {# Type badge #}
-            {% set type_colors = {
-              'image': 'bg-blue-900 text-blue-300',
-              'text': 'bg-green-900 text-green-300',
-              'file': 'bg-gray-700 text-gray-300',
-              'audio': 'bg-yellow-900 text-yellow-300',
-              'video': 'bg-purple-900 text-purple-300',
-            } %}
-            <span class="text-[10px] px-1.5 py-0.5 rounded {{ type_colors.get(att.type, 'bg-gray-700 text-gray-300') }}">
-              {{ att.type }}
-            </span>
-            <span class="text-sm text-gray-200 truncate">{{ att.filename or 'unnamed' }}</span>
-            {% if att.source_integration %}
-            <span class="text-[10px] text-gray-600">via {{ att.source_integration }}</span>
-            {% endif %}
-          </div>
-          {# Description / summary #}
-          {% if att.description %}
-          <div class="text-xs text-gray-400 mt-1 line-clamp-2">{{ att.description }}</div>
-          {% else %}
-          <div class="text-xs text-gray-600 italic mt-1">No description</div>
-          {% endif %}
-        </div>
-        <div class="text-right shrink-0">
-          <div class="text-xs text-gray-500">
-            {% if att.created_at %}{{ att.created_at.strftime('%b %d %H:%M') }}{% endif %}
-          </div>
-          {% if att.size_bytes %}
-          <div class="text-[10px] text-gray-600 mt-0.5">
-            {% if att.size_bytes >= 1048576 %}{{ "%.1f"|format(att.size_bytes / 1048576) }} MB
-            {% elif att.size_bytes >= 1024 %}{{ "%.0f"|format(att.size_bytes / 1024) }} KB
-            {% else %}{{ att.size_bytes }} B{% endif %}
-          </div>
-          {% endif %}
-          <div class="text-[10px] mt-0.5">
-            {% if att.file_data is not none %}
-            <span class="text-green-600">stored</span>
-            {% else %}
-            <span class="text-gray-700">metadata only</span>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 mt-1.5 text-[10px] text-gray-600">
-        <span class="font-mono">{{ att.id | string | truncate(16, True, '...') }}</span>
-        {% if att.posted_by %}<span>by {{ att.posted_by }}</span>{% endif %}
-        {% if att.mime_type %}<span>{{ att.mime_type }}</span>{% endif %}
-        {% if att.described_at %}<span class="text-green-700">summarized</span>{% endif %}
-      </div>
-    </div>
-    {% endfor %}
+{# Attachment list (swappable via HTMX pagination) #}
+<div class="mt-8" x-data="{ lightbox: null }">
+  <div id="attachments-list">
+    {% include "admin/channel_attachments_list.html" %}
   </div>
-  {% else %}
-  <p class="text-xs text-gray-600 italic">No attachments in this channel.</p>
-  {% endif %}
+
+  {# Fullscreen lightbox #}
+  <div x-show="lightbox" x-cloak
+       @click="lightbox = null"
+       @keydown.escape.window="lightbox = null"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 cursor-pointer"
+       style="backdrop-filter: blur(4px);">
+    <img :src="lightbox" @click.stop
+         class="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl cursor-default" />
+    <button @click="lightbox = null"
+            class="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl font-bold">
+      &times;
+    </button>
+  </div>
 </div>

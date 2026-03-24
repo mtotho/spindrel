@@ -310,13 +310,19 @@ def register_slash_commands(app):
             comp = await fetch_session_context_compressed(session_id)
             comp_data = comp.get("compressed")
             if comp_data:
+                # "original" = raw stored messages (no RAG injections)
+                orig_chars = comp.get("total_chars", 0)
+                orig_msgs = comp.get("total_messages", 0)
                 comp_total = comp_data.get("total_chars", 0)
                 comp_msgs = comp_data.get("total_messages", 0)
                 saved = comp.get("chars_saved", 0)
                 pct = comp.get("reduction_pct", 0)
                 lines.append("")
-                lines.append(f"*Compressed* — {comp_msgs} messages / {comp_total:,} chars "
+                lines.append(f"*Compression* — {orig_msgs} msgs / {orig_chars:,} chars → "
+                             f"{comp_msgs} msgs / {comp_total:,} chars "
                              f"(_saves {saved:,} chars · {pct}% reduction_)")
+                lines.append("_Note: above breakdown includes RAG-injected content "
+                             "(knowledge, plans, skills, etc.); compression operates on stored messages only._")
                 comp_breakdown = comp_data.get("breakdown", {})
                 comp_rows = sorted(comp_breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
                 lines.append("```")
