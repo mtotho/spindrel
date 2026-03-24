@@ -155,6 +155,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             channel_id=channel.id,
             prompt=prompt,
             status="pending",
+            task_type="heartbeat",
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
             callback_config=callback_config,

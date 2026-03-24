@@ -256,8 +256,8 @@ async def chat(
     from_index = len(messages)
     correlation_id = uuid.uuid4()
 
-    # Mirror user message to integration (skip if request came from an integration)
-    if not is_integration:
+    # Mirror user message to integration (skip if caller already handles delivery)
+    if not req.dispatch_config:
         await _mirror_to_integration(channel, message)
 
     try:
@@ -292,7 +292,7 @@ async def chat(
     )
 
     # Mirror response to integration
-    if not is_integration and result.response:
+    if not req.dispatch_config and result.response:
         await _mirror_to_integration(
             channel, result.response,
             bot_id=req.bot_id, client_actions=result.client_actions,
@@ -428,8 +428,8 @@ async def chat_stream(
                 dispatch_config=req.dispatch_config,
             )
 
-            # Mirror user message to integration (skip if request came from an integration)
-            if not is_integration:
+            # Mirror user message to integration (skip if caller already handles delivery)
+            if not req.dispatch_config:
                 await _mirror_to_integration(channel, message)
 
             response_text = ""
@@ -465,7 +465,7 @@ async def chat_stream(
             )
 
             # Mirror response to integration
-            if not is_integration and response_text:
+            if not req.dispatch_config and response_text:
                 await _mirror_to_integration(
                     channel, response_text,
                     bot_id=req.bot_id, client_actions=response_actions,

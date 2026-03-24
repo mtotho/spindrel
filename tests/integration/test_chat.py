@@ -192,6 +192,7 @@ class TestChatMirror:
                   return_value=(ch, uuid.uuid4(), [], False)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
+            # No dispatch_config on request → UI request → should mirror
             resp = await client.post(
                 "/chat",
                 json={"message": "Hello from UI", "bot_id": "test-bot"},
@@ -209,25 +210,50 @@ class TestChatMirror:
         assert calls[1].args[1] == "Bot reply"
         assert calls[1].kwargs.get("bot_id") == "test-bot"
 
-    async def test_chat_no_mirror_for_integration_client(self, client):
-        """POST /chat skips mirroring when request comes from an integration."""
+    async def test_chat_no_mirror_when_dispatch_config_present(self, client):
+        """POST /chat skips mirroring when request carries dispatch_config (integration handles delivery)."""
         ch = _make_channel(integration="slack", dispatch_config={"channel_id": "C123", "token": "xoxb-test"})
         mock_dispatcher = MagicMock()
         mock_dispatcher.post_message = AsyncMock(return_value=True)
 
         with (
             patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
-                  return_value=(ch, uuid.uuid4(), [], True)),  # is_integration=True
+                  return_value=(ch, uuid.uuid4(), [], True)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
+            # dispatch_config on request → integration caller → skip mirror
             resp = await client.post(
                 "/chat",
-                json={"message": "From Slack", "bot_id": "test-bot"},
+                json={
+                    "message": "From Slack", "bot_id": "test-bot",
+                    "dispatch_config": {"channel_id": "C123", "token": "xoxb-test"},
+                },
                 headers=AUTH_HEADERS,
             )
 
         assert resp.status_code == 200
         mock_dispatcher.post_message.assert_not_awaited()
+
+    async def test_chat_mirrors_even_with_integration_client_id(self, client):
+        """POST /chat mirrors when client_id looks like integration but no dispatch_config."""
+        ch = _make_channel(integration="slack", dispatch_config={"channel_id": "C123", "token": "xoxb-test"})
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.post_message = AsyncMock(return_value=True)
+
+        with (
+            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+                  return_value=(ch, uuid.uuid4(), [], True)),
+            patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
+        ):
+            # UI on a Slack channel sends client_id="slack:C123" but no dispatch_config
+            resp = await client.post(
+                "/chat",
+                json={"message": "From UI", "bot_id": "test-bot", "client_id": "slack:C123"},
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        assert mock_dispatcher.post_message.await_count == 2
 
     async def test_chat_no_mirror_without_integration(self, client):
         """POST /chat doesn't try to mirror when channel has no integration."""
@@ -321,8 +347,8 @@ class TestChatStreamMirror:
         assert calls[1].args[1] == "Bot reply"
         assert calls[1].kwargs.get("bot_id") == "test-bot"
 
-    async def test_stream_no_mirror_for_integration(self, client):
-        """POST /chat/stream skips mirroring when is_integration=True."""
+    async def test_stream_no_mirror_when_dispatch_config_present(self, client):
+        """POST /chat/stream skips mirroring when request carries dispatch_config."""
         ch = _make_channel(integration="slack", dispatch_config={"channel_id": "C123", "token": "xoxb-test"})
         mock_dispatcher = MagicMock()
         mock_dispatcher.post_message = AsyncMock(return_value=True)
@@ -338,7 +364,10 @@ class TestChatStreamMirror:
         ):
             resp = await client.post(
                 "/chat/stream",
-                json={"message": "From Slack", "bot_id": "test-bot"},
+                json={
+                    "message": "From Slack", "bot_id": "test-bot",
+                    "dispatch_config": {"channel_id": "C123", "token": "xoxb-test"},
+                },
                 headers=AUTH_HEADERS,
             )
 
