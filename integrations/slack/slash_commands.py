@@ -8,6 +8,8 @@ from agent_client import (
     ensure_channel,
     fetch_session_plans,
     fetch_session_context,
+    fetch_session_context_compressed,
+    fetch_session_context_contents,
     fetch_todos,
     get_channel_session_id,
     list_bots,
@@ -227,12 +229,53 @@ def register_slash_commands(app):
     @app.command("/context")
     async def cmd_context(ack, command, respond):
         await ack()
+        subcommand = (command.get("text") or "").strip().lower()
         channel = command.get("channel_id") or ""
         state = get_channel_state(channel)
         session_id = await _resolve_session_id(channel, state["bot_id"])
         if not session_id:
             await respond("No active session for this channel yet. Send a message first.")
             return
+
+        # /context contents — dump actual messages the model would see
+        if subcommand == "contents":
+            await respond("_Running compression and fetching context contents..._")
+            try:
+                data = await fetch_session_context_contents(session_id, compress=True)
+            except Exception as e:
+                await respond(f"Error: {e}")
+                return
+            compressed = data.get("compressed", False)
+            total = data.get("total_messages", 0)
+            chars = data.get("total_chars", 0)
+            header = f"*Context Contents* — {total} messages / {chars:,} chars"
+            if compressed:
+                header += " _(compressed)_"
+            lines = [header]
+            for i, m in enumerate(data.get("messages", [])):
+                role = m.get("role", "?")
+                content = m.get("content") or ""
+                if isinstance(content, list):
+                    content = " ".join(str(p) for p in content)
+                # Truncate long content for Slack readability
+                if len(content) > 300:
+                    content = content[:300] + "…"
+                content = content.replace("\n", " ↵ ")
+                tc = ""
+                if m.get("tool_calls"):
+                    names = [tc.get("function", {}).get("name", "?") for tc in m["tool_calls"]]
+                    tc = f" → [{', '.join(names)}]"
+                tid = ""
+                if m.get("tool_call_id"):
+                    tid = f" (call_id={m['tool_call_id'][:8]}…)"
+                lines.append(f"`[{i}] {role}{tid}:` {content}{tc}")
+            # Slack has a 3000 char limit per message — split if needed
+            text = "\n".join(lines)
+            for chunk in split_for_slack(text, max_len=3000):
+                await respond(chunk)
+            return
+
+        # /context — show breakdown + compressed estimate
         try:
             data = await fetch_session_context(session_id)
         except Exception as e:
@@ -261,6 +304,36 @@ def register_slash_commands(app):
             lines.append(f"{short:<22} {chars:>7,}  ({pct:.1f}%)")
         lines.append(f"{'total':<22} {total_chars:>7,}")
         lines.append("```")
+
+        # Fetch compressed estimate (runs the cheap model)
+        try:
+            comp = await fetch_session_context_compressed(session_id)
+            comp_data = comp.get("compressed")
+            if comp_data:
+                comp_total = comp_data.get("total_chars", 0)
+                comp_msgs = comp_data.get("total_messages", 0)
+                saved = comp.get("chars_saved", 0)
+                pct = comp.get("reduction_pct", 0)
+                lines.append("")
+                lines.append(f"*Compressed* — {comp_msgs} messages / {comp_total:,} chars "
+                             f"(_saves {saved:,} chars · {pct}% reduction_)")
+                comp_breakdown = comp_data.get("breakdown", {})
+                comp_rows = sorted(comp_breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
+                lines.append("```")
+                for role, info in comp_rows:
+                    chars = info.get("chars", 0)
+                    cpct = (chars / comp_total * 100) if comp_total else 0
+                    short = role.replace("sys:", "")
+                    lines.append(f"{short:<22} {chars:>7,}  ({cpct:.1f}%)")
+                lines.append(f"{'total':<22} {comp_total:>7,}")
+                lines.append("```")
+            else:
+                reason = comp.get("reason", "unknown")
+                if reason == "below_threshold_or_disabled":
+                    lines.append("\n_Compression: skipped (below threshold or disabled)_")
+        except Exception as e:
+            lines.append(f"\n_Compression estimate failed: {e}_")
+
         await respond("\n".join(lines))
 
     @app.command("/plan")

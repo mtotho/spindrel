@@ -16,14 +16,36 @@ _client = AsyncOpenAI(
     timeout=120.0,
 )
 
-# Only OpenAI image endpoints honor response_format=b64_json; others (e.g. Gemini via LiteLLM) return URLs.
-_SUPPORTS_RESPONSE_FORMAT = frozenset({"gpt-image-1", "dall-e-3", "dall-e-2"})
+def _is_openai_model(model: str) -> bool:
+    """True for OpenAI-native image models (gpt-image, dall-e)."""
+    m = (model or "").lower()
+    return any(t in m for t in ("gpt-image", "dall-e"))
 
 
-def _image_model_requests_b64_json(model: str) -> bool:
-    m = model or ""
-    return any(token in m for token in _SUPPORTS_RESPONSE_FORMAT)
-    
+def _is_gemini_model(model: str) -> bool:
+    m = (model or "").lower()
+    return "gemini" in m or "imagen" in m
+
+
+def _generate_kwargs(model: str, n: int = 1) -> dict:
+    """Build provider-optimal kwargs for images.generate()."""
+    kw: dict = {}
+    if _is_openai_model(model):
+        kw["n"] = n
+        kw["response_format"] = "b64_json"
+    # Gemini: no extra params — n, response_format, style all rejected
+    return kw
+
+
+def _edit_kwargs(model: str, n: int = 1) -> dict:
+    """Build provider-optimal kwargs for images.edit()."""
+    kw: dict = {}
+    if _is_openai_model(model):
+        kw["n"] = n
+    return kw
+
+
+
 async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[bytes], str | None]:
     """Fetch image bytes from attachment IDs. Returns (list_of_bytes, error_or_None)."""
     import uuid as _uuid
@@ -60,6 +82,11 @@ async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[by
                     "type": "string",
                     "description": "Detailed description of the image to generate, or the changes to apply when editing.",
                 },
+                "n": {
+                    "type": "integer",
+                    "description": "Number of images to generate (1-10). Only supported by OpenAI models (gpt-image, dall-e). Ignored for Gemini.",
+                    "default": 1,
+                },
                 "attachment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -76,6 +103,7 @@ async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[by
 })
 async def generate_image_tool(
     prompt: str,
+    n: int = 1,
     attachment_ids: list[str] | None = None,
     source_image_b64: str | None = None,
 ) -> str:
@@ -94,6 +122,7 @@ async def generate_image_tool(
     elif source_image_b64:
         image_files.append(("image.png", base64.b64decode(source_image_b64), "image/png"))
 
+    n = max(1, min(n, 10))
     model = settings.IMAGE_GENERATION_MODEL
 
     try:
@@ -104,19 +133,13 @@ async def generate_image_tool(
                 model=model,
                 image=image_param,
                 prompt=prompt,
-                n=1,
+                **_edit_kwargs(model, n),
             )
         else:
-            extra = (
-                {"response_format": "b64_json"}
-                if _image_model_requests_b64_json(model)
-                else {}
-            )
             resp = await _client.images.generate(
                 model=model,
                 prompt=prompt,
-                n=1,
-                **extra,
+                **_generate_kwargs(model, n),
             )
     except Exception as e:
         logger.exception("Image generation/edit failed")
@@ -125,26 +148,31 @@ async def generate_image_tool(
     if not resp.data:
         return json.dumps({"error": "No image returned"})
 
-    item = resp.data[0]
-    b64: str | None = getattr(item, "b64_json", None)
-    if not b64 and getattr(item, "url", None):
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as ac:
-                r = await ac.get(item.url)
-                r.raise_for_status()
-                b64 = base64.b64encode(r.content).decode("ascii")
-        except Exception as e:
-            return json.dumps({"error": f"Could not download image URL: {e}"})
+    # Collect all returned images
+    results: list[dict] = []
+    for idx, item in enumerate(resp.data):
+        b64: str | None = getattr(item, "b64_json", None)
+        if not b64 and getattr(item, "url", None):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as ac:
+                    r = await ac.get(item.url)
+                    r.raise_for_status()
+                    b64 = base64.b64encode(r.content).decode("ascii")
+            except Exception as e:
+                logger.warning("Could not download image %d URL: %s", idx, e)
+                continue
+        if b64:
+            results.append({
+                "type": "upload_image",
+                "data": b64,
+                "filename": f"generated_{idx}.png" if len(resp.data) > 1 else "generated.png",
+                "caption": "",
+            })
 
-    if not b64:
-        return json.dumps({"error": "Image response had no b64_json or url"})
+    if not results:
+        return json.dumps({"error": "No images could be retrieved from response"})
 
     return json.dumps({
-        "message": "Image generated successfully.",
-        "client_action": {
-            "type": "upload_image",
-            "data": b64,
-            "filename": "generated.png",
-            "caption": "",
-        },
+        "message": f"{len(results)} image(s) generated successfully.",
+        "client_action": results[0] if len(results) == 1 else results,
     })
