@@ -200,7 +200,7 @@ export function MessageInput({ onSend, disabled }: Props) {
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
-      <View className="border-t border-surface-border bg-surface" style={{ flexShrink: 0 }}>
+      <View className="border-t border-surface-border bg-surface" style={{ flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" as any }}>
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
@@ -276,7 +276,7 @@ export function MessageInput({ onSend, disabled }: Props) {
           </div>
         )}
 
-        <View className="flex-row items-end gap-2 p-4">
+        <View className="flex-row items-end gap-3 p-4">
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}
@@ -312,7 +312,7 @@ export function MessageInput({ onSend, disabled }: Props) {
               style={{
                 flex: 1,
                 fontFamily: "inherit",
-                fontSize: 14,
+                fontSize: 16,
                 lineHeight: "1.4",
                 padding: "10px 16px",
                 borderRadius: 12,
@@ -363,7 +363,7 @@ export function MessageInput({ onSend, disabled }: Props) {
 
   // Native: keep RN TextInput
   return (
-    <View className="flex-row items-end gap-2 p-4 border-t border-surface-border bg-surface">
+    <View className="flex-row items-end gap-3 p-4 border-t border-surface-border bg-surface">
       <TextInput
         ref={inputRef}
         className="flex-1 bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-text text-sm min-h-[44px] max-h-[120px]"

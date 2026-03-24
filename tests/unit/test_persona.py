@@ -152,12 +152,17 @@ class TestAppendToPersona:
         assert "No content" in err
 
     @pytest.mark.asyncio
-    async def test_persona_not_found(self):
+    async def test_creates_row_when_no_persona_exists(self):
         from app.agent.persona import append_to_persona
 
         cm, db = _mock_async_session(scalar_result=None)
 
         with patch("app.agent.persona.async_session", return_value=cm):
-            ok, err = await append_to_persona("bot1", "content")
-            assert ok is False
-            assert "not found" in err.lower()
+            ok, err = await append_to_persona("bot1", "initial content")
+            assert ok is True
+            assert err is None
+            db.add.assert_called_once()
+            added = db.add.call_args[0][0]
+            assert added.bot_id == "bot1"
+            assert added.persona_layer == "initial content"
+            db.commit.assert_awaited_once()

@@ -261,6 +261,16 @@ class ChannelSettingsOut(BaseModel):
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
+    # Tool / skill overrides
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
 
     model_config = {"from_attributes": True}
 
@@ -283,6 +293,16 @@ class ChannelSettingsUpdate(BaseModel):
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
+    # Tool / skill overrides (set to null to clear → revert to inherit)
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +437,58 @@ async def admin_channel_settings_update(
     await db.commit()
     await db.refresh(channel)
     return ChannelSettingsOut.model_validate(channel)
+
+
+# ---------------------------------------------------------------------------
+# Effective tools (resolved with channel overrides)
+# ---------------------------------------------------------------------------
+
+class EffectiveToolsOut(BaseModel):
+    local_tools: list[str]
+    mcp_servers: list[str]
+    client_tools: list[str]
+    pinned_tools: list[str]
+    skills: list[dict]
+    mode: dict  # per-category mode: "inherit" | "override" | "disabled"
+
+
+@router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
+async def admin_channel_effective_tools(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return the resolved tool/skill lists after applying channel overrides."""
+    from app.agent.channel_overrides import resolve_effective_tools
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    bot = get_bot(channel.bot_id)
+    eff = resolve_effective_tools(bot, channel)
+
+    def _mode(override, disabled):
+        if override is not None:
+            return "override"
+        if disabled is not None:
+            return "disabled"
+        return "inherit"
+
+    return EffectiveToolsOut(
+        local_tools=eff.local_tools,
+        mcp_servers=eff.mcp_servers,
+        client_tools=eff.client_tools,
+        pinned_tools=eff.pinned_tools,
+        skills=[{"id": s.id, "mode": s.mode, "similarity_threshold": s.similarity_threshold} for s in eff.skills],
+        mode={
+            "local_tools": _mode(channel.local_tools_override, channel.local_tools_disabled),
+            "mcp_servers": _mode(channel.mcp_servers_override, channel.mcp_servers_disabled),
+            "client_tools": _mode(channel.client_tools_override, channel.client_tools_disabled),
+            "pinned_tools": "override" if channel.pinned_tools_override is not None else "inherit",
+            "skills": _mode(channel.skills_override, channel.skills_disabled),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

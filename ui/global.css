@@ -7,3 +7,13 @@ html, body, #root {
   overflow-x: hidden;
   max-width: 100vw;
 }
+
+/* Prevent white flash on overscroll (mobile) */
+html, body {
+  background-color: #111111;
+}
+
+/* Prevent pull-to-overscroll bounce revealing background */
+body {
+  overscroll-behavior: none;
+}
