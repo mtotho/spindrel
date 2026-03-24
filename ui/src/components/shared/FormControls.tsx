@@ -162,6 +162,56 @@ export function Toggle({ value, onChange, label, description }: {
 }
 
 // ---------------------------------------------------------------------------
+// Slider input
+// ---------------------------------------------------------------------------
+export function Slider({ value, onChange, min, max, step, disabled, defaultValue }: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean;
+  defaultValue?: number | null;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: disabled ? 0.4 : 1 }}>
+      <span style={{ fontSize: 11, color: "#666", minWidth: 24, textAlign: "right" }}>{min}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        style={{ flex: 1, accentColor: "#3b82f6", cursor: disabled ? "not-allowed" : "pointer" }}
+      />
+      <span style={{ fontSize: 11, color: "#666", minWidth: 24 }}>{max}</span>
+      <span style={{
+        fontSize: 12, color: "#e5e5e5", fontWeight: 600, minWidth: 40, textAlign: "right",
+        fontFamily: "monospace",
+      }}>
+        {value}
+      </span>
+      {defaultValue != null && (
+        <button
+          onClick={() => onChange(defaultValue)}
+          disabled={disabled}
+          style={{
+            fontSize: 10, color: "#666", background: "#1a1a1a", border: "1px solid #333",
+            borderRadius: 4, padding: "2px 6px", cursor: disabled ? "not-allowed" : "pointer",
+            whiteSpace: "nowrap",
+          }}
+          title={`Reset to default (${defaultValue})`}
+        >
+          default: {defaultValue}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Row layout helpers
 // ---------------------------------------------------------------------------
 export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: number }) {

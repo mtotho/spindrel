@@ -18,7 +18,7 @@ from app.agent.pending import resolve_pending
 from app.db.models import Task as TaskModel
 from app.dependencies import get_db, verify_auth, verify_auth_or_user
 from app.services import session_locks
-from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id
+from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
 from app.services.compaction import maybe_compact
 from app.services.sessions import (
     load_or_create,
@@ -118,11 +118,27 @@ async def _create_attachments_from_metadata(
 async def _resolve_channel_and_session(
     db: AsyncSession,
     req: ChatRequest,
+    user=None,
 ):
     """Resolve channel + session from the request. Returns (channel, session_id, messages, is_integration)."""
     from app.db.models import Channel
 
     is_integration = _is_integration_client(req.client_id)
+
+    # Web UI channels: private by default, owned by the logged-in user
+    extra_kwargs: dict = {}
+    if not is_integration and user is not None:
+        extra_kwargs["user_id"] = user.id
+        extra_kwargs["private"] = True
+
+    # Integration user resolution: if sender_id is "slack:U123", look up system user
+    if is_integration and user is None and req.msg_metadata:
+        sender_id = (req.msg_metadata or {}).get("sender_id", "")
+        if sender_id.startswith("slack:"):
+            slack_uid = sender_id.removeprefix("slack:")
+            resolved = await resolve_integration_user(db, "slack", slack_uid)
+            if resolved:
+                extra_kwargs["user_id"] = resolved.id
 
     # Resolve channel
     channel = await get_or_create_channel(
@@ -131,6 +147,7 @@ async def _resolve_channel_and_session(
         client_id=req.client_id,
         bot_id=req.bot_id,
         dispatch_config=req.dispatch_config if is_integration else None,
+        **extra_kwargs,
     )
 
     # Resolve session: explicit session_id takes precedence
@@ -250,7 +267,7 @@ async def chat(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req, user=user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
@@ -366,7 +383,7 @@ async def chat_stream(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req, user=user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 

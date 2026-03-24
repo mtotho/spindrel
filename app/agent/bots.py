@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Bot as BotRow
+from app.db.models import Bot as BotRow, SharedWorkspaceBot
 
 logger = logging.getLogger(__name__)
 
@@ -175,12 +175,20 @@ class BotConfig:
     elevation_enabled: bool | None = None
     elevation_threshold: float | None = None
     elevated_model: str | None = None
+    # LLM sampling parameters (temperature, max_tokens, etc.)
+    model_params: dict = field(default_factory=dict)
     # Provider
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
     # Bot-local execution sandbox
     bot_sandbox: BotSandboxConfig = field(default_factory=BotSandboxConfig)
     # Unified workspace config
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
+    # Owner user (for user-scoped cross-bot memory)
+    user_id: str | None = None  # UUID string of owner user
+    # Shared workspace membership (populated from shared_workspace_bots junction)
+    shared_workspace_id: str | None = None  # UUID string
+    shared_workspace_role: str | None = None  # 'member' | 'orchestrator'
+    shared_workspace_cwd: str | None = None  # resolved cwd override
 
     @property
     def skill_ids(self) -> list[str]:
@@ -316,6 +324,14 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
             cooldown_seconds=ws_indexing_raw.get("cooldown_seconds", 300),
         ),
     )
+    # Read user_id (UUID → string)
+    _user_id = str(row.user_id) if getattr(row, "user_id", None) else None
+
+    # Read shared workspace membership (set by load_bots via _shared_workspace_cache)
+    _sw_id = getattr(row, "_sw_workspace_id", None)
+    _sw_role = getattr(row, "_sw_role", None)
+    _sw_cwd = getattr(row, "_sw_cwd_override", None)
+
     return BotConfig(
         id=row.id,
         name=row.name,
@@ -350,12 +366,17 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
+        model_params=row.model_params or {},
         elevation_enabled=row.elevation_enabled,
         elevation_threshold=row.elevation_threshold,
         elevated_model=row.elevated_model,
         model_provider_id=row.model_provider_id,
         bot_sandbox=bot_sandbox_cfg,
         workspace=workspace_cfg,
+        user_id=_user_id,
+        shared_workspace_id=str(_sw_id) if _sw_id else None,
+        shared_workspace_role=_sw_role,
+        shared_workspace_cwd=_sw_cwd,
     )
 
 
@@ -464,7 +485,20 @@ async def load_bots() -> None:
     _registry.clear()
     async with async_session() as db:
         rows = (await db.execute(select(BotRow))).scalars().all()
+        # Load shared workspace memberships
+        sw_rows = (await db.execute(select(SharedWorkspaceBot))).scalars().all()
+    sw_by_bot = {r.bot_id: r for r in sw_rows}
     for row in rows:
+        # Attach shared workspace info as transient attributes
+        sw = sw_by_bot.get(row.id)
+        if sw:
+            row._sw_workspace_id = sw.workspace_id
+            row._sw_role = sw.role
+            row._sw_cwd_override = sw.cwd_override
+        else:
+            row._sw_workspace_id = None
+            row._sw_role = None
+            row._sw_cwd_override = None
         bot = _bot_row_to_config(row)
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)

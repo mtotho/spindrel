@@ -24,6 +24,7 @@ async def _llm_call(
     tools_param: list | None,
     tool_choice: str | None,
     provider_id: str | None = None,
+    model_params: dict | None = None,
 ):
     """Call the LLM with retry logic for transient errors and optional model fallback.
 
@@ -35,7 +36,7 @@ async def _llm_call(
     """
     try:
         return await _llm_call_with_retries(
-            model, messages, tools_param, tool_choice, provider_id,
+            model, messages, tools_param, tool_choice, provider_id, model_params,
         )
     except _RETRYABLE_ERRORS as exc:
         fallback_model = settings.LLM_FALLBACK_MODEL
@@ -46,7 +47,7 @@ async def _llm_call(
             model, type(exc).__name__, exc, fallback_model,
         )
         return await _llm_call_with_retries(
-            fallback_model, messages, tools_param, tool_choice, provider_id,
+            fallback_model, messages, tools_param, tool_choice, provider_id, model_params,
         )
 
 
@@ -56,11 +57,14 @@ async def _llm_call_with_retries(
     tools_param: list | None,
     tool_choice: str | None,
     provider_id: str | None = None,
+    model_params: dict | None = None,
 ):
     """Execute LLM call with exponential backoff on transient errors."""
+    from app.agent.model_params import filter_model_params
     from app.services.providers import get_llm_client, record_usage
 
     client = get_llm_client(provider_id)
+    filtered_params = filter_model_params(model, model_params or {})
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):
         try:
@@ -69,6 +73,7 @@ async def _llm_call_with_retries(
                 messages=messages,
                 tools=tools_param,
                 tool_choice=tool_choice,
+                **filtered_params,
             )
             if resp.usage:
                 record_usage(provider_id, resp.usage.total_tokens)

@@ -278,6 +278,7 @@ async def assemble_context(
             cross_bot=bot.memory.cross_bot,
             similarity_threshold=bot.memory.similarity_threshold,
             channel_id=channel_id,
+            user_id=bot.user_id,
         )
         if memories:
             _mem_limit = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS
@@ -428,7 +429,7 @@ async def assemble_context(
     if _do_workspace_rag:
         from app.agent.fs_indexer import retrieve_filesystem_context
         from app.services.workspace import workspace_service
-        _ws_root = workspace_service.get_workspace_root(bot.id)
+        _ws_root = workspace_service.get_workspace_root(bot.id, bot=bot)
         _ws_threshold = bot.workspace.indexing.similarity_threshold
         _ws_top_k = bot.workspace.indexing.top_k
         fs_chunks, fs_sim = await retrieve_filesystem_context(

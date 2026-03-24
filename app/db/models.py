@@ -44,6 +44,10 @@ class Channel(Base):
     attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_max_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_types_allowed: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    private: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
@@ -535,6 +539,7 @@ class Bot(Base):
     knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    model_params: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     bot_sandbox: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     workspace: Mapped[dict] = mapped_column(JSONB, server_default=text("'{\"enabled\": false}'::jsonb"))
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -549,8 +554,64 @@ class Bot(Base):
         ForeignKey("provider_configs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class SharedWorkspace(Base):
+    __tablename__ = "shared_workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'python:3.12-slim'"))
+    network: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'none'"))
+    env: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    ports: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    mounts: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    cpus: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_limit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docker_user: Mapped[str | None] = mapped_column(Text, nullable=True)
+    read_only_root: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    container_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    container_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'stopped'"))
+    image_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    bots: Mapped[list["SharedWorkspaceBot"]] = relationship("SharedWorkspaceBot", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class SharedWorkspaceBot(Base):
+    __tablename__ = "shared_workspace_bots"
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    bot_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("bots.id", ondelete="CASCADE"),
+        primary_key=True,
+        unique=True,
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'member'"))
+    cwd_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace", back_populates="bots")
 
 
 class Skill(Base):

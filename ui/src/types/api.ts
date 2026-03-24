@@ -51,7 +51,11 @@ export interface BotConfig {
   integration_config?: Record<string, any>;
   workspace?: Record<string, any>;
   docker_sandbox_profiles?: string[];
+  model_params?: Record<string, number>;
   delegation_config?: Record<string, any>;
+  user_id?: string | null;
+  shared_workspace_id?: string | null;
+  shared_workspace_role?: string | null;
   elevation_enabled?: boolean | null;
   elevation_threshold?: number | null;
   elevated_model?: string | null;
@@ -82,6 +86,17 @@ export interface SkillOption {
   description?: string;
 }
 
+export interface ModelParamDefinition {
+  name: string;
+  label: string;
+  description: string;
+  type: "slider" | "number";
+  min: number;
+  max: number;
+  step: number;
+  default: number | null;
+}
+
 export interface BotEditorData {
   bot: BotConfig;
   tool_groups: ToolGroup[];
@@ -91,6 +106,8 @@ export interface BotEditorData {
   all_bots: { id: string; name: string }[];
   all_harnesses: string[];
   all_sandbox_profiles: { name: string; description?: string }[];
+  model_param_definitions: ModelParamDefinition[];
+  model_param_support: Record<string, string[]>;
 }
 
 // Channel types (matches server ChannelOut)
@@ -103,6 +120,8 @@ export interface Channel {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  private: boolean;
+  user_id?: string;
   display_name?: string;
   created_at: string;
   updated_at: string;
@@ -312,6 +331,75 @@ export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   user: AuthUser;
+}
+
+// Shared Workspace types
+export interface WorkspaceBot {
+  bot_id: string;
+  bot_name: string;
+  role: string;
+  cwd_override?: string | null;
+  user_id?: string | null;
+}
+
+export interface SharedWorkspace {
+  id: string;
+  name: string;
+  description?: string | null;
+  image: string;
+  network: string;
+  env: Record<string, string>;
+  ports: any[];
+  mounts: any[];
+  cpus?: number | null;
+  memory_limit?: string | null;
+  docker_user?: string | null;
+  read_only_root: boolean;
+  container_id?: string | null;
+  container_name?: string | null;
+  status: string;
+  image_id?: string | null;
+  last_started_at?: string | null;
+  created_by_user_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  bots: WorkspaceBot[];
+}
+
+export interface WorkspaceCreate {
+  name: string;
+  description?: string;
+  image?: string;
+  network?: string;
+  env?: Record<string, string>;
+  ports?: any[];
+  mounts?: any[];
+  cpus?: number;
+  memory_limit?: string;
+  docker_user?: string;
+  read_only_root?: boolean;
+  created_by_user_id?: string;
+}
+
+export interface WorkspaceUpdate {
+  name?: string;
+  description?: string;
+  image?: string;
+  network?: string;
+  env?: Record<string, string>;
+  ports?: any[];
+  mounts?: any[];
+  cpus?: number;
+  memory_limit?: string;
+  docker_user?: string;
+  read_only_root?: boolean;
+}
+
+export interface WorkspaceFileEntry {
+  name: string;
+  is_dir: boolean;
+  size?: number | null;
+  path: string;
 }
 
 // Admin types

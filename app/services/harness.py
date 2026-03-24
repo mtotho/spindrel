@@ -164,7 +164,7 @@ class HarnessService:
         from app.services.workspace import workspace_service
 
         docker = bot.workspace.docker
-        host_root = workspace_service.ensure_host_dir(bot.id)
+        host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
 
         workspace_mount = {
             "host_path": host_root,

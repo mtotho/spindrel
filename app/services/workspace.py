@@ -1,10 +1,11 @@
-"""Workspace service — unified execution layer wrapping sandbox + host_exec."""
+"""Workspace service — unified execution layer wrapping sandbox + host_exec + shared workspaces."""
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.agent.bots import (
+    BotConfig,
     BotSandboxConfig,
     HostExecConfig,
     HostExecCommandEntry,
@@ -22,7 +23,7 @@ class ExecResult:
     exit_code: int
     truncated: bool
     duration_ms: int
-    workspace_type: str  # "docker" | "host"
+    workspace_type: str  # "docker" | "host" | "shared"
 
 
 class WorkspaceError(Exception):
@@ -30,13 +31,29 @@ class WorkspaceError(Exception):
 
 
 class WorkspaceService:
-    def get_workspace_root(self, bot_id: str) -> str:
-        """Return the host-side workspace path for a bot."""
+    def get_workspace_root(self, bot_id: str, bot: BotConfig | None = None) -> str:
+        """Return the host-side workspace path for a bot.
+
+        If the bot is in a shared workspace, returns the appropriate path
+        within the shared workspace directory.
+        """
+        if bot and bot.shared_workspace_id:
+            from app.services.shared_workspace import shared_workspace_service
+            sw_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
+            if bot.shared_workspace_role == "orchestrator":
+                return sw_root
+            return os.path.join(sw_root, "bots", bot_id)
         base = os.path.expanduser(settings.WORKSPACE_BASE_DIR)
         return os.path.join(base, bot_id)
 
-    def ensure_host_dir(self, bot_id: str) -> str:
+    def ensure_host_dir(self, bot_id: str, bot: BotConfig | None = None) -> str:
         """Create the workspace directory on the host. Returns the path."""
+        if bot and bot.shared_workspace_id:
+            from app.services.shared_workspace import shared_workspace_service
+            shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
+            root = self.get_workspace_root(bot_id, bot)
+            os.makedirs(root, exist_ok=True)
+            return root
         root = self.get_workspace_root(bot_id)
         os.makedirs(root, exist_ok=True)
         return root
@@ -47,10 +64,15 @@ class WorkspaceService:
         command: str,
         workspace: WorkspaceConfig,
         working_dir: str = "",
+        bot: BotConfig | None = None,
     ) -> ExecResult:
-        """Execute a command in the workspace, routing to Docker or host."""
+        """Execute a command in the workspace, routing to Docker, host, or shared."""
         if not workspace.enabled:
             raise WorkspaceError("Workspace is not enabled for this bot.")
+
+        # Check if bot is in a shared workspace — route there first
+        if bot and bot.shared_workspace_id:
+            return await self._exec_shared(bot, command, working_dir)
 
         if workspace.type == "docker":
             return await self._exec_docker(bot_id, command, workspace, working_dir)
@@ -58,6 +80,36 @@ class WorkspaceService:
             return await self._exec_host(bot_id, command, workspace, working_dir)
         else:
             raise WorkspaceError(f"Unknown workspace type: {workspace.type!r}")
+
+    async def _exec_shared(
+        self,
+        bot: BotConfig,
+        command: str,
+        working_dir: str,
+    ) -> ExecResult:
+        """Execute via the shared workspace container."""
+        from app.services.shared_workspace import shared_workspace_service
+        from app.db.engine import async_session
+        from app.db.models import SharedWorkspace
+
+        async with async_session() as db:
+            ws = await db.get(SharedWorkspace, bot.shared_workspace_id)
+        if ws is None:
+            raise WorkspaceError(f"Shared workspace {bot.shared_workspace_id} not found")
+
+        result = await shared_workspace_service.exec(
+            ws, bot.id, command, working_dir=working_dir,
+            timeout=bot.workspace.timeout,
+            max_bytes=bot.workspace.max_output_bytes,
+        )
+        return ExecResult(
+            stdout=result.stdout,
+            stderr=result.stderr,
+            exit_code=result.exit_code,
+            truncated=result.truncated,
+            duration_ms=result.duration_ms,
+            workspace_type="shared",
+        )
 
     async def _exec_docker(
         self,
@@ -161,12 +213,15 @@ class WorkspaceService:
             workspace_type="host",
         )
 
-    def translate_path(self, bot_id: str, bot_path: str, workspace: WorkspaceConfig) -> str:
+    def translate_path(self, bot_id: str, bot_path: str, workspace: WorkspaceConfig, bot: BotConfig | None = None) -> str:
         """Map a bot-side path to a host-side path.
 
-        Docker: /workspace/foo → ~/.agent-workspaces/<bot_id>/foo
+        Docker/Shared: /workspace/foo → host path
         Host: identity (path is already on host)
         """
+        if bot and bot.shared_workspace_id:
+            from app.services.shared_workspace import shared_workspace_service
+            return shared_workspace_service.translate_path(bot.shared_workspace_id, bot_path)
         if workspace.type == "docker":
             host_root = self.get_workspace_root(bot_id)
             if bot_path.startswith("/workspace/"):

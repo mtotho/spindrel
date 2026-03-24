@@ -1,0 +1,391 @@
+"""Shared workspace service — container lifecycle + file ops for multi-bot workspaces."""
+import asyncio
+import logging
+import os
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlalchemy import select, update
+
+from app.config import settings
+from app.db.engine import async_session
+from app.db.models import SharedWorkspace, SharedWorkspaceBot
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ExecResult:
+    stdout: str
+    stderr: str
+    exit_code: int
+    truncated: bool
+    duration_ms: int
+
+
+class SharedWorkspaceError(Exception):
+    pass
+
+
+def _slug(name: str) -> str:
+    """Slugify a workspace name for container naming."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32]
+
+
+class SharedWorkspaceService:
+    """Manages shared workspace containers and file operations."""
+
+    # ── Path management ──────────────────────────────────────────
+
+    def get_host_root(self, workspace_id: str) -> str:
+        """Host-side root: ~/.agent-workspaces/shared/<workspace_id>/"""
+        base = os.path.expanduser(settings.WORKSPACE_BASE_DIR)
+        return os.path.join(base, "shared", workspace_id)
+
+    def ensure_host_dirs(self, workspace_id: str) -> str:
+        """Create the workspace directory structure on the host. Returns root."""
+        root = self.get_host_root(workspace_id)
+        for subdir in ("bots", "common", "users"):
+            os.makedirs(os.path.join(root, subdir), exist_ok=True)
+        return root
+
+    def ensure_bot_dir(self, workspace_id: str, bot_id: str) -> str:
+        """Ensure bots/<bot_id>/ exists inside the workspace."""
+        root = self.get_host_root(workspace_id)
+        bot_dir = os.path.join(root, "bots", bot_id)
+        os.makedirs(bot_dir, exist_ok=True)
+        return bot_dir
+
+    def get_bot_cwd(
+        self, bot_id: str, role: str, cwd_override: str | None,
+    ) -> str:
+        """Container-side cwd for a bot in a shared workspace."""
+        if cwd_override:
+            return cwd_override
+        if role == "orchestrator":
+            return "/workspace"
+        return f"/workspace/bots/{bot_id}"
+
+    def translate_path(self, workspace_id: str, container_path: str) -> str:
+        """Map a container-side path to a host-side path."""
+        host_root = self.get_host_root(workspace_id)
+        if container_path.startswith("/workspace/"):
+            return os.path.join(host_root, container_path[len("/workspace/"):])
+        if container_path == "/workspace":
+            return host_root
+        return container_path
+
+    def _container_name(self, ws: SharedWorkspace) -> str:
+        """Deterministic container name: agent-ws-<slug>-<id-hex[:8]>"""
+        return f"agent-ws-{_slug(ws.name)}-{str(ws.id).replace('-', '')[:8]}"
+
+    def _build_env(self, ws: SharedWorkspace) -> dict[str, str]:
+        """Build environment dict with auto-injected server credentials."""
+        env = dict(ws.env or {})
+        # Auto-inject server API access so bots inside can call back
+        env.setdefault("AGENT_SERVER_URL", settings.SERVER_PUBLIC_URL)
+        env.setdefault("AGENT_SERVER_API_KEY", settings.API_KEY)
+        return env
+
+    # ── Container lifecycle ──────────────────────────────────────
+
+    async def ensure_container(self, ws: SharedWorkspace) -> str:
+        """Start the workspace container if not already running. Returns container_id."""
+        if ws.container_id:
+            # Check if still running
+            status = await self.inspect_status(ws)
+            if status == "running":
+                return ws.container_id
+
+        host_root = self.ensure_host_dirs(str(ws.id))
+        container_name = self._container_name(ws)
+        env = self._build_env(ws)
+
+        # Build docker run command
+        cmd = [
+            "docker", "run", "-d",
+            "--name", container_name,
+            "--network", ws.network or "none",
+        ]
+        # Env vars
+        for k, v in env.items():
+            cmd += ["-e", f"{k}={v}"]
+        # Workspace volume
+        cmd += ["-v", f"{host_root}:/workspace"]
+        # Extra mounts
+        for mount in (ws.mounts or []):
+            host = mount.get("host_path", "")
+            container = mount.get("container_path", "")
+            mode = mount.get("mode", "rw")
+            if host and container:
+                cmd += ["-v", f"{host}:{container}:{mode}"]
+        # Port mappings
+        for port in (ws.ports or []):
+            if isinstance(port, str):
+                cmd += ["-p", port]
+            elif isinstance(port, dict):
+                host_port = port.get("host", "")
+                container_port = port.get("container", "")
+                if host_port and container_port:
+                    cmd += ["-p", f"{host_port}:{container_port}"]
+        # Resource limits
+        if ws.cpus:
+            cmd += ["--cpus", str(ws.cpus)]
+        if ws.memory_limit:
+            cmd += ["--memory", ws.memory_limit]
+        # User
+        if ws.docker_user:
+            cmd += ["--user", ws.docker_user]
+        # Read-only root
+        if ws.read_only_root:
+            cmd += ["--read-only"]
+        # Add host.docker.internal for API access
+        cmd += ["--add-host", "host.docker.internal:host-gateway"]
+        # Image + keep-alive command
+        cmd += [ws.image, "sleep", "infinity"]
+
+        # Remove existing container if any
+        await self._remove_container(container_name)
+
+        logger.info("Starting shared workspace container: %s (image=%s)", container_name, ws.image)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            err = stderr.decode().strip()
+            logger.error("Failed to start workspace container %s: %s", container_name, err)
+            await self._update_status(ws.id, "error")
+            raise SharedWorkspaceError(f"Container start failed: {err}")
+
+        container_id = stdout.decode().strip()[:12]
+        now = datetime.now(timezone.utc)
+        async with async_session() as db:
+            await db.execute(
+                update(SharedWorkspace)
+                .where(SharedWorkspace.id == ws.id)
+                .values(
+                    container_id=container_id,
+                    container_name=container_name,
+                    status="running",
+                    last_started_at=now,
+                    updated_at=now,
+                )
+            )
+            await db.commit()
+
+        # Ensure bot directories exist inside the container
+        async with async_session() as db:
+            sw_bots = (await db.execute(
+                select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws.id)
+            )).scalars().all()
+        for swb in sw_bots:
+            bot_dir = f"/workspace/bots/{swb.bot_id}"
+            await self._docker_exec(container_name, f"mkdir -p {bot_dir}")
+
+        logger.info("Workspace container %s started: %s", container_name, container_id)
+        return container_id
+
+    async def exec(
+        self,
+        ws: SharedWorkspace,
+        bot_id: str,
+        command: str,
+        working_dir: str = "",
+        timeout: int | None = None,
+        max_bytes: int | None = None,
+    ) -> ExecResult:
+        """Execute a command in the workspace container as a specific bot."""
+        if ws.status != "running" or not ws.container_name:
+            await self.ensure_container(ws)
+            # Reload status
+            async with async_session() as db:
+                ws = await db.get(SharedWorkspace, ws.id)
+
+        # Determine working directory
+        if not working_dir:
+            # Look up bot's role/cwd from junction
+            async with async_session() as db:
+                swb = (await db.execute(
+                    select(SharedWorkspaceBot).where(
+                        SharedWorkspaceBot.workspace_id == ws.id,
+                        SharedWorkspaceBot.bot_id == bot_id,
+                    )
+                )).scalar_one_or_none()
+            if swb:
+                working_dir = self.get_bot_cwd(bot_id, swb.role, swb.cwd_override)
+            else:
+                working_dir = f"/workspace/bots/{bot_id}"
+
+        full_cmd = f"cd {working_dir} && {command}"
+        _timeout = timeout or 30
+        _max_bytes = max_bytes or 65536
+
+        import time
+        start = time.monotonic()
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", ws.container_name, "sh", "-c", full_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=_timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            elapsed = int((time.monotonic() - start) * 1000)
+            return ExecResult(
+                stdout="", stderr=f"Command timed out after {_timeout}s",
+                exit_code=-1, truncated=False, duration_ms=elapsed,
+            )
+
+        elapsed = int((time.monotonic() - start) * 1000)
+        stdout_str = stdout_bytes[:_max_bytes].decode(errors="replace")
+        stderr_str = stderr_bytes[:_max_bytes].decode(errors="replace")
+        truncated = len(stdout_bytes) > _max_bytes or len(stderr_bytes) > _max_bytes
+
+        return ExecResult(
+            stdout=stdout_str,
+            stderr=stderr_str,
+            exit_code=proc.returncode or 0,
+            truncated=truncated,
+            duration_ms=elapsed,
+        )
+
+    async def stop(self, ws: SharedWorkspace) -> None:
+        """Stop the workspace container."""
+        if ws.container_name:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "stop", ws.container_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+        await self._update_status(ws.id, "stopped")
+        logger.info("Stopped workspace container: %s", ws.container_name)
+
+    async def recreate(self, ws: SharedWorkspace) -> str:
+        """Stop, remove, and recreate the workspace container."""
+        if ws.container_name:
+            await self._remove_container(ws.container_name)
+        await self._update_status(ws.id, "stopped", clear_container=True)
+        # Reload
+        async with async_session() as db:
+            ws = await db.get(SharedWorkspace, ws.id)
+        return await self.ensure_container(ws)
+
+    async def pull_image(self, image: str) -> tuple[bool, str]:
+        """Pull a Docker image. Returns (success, output)."""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "pull", image,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        output = (stdout.decode() + stderr.decode()).strip()
+        return proc.returncode == 0, output
+
+    async def get_logs(self, ws: SharedWorkspace, tail: int = 300) -> str:
+        """Get container logs."""
+        if not ws.container_name:
+            return ""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "logs", "--tail", str(tail), ws.container_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
+
+    async def inspect_status(self, ws: SharedWorkspace) -> str:
+        """Get live container status via docker inspect."""
+        if not ws.container_name:
+            return "stopped"
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "inspect", "--format", "{{.State.Status}}", ws.container_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            return "stopped"
+        return stdout.decode().strip() or "unknown"
+
+    # ── File browser ─────────────────────────────────────────────
+
+    def list_files(self, workspace_id: str, path: str = "/") -> list[dict]:
+        """List files/dirs at a path inside the workspace (host-side)."""
+        host_root = self.get_host_root(workspace_id)
+        if path == "/" or not path:
+            target = host_root
+        else:
+            # Normalize: strip leading /workspace/
+            rel = path.lstrip("/")
+            if rel.startswith("workspace/"):
+                rel = rel[len("workspace/"):]
+            target = os.path.join(host_root, rel)
+
+        target = os.path.realpath(target)
+        # Security: ensure within host_root
+        if not target.startswith(os.path.realpath(host_root)):
+            return []
+
+        entries = []
+        try:
+            for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
+                entries.append({
+                    "name": entry.name,
+                    "is_dir": entry.is_dir(),
+                    "size": entry.stat().st_size if entry.is_file() else None,
+                    "path": os.path.relpath(entry.path, host_root),
+                })
+        except OSError:
+            pass
+        return entries
+
+    # ── Internals ────────────────────────────────────────────────
+
+    async def _remove_container(self, name: str) -> None:
+        """Force-remove a container by name (ignore errors)."""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "rm", "-f", name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+    async def _docker_exec(self, container_name: str, command: str) -> tuple[int, str]:
+        """Quick helper to exec a command in a running container."""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", container_name, "sh", "-c", command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return proc.returncode or 0, (stdout.decode() + stderr.decode()).strip()
+
+    async def _update_status(
+        self, workspace_id, status: str, clear_container: bool = False,
+    ) -> None:
+        """Update workspace status in DB."""
+        values = {"status": status, "updated_at": datetime.now(timezone.utc)}
+        if clear_container:
+            values["container_id"] = None
+            values["container_name"] = None
+        async with async_session() as db:
+            await db.execute(
+                update(SharedWorkspace)
+                .where(SharedWorkspace.id == workspace_id)
+                .values(**values)
+            )
+            await db.commit()
+
+
+shared_workspace_service = SharedWorkspaceService()

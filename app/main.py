@@ -61,7 +61,7 @@ async def _index_filesystems_and_start_watchers() -> None:
     for bot in list_bots():
         # Workspace-based indexing
         if bot.workspace.enabled and bot.workspace.indexing.enabled:
-            root = workspace_service.get_workspace_root(bot.id)
+            root = workspace_service.get_workspace_root(bot.id, bot=bot)
             try:
                 stats = await index_directory(root, bot.id, bot.workspace.indexing.patterns, force=True)
                 logger.info("Indexed workspace for bot %s: %s", bot.id, stats)
@@ -119,7 +119,21 @@ async def lifespan(app: FastAPI):
     from app.services.workspace import workspace_service
     for bot in list_bots():
         if bot.workspace.enabled:
-            workspace_service.ensure_host_dir(bot.id)
+            workspace_service.ensure_host_dir(bot.id, bot=bot)
+    # Ensure shared workspace host dirs exist
+    from app.services.shared_workspace import shared_workspace_service
+    from sqlalchemy import select as sa_select
+    async with async_session() as _sw_db:
+        from app.db.models import SharedWorkspace as _SW
+        _sw_rows = (await _sw_db.execute(sa_select(_SW))).scalars().all()
+    for _sw in _sw_rows:
+        shared_workspace_service.ensure_host_dirs(str(_sw.id))
+        # Auto-start containers that were previously running
+        if _sw.status == "running":
+            try:
+                await shared_workspace_service.ensure_container(_sw)
+            except Exception:
+                logger.warning("Failed to auto-start shared workspace %s", _sw.name)
     # Index filesystem directories + start watchers in background (doesn't block startup)
     asyncio.create_task(_index_filesystems_and_start_watchers())
 

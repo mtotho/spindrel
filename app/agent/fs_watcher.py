@@ -75,7 +75,7 @@ async def start_watchers(bots: list) -> None:
         ws = getattr(bot, "workspace", None)
         if ws and ws.enabled and ws.indexing.enabled and ws.indexing.watch:
             from app.services.workspace import workspace_service
-            ws_root = workspace_service.get_workspace_root(bot.id)
+            ws_root = workspace_service.get_workspace_root(bot.id, bot=bot)
             abs_root = str(Path(ws_root).resolve())
             key = (abs_root, bot.id)
             if key not in seen:

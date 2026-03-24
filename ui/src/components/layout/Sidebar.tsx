@@ -14,8 +14,10 @@ import {
   ChevronRight,
   Settings,
   Users,
+  Container,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
+import { useAuthStore } from "../../stores/auth";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 
@@ -50,6 +52,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Tools", href: "/admin/tools", icon: Wrench },
       { label: "Providers", href: "/admin/providers", icon: Server },
+      { label: "Workspaces", href: "/admin/workspaces", icon: Container },
       { label: "Sandboxes", href: "/admin/sandboxes", icon: HardDrive },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
@@ -85,6 +88,7 @@ export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const user = useAuthStore((s) => s.user);
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
 
@@ -179,8 +183,30 @@ export function Sidebar() {
         ))}
       </ScrollView>
 
-      {/* Settings footer */}
-      <View className="border-t border-surface-border p-2">
+      {/* Footer — profile + settings */}
+      <View className="border-t border-surface-border p-2 gap-0.5">
+        <Link href={"/(app)/profile" as any} asChild>
+          <Pressable
+            onPress={closeMobile}
+            className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
+              pathname === "/profile" ? "bg-accent/15" : "hover:bg-surface-overlay"
+            }`}
+          >
+            <View className="w-5 h-5 rounded-full bg-accent/20 items-center justify-center">
+              <Text className="text-[9px] text-accent font-bold">
+                {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
+              </Text>
+            </View>
+            <Text
+              className={`text-xs flex-1 ${
+                pathname === "/profile" ? "text-accent font-medium" : "text-text-muted"
+              }`}
+              numberOfLines={1}
+            >
+              {user?.display_name || "Profile"}
+            </Text>
+          </Pressable>
+        </Link>
         <Link href={"/(app)/settings" as any} asChild>
           <Pressable onPress={closeMobile} className="flex-row items-center gap-2 rounded-lg px-2.5 py-1 hover:bg-surface-overlay">
             <Settings size={13} color="#9ca3af" />

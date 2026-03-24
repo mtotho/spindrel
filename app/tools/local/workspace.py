@@ -49,7 +49,7 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
     from app.services.workspace import workspace_service
     from app.agent.fs_indexer import retrieve_filesystem_context
 
-    root = workspace_service.get_workspace_root(bot_id)
+    root = workspace_service.get_workspace_root(bot_id, bot=bot)
     threshold = bot.workspace.indexing.similarity_threshold
     k = top_k or bot.workspace.indexing.top_k
 
@@ -94,7 +94,7 @@ async def reindex_workspace() -> str:
     from app.services.workspace import workspace_service
     from app.agent.fs_indexer import index_directory
 
-    root = workspace_service.get_workspace_root(bot_id)
+    root = workspace_service.get_workspace_root(bot_id, bot=bot)
     patterns = bot.workspace.indexing.patterns
 
     stats = await index_directory(root, bot_id, patterns, force=True)

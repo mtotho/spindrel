@@ -168,7 +168,7 @@ async def run_agent_tool_loop(
 
             import time as _time
             _llm_t0 = _time.monotonic()
-            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id)
+            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params)
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
 
             # Backfill elevation log with outcome data
