@@ -1,50 +1,129 @@
-# Attachment & Image Capabilities
+---
+name: attachments-and-images
+description: "Load when the task involves images, attachments, or file handling: generating images, editing images, combining/mixing images, finding uploaded files, referencing earlier uploads, or any use of generate_image, list_attachments, or get_attachment tools. Also trigger when a delegated bot needs to work with images from the parent channel. Do NOT trigger for plain text conversations with no file/image component."
+---
 
-## Overview
-You can access, retrieve, and edit images and files that users have shared in the channel.
-Attachments are stored persistently in the database — you can reference images from earlier
-in the conversation, even across sessions.
+# Attachment & Image Mastery
 
-## Tools Available
+## Core Principle
+
+Image bytes never pass through the LLM context. Attachments are referenced by UUID; image tools fetch bytes directly from the database. Passing base64 through tool results will overflow the context window.
+
+## Tools
 
 ### list_attachments
-Lists recent attachments in the channel. Use this when the user refers to "that image" or
-"the file I uploaded earlier" and you need to find it.
 
-Parameters:
-- limit (default 5): how many to return
-- type_filter: "image", "file", "text", "audio", "video"
+Find attachments in the current channel. Call this first whenever the user references an image or file.
 
-Returns: id, filename, type, description, posted_by, posted_at
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| limit | int | 5 | Max 20 |
+| type_filter | string | (all) | `image`, `file`, `text`, `audio`, `video` |
+
+Returns: `id`, `filename`, `type`, `mime_type`, `size_bytes`, `description`, `posted_by`, `posted_at`
+
+No `channel_id` parameter needed — defaults to the current channel context automatically.
 
 ### get_attachment(attachment_id)
-Fetches the full file by DB UUID. Returns file_data_base64 — actual file bytes encoded as base64.
 
-Use this when you need to:
-- Display or analyze an image
-- Pass an image to generate_image for editing
-- Read the full content of a text/file attachment
+Fetch metadata for a single attachment by UUID. Returns description, filename, type, mime_type, has_file_data (boolean), posted_by, posted_at.
 
-### generate_image(prompt, source_image_b64?)
-Generates a new image from a prompt, or edits an existing image.
+Does **NOT** return file bytes or base64. Use this to inspect metadata only.
 
-To edit an existing image:
-1. Call list_attachments() to find the image ID
-2. Call get_attachment(id) to get file_data_base64
-3. Call generate_image(prompt="your edit instructions", source_image_b64=<file_data_base64>)
+### generate_image
 
-## Common Patterns
+Generate from scratch or edit existing images. The image model is configured server-side.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| prompt | string | Yes | Describe what to generate, or the edits to apply |
+| attachment_ids | string[] | No | UUIDs from list_attachments — fetches bytes directly from DB |
+| n | int | No | Number of images (1-10). Only works with OpenAI models (gpt-image, dall-e). Ignored by Gemini. |
+
+## Correct Patterns
+
+### Generate from scratch
+
+```
+generate_image(prompt="A watercolor painting of a sunset over mountains")
+```
+
+One tool call. No attachments needed.
+
+### Edit a single image
+
+```
+1. list_attachments(type_filter="image", limit=5)
+2. generate_image(prompt="Make the sky purple", attachment_ids=["<uuid>"])
+```
+
+Two tool calls. Do NOT call get_attachment — generate_image fetches bytes itself.
+
+### Mix/combine multiple images
+
+```
+1. list_attachments(type_filter="image", limit=10)
+2. generate_image(
+     prompt="Create a hybrid creature combining elements of both images",
+     attachment_ids=["<uuid_1>", "<uuid_2>"]
+   )
+```
+
+Pass multiple UUIDs. The image API receives all source images for multi-reference editing.
 
 ### "Edit that image I posted"
-1. list_attachments(type_filter="image", limit=5) → find the right one
-2. get_attachment(id) → get file_data_base64
-3. generate_image(prompt="...", source_image_b64=file_data_base64)
 
-### "What was in the image I shared earlier?"
-1. list_attachments(type_filter="image") → check descriptions
-2. If description is already there, answer from it
-3. If not, get_attachment(id) → pass file_data_base64 to vision
+```
+1. list_attachments(type_filter="image", limit=3)
+   → Pick the most recent or the one matching the user's description
+2. generate_image(prompt="<user's edit request>", attachment_ids=["<uuid>"])
+```
 
-### "Analyze the CSV I uploaded"
-1. list_attachments(type_filter="text") or list_attachments(type_filter="file")
-2. get_attachment(id) → decode file_data_base64 → read as text
+### Generate multiple variations
+
+```
+generate_image(prompt="A logo for a coffee shop", n=4)
+```
+
+Only works with OpenAI image models. Each variation is sent as a separate image.
+
+### "What's in this image?"
+
+```
+1. list_attachments(type_filter="image", limit=3)
+2. get_attachment("<uuid>")
+   → Read the description field
+```
+
+If the description is populated (from auto-summarization), answer from it. If description is null and you need to analyze the image, say so — you cannot retrieve raw bytes through tool results without overflowing context.
+
+## Common Mistakes
+
+| Wrong | Right | Why |
+|---|---|---|
+| `get_attachment(id)` then pass base64 to `generate_image` | `generate_image(attachment_ids=[id])` | get_attachment doesn't return base64; generate_image fetches bytes directly |
+| Passing `n=3` with a Gemini model | Omit `n` or set `n=1` | Gemini rejects the `n` parameter; only OpenAI models support it |
+| Skipping `list_attachments` and guessing UUIDs | Always call `list_attachments` first | Attachment UUIDs are random; you must look them up |
+| Calling `list_attachments(channel_id="C06RY3YBSLE")` | Call `list_attachments()` with no channel_id | Slack channel IDs are not valid UUIDs; omit the param to use current channel context |
+
+## Delegation Context
+
+When bot A delegates to bot B (via `delegate_to_agent`), bot B inherits the parent's channel context. This means:
+
+- Bot B can call `list_attachments()` and see the same attachments as bot A
+- Bot B can pass those attachment IDs to `generate_image`
+- The user can upload an image, ask bot A to delegate to an image-specialist bot B, and bot B will find the upload
+
+No special parameters needed — channel context propagates automatically.
+
+## Image Output
+
+`generate_image` returns a `client_action` with type `upload_image`. The client handles posting the image to the channel. When `n > 1` (OpenAI only), multiple `upload_image` actions are returned — each is posted separately.
+
+## Pre-Generation Checklist
+
+- [ ] If editing: called `list_attachments` to get the UUID(s)
+- [ ] Prompt is descriptive (not just "edit it" — describe the desired changes)
+- [ ] Using `attachment_ids`, not `source_image_b64` (deprecated)
+- [ ] Not passing `n > 1` unless certain the model is OpenAI-based
+- [ ] Not calling `get_attachment` just to feed bytes into `generate_image`
