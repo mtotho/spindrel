@@ -173,6 +173,7 @@ class DelegationService:
         scheduled_at: Optional[datetime],
         client_id: str | None = None,
         parent_session_id: Optional[uuid.UUID] = None,
+        channel_id: uuid.UUID | None = None,
         reply_in_thread: bool = False,
         notify_parent: bool = True,
     ) -> str:
@@ -190,6 +191,7 @@ class DelegationService:
             bot_id=delegate_bot_id,
             client_id=client_id,
             session_id=parent_session_id,
+            channel_id=channel_id,
             prompt=prompt,
             scheduled_at=scheduled_at,
             status="pending",

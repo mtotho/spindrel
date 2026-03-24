@@ -449,7 +449,7 @@ async def assemble_context(
                 ))
             messages.append({
                 "role": "system",
-                "content": "Relevant files from workspace:\n\n"
+                "content": "Relevant files from workspace (hint: use exec_command with `cat <filepath>` to read full contents):\n\n"
                            + "\n\n---\n\n".join(fs_chunks),
             })
     elif bot.filesystem_indexes:
@@ -474,7 +474,7 @@ async def assemble_context(
                 ))
             messages.append({
                 "role": "system",
-                "content": "Relevant code/files from indexed directories:\n\n"
+                "content": "Relevant code/files from indexed directories (hint: use exec_command with `cat <filepath>` to read full contents):\n\n"
                            + "\n\n---\n\n".join(fs_chunks),
             })
 

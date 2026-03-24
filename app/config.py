@@ -156,6 +156,9 @@ class Settings(BaseSettings):
     ATTACHMENT_TYPES_ALLOWED: list[str] | None = None  # global default, None = all types
     ATTACHMENT_RETENTION_SWEEP_INTERVAL_S: int = 3600  # 1 hour between sweeps
 
+    # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
+    CORS_ORIGINS: str = ""
+
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
     SLACK_BOT_TOKEN: str = ""  # xoxb-... used for channel name lookup in admin UI
