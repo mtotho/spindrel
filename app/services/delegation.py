@@ -153,6 +153,7 @@ class DelegationService:
                 posted = await self.post_child_response(
                     dispatch_type, dispatch_config, final_response,
                     delegate_bot_id, reply_in_thread=reply_in_thread,
+                    client_actions=child_client_actions,
                 )
                 if posted:
                     from app.services.sessions import store_dispatch_echo
@@ -217,16 +218,20 @@ class DelegationService:
         text: str,
         bot_id: str,
         reply_in_thread: bool = False,
+        client_actions: list[dict] | None = None,
     ) -> bool:
         """Dispatch a child bot's response to the appropriate target.
 
-        Called by the non-streaming run() wrapper when delegation_post events are emitted.
-        Routing is driven by dispatch_type via the dispatcher registry.
+        Called by the non-streaming run() wrapper when delegation_post events are emitted,
+        or as a fallback when the streaming delegation_post queue is unavailable
+        (e.g. _with_keepalive Task ContextVar boundary).
         """
         from app.agent import dispatchers
-        return await dispatchers.get(dispatch_type).post_message(
-            dispatch_config, text, bot_id=bot_id, reply_in_thread=reply_in_thread
+        posted = await dispatchers.get(dispatch_type).post_message(
+            dispatch_config, text, bot_id=bot_id, reply_in_thread=reply_in_thread,
+            client_actions=client_actions,
         )
+        return posted
 
 
 delegation_service = DelegationService()

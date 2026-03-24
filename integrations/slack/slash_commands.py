@@ -271,7 +271,7 @@ def register_slash_commands(app):
                 lines.append(f"`[{i}] {role}{tid}:` {content}{tc}")
             # Slack has a 3000 char limit per message — split if needed
             text = "\n".join(lines)
-            for chunk in split_for_slack(text, max_len=3000):
+            for chunk in split_for_slack(text, limit=3000):
                 await respond(chunk)
             return
 
