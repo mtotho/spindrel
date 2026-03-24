@@ -66,6 +66,8 @@ class TestSlackDispatcherPostMessage:
             thread_ts="1234567890.123456",
             reply_in_thread=True,
             action=actions[0],
+            username="child-bot",
+            icon_emoji=None,
         )
 
     @pytest.mark.asyncio

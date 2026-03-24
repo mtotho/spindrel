@@ -1299,9 +1299,53 @@ export default function BotEditorScreen() {
           )}
 
           {activeSection === "elevation" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Model Elevation</div>
-              <div style={{ fontSize: 11, color: "#555" }}>Automatically elevate to a more capable model for complex requests.</div>
+              <div style={{ fontSize: 12, color: "#999", lineHeight: 1.6 }}>
+                Automatically switches to a more capable (and expensive) model when the conversation becomes complex.
+                On each turn, a rule-based classifier scores 8 weighted signals from 0.0 to 1.0. If the combined score
+                meets or exceeds the <strong style={{ color: "#ccc" }}>threshold</strong>, the turn is sent to the
+                {" "}<strong style={{ color: "#ccc" }}>elevated model</strong> instead of this bot's default model.
+                No elevation occurs during compaction turns, or if the elevated model is the same as the bot's model.
+              </div>
+
+              <div style={{
+                background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 10,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Signals &amp; Weights</div>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.7, fontFamily: "monospace" }}>
+                  <div><span style={{ color: "#6b9" }}>message_length</span>{"   "}(+0.10) — long user messages (500-1500+ chars)</div>
+                  <div><span style={{ color: "#6b9" }}>code_content</span>{"    "}(+0.20) — code blocks or inline backticks</div>
+                  <div><span style={{ color: "#6b9" }}>keyword_elevate</span>{" "}(+0.20) — "explain", "design", "debug", "refactor", "analyze", etc.</div>
+                  <div><span style={{ color: "#e66" }}>keyword_simple</span>{"  "}(-0.20) — "weather", "timer", "turn on/off", etc.</div>
+                  <div><span style={{ color: "#6b9" }}>tool_complexity</span>{" "}(+0.15) — complex tools (delegation, exec) vs simple tools</div>
+                  <div><span style={{ color: "#6b9" }}>conv_depth</span>{"      "}(+0.10) — number of tool messages in context (5-15+)</div>
+                  <div><span style={{ color: "#6b9" }}>iteration_depth</span>{" "}(+0.10) — tool iterations so far this turn (3-8+)</div>
+                  <div><span style={{ color: "#6b9" }}>prior_errors</span>{"    "}(+0.15) — error patterns in recent tool results</div>
+                </div>
+                <div style={{ fontSize: 11, color: "#666", lineHeight: 1.5 }}>
+                  Each signal outputs 0.0-1.0, multiplied by its weight. The sum (clamped to 0-1) is compared against
+                  the threshold. For example, a message with code (+0.14) and an "explain" keyword (+0.16) scores 0.30 —
+                  below the default 0.4 threshold. Add a deep conversation (+0.08) and prior errors (+0.075) and it
+                  crosses 0.4, triggering elevation.
+                </div>
+              </div>
+
+              <div style={{
+                background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Config Resolution</div>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+                  Settings resolve with priority: <strong style={{ color: "#ccc" }}>Bot</strong> &gt;{" "}
+                  <strong style={{ color: "#ccc" }}>Channel</strong> &gt;{" "}
+                  <strong style={{ color: "#ccc" }}>Global (.env)</strong>. Each field is resolved independently — a bot
+                  can override the threshold while inheriting enabled/model from the channel or globals.
+                  Set to "Inherit" to use the next level's value.
+                </div>
+              </div>
+
               <SelectInput
                 value={draft.elevation_enabled === true ? "true" : draft.elevation_enabled === false ? "false" : ""}
                 onChange={(v) => update({ elevation_enabled: v === "true" ? true : v === "false" ? false : null })}
@@ -1314,11 +1358,17 @@ export default function BotEditorScreen() {
                     <TextInput value={String(draft.elevation_threshold ?? "")}
                       onChangeText={(v) => update({ elevation_threshold: v ? parseFloat(v) : null })} placeholder="inherit" type="number" />
                   </FormRow>
+                  <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+                    Lower = elevate more often (more expensive). Higher = only elevate for very complex turns. Default: 0.4.
+                  </div>
                 </Col>
                 <Col>
                   <FormRow label="Elevated Model">
                     <LlmModelDropdown value={draft.elevated_model || ""} onChange={(v) => update({ elevated_model: v || null })} placeholder="inherit" />
                   </FormRow>
+                  <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+                    The model to switch to when elevation triggers. Typically a stronger/more expensive model than the bot's default.
+                  </div>
                 </Col>
               </Row>
             </div>

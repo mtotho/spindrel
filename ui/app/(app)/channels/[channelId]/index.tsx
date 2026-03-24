@@ -168,7 +168,7 @@ export default function ChatScreen() {
           inverted
           data={invertedData}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => <MessageBubble message={item} botName={bot?.name} />}
           contentContainerStyle={{ padding: 16 }}
           scrollEventThrottle={100}
           onEndReached={handleLoadMore}
@@ -178,6 +178,7 @@ export default function ChatScreen() {
               <StreamingIndicator
                 content={chatState.streamingContent}
                 toolCalls={chatState.toolCalls}
+                botName={bot?.name}
               />
             ) : null
           }

@@ -46,6 +46,7 @@ export function AutocompleteMenu({
   onSelect,
   onHover,
   onClose,
+  anchor,
 }: {
   show: boolean;
   items: CompletionItem[];
@@ -54,16 +55,21 @@ export function AutocompleteMenu({
   onSelect: (item: CompletionItem) => void;
   onHover: (i: number) => void;
   onClose: () => void;
+  anchor?: "top" | "bottom";
 }) {
   if (!show || items.length === 0 || typeof document === "undefined") return null;
   const ReactDOM = require("react-dom");
+  const posStyle: React.CSSProperties =
+    anchor === "bottom"
+      ? { bottom: window.innerHeight - menuPos.top }
+      : { top: menuPos.top };
   return ReactDOM.createPortal(
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
       <div
         style={{
           position: "fixed",
-          top: menuPos.top,
+          ...posStyle,
           left: menuPos.left,
           width: menuPos.width,
           maxHeight: 200,
