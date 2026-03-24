@@ -76,7 +76,7 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
 
 async def _handle_client_actions(client, channel: str, actions: list) -> None:
     for action in actions or []:
-        if action.get("type") != "upload_image":
+        if action.get("type") not in ("upload_image", "upload_file"):
             continue
         raw = action.get("data")
         if not raw:

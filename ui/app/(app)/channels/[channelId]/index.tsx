@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
-import { useLocalSearchParams, Link, useRouter } from "expo-router";
+import { useLocalSearchParams, Link } from "expo-router";
+import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
@@ -24,7 +25,7 @@ const PAGE_SIZE = 50;
 
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/");
   const flatListRef = useRef<FlatList>(null);
 
   const { data: channel } = useChannel(channelId);
@@ -128,7 +129,7 @@ export default function ChatScreen() {
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
         {columns === "single" && (
-          <Pressable onPress={() => router.back()} className="p-1.5 rounded-md hover:bg-surface-overlay">
+          <Pressable onPress={goBack} className="p-1.5 rounded-md hover:bg-surface-overlay">
             <ArrowLeft size={18} color="#9ca3af" />
           </Pressable>
         )}

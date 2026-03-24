@@ -162,6 +162,7 @@ class Settings(BaseSettings):
     # Frigate NVR
     FRIGATE_URL: str = ""  # e.g. http://192.168.1.x:5000
     FRIGATE_API_KEY: str = ""  # optional; only if behind an auth proxy
+    FRIGATE_MAX_CLIP_BYTES: int = 52_428_800  # 50 MB max for video downloads
 
     # Slack
     SLACK_DEFAULT_BOT: str = "default"

@@ -8,7 +8,6 @@ import {
   ClipboardList,
   Wrench,
   Server,
-  Database,
   FileText,
   GitBranch,
   HardDrive,
@@ -38,7 +37,6 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
       { label: "Knowledge", href: "/admin/knowledge", icon: Brain },
-      { label: "Memories", href: "/admin/memories", icon: Database },
     ],
   },
   {

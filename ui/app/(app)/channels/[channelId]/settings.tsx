@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, Check, RotateCw, Play } from "lucide-react";
 import {
   useChannelSettings,
@@ -53,7 +54,7 @@ const TABS = [
 // ---------------------------------------------------------------------------
 export default function ChannelSettingsScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
-  const router = useRouter();
+  const goBack = useGoBack(`/channels/${channelId}`);
   const queryClient = useQueryClient();
   const { data: channel } = useChannel(channelId);
   const { data: settings, isLoading } = useChannelSettings(channelId);
@@ -113,7 +114,7 @@ export default function ChannelSettingsScreen() {
     <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
-        <Pressable onPress={() => router.back()} className="p-1 rounded hover:bg-surface-overlay">
+        <Pressable onPress={goBack} className="p-1 rounded hover:bg-surface-overlay">
           <ArrowLeft size={18} color="#999" />
         </Pressable>
         <View className="flex-1 min-w-0">

@@ -49,7 +49,7 @@ class SlackDispatcher:
         # Upload any images generated during the task
         from integrations.slack.uploads import upload_image
         for action in (client_actions or []):
-            if action.get("type") == "upload_image":
+            if action.get("type") in ("upload_image", "upload_file"):
                 await upload_image(
                     token=token,
                     channel_id=channel_id,
@@ -80,7 +80,7 @@ class SlackDispatcher:
         if ok:
             from integrations.slack.uploads import upload_image
             for action in (client_actions or []):
-                if action.get("type") == "upload_image":
+                if action.get("type") in ("upload_image", "upload_file"):
                     await upload_image(
                         token=token,
                         channel_id=channel_id,

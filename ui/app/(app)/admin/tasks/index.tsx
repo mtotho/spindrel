@@ -334,14 +334,15 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 // ---------------------------------------------------------------------------
 // Enable/disable toggle for header bar
 // ---------------------------------------------------------------------------
-function EnableToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
   return (
     <button
       onClick={() => onChange(!enabled)}
+      title={enabled ? "Enabled" : "Disabled"}
       style={{
-        display: "flex", alignItems: "center", gap: 6,
-        padding: "5px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
-        borderRadius: 6,
+        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
+        padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
+        border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
         color: enabled ? "#86efac" : "#fca5a5",
       }}
@@ -358,7 +359,7 @@ function EnableToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: b
           transition: "left 0.2s",
         }} />
       </div>
-      {enabled ? "Enabled" : "Disabled"}
+      {!compact && (enabled ? "Enabled" : "Disabled")}
     </button>
   );
 }
@@ -476,59 +477,68 @@ function TaskEditor({
     }}>
       {/* Header */}
       <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "12px 20px", borderBottom: "1px solid #333", flexShrink: 0,
+        display: "flex", alignItems: "center",
+        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: "1px solid #333", flexShrink: 0,
+        gap: 8,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ color: "#e5e5e5", fontSize: 16, fontWeight: 700 }}>
-            {isCreate ? "New Task" : "Edit Task"}
+        {/* Back / close button */}
+        <button
+          onClick={onClose}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}
+        >
+          <ChevronLeft size={22} color="#999" />
+        </button>
+
+        {/* Title */}
+        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+          {isCreate ? "New Task" : "Edit Task"}
+        </span>
+        {!isCreate && existingTask && isWide && (
+          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>
+            {taskId?.slice(0, 8)}
           </span>
-          {!isCreate && existingTask && (
-            <span style={{ color: "#555", fontSize: 12, fontFamily: "monospace" }}>
-              {taskId?.slice(0, 8)}
-            </span>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {!isCreate && (
-            <button
-              onClick={handleDelete}
-              disabled={deleteMut.isPending}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 14px", fontSize: 13, border: "1px solid #7f1d1d", borderRadius: 6,
-                background: "transparent", color: "#fca5a5", cursor: "pointer",
-              }}
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          )}
-          {!isCreate && (
-            <EnableToggle
-              enabled={status !== "cancelled"}
-              onChange={(on) => setStatus(on ? "pending" : "cancelled")}
-            />
-          )}
+        )}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Actions */}
+        {!isCreate && (
           <button
-            onClick={handleSave}
-            disabled={saving || !prompt.trim() || !botId}
+            onClick={handleDelete}
+            disabled={deleteMut.isPending}
+            title="Delete"
             style={{
-              padding: "6px 20px", fontSize: 13, fontWeight: 600, border: "none", borderRadius: 6,
-              background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
-              color: (!prompt.trim() || !botId) ? "#666" : "#fff",
-              cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+              border: "1px solid #7f1d1d", borderRadius: 6,
+              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
             }}
           >
-            {saving ? "Saving..." : isCreate ? "Create" : "Save"}
+            <Trash2 size={14} />
+            {isWide && "Delete"}
           </button>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
-          >
-            <X size={20} color="#999" />
-          </button>
-        </div>
+        )}
+        {!isCreate && (
+          <EnableToggle
+            enabled={status !== "cancelled"}
+            onChange={(on) => setStatus(on ? "pending" : "cancelled")}
+            compact={!isWide}
+          />
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving || !prompt.trim() || !botId}
+          style={{
+            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
+            border: "none", borderRadius: 6, flexShrink: 0,
+            background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
+            color: (!prompt.trim() || !botId) ? "#666" : "#fff",
+            cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+          }}
+        >
+          {saving ? "..." : isCreate ? "Create" : "Save"}
+        </button>
       </div>
 
       {/* Error display */}
