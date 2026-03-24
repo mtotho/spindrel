@@ -42,6 +42,7 @@
       ('tasks', 'Tasks'),
       ('plans', 'Plans'),
       ('memories', 'Memories'),
+      ('compression', 'Compression'),
       ('heartbeat', 'Heartbeat'),
     ] %}
     {% for key, label in tabs %}
@@ -161,6 +162,17 @@
            hx-trigger="revealed"
            hx-swap="innerHTML">
         <div class="text-xs text-gray-600 animate-pulse">Loading memories...</div>
+      </div>
+    </div>
+  </div>
+
+  {# Compression tab — lazy #}
+  <div x-show="tab === 'compression'" x-cloak>
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+      <div hx-get="/admin/channels/{{ channel.id }}/compression-section"
+           hx-trigger="revealed"
+           hx-swap="innerHTML">
+        <div class="text-xs text-gray-600 animate-pulse">Loading compression stats...</div>
       </div>
     </div>
   </div>

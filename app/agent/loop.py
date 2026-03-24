@@ -483,7 +483,7 @@ async def run_stream(
     loop_user_msg_index = user_msg_index
 
     from app.services.compression import compress_context
-    from app.agent.context import current_compression_history
+    from app.agent.context import set_compression_history
     _comp_result = await compress_context(
         messages, bot, user_message,
         channel_id=channel_id,
@@ -493,7 +493,7 @@ async def run_stream(
         _compressed, _drilldown = _comp_result
         _compression_active = True
         _full_messages = list(messages)
-        current_compression_history.set(_drilldown)
+        set_compression_history(session_id, _drilldown)
         detail_schema = get_local_tool_schemas(["get_message_detail"])
         pre_selected_tools = (pre_selected_tools or []) + detail_schema
 
@@ -584,7 +584,7 @@ async def run_stream(
         messages.clear()
         messages.extend(_full_messages)
         messages.extend(new_msgs)
-        current_compression_history.set(None)
+        set_compression_history(session_id, None)
 
 
 async def run(

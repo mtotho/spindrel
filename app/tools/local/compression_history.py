@@ -2,7 +2,7 @@
 import json
 import logging
 
-from app.agent.context import current_compression_history
+from app.agent.context import current_session_id, get_compression_history
 from app.services.compression import _stringify_content, _stringify_tool_calls
 from app.tools.registry import register
 
@@ -42,7 +42,8 @@ async def get_message_detail(
     end_index: int | None = None,
     query: str | None = None,
 ) -> str:
-    history = current_compression_history.get()
+    session_id = current_session_id.get()
+    history = get_compression_history(session_id) if session_id else None
     if history is None:
         return json.dumps({"error": "No compressed history available. Context compression is not active for this turn."})
 
