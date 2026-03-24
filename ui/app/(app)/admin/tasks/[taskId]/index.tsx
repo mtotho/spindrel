@@ -46,6 +46,35 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function EnableToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!enabled)}
+      style={{
+        display: "flex", alignItems: "center", gap: 6,
+        padding: "5px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+        borderRadius: 6,
+        background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+        color: enabled ? "#86efac" : "#fca5a5",
+      }}
+    >
+      <div style={{
+        width: 28, height: 16, borderRadius: 8, position: "relative",
+        background: enabled ? "#22c55e" : "#555",
+        transition: "background 0.2s",
+      }}>
+        <div style={{
+          width: 12, height: 12, borderRadius: 6, background: "#fff",
+          position: "absolute", top: 2,
+          left: enabled ? 14 : 2,
+          transition: "left 0.2s",
+        }} />
+      </div>
+      {enabled ? "Enabled" : "Disabled"}
+    </button>
+  );
+}
+
 export default function TaskDetailScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   const router = useRouter();
@@ -148,6 +177,10 @@ export default function TaskDetailScreen() {
             <Trash2 size={14} />
             Delete
           </button>
+          <EnableToggle
+            enabled={status !== "cancelled"}
+            onChange={(on) => setStatus(on ? "pending" : "cancelled")}
+          />
           <button
             onClick={handleSave}
             disabled={updateMut.isPending || !prompt.trim() || !botId}

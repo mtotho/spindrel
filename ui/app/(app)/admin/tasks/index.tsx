@@ -12,6 +12,8 @@ import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail }
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 
 interface TaskItem {
   id: string;
@@ -330,6 +332,38 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 }
 
 // ---------------------------------------------------------------------------
+// Enable/disable toggle for header bar
+// ---------------------------------------------------------------------------
+function EnableToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!enabled)}
+      style={{
+        display: "flex", alignItems: "center", gap: 6,
+        padding: "5px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+        borderRadius: 6,
+        background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+        color: enabled ? "#86efac" : "#fca5a5",
+      }}
+    >
+      <div style={{
+        width: 28, height: 16, borderRadius: 8, position: "relative",
+        background: enabled ? "#22c55e" : "#555",
+        transition: "background 0.2s",
+      }}>
+        <div style={{
+          width: 12, height: 12, borderRadius: 6, background: "#fff",
+          position: "absolute", top: 2,
+          left: enabled ? 14 : 2,
+          transition: "left 0.2s",
+        }} />
+      </div>
+      {enabled ? "Enabled" : "Disabled"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Task Editor (near-fullscreen overlay)
 // ---------------------------------------------------------------------------
 function TaskEditor({
@@ -469,6 +503,12 @@ function TaskEditor({
               <Trash2 size={14} />
               Delete
             </button>
+          )}
+          {!isCreate && (
+            <EnableToggle
+              enabled={status !== "cancelled"}
+              onChange={(on) => setStatus(on ? "pending" : "cancelled")}
+            />
           )}
           <button
             onClick={handleSave}
@@ -699,6 +739,8 @@ export default function TasksScreen() {
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
   const [editorTaskId, setEditorTaskId] = useState<string | null | undefined>(undefined); // undefined=closed, null=create, string=edit
   const qc = useQueryClient();
+  const columns = useResponsiveColumns();
+  const isMobile = columns === "single";
 
   const rangeDays = viewMode === "day" ? 1 : 7;
   const rangeStart = baseDate;
@@ -741,28 +783,33 @@ export default function TasksScreen() {
       {/* Header bar */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 20px", borderBottom: "1px solid #2a2a2a",
+        padding: isMobile ? "10px 12px" : "12px 20px", borderBottom: "1px solid #2a2a2a",
+        gap: 8, flexWrap: "wrap",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Calendar size={18} color="#3b82f6" />
-          <span style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Tasks</span>
-          <span style={{ fontSize: 12, color: "#555" }}>
-            {data ? `${data.total} in range` : ""}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <MobileMenuButton />
+          <Calendar size={16} color="#3b82f6" />
+          {!isMobile && (
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Tasks</span>
+          )}
+          <span style={{ fontSize: 11, color: "#555" }}>
+            {data ? `${data.total}` : ""}
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* New Task button */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* New Task */}
           <button
             onClick={() => setEditorTaskId(null)}
+            title="New Task"
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "5px 14px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6, background: "#3b82f6", color: "#fff",
+              display: "flex", alignItems: "center", gap: isMobile ? 0 : 6,
+              padding: isMobile ? "5px 8px" : "5px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", cursor: "pointer", borderRadius: 6, background: "#3b82f6", color: "#fff",
             }}
           >
             <Plus size={14} />
-            New Task
+            {!isMobile && "New Task"}
           </button>
 
           {/* View mode toggle */}
@@ -772,33 +819,36 @@ export default function TasksScreen() {
                 key={m}
                 onClick={() => setViewMode(m)}
                 style={{
-                  padding: "5px 14px", fontSize: 12, fontWeight: 500, border: "none", cursor: "pointer",
+                  padding: isMobile ? "5px 10px" : "5px 14px", fontSize: 11, fontWeight: 500,
+                  border: "none", cursor: "pointer",
                   background: viewMode === m ? "#3b82f6" : "transparent",
                   color: viewMode === m ? "#fff" : "#999",
                   textTransform: "capitalize",
                 }}
               >
-                {m}
+                {isMobile ? m[0].toUpperCase() : m}
               </button>
             ))}
           </div>
 
           {/* Navigation */}
           <button onClick={goToday} style={{
-            padding: "5px 12px", fontSize: 12, border: "1px solid #333", borderRadius: 6,
+            padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
             background: "transparent", color: "#999", cursor: "pointer",
           }}>
             Today
           </button>
-          <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+          <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
             <ChevronLeft size={16} color="#999" />
           </button>
-          <span style={{ fontSize: 13, color: "#e5e5e5", fontWeight: 500, minWidth: 140, textAlign: "center" }}>
+          <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
             {viewMode === "day"
               ? fmtDate(baseDate)
-              : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
+              : isMobile
+                ? fmtDate(baseDate)
+                : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
           </span>
-          <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+          <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
             <ChevronRight size={16} color="#999" />
           </button>
         </div>
