@@ -145,25 +145,20 @@ async def _resolve_channel_and_session(
 async def _mirror_to_integration(
     channel, text: str, *,
     bot_id: str | None = None,
+    is_user_message: bool = False,
     client_actions: list[dict] | None = None,
 ) -> None:
     """Fire-and-forget mirror to channel's integration dispatcher."""
-    logger.info(
-        "Mirror check: channel=%s integration=%s dispatch_config=%s",
-        channel.id, channel.integration, bool(channel.dispatch_config),
-    )
     if not channel.integration or not channel.dispatch_config:
-        logger.info("Mirror skipped: integration=%s dispatch_config=%s", channel.integration, channel.dispatch_config)
         return
     from app.agent import dispatchers
     try:
-        dispatcher = dispatchers.get(channel.integration)
-        logger.info("Mirror dispatching via %s to %s", channel.integration, type(dispatcher).__name__)
-        await dispatcher.post_message(
-            channel.dispatch_config, text,
+        mirror_text = f"[web] {text}" if is_user_message else text
+        await dispatchers.get(channel.integration).post_message(
+            channel.dispatch_config, mirror_text,
             bot_id=bot_id, client_actions=client_actions,
+            reply_in_thread=False,
         )
-        logger.info("Mirror dispatched successfully")
     except Exception:
         logger.warning("Mirror to %s failed", channel.integration, exc_info=True)
 
@@ -266,7 +261,7 @@ async def chat(
 
     # Mirror user message to integration (skip if caller already handles delivery)
     if not req.dispatch_config:
-        await _mirror_to_integration(channel, message)
+        await _mirror_to_integration(channel, message, is_user_message=True)
 
     try:
         result = await run(
@@ -438,7 +433,7 @@ async def chat_stream(
 
             # Mirror user message to integration (skip if caller already handles delivery)
             if not req.dispatch_config:
-                await _mirror_to_integration(channel, message)
+                await _mirror_to_integration(channel, message, is_user_message=True)
 
             response_text = ""
             response_actions = None

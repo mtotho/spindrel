@@ -203,12 +203,14 @@ class TestChatMirror:
         # Should have been called twice: once for user msg, once for response
         assert mock_dispatcher.post_message.await_count == 2
         calls = mock_dispatcher.post_message.call_args_list
-        # First call: user message (no bot_id)
-        assert calls[0].args[1] == "Hello from UI"
+        # First call: user message (prefixed, no bot_id, top-level)
+        assert calls[0].args[1] == "[web] Hello from UI"
         assert calls[0].kwargs.get("bot_id") is None
-        # Second call: bot response
+        assert calls[0].kwargs.get("reply_in_thread") is False
+        # Second call: bot response (top-level, with bot attribution)
         assert calls[1].args[1] == "Bot reply"
         assert calls[1].kwargs.get("bot_id") == "test-bot"
+        assert calls[1].kwargs.get("reply_in_thread") is False
 
     async def test_chat_no_mirror_when_dispatch_config_present(self, client):
         """POST /chat skips mirroring when request carries dispatch_config (integration handles delivery)."""
@@ -341,11 +343,13 @@ class TestChatStreamMirror:
         assert resp.status_code == 200
         assert mock_dispatcher.post_message.await_count == 2
         calls = mock_dispatcher.post_message.call_args_list
-        # User message
-        assert calls[0].args[1] == "Hello from UI"
-        # Bot response
+        # User message (prefixed, top-level)
+        assert calls[0].args[1] == "[web] Hello from UI"
+        assert calls[0].kwargs.get("reply_in_thread") is False
+        # Bot response (top-level, with bot attribution)
         assert calls[1].args[1] == "Bot reply"
         assert calls[1].kwargs.get("bot_id") == "test-bot"
+        assert calls[1].kwargs.get("reply_in_thread") is False
 
     async def test_stream_no_mirror_when_dispatch_config_present(self, client):
         """POST /chat/stream skips mirroring when request carries dispatch_config."""

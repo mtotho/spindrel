@@ -290,6 +290,55 @@ class TaskListOut(BaseModel):
     tasks: list[TaskOut]
 
 
+class TaskDetailOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    bot_id: str
+    prompt: str
+    result: Optional[str] = None
+    error: Optional[str] = None
+    dispatch_type: str = "none"
+    task_type: str = "agent"
+    recurrence: Optional[str] = None
+    client_id: Optional[str] = None
+    session_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
+    parent_task_id: Optional[uuid.UUID] = None
+    dispatch_config: Optional[dict] = None
+    callback_config: Optional[dict] = None
+    retry_count: int = 0
+    created_at: datetime
+    scheduled_at: Optional[datetime] = None
+    run_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TaskCreateIn(BaseModel):
+    prompt: str
+    bot_id: str
+    channel_id: Optional[uuid.UUID] = None
+    scheduled_at: Optional[str] = None
+    recurrence: Optional[str] = None
+    task_type: str = "scheduled"
+    trigger_rag_loop: bool = False
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+
+
+class TaskUpdateIn(BaseModel):
+    prompt: Optional[str] = None
+    bot_id: Optional[str] = None
+    status: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    recurrence: Optional[str] = None
+    task_type: Optional[str] = None
+    trigger_rag_loop: Optional[bool] = None
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+
+
 class PlanItemOut(BaseModel):
     id: uuid.UUID
     position: int
@@ -1079,6 +1128,142 @@ async def admin_channel_tasks(
             for t in tasks
         ],
     )
+
+
+@router.get("/tasks/{task_id}", response_model=TaskDetailOut)
+async def admin_get_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """Get a single task with all fields."""
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return TaskDetailOut.model_validate(task)
+
+
+@router.post("/tasks", response_model=TaskDetailOut, status_code=201)
+async def admin_create_task(
+    body: TaskCreateIn,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """Create a new task. If channel_id is provided, resolve dispatch info from the channel."""
+    from app.tools.local.tasks import _parse_scheduled_at
+
+    try:
+        scheduled = _parse_scheduled_at(body.scheduled_at)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    dispatch_type = "none"
+    dispatch_config = None
+    client_id = None
+    session_id = None
+    channel_id = None
+
+    if body.channel_id:
+        channel = await db.get(Channel, body.channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        channel_id = channel.id
+        client_id = channel.client_id
+        session_id = channel.active_session_id
+        if channel.integration and channel.dispatch_config:
+            dispatch_type = channel.integration
+            dispatch_config = dict(channel.dispatch_config)
+
+    callback_config = None
+    extras: dict = {}
+    if body.trigger_rag_loop:
+        extras["trigger_rag_loop"] = True
+    if body.model_override:
+        extras["model_override"] = body.model_override
+    if body.model_provider_id_override:
+        extras["model_provider_id_override"] = body.model_provider_id_override
+    if extras:
+        callback_config = extras
+
+    task = Task(
+        bot_id=body.bot_id,
+        prompt=body.prompt,
+        status="pending",
+        task_type=body.task_type,
+        scheduled_at=scheduled,
+        recurrence=body.recurrence,
+        dispatch_type=dispatch_type,
+        dispatch_config=dispatch_config,
+        callback_config=callback_config,
+        client_id=client_id,
+        session_id=session_id,
+        channel_id=channel_id,
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    return TaskDetailOut.model_validate(task)
+
+
+@router.put("/tasks/{task_id}", response_model=TaskDetailOut)
+async def admin_update_task(
+    task_id: uuid.UUID,
+    body: TaskUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """Update task fields. Only provided fields are changed."""
+    from app.tools.local.tasks import _parse_scheduled_at
+
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if body.prompt is not None:
+        task.prompt = body.prompt
+    if body.bot_id is not None:
+        task.bot_id = body.bot_id
+    if body.status is not None:
+        task.status = body.status
+    if body.task_type is not None:
+        task.task_type = body.task_type
+    if body.recurrence is not None:
+        task.recurrence = body.recurrence or None
+
+    if body.scheduled_at is not None:
+        try:
+            task.scheduled_at = _parse_scheduled_at(body.scheduled_at)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    # Update callback_config fields
+    if body.trigger_rag_loop is not None or body.model_override is not None or body.model_provider_id_override is not None:
+        cb = dict(task.callback_config or {})
+        if body.trigger_rag_loop is not None:
+            cb["trigger_rag_loop"] = body.trigger_rag_loop
+        if body.model_override is not None:
+            cb["model_override"] = body.model_override or None
+        if body.model_provider_id_override is not None:
+            cb["model_provider_id_override"] = body.model_provider_id_override or None
+        task.callback_config = cb
+
+    await db.commit()
+    await db.refresh(task)
+    return TaskDetailOut.model_validate(task)
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+async def admin_delete_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth),
+):
+    """Delete a task."""
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await db.delete(task)
+    await db.commit()
 
 
 @router.get("/channels/{channel_id}/plans", response_model=PlanListOut)
