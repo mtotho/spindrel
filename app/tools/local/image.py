@@ -149,11 +149,12 @@ async def generate_image_tool(
         return json.dumps({"error": "No image returned"})
 
     # Collect all returned images and persist as attachments
-    from app.agent.context import current_bot_id, current_channel_id
+    from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
 
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
+    source = current_dispatch_type.get() or "web"
 
     results: list[dict] = []
     for idx, item in enumerate(resp.data):
@@ -180,7 +181,7 @@ async def generate_image_tool(
                     mime_type="image/png",
                     size_bytes=len(img_bytes),
                     posted_by=bot_id or "image-bot",
-                    source_integration="generate_image",
+                    source_integration=source,
                     file_data=img_bytes,
                     attachment_type="image",
                     bot_id=bot_id,

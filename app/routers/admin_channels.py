@@ -506,8 +506,64 @@ async def admin_channel_knowledge_remove(
 
 
 @router.get("/channels/{channel_id}/attachments-section", response_class=HTMLResponse)
-async def admin_channel_attachments_section(request: Request, channel_id: uuid.UUID):
-    return await _render_attachments_section(request, channel_id)
+async def admin_channel_attachments_section(request: Request, channel_id: uuid.UUID, page: int = 1):
+    return await _render_attachments_section(request, channel_id, page=page)
+
+
+@router.get("/channels/{channel_id}/attachments-list", response_class=HTMLResponse)
+async def admin_channel_attachments_list(request: Request, channel_id: uuid.UUID, page: int = 1):
+    """HTMX endpoint — returns just the attachment list partial for pagination."""
+    from app.db.models import Attachment
+
+    page = max(1, page)
+    per_page = 10
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+
+        total = (await db.execute(
+            select(func.count()).select_from(Attachment).where(Attachment.channel_id == channel_id)
+        )).scalar() or 0
+
+        att_result = await db.execute(
+            select(Attachment)
+            .where(Attachment.channel_id == channel_id)
+            .order_by(Attachment.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        attachment_list = att_result.scalars().all()
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    return templates.TemplateResponse("admin/channel_attachments_list.html", {
+        "request": request,
+        "channel": channel,
+        "attachment_list": attachment_list,
+        "att_page": page,
+        "att_total_pages": total_pages,
+        "att_total": total,
+        "att_per_page": per_page,
+    })
+
+
+@router.get("/channels/{channel_id}/attachments/{attachment_id}/image")
+async def admin_channel_attachment_image(channel_id: uuid.UUID, attachment_id: uuid.UUID):
+    """Serve raw image bytes for thumbnail/fullscreen display."""
+    from fastapi.responses import Response
+    from app.db.models import Attachment
+
+    async with async_session() as db:
+        att = await db.get(Attachment, attachment_id)
+    if not att or att.channel_id != channel_id or not att.file_data:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return Response(
+        content=att.file_data,
+        media_type=att.mime_type or "image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.post("/channels/{channel_id}/attachment-settings", response_class=HTMLResponse)
@@ -547,8 +603,13 @@ async def admin_channel_attachment_settings_save(
     return await _render_attachments_section(request, channel_id, saved=True)
 
 
-async def _render_attachments_section(request: Request, channel_id: uuid.UUID, saved: bool = False):
+async def _render_attachments_section(
+    request: Request, channel_id: uuid.UUID, saved: bool = False, page: int = 1,
+):
     from app.db.models import Attachment
+
+    page = max(1, page)
+    per_page = 10
 
     async with async_session() as db:
         channel = await db.get(Channel, channel_id)
@@ -564,17 +625,21 @@ async def _render_attachments_section(request: Request, channel_id: uuid.UUID, s
             ).where(Attachment.channel_id == channel_id)
         )).one()
 
-        # Fetch recent attachments for the list
+        # Paginated attachment list
         att_result = await db.execute(
             select(Attachment)
             .where(Attachment.channel_id == channel_id)
             .order_by(Attachment.created_at.desc())
-            .limit(50)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
         )
         attachment_list = att_result.scalars().all()
 
+    total = row.total_count
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
     stats = {
-        "total_count": row.total_count,
+        "total_count": total,
         "with_file_data_count": row.with_file_data_count,
         "total_size_bytes": row.total_size_bytes,
         "oldest_created_at": row.oldest_created_at,
@@ -586,6 +651,10 @@ async def _render_attachments_section(request: Request, channel_id: uuid.UUID, s
         "stats": stats,
         "saved": saved,
         "attachment_list": attachment_list,
+        "att_page": page,
+        "att_total_pages": total_pages,
+        "att_total": total,
+        "att_per_page": per_page,
         "settings_retention_days": settings.ATTACHMENT_RETENTION_DAYS,
         "settings_max_size_bytes": settings.ATTACHMENT_MAX_SIZE_BYTES,
     })

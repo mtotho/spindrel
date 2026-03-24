@@ -74,12 +74,17 @@ async def get_attachment(attachment_id: str) -> str:
             "properties": {
                 "channel_id": {
                     "type": "string",
-                    "description": "OPTIONAL:Channel UUID to list attachments for. Defaults to current channel if omitted.",
+                    "description": "OPTIONAL: Channel UUID to list attachments for. Defaults to current channel if omitted.",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Number of attachments to return (default 5, max 20).",
+                    "description": "Number of attachments to return per page (default 5, max 50).",
                     "default": 5,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number (1-based, default 1). Use with limit to paginate through results.",
+                    "default": 1,
                 },
                 "type_filter": {
                     "type": "string",
@@ -93,15 +98,18 @@ async def get_attachment(attachment_id: str) -> str:
 async def list_attachments(
     channel_id: str | None = None,
     limit: int = 5,
+    page: int = 1,
     type_filter: str | None = None,
 ) -> str:
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from app.agent.context import current_channel_id
     from app.db.engine import async_session
     from app.db.models import Attachment
 
-    limit = max(1, min(limit, 20))
+    limit = max(1, min(limit, 50))
+    page = max(1, page)
+    offset = (page - 1) * limit
 
     # Resolve channel_id
     ch_id: uuid.UUID | None = None
@@ -119,6 +127,13 @@ async def list_attachments(
         return json.dumps({"error": "No channel_id provided and no current channel context."})
 
     async with async_session() as db:
+        # Total count
+        count_stmt = select(func.count()).select_from(Attachment).where(Attachment.channel_id == ch_id)
+        if type_filter:
+            count_stmt = count_stmt.where(Attachment.type == type_filter)
+        total = (await db.execute(count_stmt)).scalar() or 0
+
+        # Page of results
         stmt = (
             select(Attachment)
             .where(Attachment.channel_id == ch_id)
@@ -126,7 +141,7 @@ async def list_attachments(
         )
         if type_filter:
             stmt = stmt.where(Attachment.type == type_filter)
-        stmt = stmt.limit(limit)
+        stmt = stmt.offset(offset).limit(limit)
 
         result = await db.execute(stmt)
         attachments = result.scalars().all()
@@ -144,4 +159,11 @@ async def list_attachments(
         }
         for att in attachments
     ]
-    return json.dumps({"attachments": items, "count": len(items)})
+    total_pages = (total + limit - 1) // limit
+    return json.dumps({
+        "attachments": items,
+        "page": page,
+        "total_pages": total_pages,
+        "total_count": total,
+        "showing": f"{offset + 1}-{offset + len(items)} of {total}",
+    })

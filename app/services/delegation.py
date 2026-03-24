@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Session, Task
+from app.db.models import Task
 
 if TYPE_CHECKING:
     from app.agent.bots import BotConfig
@@ -52,7 +52,7 @@ class DelegationService:
             set_agent_context,
             snapshot_agent_context,
         )
-        from app.services.sessions import load_or_create, persist_turn
+        from app.services.sessions import _effective_system_prompt
 
         # Global flag OR bot has explicit delegate_bots config enables delegation
         if not parent_bot.delegate_bots:
@@ -74,35 +74,17 @@ class DelegationService:
             )
 
         delegate_bot = get_bot(delegate_bot_id)
-
-        child_session_id = uuid.uuid4()
         child_depth = depth + 1
-        child_root_id = root_session_id
-
-        # Create child session row
-        async with async_session() as db:
-            child_session = Session(
-                id=child_session_id,
-                client_id=client_id or "delegation",
-                bot_id=delegate_bot_id,
-                channel_id=channel_id,
-                parent_session_id=parent_session_id,
-                root_session_id=child_root_id,
-                depth=child_depth,
-            )
-            db.add(child_session)
-            await db.commit()
 
         logger.info(
-            "Delegating to bot %r (session %s, depth=%d, parent=%s)",
+            "Delegating to bot %r (depth=%d, parent_session=%s)",
             delegate_bot_id,
-            child_session_id,
             child_depth,
             parent_session_id,
         )
 
-        # Build initial messages for child session
-        from app.services.sessions import _effective_system_prompt
+        # Build in-memory messages for the delegate (not persisted — the parent's
+        # tool call/result already captures the delegation in its own session).
         from app.agent.persona import get_persona
         child_messages: list[dict] = [{"role": "system", "content": _effective_system_prompt(delegate_bot)}]
         if delegate_bot.persona:
@@ -119,7 +101,7 @@ class DelegationService:
             # Child run_stream overwrites ContextVars; restore parent after so the outer
             # agent loop, trace tools, and fire-and-forget record_* tasks see correct ids.
             set_agent_context(
-                session_id=child_session_id,
+                session_id=parent_session_id,
                 client_id=client_id,
                 bot_id=delegate_bot_id,
                 correlation_id=correlation_id,
@@ -127,16 +109,14 @@ class DelegationService:
                 dispatch_type=dispatch_type,
                 dispatch_config=dispatch_config,
                 session_depth=child_depth,
-                root_session_id=child_root_id,
+                root_session_id=root_session_id,
             )
-
-            turn_start = len(child_messages)
 
             async for event in run_stream(
                 child_messages,
                 delegate_bot,
                 prompt,
-                session_id=child_session_id,
+                session_id=parent_session_id,
                 client_id=client_id,
                 correlation_id=correlation_id,
                 channel_id=channel_id,
@@ -146,17 +126,6 @@ class DelegationService:
                 if event.get("type") == "response":
                     final_response = event.get("text", "")
                     child_client_actions = event.get("client_actions", [])
-
-            # Persist child turn
-            async with async_session() as db:
-                await persist_turn(
-                    db,
-                    child_session_id,
-                    delegate_bot,
-                    child_messages,
-                    turn_start,
-                    correlation_id=correlation_id,
-                )
         finally:
             await asyncio.sleep(0)
             restore_agent_context(parent_ctx)
