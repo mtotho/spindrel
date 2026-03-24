@@ -1,9 +1,18 @@
 ---
-name: workspace-api
-description: "Load when the bot is running inside a Docker workspace container and needs to call back to the agent server API. Trigger when: executing scripts that interact with the server, using the agent-api helper, ingesting documents, injecting messages into channels/sessions, polling task status, managing todos, or searching conversation history from workspace code. Also load when writing scripts or automation that will run inside a workspace."
+name: workspace-member
+description: "Load when the bot is a member of a shared workspace and needs to execute commands, call the server API, write scripts, ingest documents, manage todos, or interact with the agent server from inside the workspace container. Trigger when: using exec_command or delegate_to_exec, writing scripts that use agent-api, ingesting documents for RAG, injecting messages into channels, polling task status, searching conversation history, or reasoning about what tools and APIs are available inside the container. Do NOT load for orchestrator-level workspace management."
 ---
 
-# Workspace API Reference
+# Workspace Member
+
+You are a member bot in a shared workspace. You work inside a Docker container with access to your own directory and the server API.
+
+## Your Environment
+
+- **cwd**: `/workspace/bots/{your_bot_id}/` (your working directory)
+- **Shared files**: `/workspace/common/` (read — orchestrator places resources here)
+- **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
+- **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
 
 ## agent-api Helper
 
@@ -14,7 +23,6 @@ agent-api METHOD /path [json_body]
 ```
 
 **Examples:**
-
 ```sh
 # GET request
 agent-api GET /api/v1/channels
@@ -27,11 +35,10 @@ agent-api GET /api/v1/todos | jq '.[] | .content'
 ```
 
 **Environment variables** (injected automatically):
-- `AGENT_SERVER_URL` — base URL of the agent server (e.g. `http://host.docker.internal:8000`)
+- `AGENT_SERVER_URL` — base URL of the agent server
 - `AGENT_SERVER_API_KEY` — API key for Bearer auth
 
-For Python scripts, use `httpx` or `requests` directly:
-
+For Python scripts:
 ```python
 import os, httpx
 
@@ -41,42 +48,38 @@ HEADERS = {"Authorization": f"Bearer {os.environ['AGENT_SERVER_API_KEY']}"}
 r = httpx.get(f"{BASE}/api/v1/channels", headers=HEADERS)
 ```
 
-## API Endpoints
+## Server API Reference
 
-All paths are relative to `AGENT_SERVER_URL`. Auth is via `Authorization: Bearer {API_KEY}` header (agent-api does this automatically).
+All paths relative to `AGENT_SERVER_URL`. Auth is automatic via agent-api.
 
 ### Channels — `/api/v1/channels`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/channels` | Create/retrieve channel |
-| GET | `/api/v1/channels` | List channels (filter: `?integration=`, `?bot_id=`) |
+| POST | `/api/v1/channels` | Create/retrieve channel (`client_id`, `bot_id`) |
+| GET | `/api/v1/channels` | List channels (`?integration=`, `?bot_id=`) |
 | GET | `/api/v1/channels/{id}` | Get channel info |
 | PUT | `/api/v1/channels/{id}` | Update channel settings |
 | POST | `/api/v1/channels/{id}/messages` | Inject message into active session |
-| POST | `/api/v1/channels/{id}/reset` | Reset session (starts fresh, preserves plans) |
+| POST | `/api/v1/channels/{id}/reset` | Reset session (preserves plans + channel config) |
 | GET | `/api/v1/channels/{id}/messages/search` | Search messages (`?q=`, `?role=`, `?limit=`) |
 
-**Create channel:**
-```sh
-agent-api POST /api/v1/channels '{"client_id":"my-script","bot_id":"default"}'
-```
-
-**Inject message + trigger agent:**
+**Inject a message:**
 ```sh
 agent-api POST /api/v1/channels/{id}/messages \
-  '{"content":"Analyze this data","run_agent":true}'
+  '{"content":"Analysis complete: 42 issues found","role":"user","source":"workspace"}'
 ```
-Returns `{"task_id":"..."}` when `run_agent=true` — poll with GET `/api/v1/tasks/{task_id}`.
 
-**Search conversation history:**
+**Inject + trigger agent processing:**
 ```sh
-agent-api GET '/api/v1/channels/{id}/messages/search?q=deployment&limit=20'
+agent-api POST /api/v1/channels/{id}/messages \
+  '{"content":"Review these results","run_agent":true}'
+# Returns {"task_id":"..."} — poll with GET /api/v1/tasks/{task_id}
 ```
 
 ### Sessions — `/api/v1/sessions`
 
-Lower-level than channels. Use channels when possible.
+Lower-level than channels. Prefer channels.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -86,42 +89,41 @@ Lower-level than channels. Use channels when possible.
 
 ### Documents — `/api/v1/documents`
 
-Ingest text for semantic search (uses pgvector embeddings).
+Ingest text for semantic search (pgvector embeddings).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/documents` | Ingest + embed document |
+| POST | `/api/v1/documents` | Ingest + embed (`title`, `content`, `integration_id`, `metadata`) |
 | GET | `/api/v1/documents/search` | Semantic search (`?q=`, `?integration_id=`, `?limit=`) |
-| GET | `/api/v1/documents/{id}` | Get document by ID |
-| DELETE | `/api/v1/documents/{id}` | Delete document |
+| GET | `/api/v1/documents/{id}` | Get by ID |
+| DELETE | `/api/v1/documents/{id}` | Delete |
 
-**Ingest a document:**
+**Ingest:**
 ```sh
 agent-api POST /api/v1/documents '{
-  "title": "Meeting Notes 2026-03-24",
-  "content": "Discussed deployment timeline...",
-  "integration_id": "my-script",
-  "metadata": {"source": "meeting"}
+  "title":"Meeting Notes",
+  "content":"Discussed deployment...",
+  "integration_id":"my-script",
+  "metadata":{"source":"meeting"}
 }'
 ```
 
-**Semantic search:**
+**Search:**
 ```sh
 agent-api GET '/api/v1/documents/search?q=deployment+timeline&limit=5'
 ```
 
 ### Tasks — `/api/v1/tasks`
 
-Poll async task status (created by `run_agent=true` on message injection).
+Poll async task status (from `run_agent=true`).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/tasks/{id}` | Get task status + result |
+| GET | `/api/v1/tasks/{id}` | Get status + result |
 
-**Status values:** `pending`, `running`, `complete`, `failed`
+Status: `pending` → `running` → `complete` | `failed`
 
 ```sh
-# Poll until complete
 TASK_ID="..."
 while true; do
   STATUS=$(agent-api GET /api/v1/tasks/$TASK_ID | jq -r '.status')
@@ -150,22 +152,7 @@ Persistent work items scoped to bot + channel.
 | GET | `/api/v1/attachments/{id}` | Get metadata |
 | GET | `/api/v1/attachments/{id}/file` | Download raw file bytes |
 
-### Workspaces — `/api/v1/workspaces`
-
-Manage workspace containers (including self-management).
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/workspaces` | List all workspaces |
-| POST | `/api/v1/workspaces` | Create workspace |
-| GET | `/api/v1/workspaces/{id}` | Get workspace details |
-| POST | `/api/v1/workspaces/{id}/start` | Start container |
-| POST | `/api/v1/workspaces/{id}/stop` | Stop container |
-| GET | `/api/v1/workspaces/{id}/status` | Check container status |
-| GET | `/api/v1/workspaces/{id}/logs` | Get logs (`?tail=300`) |
-| GET | `/api/v1/workspaces/{id}/files` | Browse files (`?path=/`) |
-
-### Admin — `/api/v1/admin`
+### Admin (read-only) — `/api/v1/admin`
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -176,20 +163,18 @@ Manage workspace containers (including self-management).
 
 ## Common Patterns
 
-### Run a script and report results to a channel
+### Report results to a channel
 
 ```sh
-#!/bin/sh
 CHANNEL_ID="$1"
 RESULT=$(python analyze.py 2>&1)
 agent-api POST /api/v1/channels/$CHANNEL_ID/messages \
-  "{\"content\":\"Analysis complete:\n$RESULT\",\"role\":\"user\",\"source\":\"workspace-script\"}"
+  "{\"content\":\"Analysis complete:\n$RESULT\",\"role\":\"user\",\"source\":\"workspace\"}"
 ```
 
-### Ingest files for RAG search
+### Batch-ingest files for RAG
 
 ```sh
-#!/bin/sh
 for f in docs/*.md; do
   TITLE=$(basename "$f" .md)
   CONTENT=$(cat "$f" | jq -Rs .)
@@ -198,7 +183,7 @@ for f in docs/*.md; do
 done
 ```
 
-### Trigger agent and wait for result
+### Trigger another agent and wait
 
 ```python
 import os, time, httpx
@@ -206,27 +191,33 @@ import os, time, httpx
 BASE = os.environ["AGENT_SERVER_URL"]
 HEADERS = {"Authorization": f"Bearer {os.environ['AGENT_SERVER_API_KEY']}"}
 
-# Inject message and trigger agent
 r = httpx.post(f"{BASE}/api/v1/channels/{channel_id}/messages",
-    headers=HEADERS,
-    json={"content": "Summarize today's logs", "run_agent": True})
+    headers=HEADERS, json={"content": "Summarize logs", "run_agent": True})
 task_id = r.json()["task_id"]
 
-# Poll for completion
 while True:
     r = httpx.get(f"{BASE}/api/v1/tasks/{task_id}", headers=HEADERS)
-    status = r.json()["status"]
-    if status in ("complete", "failed"):
+    if r.json()["status"] in ("complete", "failed"):
         break
     time.sleep(5)
 
 print(r.json().get("result"))
 ```
 
-## Pre-Flight Checklist
+### Read shared resources from orchestrator
 
-- [ ] `AGENT_SERVER_URL` and `AGENT_SERVER_API_KEY` are set (check with `env | grep AGENT`)
-- [ ] Using correct channel/session ID (create one if needed)
-- [ ] JSON body is properly escaped (use `jq` for complex content)
-- [ ] For async tasks: polling with appropriate interval (5s minimum)
-- [ ] Document `integration_id` is consistent for later search filtering
+```sh
+# Orchestrator places specs/data in /workspace/common/
+cat /workspace/common/project-spec.md
+ls /workspace/common/datasets/
+```
+
+## Member Checklist
+
+- [ ] `AGENT_SERVER_URL` and `AGENT_SERVER_API_KEY` are set (`env | grep AGENT`)
+- [ ] Working in your directory (`/workspace/bots/{bot_id}/`), not someone else's
+- [ ] Check `/workspace/common/` for shared resources before starting work
+- [ ] JSON bodies properly escaped (use `jq` for complex content)
+- [ ] Polling async tasks at 5s+ intervals
+- [ ] `integration_id` consistent for later search filtering
+- [ ] Writing output where the orchestrator expects it
