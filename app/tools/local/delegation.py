@@ -279,6 +279,7 @@ async def delegate_to_harness(
             session_id=session_id,
             prompt=prompt,
             status="pending",
+            task_type="harness",
             dispatch_type="harness",
             dispatch_config={},
             callback_config=callback_cfg,

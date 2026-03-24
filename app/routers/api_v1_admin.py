@@ -5,12 +5,13 @@ dashboard, returning structured JSON for the Expo client.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,9 @@ from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot, list_bots
 from app.db.models import (
+    Bot as BotRow,
     BotKnowledge,
+    BotPersona,
     Channel,
     ChannelHeartbeat,
     KnowledgeAccess,
@@ -26,6 +29,7 @@ from app.db.models import (
     Message,
     Plan,
     SandboxInstance,
+    SandboxProfile,
     Session,
     Skill as SkillRow,
     Task,
@@ -59,6 +63,8 @@ class MemoryConfigOut(BaseModel):
     cross_channel: bool = False
     cross_client: bool = False
     cross_bot: bool = False
+    prompt: Optional[str] = None
+    similarity_threshold: float = 0.45
 
     model_config = {"from_attributes": True}
 
@@ -81,6 +87,7 @@ class BotOut(BaseModel):
     id: str
     name: str
     model: str
+    system_prompt: str = ""
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     local_tools: list[str] = []
@@ -90,16 +97,35 @@ class BotOut(BaseModel):
     skills: list[SkillConfigOut] = []
     tool_retrieval: bool = True
     tool_similarity_threshold: Optional[float] = None
+    tool_result_config: dict = {}
+    compression_config: dict = {}
     persona: bool = False
+    persona_content: Optional[str] = None
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
+    compaction_model: Optional[str] = None
     audio_input: str = "transcribe"
     memory: MemoryConfigOut = MemoryConfigOut()
+    memory_max_inject_chars: Optional[int] = None
     knowledge: KnowledgeConfigOut = KnowledgeConfigOut()
+    knowledge_max_inject_chars: Optional[int] = None
     delegate_bots: list[str] = []
     harness_access: list[str] = []
     model_provider_id: Optional[str] = None
+    integration_config: dict = {}
+    workspace: dict = Field(default_factory=lambda: {"enabled": False})
+    docker_sandbox_profiles: list[str] = []
+    elevation_enabled: Optional[bool] = None
+    elevation_threshold: Optional[float] = None
+    elevated_model: Optional[str] = None
+    attachment_summarization_enabled: Optional[bool] = None
+    attachment_summary_model: Optional[str] = None
+    attachment_text_max_chars: Optional[int] = None
+    attachment_vision_concurrency: Optional[int] = None
+    delegation_config: dict = {}
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -240,6 +266,7 @@ class TaskOut(BaseModel):
     result: Optional[str] = None
     error: Optional[str] = None
     dispatch_type: str = "none"
+    task_type: str = "agent"
     recurrence: Optional[str] = None
     created_at: datetime
     scheduled_at: Optional[datetime] = None
@@ -315,12 +342,13 @@ class CompressionOut(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _bot_to_out(bot) -> BotOut:
+def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
     """Convert a BotConfig dataclass to a BotOut Pydantic model."""
     return BotOut(
         id=bot.id,
         name=bot.name,
         model=bot.model,
+        system_prompt=bot.system_prompt,
         display_name=bot.display_name,
         avatar_url=bot.avatar_url,
         local_tools=bot.local_tools,
@@ -333,21 +361,42 @@ def _bot_to_out(bot) -> BotOut:
         ],
         tool_retrieval=bot.tool_retrieval,
         tool_similarity_threshold=bot.tool_similarity_threshold,
+        tool_result_config=getattr(bot, "tool_result_config", {}),
+        compression_config=getattr(bot, "compression_config", {}),
         persona=bot.persona,
+        persona_content=persona_content,
         context_compaction=bot.context_compaction,
         compaction_interval=bot.compaction_interval,
         compaction_keep_turns=bot.compaction_keep_turns,
+        compaction_model=getattr(bot, "compaction_model", None),
         audio_input=bot.audio_input,
         memory=MemoryConfigOut(
             enabled=bot.memory.enabled,
             cross_channel=bot.memory.cross_channel,
             cross_client=bot.memory.cross_client,
             cross_bot=bot.memory.cross_bot,
+            prompt=bot.memory.prompt,
+            similarity_threshold=bot.memory.similarity_threshold,
         ),
+        memory_max_inject_chars=getattr(bot, "memory_max_inject_chars", None),
         knowledge=KnowledgeConfigOut(enabled=bot.knowledge.enabled),
+        knowledge_max_inject_chars=getattr(bot, "knowledge_max_inject_chars", None),
         delegate_bots=bot.delegate_bots,
         harness_access=bot.harness_access,
         model_provider_id=bot.model_provider_id,
+        integration_config=getattr(bot, "integration_config", {}),
+        workspace=getattr(bot, "workspace", {"enabled": False}),
+        docker_sandbox_profiles=getattr(bot, "docker_sandbox_profiles", []),
+        elevation_enabled=getattr(bot, "elevation_enabled", None),
+        elevation_threshold=getattr(bot, "elevation_threshold", None),
+        elevated_model=getattr(bot, "elevated_model", None),
+        attachment_summarization_enabled=getattr(bot, "attachment_summarization_enabled", None),
+        attachment_summary_model=getattr(bot, "attachment_summary_model", None),
+        attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
+        attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
+        delegation_config=getattr(bot, "delegation_config", {}),
+        created_at=bot.created_at.isoformat() if hasattr(bot, "created_at") and bot.created_at else None,
+        updated_at=bot.updated_at.isoformat() if hasattr(bot, "updated_at") and bot.updated_at else None,
     )
 
 
@@ -474,11 +523,13 @@ async def admin_bot_detail(
     _auth: str = Depends(verify_auth),
 ):
     """Get a single bot's full config."""
+    from app.agent.persona import get_persona
     try:
         bot = get_bot(bot_id)
     except HTTPException:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
-    return _bot_to_out(bot)
+    persona_content = await get_persona(bot_id)
+    return _bot_to_out(bot, persona_content=persona_content)
 
 
 @router.get("/channels", response_model=ChannelListOut)
@@ -914,13 +965,16 @@ async def admin_list_tasks(
     status: Optional[str] = None,
     bot_id: Optional[str] = None,
     channel_id: Optional[uuid.UUID] = None,
+    task_type: Optional[str] = None,
+    after: Optional[str] = None,
+    before: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth),
 ):
-    """List tasks with optional filters. Supports pagination."""
-    stmt = select(Task).order_by(Task.created_at.desc())
+    """List tasks with optional filters. `after`/`before` are ISO datetime strings filtering on scheduled_at or created_at."""
+    stmt = select(Task).order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
     count_stmt = select(func.count()).select_from(Task)
 
     if status:
@@ -932,6 +986,21 @@ async def admin_list_tasks(
     if channel_id:
         stmt = stmt.where(Task.channel_id == channel_id)
         count_stmt = count_stmt.where(Task.channel_id == channel_id)
+    if task_type:
+        stmt = stmt.where(Task.task_type == task_type)
+        count_stmt = count_stmt.where(Task.task_type == task_type)
+    if after:
+        from datetime import datetime as dt
+        after_dt = dt.fromisoformat(after)
+        time_col = func.coalesce(Task.scheduled_at, Task.created_at)
+        stmt = stmt.where(time_col >= after_dt)
+        count_stmt = count_stmt.where(time_col >= after_dt)
+    if before:
+        from datetime import datetime as dt
+        before_dt = dt.fromisoformat(before)
+        time_col = func.coalesce(Task.scheduled_at, Task.created_at)
+        stmt = stmt.where(time_col < before_dt)
+        count_stmt = count_stmt.where(time_col < before_dt)
 
     total = (await db.execute(count_stmt)).scalar_one()
     tasks = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
@@ -946,6 +1015,7 @@ async def admin_list_tasks(
                 "result": t.result[:500] if t.result else None,
                 "error": t.error,
                 "dispatch_type": t.dispatch_type,
+                "task_type": t.task_type,
                 "recurrence": t.recurrence,
                 "channel_id": str(t.channel_id) if t.channel_id else None,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -989,6 +1059,7 @@ async def admin_channel_tasks(
                 result=t.result,
                 error=t.error,
                 dispatch_type=t.dispatch_type,
+                task_type=t.task_type,
                 recurrence=t.recurrence,
                 created_at=t.created_at,
                 scheduled_at=t.scheduled_at,
@@ -1330,3 +1401,248 @@ async def get_channel_knowledge(
         }
         for k, mode in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Bot editor data (bot + available options for tools/skills/etc)
+# ---------------------------------------------------------------------------
+
+class ToolGroupOut(BaseModel):
+    integration: str
+    is_core: bool
+    packs: list[dict] = []
+    total: int = 0
+
+
+class SkillOptionOut(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+
+
+class BotEditorDataOut(BaseModel):
+    bot: BotOut
+    tool_groups: list[ToolGroupOut] = []
+    mcp_servers: list[str] = []
+    client_tools: list[str] = []
+    all_skills: list[SkillOptionOut] = []
+    all_bots: list[dict] = []
+    all_harnesses: list[str] = []
+    all_sandbox_profiles: list[dict] = []
+
+
+@router.get("/bots/{bot_id}/editor-data")
+async def admin_bot_editor_data(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Get bot config + all available options for the editor UI."""
+    from app.agent.bots import list_bots as _list_bots
+    from app.agent.persona import get_persona
+    from app.services.harness import harness_service
+    from app.tools.mcp import _servers
+    from app.tools.client_tools import _client_tools
+
+    try:
+        bot = get_bot(bot_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    # Gather data in parallel
+    import asyncio
+    persona_content, all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
+        get_persona(bot_id),
+        _fetch_all_skills(db),
+        _fetch_tool_rows(db),
+        _fetch_sandbox_profiles(db),
+    )
+
+    # Build tool groups
+    tool_groups = _build_tool_groups(tool_rows)
+    mcp_servers = sorted(_servers.keys())
+    client_tools = sorted(_client_tools.keys())
+
+    # Skills
+    all_skills = [
+        SkillOptionOut(
+            id=s.id,
+            name=s.name,
+            description=(s.content or "")[:200].split("\n")[0] if s.content else None,
+        )
+        for s in all_skills_rows
+    ]
+
+    # Other bots (exclude self)
+    all_bots_out = [
+        {"id": b.id, "name": b.name}
+        for b in _list_bots()
+        if b.id != bot_id
+    ]
+
+    # Harnesses
+    all_harnesses = harness_service.list_harnesses()
+
+    # Sandbox profiles
+    sandbox_profiles = [
+        {"name": p.name, "description": getattr(p, "description", None)}
+        for p in sandbox_rows
+    ]
+
+    return BotEditorDataOut(
+        bot=_bot_to_out(bot, persona_content=persona_content),
+        tool_groups=[ToolGroupOut(**g) for g in tool_groups],
+        mcp_servers=mcp_servers,
+        client_tools=client_tools,
+        all_skills=all_skills,
+        all_bots=all_bots_out,
+        all_harnesses=all_harnesses,
+        all_sandbox_profiles=sandbox_profiles,
+    )
+
+
+async def _fetch_all_skills(db: AsyncSession):
+    return (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
+
+
+async def _fetch_tool_rows(db: AsyncSession):
+    return (await db.execute(
+        select(
+            ToolEmbedding.tool_name,
+            ToolEmbedding.server_name,
+            ToolEmbedding.source_integration,
+            ToolEmbedding.source_file,
+        ).order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
+    )).all()
+
+
+async def _fetch_sandbox_profiles(db: AsyncSession):
+    return (await db.execute(
+        select(SandboxProfile)
+        .where(SandboxProfile.enabled == True)  # noqa: E712
+        .order_by(SandboxProfile.name)
+    )).scalars().all()
+
+
+def _build_tool_groups(tool_rows) -> list[dict]:
+    from collections import defaultdict
+    integration_packs: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for r in tool_rows:
+        if r.server_name is not None:
+            continue
+        intg = r.source_integration or "core"
+        pack = (r.source_file or "misc").replace(".py", "")
+        integration_packs[intg][pack].append({"name": r.tool_name})
+
+    ordered = (["core"] if "core" in integration_packs else []) + sorted(
+        k for k in integration_packs if k != "core"
+    )
+    groups = []
+    for intg_id in ordered:
+        packs_dict = integration_packs[intg_id]
+        groups.append({
+            "integration": intg_id,
+            "is_core": intg_id == "core",
+            "packs": [
+                {"pack": pn, "tools": sorted(packs_dict[pn], key=lambda t: t["name"])}
+                for pn in sorted(packs_dict)
+            ],
+            "total": sum(len(v) for v in packs_dict.values()),
+        })
+    return groups
+
+
+# ---------------------------------------------------------------------------
+# Bot update (JSON PUT)
+# ---------------------------------------------------------------------------
+
+class BotUpdateIn(BaseModel):
+    name: Optional[str] = None
+    model: Optional[str] = None
+    system_prompt: Optional[str] = None
+    model_provider_id: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    local_tools: Optional[list[str]] = None
+    mcp_servers: Optional[list[str]] = None
+    client_tools: Optional[list[str]] = None
+    pinned_tools: Optional[list[str]] = None
+    skills: Optional[list[dict]] = None
+    tool_retrieval: Optional[bool] = None
+    tool_similarity_threshold: Optional[float] = None
+    tool_result_config: Optional[dict] = None
+    compression_config: Optional[dict] = None
+    persona: Optional[bool] = None
+    persona_content: Optional[str] = None
+    context_compaction: Optional[bool] = None
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_model: Optional[str] = None
+    audio_input: Optional[str] = None
+    memory_config: Optional[dict] = None
+    knowledge_config: Optional[dict] = None
+    memory_max_inject_chars: Optional[int] = None
+    knowledge_max_inject_chars: Optional[int] = None
+    integration_config: Optional[dict] = None
+    workspace: Optional[dict] = None
+    docker_sandbox_profiles: Optional[list[str]] = None
+    delegation_config: Optional[dict] = None
+    elevation_enabled: Optional[bool] = None
+    elevation_threshold: Optional[float] = None
+    elevated_model: Optional[str] = None
+    attachment_summarization_enabled: Optional[bool] = None
+    attachment_summary_model: Optional[str] = None
+    attachment_text_max_chars: Optional[int] = None
+    attachment_vision_concurrency: Optional[int] = None
+
+
+@router.put("/bots/{bot_id}", response_model=BotOut)
+async def admin_bot_update(
+    bot_id: str,
+    data: BotUpdateIn = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Update a bot's config via JSON."""
+    from app.agent.bots import reload_bots
+    from app.agent.persona import get_persona, write_persona
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    # Apply updates for each non-None field
+    updates = data.model_dump(exclude_none=True)
+
+    # Handle persona_content separately (stored in bot_persona table)
+    persona_content_val = updates.pop("persona_content", None)
+
+    # Handle memory_config → memory_config JSONB
+    if "memory_config" in updates:
+        row.memory_config = updates.pop("memory_config")
+    if "knowledge_config" in updates:
+        row.knowledge_config = updates.pop("knowledge_config")
+
+    # Map skills list[dict] → skills JSONB
+    if "skills" in updates:
+        row.skills = updates.pop("skills")
+
+    # Apply remaining scalar/JSONB fields
+    for key, val in updates.items():
+        if hasattr(row, key):
+            setattr(row, key, val)
+
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    # Write persona content if provided
+    if persona_content_val is not None:
+        await write_persona(bot_id, persona_content_val)
+
+    # Reload bot registry
+    await reload_bots()
+
+    # Return updated bot
+    bot = get_bot(bot_id)
+    pc = await get_persona(bot_id)
+    return _bot_to_out(bot, persona_content=pc)

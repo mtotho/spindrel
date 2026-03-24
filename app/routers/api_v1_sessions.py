@@ -164,6 +164,7 @@ async def inject_message(
             channel_id=session.channel_id,
             prompt=body.content,
             status="pending",
+            task_type="api",
             dispatch_type=(session.dispatch_config or {}).get("type") or "none",
             dispatch_config=session.dispatch_config or {},
             created_at=datetime.now(timezone.utc),

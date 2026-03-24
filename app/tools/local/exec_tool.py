@@ -302,6 +302,7 @@ async def _exec_deferred(
         session_id=session_id,
         prompt=f"{command} {shlex.join(args or [])}".strip(),
         status="pending",
+        task_type="exec",
         dispatch_type="exec",
         dispatch_config={},
         callback_config=callback_cfg,

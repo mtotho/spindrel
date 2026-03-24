@@ -59,7 +59,7 @@ function AutocompleteMenu({
   const ReactDOM = require("react-dom");
   return ReactDOM.createPortal(
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
       <div
         style={{
           position: "fixed",
@@ -67,7 +67,7 @@ function AutocompleteMenu({
           left: menuPos.left,
           width: menuPos.width,
           maxHeight: 200,
-          zIndex: 9999,
+          zIndex: 10011,
           background: "#1a1a1a",
           border: "1px solid #333",
           borderRadius: 8,

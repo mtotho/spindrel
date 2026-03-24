@@ -149,6 +149,7 @@ async def create_task(
         prompt=prompt,
         scheduled_at=scheduled,
         status="pending",
+        task_type="scheduled",
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
         callback_config=callback_cfg,

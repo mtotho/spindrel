@@ -181,41 +181,31 @@ export function TabBar({ tabs, active, onChange }: {
   onChange: (key: string) => void;
 }) {
   return (
-    <div style={{
-      display: "flex",
-      gap: 2,
-      borderBottom: "1px solid #333",
-      paddingBottom: 0,
-      overflowX: "auto",
-    }}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.key}
-          onClick={() => onChange(tab.key)}
-          style={{
-            padding: "8px 16px",
-            fontSize: 13,
-            fontWeight: tab.key === active ? 600 : 400,
-            color: tab.key === active ? "#e5e5e5" : "#999",
-            background: tab.key === active ? "#222" : "transparent",
-            border: "none",
-            borderBottom: tab.key === active ? "2px solid #3b82f6" : "2px solid transparent",
-            borderTopLeftRadius: 6,
-            borderTopRightRadius: 6,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            transition: "all 0.15s",
-          }}
-          onMouseEnter={(e) => {
-            if (tab.key !== active) (e.target as HTMLElement).style.color = "#ccc";
-          }}
-          onMouseLeave={(e) => {
-            if (tab.key !== active) (e.target as HTMLElement).style.color = "#999";
-          }}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {tabs.map((tab) => {
+        const isActive = tab.key === active;
+        return (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            style={{
+              padding: "5px 12px",
+              fontSize: 12,
+              fontWeight: 500,
+              border: "1px solid",
+              borderColor: isActive ? "#3b82f6" : "#333",
+              borderRadius: 6,
+              background: isActive ? "#3b82f6" : "transparent",
+              color: isActive ? "#fff" : "#999",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s",
+            }}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

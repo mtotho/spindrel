@@ -1,25 +1,96 @@
 // Bot types
+export interface MemoryConfig {
+  enabled?: boolean;
+  cross_channel?: boolean;
+  cross_client?: boolean;
+  cross_bot?: boolean;
+  prompt?: string;
+  similarity_threshold?: number;
+}
+
+export interface KnowledgeConfig {
+  enabled?: boolean;
+}
+
+export interface SkillConfig {
+  id: string;
+  mode?: string;
+  similarity_threshold?: number | null;
+}
+
 export interface BotConfig {
   id: string;
   name: string;
   model: string;
-  model_provider_id?: string;
   system_prompt?: string;
+  model_provider_id?: string;
+  display_name?: string;
+  avatar_url?: string;
   local_tools?: string[];
   mcp_servers?: string[];
   client_tools?: string[];
-  skills?: string[];
   pinned_tools?: string[];
+  skills?: SkillConfig[];
   tool_retrieval?: boolean;
-  audio_input?: string;
-  context_compaction?: boolean;
-  memory?: { enabled?: boolean; cross_channel?: boolean };
-  knowledge?: { enabled?: boolean };
+  tool_similarity_threshold?: number | null;
+  tool_result_config?: Record<string, any>;
+  compression_config?: Record<string, any>;
   persona?: boolean;
+  persona_content?: string;
+  context_compaction?: boolean;
+  compaction_interval?: number | null;
+  compaction_keep_turns?: number | null;
+  compaction_model?: string | null;
+  audio_input?: string;
+  memory?: MemoryConfig;
+  memory_max_inject_chars?: number | null;
+  knowledge?: KnowledgeConfig;
+  knowledge_max_inject_chars?: number | null;
   delegate_bots?: string[];
   harness_access?: string[];
-  slack_display_name?: string;
-  slack_icon_emoji?: string;
+  integration_config?: Record<string, any>;
+  workspace?: Record<string, any>;
+  docker_sandbox_profiles?: string[];
+  delegation_config?: Record<string, any>;
+  elevation_enabled?: boolean | null;
+  elevation_threshold?: number | null;
+  elevated_model?: string | null;
+  attachment_summarization_enabled?: boolean | null;
+  attachment_summary_model?: string | null;
+  attachment_text_max_chars?: number | null;
+  attachment_vision_concurrency?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Tool group from editor data
+export interface ToolPack {
+  pack: string;
+  tools: { name: string }[];
+}
+
+export interface ToolGroup {
+  integration: string;
+  is_core: boolean;
+  packs: ToolPack[];
+  total: number;
+}
+
+export interface SkillOption {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface BotEditorData {
+  bot: BotConfig;
+  tool_groups: ToolGroup[];
+  mcp_servers: string[];
+  client_tools: string[];
+  all_skills: SkillOption[];
+  all_bots: { id: string; name: string }[];
+  all_harnesses: string[];
+  all_sandbox_profiles: { name: string; description?: string }[];
 }
 
 // Channel types (matches server ChannelOut)

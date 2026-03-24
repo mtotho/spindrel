@@ -195,6 +195,7 @@ class DelegationService:
             prompt=prompt,
             scheduled_at=scheduled_at,
             status="pending",
+            task_type="delegation",
             dispatch_type=dispatch_type or "none",
             dispatch_config=delivery_config,
             callback_config=callback_cfg or None,

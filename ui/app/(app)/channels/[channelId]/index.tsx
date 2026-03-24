@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
-import { useLocalSearchParams, Link } from "expo-router";
+import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Settings, Menu } from "lucide-react";
+import { Settings, Menu, ArrowLeft } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
+import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
@@ -23,14 +24,17 @@ const PAGE_SIZE = 50;
 
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
+  const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const didInitScroll = useRef(false);
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
+  const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+
+  // Show hamburger when sidebar is not visible (mobile or collapsed)
+  const showHamburger = columns === "single" || sidebarCollapsed;
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -60,30 +64,19 @@ export default function ChatScreen() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || lastPage.messages.length === 0) return undefined;
-      return lastPage.messages[0].id; // oldest message id in the page
+      return lastPage.messages[0].id;
     },
     enabled: !!channel?.active_session_id,
   });
 
-  // Sync fetched pages into the chat store
+  // Sync fetched pages into the chat store (reversed for inverted FlatList)
   useEffect(() => {
     if (channelId && pages) {
-      // Pages are loaded newest-first (page 0 = newest), each page is in chronological order.
-      // Combine: oldest pages first, then newer pages.
+      // Combine oldest pages first, then newer pages → chronological order
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages);
       setMessages(channelId, allMessages);
     }
   }, [channelId, pages]);
-
-  // Scroll to bottom when content size changes (reliable for initial load + new messages)
-  const handleContentSizeChange = useCallback((_w: number, h: number) => {
-    if (!didInitScroll.current && h > 0) {
-      didInitScroll.current = true;
-      flatListRef.current?.scrollToEnd({ animated: false });
-    } else if (isAtBottom) {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }
-  }, [isAtBottom]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -121,17 +114,8 @@ export default function ChatScreen() {
     [channelId, channel]
   );
 
-  // Track scroll position — auto-scroll when near bottom, load more when near top
-  const handleScroll = useCallback((e: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
-    setIsAtBottom(distanceFromBottom < 100);
-
-    // Load older messages when scrolled near top
-    if (contentOffset.y < 100 && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // For inverted FlatList, data must be newest-first
+  const invertedData = [...chatState.messages].reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -143,7 +127,12 @@ export default function ChatScreen() {
     <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
-        {sidebarCollapsed && (
+        {columns === "single" && (
+          <Pressable onPress={() => router.back()} className="p-1.5 rounded-md hover:bg-surface-overlay">
+            <ArrowLeft size={18} color="#9ca3af" />
+          </Pressable>
+        )}
+        {showHamburger && columns !== "single" && (
           <Pressable onPress={toggleSidebar} className="p-1.5 rounded-md hover:bg-surface-overlay">
             <Menu size={18} color="#9ca3af" />
           </Pressable>
@@ -165,7 +154,7 @@ export default function ChatScreen() {
         )}
       </View>
 
-      {/* Messages */}
+      {/* Messages — inverted FlatList so it naturally starts at the bottom */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#3b82f6" />
@@ -173,14 +162,23 @@ export default function ChatScreen() {
       ) : (
         <FlatList
           ref={flatListRef}
-          data={chatState.messages}
+          inverted
+          data={invertedData}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <MessageBubble message={item} />}
-          contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
-          onScroll={handleScroll}
+          contentContainerStyle={{ padding: 16 }}
           scrollEventThrottle={100}
-          onContentSizeChange={handleContentSizeChange}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           ListHeaderComponent={
+            chatState.isStreaming ? (
+              <StreamingIndicator
+                content={chatState.streamingContent}
+                toolCalls={chatState.toolCalls}
+              />
+            ) : null
+          }
+          ListFooterComponent={
             isFetchingNextPage ? (
               <View className="items-center py-3">
                 <ActivityIndicator size="small" color="#3b82f6" />
@@ -191,16 +189,8 @@ export default function ChatScreen() {
               </Pressable>
             ) : null
           }
-          ListFooterComponent={
-            chatState.isStreaming ? (
-              <StreamingIndicator
-                content={chatState.streamingContent}
-                toolCalls={chatState.toolCalls}
-              />
-            ) : null
-          }
           ListEmptyComponent={
-            <View className="flex-1 items-center justify-center">
+            <View className="flex-1 items-center justify-center py-20">
               <Text className="text-text-dim text-sm">
                 Send a message to start the conversation
               </Text>
