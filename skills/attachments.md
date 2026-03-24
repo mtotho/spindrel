@@ -85,7 +85,19 @@ Pass multiple UUIDs. The image API receives all source images for multi-referenc
 generate_image(prompt="A logo for a coffee shop", n=4)
 ```
 
-Only works with OpenAI image models. Each variation is sent as a separate image.
+Only works with OpenAI image models. Each variation is saved as a separate attachment and sent as a separate image.
+
+### Iterative editing (chaining)
+
+Generated images are saved as attachments, so you can edit your own output:
+
+```
+1. generate_image(prompt="A red sports car on a mountain road")
+   → Image is saved as an attachment automatically
+2. list_attachments(type_filter="image", limit=1)
+   → Find the image you just generated
+3. generate_image(prompt="Add rain and dramatic clouds", attachment_ids=["<uuid>"])
+```
 
 ### "What's in this image?"
 
@@ -116,9 +128,16 @@ When bot A delegates to bot B (via `delegate_to_agent`), bot B inherits the pare
 
 No special parameters needed — channel context propagates automatically.
 
-## Image Output
+## Image Output & Persistence
 
-`generate_image` returns a `client_action` with type `upload_image`. The client handles posting the image to the channel. When `n > 1` (OpenAI only), multiple `upload_image` actions are returned — each is posted separately.
+Every image produced by `generate_image` is **automatically saved as an attachment** in the current channel. This means:
+
+- Generated images appear in `list_attachments` immediately — they're first-class attachments just like user uploads
+- You can chain edits: generate an image, then call `list_attachments` to get its UUID, then pass it back to `generate_image` with new edits
+- Other bots in the same channel (via delegation) can find and reference generated images
+- The `posted_by` field will be the bot ID that generated it, and `source_integration` will be `generate_image`
+
+The image is also returned as a `client_action` with type `upload_image` so the client (Slack, web, etc.) can display it. When `n > 1` (OpenAI only), each variation is saved and sent separately.
 
 ## Pre-Generation Checklist
 
