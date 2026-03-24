@@ -1,282 +1,271 @@
+# SKILL: Knowledge Management & Workspace Organization
+
+Applies to any agent with: a memory/knowledge system, a persistent workspace, and shell access.
+Tool names and layer names are illustrative — map them to your actual tool names.
+
 ---
-name: Knowledge Management & Learning
-description: How to use the three-layer learning system (persona, memory, knowledge) for optimal long-term retention
+
+## Core Principle: Retrieval Reliability
+
+The only thing that matters when choosing where to store something is:
+**Will this information actually be in my context when I need it?**
+
+Every storage layer has a different answer to that question:
+
+| Layer | Reliability | Retrieval mechanism | Fails when |
+|-------|------------|---------------------|------------|
+| **Always-injected (persona/pinned)** | ~100% | Prepended every turn | Never (within token budget) |
+| **Structured knowledge (RAG)** | 60–80% | Vector similarity match | User message doesn't semantically match |
+| **Episodic memory** | 40–60% | Vector similarity match | Message doesn't match, or buried in top-K |
+| **Workspace files** | 100% (explicit) | You read them on demand | You forget to read them |
+
+Use the layer whose reliability matches the stakes of the information.
+
 ---
 
-# Knowledge Management & Learning
+## Layer 1: Always-Injected Context ("Persona / Pinned Rules")
 
-You have three layers for learning and retaining information across conversations. They differ fundamentally in **retrieval reliability** — understanding this is the key to using them well.
+**This is the most powerful layer.** It is in your context every single turn with no retrieval step.
 
-## Retrieval Reliability — The Most Important Concept
+### What belongs here
+- Rules that must never be broken ("never run destructive commands without asking")
+- Communication and behavioral patterns ("user prefers concise output, no hedging")
+- Core identity and role
+- Anything where missing it even once causes a bad outcome
 
-Not all layers are equal. The critical question is: **will this information actually be in my context when I need it?**
+### What does NOT belong here
+- Project-specific facts (use knowledge docs)
+- Observations and notes (use memory or files)
+- Anything you'd only need occasionally
+- Large reference material — every token here costs you on every turn
 
-| Layer | Retrieval reliability | Injection method | When it fails |
-|-------|----------------------|-----------------|---------------|
-| **Persona** | **100% — always present** | Prepended after system prompt every turn | Never. It's always there. |
-| **Pinned knowledge** | **~100% — always injected** | Injected every turn for matching scope | Only if char limit truncates it |
-| **Knowledge (RAG)** | **~60-80%** | Vector similarity against user message | User message doesn't semantically match the document |
-| **Memory** | **~40-60%** | Vector similarity against user message | User message doesn't match, or memory buried in top-K ranking |
+### Discipline
+- Keep it tight. Under ~300 tokens is a good target.
+- Structure it with clear sections so edits are surgical.
+- Periodically rewrite the whole thing rather than letting appended fragments accumulate into noise.
+- If you find yourself ignoring or working around something in this layer, it's stale — remove it.
 
-**This means**: If something MUST be followed every time, only persona and pinned knowledge are reliable. Memories are probabilistic — they may or may not surface depending on what the user says.
+---
 
-## Layer 1: Persona — Your Rulebook
+## Layer 2: Structured Knowledge Documents
 
-Persona is NOT just "who you are." It's the **only layer with guaranteed 100% injection**. This makes it the most powerful and important layer.
+These are living documents about topics, projects, or systems. Retrieved by semantic similarity.
 
-### How it works
-- Stored as one text block per bot in the `bot_personas` table
-- Injected as a `[PERSONA]` system message **immediately after your system prompt**, before everything else
-- Present on **every single turn** — no similarity matching, no thresholds, no retrieval failures
-- Persists across all sessions and all channels for this bot
+### The single most important rule: keep documents focused
 
-### What belongs in persona
-Because persona is the only guaranteed layer, use it for anything that must ALWAYS be in your context:
-- **Permanent rules**: "Always use bun, never npm" / "Never run destructive commands without asking"
-- **Communication style**: "I speak concisely; Matt hates hedging and filler"
-- **Core user preferences**: The things that apply to every conversation, not just specific topics
-- **Behavioral patterns**: "I check memory before saving to avoid duplicates"
-- **Identity and role**: "I'm the primary assistant for Matt's home lab and projects"
+Each document gets **one embedding for all its content**. A document covering 5 subtopics produces an averaged embedding that matches none of them well. A document about one focused topic retrieves reliably.
 
-### What does NOT belong in persona
-- Specific facts about projects (use knowledge)
-- Temporary observations (use memory)
-- Reference material (use knowledge, pinned if always-needed)
-- Anything over ~300 tokens — persona is injected every turn, so bloat is expensive
+**Bad:** one `home_lab` doc with network, hardware, services, and DNS all mixed together  
+**Good:** `home_lab_network`, `home_lab_services`, `home_lab_hardware` — each small and specific
 
-### Tools
-- `update_persona(content)` — replaces the entire persona layer (use when restructuring)
-- `append_to_persona(content)` — adds to the end (use for quick additions)
-- `edit_persona(old_text, new_text)` — find-and-replace within persona (use for targeted fixes)
+Target: one coherent topic per doc, under ~2000 characters. If it's grown past that with multiple sections, split it.
 
-### Persona maintenance discipline
-- **Structure your persona** with clear sections so edits are surgical. Example sections: Rules, Preferences, Identity, Patterns.
-- **Review before appending** — the persona is always visible in your `[PERSONA]` block. Read it before adding.
-- **Periodically rewrite** the whole thing via `update_persona` rather than letting appends accumulate into a disorganized mess.
-- **Keep it tight**. Every token in persona costs you context budget on every single turn.
+### Naming
+Use descriptive identifiers, not vague shorthand:
+- `project_bookt_architecture` not `bookt`
+- `docker_build_conventions` not `docker`
+- `michael_coding_preferences` not `prefs`
 
-## Layer 2: Memory — The Probabilistic Intake Layer
+### Editing strategy
+In order of preference:
+1. **Surgical edit** (find-and-replace a specific section) — use this by default
+2. **Append** — for adding new information without touching existing content
+3. **Full rewrite** — for restructuring or major changes only; most expensive
+4. **Split** — when a doc has grown too large: delete original, create focused sub-docs
 
-Memories are individual facts and observations. They're **easy to create but unreliable to retrieve**. Treat them as a scratchpad and intake mechanism, not as a filing cabinet.
+### Pinning
+If your system supports pinning a knowledge doc for guaranteed injection, use it for:
+- Channel or project-specific reference that should always be available in that context
+- Small, critical reference docs (entity lists, API shapes, environment variables)
 
-### How it works
-- Each memory is a single row with a vector embedding
-- On each turn, the user's message is embedded and compared against memories via **cosine similarity**
-- Only memories above the similarity threshold (default 0.45) are injected
-- Top-K matches (default 10) are returned, so important memories compete with each other
-- Injected **after** persona as "Relevant memories from past conversations"
-- Each memory is prefixed with its creation date: `[March 15, 2026] Matt's server runs Arch`
+Don't over-pin. Most docs work fine as RAG. Pin only what genuinely needs to be always-present.
 
-### Why memories are unreliable
-If you save the memory "Matt always wants bun instead of npm" and the user says "install these packages," that memory might NOT fire because "install packages" doesn't semantically match "bun instead of npm" well enough. **Critical rules must go in persona, not memory.**
+---
 
-Memories work best when:
-- The user's message is directly about the same topic
-- The memory is specific enough to match but broad enough to be found
-- There aren't too many competing memories diluting the top-K slots
+## Layer 3: Episodic Memory
 
-### Scoping
-| Scope flag | Effect |
-|-----------|--------|
-| `cross_channel: true` | Recall memories from other channels |
-| `cross_client: false` | Only recall memories from this same client |
-| `cross_bot: false` | Only recall memories saved by this same bot |
+Individual facts and observations. Easy to create, unreliable to retrieve. Treat as an **inbox, not a filing cabinet**.
 
-### Creation paths
-1. **Manual save**: You call `save_memory(content)` during conversation
-2. **Compaction phase**: When context is compacted, the system runs a memory phase where you review the conversation and save important facts before context is summarized away — this is your last chance to persist information
+### Save freely — but consolidate aggressively
+- Save observations during conversation that might be useful later
+- Quick corrections ("actually that service runs on 8001 not 8000")
+- Anything too small to be a knowledge doc yet
 
-### Tools
-- `save_memory(content)` — store a fact (auto-embedded for future retrieval)
-- `search_memories(query)` — find memories by semantic similarity (returns IDs)
-- `purge_memory(memory_id)` — delete one memory by ID
-- `merge_memories(memory_ids, merged_content?)` — consolidate multiple memories into one re-embedded row
-- `promote_memories_to_knowledge(memory_ids, knowledge_name, content?)` — graduate memories into a knowledge document and purge the originals
+### Do NOT save memories for
+- Rules that must always be followed → use always-injected layer instead
+- Things already in knowledge docs → redundant, wastes retrieval slots
+- Transient task state → use workspace files
+- Routine command output
 
-### When to save a memory
-- Observations during conversation that might be useful later
-- Quick facts you'll consolidate into knowledge later
-- Corrections ("Actually, that server is Ubuntu not Arch")
-- Anything you want to remember but isn't important enough for persona or structured enough for knowledge yet
+### Always search before saving
+Duplicate memories dilute retrieval. Before creating a memory, search to see if one already exists on that topic.
 
-### When NOT to save a memory
-- **Rules or preferences that must always be followed** — use persona instead
-- Transient info (current task state, today's weather)
-- Things already captured in knowledge documents — that's redundant
-- Routine commands or tool outputs
-- **Always search first** to avoid duplicates
-
-### Memory as intake → graduation
-The right mental model: memories are your **inbox**. Save freely during conversation, but regularly:
-1. **Search and merge** related memories into single concise entries
-2. **Promote to knowledge** when 3+ memories cluster around a topic
-3. **Promote to persona** when you notice a pattern that should be a permanent rule
-4. **Purge** outdated or superseded memories
-
-## Layer 3: Knowledge — Structured Reference Documents
-
-Knowledge documents are living documents about topics, projects, or systems. They have medium-high retrieval reliability via RAG, and **can be pinned for guaranteed injection**.
-
-### How it works
-- Stored in the `bot_knowledge` table with a vector embedding
-- Documents are stored and embedded as **one whole unit** (not chunked — more on this below)
-- Retrieved via three mechanisms (in priority order):
-  1. **@-tagged**: User or system explicitly references `@knowledge_name` → injected verbatim, bypasses all thresholds
-  2. **Pinned** (`mode=pinned`): Always injected every turn for matching scope
-  3. **RAG** (semantic similarity): User message compared against document embeddings → top matches above threshold injected
-- Injected **after** memories, labeled `[Knowledge: document_name]`
-- Each document capped at `knowledge_max_inject_chars` (default 8000) before injection
-
-### The embedding dilution problem (important!)
-
-Each knowledge document gets **one embedding for the entire content**. Unlike skills (which chunk by `##` headers with separate embeddings per section), knowledge documents are embedded as one blob.
-
-This means: a large document covering many subtopics produces a diluted "average" embedding. If your `home_network` doc covers devices, VLANs, DNS, and firewall rules, and the user asks "what's my NAS IP?", the overall embedding might not match well enough.
-
-**The fix: keep documents small and focused.**
-- `home_network_devices` + `home_network_vlans` + `home_network_dns` will retrieve MUCH better than one giant `home_network` doc
-- Aim for documents that cover one coherent topic
-- If a document grows past ~2000 chars with multiple sections, consider splitting it
-
-### Scoping
-
-Knowledge uses the `knowledge_access` table. Each document has access entries:
-
-| scope_type | scope_key | Meaning |
-|-----------|-----------|---------|
-| `channel` | channel UUID | Only visible in this specific channel |
-| `bot` | bot_id | Visible to this bot across all channels |
-| `global` | NULL | Visible to all bots in all channels |
-
-Each access entry has a **mode**:
-
-| Mode | Behavior | Retrieval reliability |
-|------|----------|----------------------|
-| `rag` | Retrieved by semantic similarity (default) | ~60-80% |
-| `pinned` | Always injected into context | ~100% |
-| `tag_only` | Only injected when explicitly @-mentioned | 0% unless tagged |
-
-**Channel-scoped is the default.** Knowledge created via tools defaults to channel scope — different channels can have different knowledge about the same topic.
-
-### Knowledge pinning — a power tool
-
-Pinning guarantees a knowledge document is injected every turn, like persona but scoped. This is powerful for:
-
-- **Channel-specific rules**: Pin a style guide to a specific channel so it's always in context there
-- **Project context**: Pin `project_xyz_setup` in the channel where you discuss that project
-- **Reference material**: Pin an entity list, device inventory, or API reference
-
-**Pin scopes:**
-- `channel` — pinned for all bots in this channel (most common)
-- `bot` — pinned for this bot across all channels (use sparingly — costs tokens everywhere)
-- `bot_channel` — pinned for this bot in this specific channel only
-
-**Pinning strategy:**
-- Pin channel-specific reference material that should always be available in that context
-- Don't over-pin — every pinned doc costs context tokens every turn in its scope
-- Prefer channel pins over bot-wide pins to limit the blast radius
-- If something is only sometimes relevant, leave it as RAG (default) — that's what similarity retrieval is for
-- If something must ALWAYS be followed (not just available as reference), consider putting it in persona instead
-
-### Tools
-- `upsert_knowledge(name, content, similarity_threshold?)` — create or replace an entire document
-- `append_to_knowledge(name, content)` — add content to the end of an existing document
-- `edit_knowledge(name, old_text, new_text)` — find-and-replace within a document (precision edits)
-- `delete_knowledge(name)` — permanently remove a document and its access/pin entries
-- `get_knowledge(name)` — retrieve a document by exact name
-- `search_knowledge(query)` — semantic similarity search across all accessible knowledge
-- `list_knowledge_bases()` — show all knowledge documents you can see (with source/scope annotations)
-- `pin_knowledge(name, scope?)` — pin a document (default scope: channel)
-- `unpin_knowledge(name, scope)` — remove a pin
-- `set_knowledge_similarity_threshold(name, threshold)` — adjust retrieval sensitivity per-document
-
-### Editing strategies
-
-**Precision edit (`edit_knowledge`)**: For correcting specific details, updating values, or modifying sections without touching the rest. Uses find-and-replace. **Best default choice** — lowest token cost, least error-prone.
-
-**Append (`append_to_knowledge`)**: For adding new information to the end. Good when the existing content is fine and you're just extending it.
-
-**Full rewrite (`upsert_knowledge`)**: For restructuring, major rewrites, or when the document needs significant reorganization. Most expensive (repeats entire content).
-
-**Delete + recreate**: For splitting a document that's grown too large. Delete the original, create multiple focused documents.
-
-### Naming conventions
-Use descriptive `snake_case` identifiers:
-- `home_network_devices` — not `network` or `stuff`
-- `project_xyz_architecture` — not `xyz` or `notes`
-- `matt_coding_preferences` — not `prefs`
-
-### Similarity threshold tuning
-- Default (0.45) works for most documents
-- **Lower** (0.3–0.4) for documents that should surface broadly (general preferences, style guides)
-- **Raise** (0.5–0.7) for documents only relevant in very specific contexts
-- Use `set_knowledge_similarity_threshold` per-document
-
-## The Graduation Pipeline
-
-The optimal learning strategy treats the three layers as a maturity pipeline:
+### The graduation pipeline
 
 ```
-Conversation observations
+Conversation observation
         ↓
-   save_memory()          ← Quick intake, low friction
+    save to memory          ← low friction intake
         ↓
-   Memories accumulate    ← 3+ memories on same topic? Time to graduate.
+    3+ memories on same topic?
         ↓
-   promote_memories_to_knowledge()  ← Consolidate into structured doc, purge memories
+    promote to knowledge doc    ← consolidate + purge originals
         ↓
-   Knowledge documents    ← Living reference, maintained over time
+    behavioral pattern noticed?
         ↓
-   Behavioral patterns noticed?
-        ↓
-   edit_persona() / append_to_persona()  ← Permanent rules and identity
+    move to always-injected layer   ← permanent rules only
 ```
 
-### When to graduate memory → knowledge
-- You find 3+ memories about the same topic when searching
-- A topic is complex enough to deserve structure (sections, details)
-- You keep needing the same information and want reliable retrieval
+Compaction / heartbeat cycles are the right time to run this pipeline. Don't let memory accumulate indefinitely.
 
-### When to graduate to persona
-- A preference applies to EVERY conversation, not just specific topics
-- You notice yourself following the same pattern repeatedly
-- The user corrects you on something that should never happen again
-- A rule is important enough that probabilistic retrieval isn't acceptable
+---
 
-## Context Budget Awareness
+## Layer 4: Workspace Files (Persistent, On-Demand)
 
-Your context window is finite. Every injected piece reduces space for conversation and reasoning.
+Files in your workspace (`/workspace` or equivalent) are **100% reliable** — they never fail to contain what you put in them. The tradeoff is that you must explicitly read them; they are not auto-injected.
 
-**Cost per turn:**
-1. **Persona** (~300 tokens) — always present, keep lean
-2. **Pinned knowledge** (varies) — always present in scope, pin selectively
-3. **RAG knowledge** (up to 8000 chars per doc) — only when matched, self-limiting
-4. **Memories** (up to 2000 chars each, top-10) — only when matched, self-limiting
+### Use workspace files for
+- Project state that's too large or too structured for memory (`status.json`, `todos.json`)
+- Generated artifacts (HTML pages, reports, config files)
+- Journal / log history
+- Data that would bloat context if injected automatically
+- The **source of truth** for anything that has a UI representation
 
-**Budget optimization:**
-- Persona: Write tightly. Every word counts because it's on every turn.
-- Pinned knowledge: Only pin what genuinely needs to be always-available. Most knowledge works fine as RAG.
-- Knowledge docs: Keep them focused and under ~2000 chars. Large docs waste tokens when injected and have worse retrieval due to embedding dilution.
-- Memories: One clear sentence beats a rambling paragraph. Concise memories match better too.
+### File organization conventions
+```
+/workspace/
+  data/
+    status.json          # current phase, last updated, top-level flags
+    todos.json           # structured task list (sync with todos tool)
+    journal/
+      YYYY-MM-DD.md      # append-only daily log
+    proposals/
+      index.json         # proposal registry
+      YYYY-MM-DD-slug.md # individual proposals
+  web/                   # if serving a dashboard
+    index.html
+    style.css
+    *.js
+  dev-todos/
+    active/              # prioritized work queue
+    done/                # completed items (archive, don't delete)
+```
 
-## System Limitations to Work Around
+Add folders as topics emerge. If you're storing a class of data with no home, that's a missing folder — create it and note it.
 
-1. **Memories are single-shot retrieval.** Auto-injection embeds the user's message once. If the message is about two topics, memories about the second topic may not surface. You can manually `search_memories` with different queries.
+### File editing rules
+See `@skill:web_editor_light` for HTML/CSS/JS. For all files:
+- **Never use `>` redirect on an existing file** — it destroys content
+- Always read before editing so you know what you're modifying
+- Use Python `str.replace()` for surgical edits
+- Use `>>` or `append` only for additive operations
+- Verify after every write with `cat` or `grep`
 
-2. **Knowledge documents aren't chunked.** One embedding per document means large docs have diluted embeddings. Keep docs focused. This is the most common mistake.
+---
 
-3. **No automatic consolidation.** The system won't tell you "you have 30 memories about the same topic." You need to proactively search and consolidate during conversations and compaction phases.
+## Workspace Self-Improvement (Python Docker)
 
-4. **Compaction is your last chance.** When context compaction triggers, the memory phase is your final opportunity to save important information before earlier turns are summarized away. Use it.
+Your workspace is a Python Docker container. You can install tools, write scripts, and improve your own environment. Use this.
 
-5. **Memory doesn't guarantee retrieval.** If a user says something that doesn't semantically match a memory, that memory won't appear. For anything critical, use persona or pinned knowledge.
+### Install tools when they make a task significantly easier
 
-## Do NOTs
-- Do NOT rely on memory for rules that must always be followed — use persona
-- Do NOT create large monolithic knowledge documents — split by subtopic for better retrieval
-- Do NOT pin everything — pin is powerful but expensive; use RAG for most docs
-- Do NOT save memories for things already in knowledge — that's redundant context injection
-- Do NOT save transient information (current task state, temporary values) as memories
-- Do NOT duplicate the system prompt in persona — persona is for evolved self-knowledge, not static instructions
-- Do NOT forget to search before saving — duplicate memories waste retrieval slots
-- Do NOT let persona grow unbounded — periodically rewrite it clean via `update_persona`
+```bash
+# Better HTML/DOM editing
+pip install -q beautifulsoup4 lxml
+
+# Structured JSON diffing / patching
+pip install -q deepdiff jsonpatch
+
+# YAML manipulation
+pip install -q pyyaml
+
+# HTTP calls from shell (usually present, but)
+pip install -q requests httpx
+
+# Lightweight SQLite for structured local state
+# (sqlite3 is in stdlib — no install needed)
+```
+
+Don't install blindly. Install when the stdlib alternative would be fragile (e.g., parsing HTML with regex, editing JSON by string replacement).
+
+### Write reusable scripts
+
+If you find yourself doing the same operation more than twice, write a script:
+
+```bash
+# Example: a helper to safely edit a specific section of a JSON file
+cat > /workspace/scripts/patch_json.py << 'EOF'
+#!/usr/bin/env python3
+"""Usage: patch_json.py <file> <dot.path.key> <value>"""
+import sys, json
+path, key_path, value = sys.argv[1], sys.argv[2].split('.'), sys.argv[3]
+with open(path) as f:
+    data = json.load(f)
+ref = data
+for k in key_path[:-1]:
+    ref = ref[k]
+ref[key_path[-1]] = json.loads(value)
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+EOF
+chmod +x /workspace/scripts/patch_json.py
+```
+
+### Maintain a scripts inventory
+Keep `/workspace/scripts/README.md` updated when you add a script. Future you won't remember what `patch_json.py` does.
+
+### Validate your own workspace periodically
+During heartbeat cycles, run a quick sanity check:
+```bash
+# Are expected files present?
+for f in /workspace/data/status.json /workspace/data/todos.json; do
+  [ -f "$f" ] && echo "OK: $f" || echo "MISSING: $f"
+done
+
+# Are JSON files valid?
+python3 -c "import json, glob
+for f in glob.glob('/workspace/data/**/*.json', recursive=True):
+    try: json.load(open(f)); print(f'OK: {f}')
+    except Exception as e: print(f'INVALID: {f} — {e}')
+"
+```
+
+---
+
+## Decision Framework: Where Does This Go?
+
+```
+Is this a rule or preference that must apply to every conversation?
+  YES → always-injected layer (persona/pinned)
+  NO  ↓
+
+Is this a structured fact about a project, system, or topic?
+  YES → knowledge document (focused, one topic per doc)
+  NO  ↓
+
+Is this a quick observation, correction, or note to self?
+  YES → memory (then graduate to knowledge when 3+ accumulate)
+  NO  ↓
+
+Is this state, history, or data too large for auto-injection?
+  YES → workspace file (read on demand)
+  NO  ↓
+
+Is this transient task state that won't matter after this session?
+  → Don't save it anywhere.
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Problem | Fix |
+|---------|---------|-----|
+| Saving rules to memory | Won't reliably fire; you'll break the rule | Move to persona/pinned |
+| One giant knowledge doc | Diluted embedding, poor retrieval | Split into focused sub-docs |
+| Using memory as a filing cabinet | Retrieval is probabilistic, not guaranteed | Graduate to knowledge or files |
+| Never consolidating memories | Top-K slots fill with low-value entries | Run graduation pipeline each heartbeat |
+| Pinning everything | Blows context budget on every turn | Pin sparingly; use RAG as default |
+| Overwriting files with `>` | Destroys existing content | Use Python replace or `>>` for append |
+| Large monolithic workspace files | Hard to read, hard to edit surgically | Split by concern; use JSON structure |
+| Ignoring `scripts/` for repeated ops | Re-deriving the same logic every time | Write a script, document it |
