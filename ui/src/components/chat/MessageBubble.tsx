@@ -1,5 +1,6 @@
 import { View, Text, Platform } from "react-native";
-import type { Message } from "../../types/api";
+import { useAuthStore } from "../../stores/auth";
+import type { Message, AttachmentBrief } from "../../types/api";
 
 interface Props {
   message: Message;
@@ -174,6 +175,65 @@ function MarkdownContent({
 }
 
 // ---------------------------------------------------------------------------
+// Attachment rendering (web only)
+// ---------------------------------------------------------------------------
+
+function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
+  const serverUrl = useAuthStore((s) => s.serverUrl);
+  const apiKey = useAuthStore((s) => s.apiKey);
+  const images = attachments.filter(
+    (a) => a.type === "image" && a.has_file_data
+  );
+  const files = attachments.filter(
+    (a) => a.type !== "image" || !a.has_file_data
+  );
+
+  if (images.length === 0 && files.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+      {images.map((img) => (
+        <a
+          key={img.id}
+          href={`${serverUrl}/api/v1/attachments/${img.id}/file${apiKey ? `?token=${apiKey}` : ""}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            src={`${serverUrl}/api/v1/attachments/${img.id}/file${apiKey ? `?token=${apiKey}` : ""}`}
+            alt={img.description || img.filename}
+            style={{
+              maxWidth: "100%",
+              maxHeight: 300,
+              borderRadius: 8,
+              display: "block",
+            }}
+          />
+        </a>
+      ))}
+      {files.map((f) => (
+        <div
+          key={f.id}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "#999",
+          }}
+        >
+          <span>📎</span>
+          <span>{f.filename}</span>
+          <span style={{ color: "#666" }}>
+            ({(f.size_bytes / 1024).toFixed(1)} KB)
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // MessageBubble
 // ---------------------------------------------------------------------------
 
@@ -204,7 +264,14 @@ export function MessageBubble({ message, botName }: Props) {
           style={!isUser ? { backgroundColor: "#2a2a2f" } : undefined}
         >
           {isWeb ? (
-            <MarkdownContent text={message.content || ""} isUser={isUser} />
+            <>
+              {(message.content || "").length > 0 && (
+                <MarkdownContent text={message.content || ""} isUser={isUser} />
+              )}
+              {message.attachments && message.attachments.length > 0 && (
+                <AttachmentImages attachments={message.attachments} />
+              )}
+            </>
           ) : (
             <Text
               className="text-sm leading-relaxed"

@@ -8,8 +8,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.db.models import Message, Session, Task
+from app.db.models import Attachment as AttachmentModel, Message, Session, Task
 from app.dependencies import get_db, verify_auth
 from app.services.sessions import store_passive_message
 
@@ -56,6 +57,30 @@ class MessageInject(BaseModel):
     notify: bool = True               # True → fan-out to dispatch targets
 
 
+class AttachmentBrief(BaseModel):
+    id: uuid.UUID
+    type: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    description: Optional[str] = None
+    has_file_data: bool = False
+
+    model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm(cls, att: AttachmentModel) -> "AttachmentBrief":
+        return cls(
+            id=att.id,
+            type=att.type,
+            filename=att.filename,
+            mime_type=att.mime_type,
+            size_bytes=att.size_bytes,
+            description=att.description,
+            has_file_data=att.file_data is not None,
+        )
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID
@@ -63,6 +88,7 @@ class MessageOut(BaseModel):
     content: Optional[str]
     created_at: datetime
     metadata: dict = {}
+    attachments: list[AttachmentBrief] = []
 
     model_config = {"from_attributes": True}
 
@@ -75,6 +101,7 @@ class MessageOut(BaseModel):
             content=msg.content,
             created_at=msg.created_at,
             metadata=msg.metadata_,
+            attachments=[AttachmentBrief.from_orm(a) for a in (msg.attachments or [])],
         )
 
 
@@ -191,6 +218,7 @@ async def list_messages(
 
     result = await db.execute(
         select(Message)
+        .options(selectinload(Message.attachments))
         .where(Message.session_id == session_id)
         .order_by(Message.created_at.desc())
         .limit(limit)

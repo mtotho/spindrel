@@ -166,6 +166,17 @@ export interface Session {
   summary?: string;
 }
 
+// Attachment types
+export interface AttachmentBrief {
+  id: string;
+  type: string; // image, file, text, audio, video
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  description?: string;
+  has_file_data: boolean;
+}
+
 // Message types
 export interface Message {
   id: string;
@@ -174,6 +185,7 @@ export interface Message {
   content: string;
   correlation_id?: string;
   tool_calls?: ToolCall[];
+  attachments?: AttachmentBrief[];
   created_at: string;
 }
 
@@ -184,12 +196,28 @@ export interface ToolCall {
 }
 
 // Chat types
+export interface ChatAttachment {
+  type: string;
+  content: string; // base64
+  mime_type: string;
+  name?: string;
+}
+
+export interface ChatFileMetadata {
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  file_data: string; // base64
+}
+
 export interface ChatRequest {
   message: string;
   bot_id: string;
   client_id: string;
   session_id?: string;
   channel_id?: string;
+  attachments?: ChatAttachment[];
+  file_metadata?: ChatFileMetadata[];
 }
 
 export interface ChatResponse {
