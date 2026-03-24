@@ -1236,6 +1236,35 @@ function ContextTab({ channelId }: { channelId: string }) {
         </Section>
       )}
 
+      {/* Context compression (ephemeral, per-turn) */}
+      {data.compression && (
+        <Section title="Context Compression">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {[
+              ["Enabled", data.compression.enabled ? "Yes" : "No"],
+              ["Model", data.compression.model || "—"],
+              ["Threshold", `${data.compression.threshold.toLocaleString()} chars`],
+              ["Keep Turns", data.compression.keep_turns],
+              ["Conv. Chars", data.compression.conversation_chars.toLocaleString()],
+              ["Would Compress", data.compression.would_compress ? "Yes" : "No"],
+            ].map(([label, val]) => (
+              <div key={String(label)} style={{
+                padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+              }}>
+                <div style={{
+                  fontSize: 16, fontWeight: 600,
+                  color: label === "Would Compress" && data.compression.would_compress ? "#4ade80" : "#e5e5e5",
+                }}>{String(val)}</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginTop: 8 }}>
+            Compression is ephemeral — it summarises older conversation via a cheap model each turn without modifying stored messages.
+          </div>
+        </Section>
+      )}
+
       {/* Effective settings */}
       {data.effective_settings && (
         <Section title="Effective Settings">

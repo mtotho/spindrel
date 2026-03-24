@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Trash2, Play, Square, RefreshCw, Download,
-  Plus, X, FolderOpen, ChevronRight, FileText, Folder,
+  Plus, X, FolderOpen, ChevronRight, FileText, Folder, AlertCircle,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
@@ -75,7 +75,9 @@ function EnvEditor({ env, onChange }: {
             onChange={(e) => updateKey(key, e.target.value)}
             placeholder="KEY"
             style={{
-              flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
+              flex: 1, background: "#111",
+              border: `1px solid ${!key ? "#7f1d1d" : "#333"}`,
+              borderRadius: 6,
               padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
               outline: "none",
             }}
@@ -533,6 +535,10 @@ export default function WorkspaceDetailScreen() {
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
       });
+      // Update snapshot so dirty tracking resets
+      savedSnapshot.current = currentSnapshot;
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
     }
   }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, createMut, updateMut, goBack]);
 
@@ -541,6 +547,38 @@ export default function WorkspaceDetailScreen() {
     await deleteMut.mutateAsync(workspaceId);
     goBack();
   }, [workspaceId, deleteMut, goBack]);
+
+  // -- Dirty tracking: compare current form state to last-saved snapshot --
+  const savedSnapshot = useRef<string>("");
+  const currentSnapshot = useMemo(() =>
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot],
+  );
+  // Set snapshot after initialization from server data
+  useEffect(() => {
+    if (initialized && !savedSnapshot.current) {
+      savedSnapshot.current = currentSnapshot;
+    }
+  }, [initialized, currentSnapshot]);
+
+  const isDirty = isNew || (initialized && currentSnapshot !== savedSnapshot.current);
+
+  // -- Save success flash --
+  const [justSaved, setJustSaved] = useState(false);
+
+  // -- Validation warnings --
+  const hasEmptyEnvKeys = Object.keys(env).some((k) => !k);
+  const hasIncompletePort = ports.some((p) => (!p.host && p.container) || (p.host && !p.container));
+  const hasIncompleteMount = mounts.some((m) => (!m.host_path && m.container_path) || (m.host_path && !m.container_path));
+  const hasWarnings = hasEmptyEnvKeys || hasIncompletePort || hasIncompleteMount;
+
+  // -- Warn on navigate away with unsaved changes --
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = !!name.trim();
@@ -591,20 +629,57 @@ export default function WorkspaceDetailScreen() {
             {isWide && "Delete"}
           </button>
         )}
+        {/* Unsaved indicator */}
+        {isDirty && !isNew && !justSaved && (
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: "#fbbf24",
+            flexShrink: 0, whiteSpace: "nowrap",
+          }}>
+            Unsaved changes
+          </span>
+        )}
+        {justSaved && (
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: "#86efac",
+            flexShrink: 0,
+          }}>
+            Saved
+          </span>
+        )}
         <button
           onClick={handleSave}
           disabled={isSaving || !canSave}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: "none", borderRadius: 6, flexShrink: 0,
-            background: !canSave ? "#333" : "#3b82f6",
+            border: isDirty && canSave ? "2px solid #3b82f6" : "none",
+            borderRadius: 6, flexShrink: 0,
+            background: !canSave ? "#333" : isDirty ? "#3b82f6" : "#1e3a5f",
             color: !canSave ? "#666" : "#fff",
             cursor: !canSave ? "not-allowed" : "pointer",
+            transition: "all 0.2s",
           }}
         >
-          {isSaving ? "..." : "Save"}
+          {isSaving ? "Saving..." : "Save"}
         </button>
       </div>
+
+      {/* Validation warnings bar */}
+      {hasWarnings && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "6px 20px", background: "rgba(251,191,36,0.08)",
+          borderBottom: "1px solid rgba(251,191,36,0.15)",
+          fontSize: 12, color: "#fbbf24",
+        }}>
+          <AlertCircle size={14} />
+          <span>
+            {hasEmptyEnvKeys && "Some env vars have empty keys. "}
+            {hasIncompletePort && "Some port mappings are incomplete. "}
+            {hasIncompleteMount && "Some mounts are incomplete. "}
+            Incomplete entries will be ignored on save.
+          </span>
+        </div>
+      )}
 
       {/* Error display */}
       {mutError && (
@@ -698,7 +773,9 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Host port"
                     style={{
-                      flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      flex: 1, background: "#111",
+                      border: `1px solid ${!p.host && p.container ? "#7f1d1d" : "#333"}`,
+                      borderRadius: 6,
                       padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
@@ -713,7 +790,9 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Container port"
                     style={{
-                      flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      flex: 1, background: "#111",
+                      border: `1px solid ${p.host && !p.container ? "#7f1d1d" : "#333"}`,
+                      borderRadius: 6,
                       padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}

@@ -1011,6 +1011,7 @@ async def admin_channel_context_breakdown(
         "total_chars": result.total_chars,
         "total_tokens_approx": result.total_tokens_approx,
         "compaction": asdict(result.compaction),
+        "compression": asdict(result.compression),
         "effective_settings": {
             k: {"value": v.value, "source": v.source}
             for k, v in result.effective_settings.items()
