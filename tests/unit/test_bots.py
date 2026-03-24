@@ -140,6 +140,10 @@ def _make_bot_row(**overrides):
     })
     row.model_provider_id = overrides.get("model_provider_id", "provider1")
     row.bot_sandbox = overrides.get("bot_sandbox", {"enabled": True, "image": "node:20"})
+    row.user_id = overrides.get("user_id", None)
+    row._sw_workspace_id = overrides.get("_sw_workspace_id", None)
+    row._sw_role = overrides.get("_sw_role", None)
+    row._sw_cwd_override = overrides.get("_sw_cwd_override", None)
     return row
 
 
@@ -216,3 +220,40 @@ class TestBotRowToConfig:
         row = _make_bot_row()
         config = _bot_row_to_config(row)
         assert config.model_provider_id == "provider1"
+
+    def test_user_id_from_row(self):
+        row = _make_bot_row()
+        row.user_id = "user-uuid-123"
+        config = _bot_row_to_config(row)
+        assert config.user_id == "user-uuid-123"
+
+    def test_user_id_none_by_default(self):
+        row = _make_bot_row()
+        row.user_id = None
+        config = _bot_row_to_config(row)
+        assert config.user_id is None
+
+    def test_shared_workspace_fields_from_transient_attrs(self):
+        import uuid as _uuid
+        row = _make_bot_row()
+        row.user_id = None
+        ws_id = _uuid.uuid4()
+        row._sw_workspace_id = ws_id
+        row._sw_role = "orchestrator"
+        row._sw_cwd_override = "/workspace/custom"
+        config = _bot_row_to_config(row)
+        assert config.shared_workspace_id == str(ws_id)
+        assert config.shared_workspace_role == "orchestrator"
+        assert config.shared_workspace_cwd == "/workspace/custom"
+
+    def test_shared_workspace_fields_none_when_no_junction(self):
+        row = _make_bot_row()
+        row.user_id = None
+        # Explicitly set to None (as load_bots does for bots not in a workspace)
+        row._sw_workspace_id = None
+        row._sw_role = None
+        row._sw_cwd_override = None
+        config = _bot_row_to_config(row)
+        assert config.shared_workspace_id is None
+        assert config.shared_workspace_role is None
+        assert config.shared_workspace_cwd is None
