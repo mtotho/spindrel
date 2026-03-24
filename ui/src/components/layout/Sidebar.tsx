@@ -61,9 +61,11 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
 
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
+  const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   return (
     <Link href={item.href as any} asChild>
       <Pressable
+        onPress={closeMobile}
         className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
           active ? "bg-accent text-white" : "hover:bg-surface-overlay"
         }`}
@@ -84,6 +86,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
 
@@ -131,6 +134,7 @@ export function Sidebar() {
                 asChild
               >
                 <Pressable
+                  onPress={closeMobile}
                   className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
                     isActive ? "bg-accent/15" : "hover:bg-surface-overlay"
                   }`}
@@ -180,7 +184,7 @@ export function Sidebar() {
       {/* Settings footer */}
       <View className="border-t border-surface-border p-2">
         <Link href={"/(app)/settings" as any} asChild>
-          <Pressable className="flex-row items-center gap-2 rounded-lg px-2.5 py-1 hover:bg-surface-overlay">
+          <Pressable onPress={closeMobile} className="flex-row items-center gap-2 rounded-lg px-2.5 py-1 hover:bg-surface-overlay">
             <Settings size={13} color="#9ca3af" />
             <Text className="text-xs text-text-muted">Settings</Text>
           </Pressable>
