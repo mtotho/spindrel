@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
 import { useLocalSearchParams, Link } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
@@ -11,11 +11,20 @@ import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
-import type { Message, Session } from "@/src/types/api";
+import type { Message } from "@/src/types/api";
+
+interface MessagePage {
+  messages: Message[];
+  has_more: boolean;
+}
+
+const PAGE_SIZE = 50;
 
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const flatListRef = useRef<FlatList>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const didInitScroll = useRef(false);
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -28,25 +37,50 @@ export default function ChatScreen() {
   const finishStreaming = useChatStore((s) => s.finishStreaming);
   const setError = useChatStore((s) => s.setError);
 
-  // Load session messages
-  const { data: sessionMessages, isLoading } = useQuery({
+  // Cursor-based paginated message loading
+  const {
+    data: pages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["session-messages", channel?.active_session_id],
-    queryFn: async () => {
-      if (!channel?.active_session_id) return [];
-      const session = await apiFetch<Session & { messages: Message[] }>(
-        `/sessions/${channel.active_session_id}`
+    queryFn: async ({ pageParam }) => {
+      if (!channel?.active_session_id) return { messages: [], has_more: false };
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+      if (pageParam) params.set("before", pageParam);
+      return apiFetch<MessagePage>(
+        `/sessions/${channel.active_session_id}/messages?${params}`
       );
-      return session.messages ?? [];
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.has_more || lastPage.messages.length === 0) return undefined;
+      return lastPage.messages[0].id; // oldest message id in the page
     },
     enabled: !!channel?.active_session_id,
   });
 
-  // Sync fetched messages into the chat store
+  // Sync fetched pages into the chat store
   useEffect(() => {
-    if (channelId && sessionMessages) {
-      setMessages(channelId, sessionMessages);
+    if (channelId && pages) {
+      // Pages are loaded newest-first (page 0 = newest), each page is in chronological order.
+      // Combine: oldest pages first, then newer pages.
+      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages);
+      setMessages(channelId, allMessages);
     }
-  }, [channelId, sessionMessages]);
+  }, [channelId, pages]);
+
+  // Scroll to bottom on initial load
+  useEffect(() => {
+    if (!isLoading && chatState.messages.length > 0 && !didInitScroll.current) {
+      didInitScroll.current = true;
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      });
+    }
+  }, [isLoading, chatState.messages.length]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -64,7 +98,6 @@ export default function ChatScreen() {
     (text: string) => {
       if (!channelId || !channel) return;
 
-      // Add user message immediately
       addMessage(channelId, {
         id: `msg-${Date.now()}`,
         session_id: channel.active_session_id ?? "",
@@ -73,7 +106,6 @@ export default function ChatScreen() {
         created_at: new Date().toISOString(),
       });
 
-      // Start streaming
       startStreaming(channelId);
 
       chatStream.mutate({
@@ -86,12 +118,32 @@ export default function ChatScreen() {
     [channelId, channel]
   );
 
-  // Auto-scroll on new messages
+  // Auto-scroll when new messages arrive (only if user is near bottom)
   useEffect(() => {
-    if (chatState.messages.length > 0 || chatState.streamingContent) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    if (isAtBottom && (chatState.messages.length > 0 || chatState.streamingContent)) {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      });
     }
-  }, [chatState.messages.length, chatState.streamingContent]);
+  }, [chatState.messages.length, chatState.streamingContent, isAtBottom]);
+
+  // Track scroll position — auto-scroll when near bottom, load more when near top
+  const handleScroll = useCallback((e: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+    setIsAtBottom(distanceFromBottom < 100);
+
+    // Load older messages when scrolled near top
+    if (contentOffset.y < 100 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <View className="flex-1 bg-surface">
@@ -126,6 +178,19 @@ export default function ChatScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <MessageBubble message={item} />}
           contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          ListHeaderComponent={
+            isFetchingNextPage ? (
+              <View className="items-center py-3">
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : hasNextPage ? (
+              <Pressable onPress={handleLoadMore} className="items-center py-3">
+                <Text className="text-accent text-xs">Load older messages</Text>
+              </Pressable>
+            ) : null
+          }
           ListFooterComponent={
             chatState.isStreaming ? (
               <StreamingIndicator

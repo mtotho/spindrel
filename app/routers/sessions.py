@@ -76,6 +76,45 @@ async def get_session(
     return SessionDetail(session=session, messages=messages)
 
 
+class MessagePage(BaseModel):
+    messages: list[MessageOut]
+    has_more: bool
+
+
+@router.get("/{session_id}/messages", response_model=MessagePage)
+async def get_session_messages(
+    session_id: uuid.UUID,
+    limit: int = 50,
+    before: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth),
+):
+    """Cursor-based paginated messages. Returns newest first. Use `before` with the oldest message id to load older messages."""
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stmt = select(Message).where(Message.session_id == session_id)
+
+    if before:
+        # Get the created_at of the cursor message
+        cursor_msg = await db.get(Message, before)
+        if cursor_msg:
+            stmt = stmt.where(Message.created_at < cursor_msg.created_at)
+
+    # Fetch limit+1 to determine has_more
+    stmt = stmt.order_by(Message.created_at.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+
+    has_more = len(rows) > limit
+    messages = rows[:limit]
+    # Reverse to chronological order
+    messages.reverse()
+
+    return MessagePage(messages=messages, has_more=has_more)
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: uuid.UUID,

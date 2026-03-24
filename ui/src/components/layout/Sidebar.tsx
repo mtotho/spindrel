@@ -64,13 +64,14 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link href={item.href as any} asChild>
       <Pressable
-        className={`flex-row items-center gap-2.5 rounded-lg px-3 py-1.5 ${
+        className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
           active ? "bg-accent text-white" : "hover:bg-surface-overlay"
         }`}
       >
-        <Icon size={14} color={active ? "#ffffff" : "#9ca3af"} />
+        <Icon size={13} color={active ? "#ffffff" : "#9ca3af"} />
         <Text
-          className={`text-sm ${active ? "text-white font-medium" : "text-text-muted"}`}
+          className={`text-xs ${active ? "text-white font-medium" : "text-text-muted"}`}
+          numberOfLines={1}
         >
           {item.label}
         </Text>
@@ -99,14 +100,14 @@ export function Sidebar() {
   }
 
   return (
-    <View className="w-52 bg-surface border-r border-surface-border flex-1">
+    <View className="w-40 bg-surface border-r border-surface-border flex-1">
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Header — Thoth branding */}
-        <View className="flex-row items-center justify-between px-3 py-4">
+        <View className="flex-row items-center justify-between px-2.5 py-3">
           <Link href="/" asChild>
-            <Pressable className="flex-row items-center gap-2">
-              <Text style={{ fontSize: 20, lineHeight: 24 }}>{"\u{130C5}"}</Text>
-              <Text className="text-accent text-lg font-semibold tracking-wide">THOTH</Text>
+            <Pressable className="flex-row items-center gap-1.5">
+              <Text style={{ fontSize: 16, lineHeight: 20 }}>{"\u{130C5}"}</Text>
+              <Text className="text-accent text-sm font-semibold tracking-wide">THOTH</Text>
             </Pressable>
           </Link>
           <Pressable onPress={toggleSidebar} className="p-1 rounded hover:bg-surface-overlay">
@@ -116,7 +117,7 @@ export function Sidebar() {
 
         {/* Channels */}
         <View className="px-2 py-1">
-          <Text className="text-text-dim text-[10px] font-semibold tracking-wider px-3 mb-1.5">
+          <Text className="text-text-dim text-[9px] font-semibold tracking-wider px-2.5 mb-1">
             CHANNELS
           </Text>
           {channels?.map((channel) => {
@@ -130,17 +131,17 @@ export function Sidebar() {
                 asChild
               >
                 <Pressable
-                  className={`flex-row items-center gap-2.5 rounded-lg px-3 py-1.5 ${
+                  className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
                     isActive ? "bg-accent/15" : "hover:bg-surface-overlay"
                   }`}
                 >
                   <MessageSquare
-                    size={14}
+                    size={12}
                     color={isActive ? "#3b82f6" : "#9ca3af"}
                   />
                   <View className="flex-1 min-w-0">
                     <Text
-                      className={`text-sm ${
+                      className={`text-xs ${
                         isActive ? "text-accent font-medium" : "text-text"
                       }`}
                       numberOfLines={1}
@@ -148,7 +149,7 @@ export function Sidebar() {
                       {displayName}
                     </Text>
                     {bot && (
-                      <Text className="text-[10px] text-text-dim" numberOfLines={1}>
+                      <Text className="text-[9px] text-text-dim" numberOfLines={1}>
                         {bot.name}
                       </Text>
                     )}
@@ -162,7 +163,7 @@ export function Sidebar() {
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
           <View key={section.title} className="px-2 py-1">
-            <Text className="text-text-dim text-[10px] font-semibold tracking-wider px-3 mb-0.5">
+            <Text className="text-text-dim text-[9px] font-semibold tracking-wider px-2.5 mb-0.5">
               {section.title}
             </Text>
             {section.items.map((item) => (
@@ -178,10 +179,10 @@ export function Sidebar() {
 
       {/* Settings footer */}
       <View className="border-t border-surface-border p-2">
-        <Link href="/(app)/settings" asChild>
-          <Pressable className="flex-row items-center gap-2.5 rounded-lg px-3 py-1.5 hover:bg-surface-overlay">
-            <Settings size={14} color="#9ca3af" />
-            <Text className="text-sm text-text-muted">Settings</Text>
+        <Link href={"/(app)/settings" as any} asChild>
+          <Pressable className="flex-row items-center gap-2 rounded-lg px-2.5 py-1 hover:bg-surface-overlay">
+            <Settings size={13} color="#9ca3af" />
+            <Text className="text-xs text-text-muted">Settings</Text>
           </Pressable>
         </Link>
       </View>
