@@ -121,6 +121,15 @@ function getTaskTime(t: TaskItem): Date {
   return new Date(t.scheduled_at || t.created_at || Date.now());
 }
 
+function toLocalDatetimeString(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${da}T${h}:${mi}`;
+}
+
 function isToday(d: Date) {
   const now = new Date();
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
@@ -285,24 +294,24 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
   const now = new Date();
   const showNow = isToday(date);
 
-  // Position tasks by exact minute with overlap detection
+  // Position tasks by exact minute, pushing overlapping cards down
   const positioned = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
-    const items: { task: TaskItem; topPx: number; indentLevel: number }[] = [];
+    const items: { task: TaskItem; topPx: number }[] = [];
 
     for (const t of sorted) {
       const taskTime = getTaskTime(t);
       const minutes = taskTime.getHours() * 60 + taskTime.getMinutes();
-      const topPx = minutes; // 1px per minute in the 1440px timeline
+      let topPx = minutes; // 1px per minute in the 1440px timeline
 
-      // Check overlap with previous items
-      let indent = 0;
+      // Push down past any overlapping cards
       for (const prev of items) {
-        if (topPx < prev.topPx + CARD_HEIGHT_PX + CARD_MIN_GAP && prev.indentLevel === indent) {
-          indent++;
+        const prevBottom = prev.topPx + CARD_HEIGHT_PX + CARD_MIN_GAP;
+        if (topPx < prevBottom) {
+          topPx = prevBottom;
         }
       }
-      items.push({ task: t, topPx, indentLevel: indent });
+      items.push({ task: t, topPx });
     }
     return items;
   }, [tasks]);
@@ -330,7 +339,7 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
         {showNow && <NowLine />}
 
         {/* Render each task at its exact minute position */}
-        {positioned.map(({ task: t, topPx, indentLevel }) => (
+        {positioned.map(({ task: t, topPx }) => (
           <TaskCard
             key={t.id}
             task={t}
@@ -339,9 +348,8 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
             style={{
               position: "absolute",
               top: topPx,
-              left: 52 + indentLevel * 16,
-              right: 8 - indentLevel * 8,
-              zIndex: 2 + indentLevel,
+              left: 52,
+              right: 8,
             }}
           />
         ))}
@@ -559,7 +567,7 @@ function TaskEditor({
     setChannelId(existingTask.channel_id || "");
     setStatus(existingTask.status || "pending");
     setTaskType(existingTask.task_type || "scheduled");
-    setScheduledAt(existingTask.scheduled_at ? new Date(existingTask.scheduled_at).toISOString().slice(0, 16) : "");
+    setScheduledAt(existingTask.scheduled_at ? toLocalDatetimeString(new Date(existingTask.scheduled_at)) : "");
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(existingTask.callback_config?.model_override || "");
