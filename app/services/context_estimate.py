@@ -158,6 +158,22 @@ async def estimate_bot_context(
 
     lines: list[EstimateLine] = []
 
+    # --- base prompt (universal platform preamble) ---
+    from app.agent.base_prompt import render_base_prompt
+    from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, SkillConfig
+    _draft_bot = BotConfig(
+        id=bot_id, name=draft.get("name", bot_id), model=draft.get("model", ""),
+        system_prompt=system_prompt,
+        skills=[SkillConfig(id=e["id"] if isinstance(e, dict) else e) for e in skills_raw],
+        memory=MemoryConfig(enabled=mem_enabled),
+        knowledge=KnowledgeConfig(enabled=know_enabled),
+        delegate_bots=delegate_bots,
+        base_prompt=bool(draft.get("base_prompt", True)),
+    )
+    _base = render_base_prompt(_draft_bot)
+    if _base:
+        lines.append(EstimateLine("sys:base_prompt", len(_base), "universal platform prompt"))
+
     # --- datetime system line (loop.py) ---
     dt_chars = 72
     lines.append(EstimateLine("sys:datetime", dt_chars, "timezone + local/utc line"))

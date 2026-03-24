@@ -8,10 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, KnowledgeAccess, Message, Session, Task
+from app.db.models import Attachment, Channel, ChannelIntegration, KnowledgeAccess, Message, Session, Task
 from app.dependencies import get_db, verify_auth_or_user
-from app.services.channels import apply_channel_visibility, get_or_create_channel, ensure_active_session, reset_channel_session, switch_channel_session
+from app.services.channels import (
+    apply_channel_visibility, get_or_create_channel, ensure_active_session,
+    reset_channel_session, switch_channel_session,
+    bind_integration, unbind_integration, adopt_integration,
+)
 from app.services.sessions import store_passive_message
 from app.tools.local.search_history import _build_query, _serialize_messages
 
@@ -30,6 +35,20 @@ class ChannelCreate(BaseModel):
     name: Optional[str] = None
     integration: Optional[str] = None
     dispatch_config: Optional[dict] = None
+    private: bool = False
+
+
+class IntegrationBindingOut(BaseModel):
+    id: uuid.UUID
+    channel_id: uuid.UUID
+    integration_type: str
+    client_id: str
+    dispatch_config: Optional[dict] = None
+    display_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class ChannelOut(BaseModel):
@@ -43,10 +62,24 @@ class ChannelOut(BaseModel):
     passive_memory: bool
     private: bool = False
     user_id: Optional[uuid.UUID] = None
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    integrations: list[IntegrationBindingOut] = []
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class IntegrationBindRequest(BaseModel):
+    integration_type: str
+    client_id: str
+    dispatch_config: Optional[dict] = None
+    display_name: Optional[str] = None
+
+
+class IntegrationAdoptRequest(BaseModel):
+    target_channel_id: uuid.UUID
 
 
 class ChannelUpdate(BaseModel):
@@ -107,14 +140,17 @@ class HistoryMessageOut(BaseModel):
 async def create_channel(
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    auth_result=Depends(verify_auth_or_user),
 ):
     """Create or retrieve a channel."""
     from app.agent.bots import get_bot
+    from app.db.models import User
     try:
         get_bot(body.bot_id)
     except HTTPException:
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
+
+    user_id = auth_result.id if isinstance(auth_result, User) else None
 
     channel = await get_or_create_channel(
         db,
@@ -123,10 +159,13 @@ async def create_channel(
         name=body.name,
         integration=body.integration,
         dispatch_config=body.dispatch_config,
+        private=body.private,
+        user_id=user_id,
     )
     await ensure_active_session(db, channel)
     await db.commit()
-    return ChannelOut.from_orm(channel)
+    await db.refresh(channel, ["integrations"])
+    return ChannelOut.model_validate(channel)
 
 
 @router.get("", response_model=list[ChannelOut])
@@ -137,14 +176,14 @@ async def list_channels(
     auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with optional filters."""
-    stmt = select(Channel).order_by(Channel.created_at.desc())
+    stmt = select(Channel).options(selectinload(Channel.integrations)).order_by(Channel.created_at.desc())
     stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
     if bot_id:
         stmt = stmt.where(Channel.bot_id == bot_id)
     channels = (await db.execute(stmt)).scalars().all()
-    return [ChannelOut.from_orm(ch) for ch in channels]
+    return [ChannelOut.model_validate(ch) for ch in channels]
 
 
 @router.get("/{channel_id}", response_model=ChannelOut)
@@ -154,10 +193,13 @@ async def get_channel(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """Get channel info."""
-    channel = await db.get(Channel, channel_id)
+    result = await db.execute(
+        select(Channel).options(selectinload(Channel.integrations)).where(Channel.id == channel_id)
+    )
+    channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ChannelOut.from_orm(channel)
+    return ChannelOut.model_validate(channel)
 
 
 @router.put("/{channel_id}", response_model=ChannelOut)
@@ -194,8 +236,8 @@ async def update_channel(
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(channel)
-    return ChannelOut.from_orm(channel)
+    await db.refresh(channel, ["integrations"])
+    return ChannelOut.model_validate(channel)
 
 
 @router.post("/{channel_id}/messages", response_model=InjectResponse, status_code=201)
@@ -407,3 +449,100 @@ async def get_attachment_stats(
         oldest_created_at=row.oldest_created_at,
         effective_config=effective,
     )
+
+
+# ---------------------------------------------------------------------------
+# Integration bindings
+# ---------------------------------------------------------------------------
+
+@router.get("/{channel_id}/integrations", response_model=list[IntegrationBindingOut])
+async def list_channel_integrations(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List integration bindings for a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    bindings = (await db.execute(
+        select(ChannelIntegration)
+        .where(ChannelIntegration.channel_id == channel_id)
+        .order_by(ChannelIntegration.created_at)
+    )).scalars().all()
+    return [IntegrationBindingOut.model_validate(b) for b in bindings]
+
+
+@router.post("/{channel_id}/integrations", response_model=IntegrationBindingOut, status_code=201)
+async def bind_channel_integration(
+    channel_id: uuid.UUID,
+    body: IntegrationBindRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Bind an integration to a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Check for duplicate client_id
+    existing = (await db.execute(
+        select(ChannelIntegration).where(ChannelIntegration.client_id == body.client_id)
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"client_id '{body.client_id}' is already bound to channel {existing.channel_id}",
+        )
+
+    binding = await bind_integration(
+        db,
+        channel_id=channel_id,
+        integration_type=body.integration_type,
+        client_id=body.client_id,
+        dispatch_config=body.dispatch_config,
+        display_name=body.display_name,
+    )
+    await db.commit()
+    await db.refresh(binding)
+    return IntegrationBindingOut.model_validate(binding)
+
+
+@router.delete("/{channel_id}/integrations/{binding_id}", status_code=204)
+async def unbind_channel_integration(
+    channel_id: uuid.UUID,
+    binding_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Remove an integration binding from a channel."""
+    binding = await db.get(ChannelIntegration, binding_id)
+    if not binding or binding.channel_id != channel_id:
+        raise HTTPException(status_code=404, detail="Binding not found")
+
+    await unbind_integration(db, binding_id)
+    await db.commit()
+
+
+@router.post("/{channel_id}/integrations/{binding_id}/adopt", response_model=IntegrationBindingOut)
+async def adopt_channel_integration(
+    channel_id: uuid.UUID,
+    binding_id: uuid.UUID,
+    body: IntegrationAdoptRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Move an integration binding to another channel."""
+    binding = await db.get(ChannelIntegration, binding_id)
+    if not binding or binding.channel_id != channel_id:
+        raise HTTPException(status_code=404, detail="Binding not found")
+
+    try:
+        binding = await adopt_integration(db, binding_id, body.target_channel_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await db.commit()
+    await db.refresh(binding)
+    return IntegrationBindingOut.model_validate(binding)

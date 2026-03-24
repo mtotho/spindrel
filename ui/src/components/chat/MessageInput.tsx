@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
-import { View, TextInput, Pressable, Platform } from "react-native";
-import { Send, Paperclip, X } from "lucide-react";
+import { View, Text, TextInput, Pressable, Platform } from "react-native";
+import { Send, Paperclip, X, Cpu } from "lucide-react";
 import { useCompletions } from "../../api/hooks/useModels";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import type { CompletionItem } from "../../types/api";
@@ -14,11 +14,15 @@ export interface PendingFile {
 interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
   disabled?: boolean;
+  modelOverride?: string;
+  onModelOverrideChange?: (m: string | undefined) => void;
+  defaultModel?: string;
 }
 
-export function MessageInput({ onSend, disabled }: Props) {
+export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideChange, defaultModel }: Props) {
   const [text, setText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -333,6 +337,74 @@ export function MessageInput({ onSend, disabled }: Props) {
               }}
             />
           </div>
+          {/* Per-turn model picker */}
+          {Platform.OS === "web" && onModelOverrideChange && (
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              {modelOverride ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    background: "rgba(59,130,246,0.12)",
+                    border: "1px solid rgba(59,130,246,0.3)",
+                    borderRadius: 8,
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    color: "#3b82f6",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    maxWidth: 180,
+                  }}
+                  onClick={() => setShowModelPicker(true)}
+                  title={`Per-turn override: ${modelOverride}`}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {modelOverride.split("/").pop()}
+                  </span>
+                  <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined); }}
+                    style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
+                  >
+                    ✕
+                  </span>
+                </div>
+              ) : (
+                <Pressable
+                  onPress={() => setShowModelPicker(true)}
+                  className="w-11 h-11 rounded-xl items-center justify-center bg-surface-raised"
+                  style={{ opacity: 0.7 }}
+                >
+                  <Cpu size={16} color="#666666" />
+                </Pressable>
+              )}
+              {showModelPicker && (() => {
+                const { LlmModelDropdown } = require("../shared/LlmModelDropdown");
+                const ReactDOM = require("react-dom");
+                return ReactDOM.createPortal(
+                  <>
+                    <div
+                      onClick={() => setShowModelPicker(false)}
+                      style={{ position: "fixed", inset: 0, zIndex: 50000 }}
+                    />
+                    <div style={{ position: "fixed", bottom: 80, right: 80, zIndex: 50001, width: 320 }}>
+                      <LlmModelDropdown
+                        value={modelOverride ?? ""}
+                        onChange={(m: string) => {
+                          onModelOverrideChange(m || undefined);
+                          setShowModelPicker(false);
+                        }}
+                        placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
+                        allowClear
+                      />
+                    </div>
+                  </>,
+                  document.body
+                );
+              })()}
+            </div>
+          )}
           <Pressable
             onPress={handleSend}
             disabled={!canSend}

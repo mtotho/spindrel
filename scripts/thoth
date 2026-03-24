@@ -69,6 +69,15 @@ def cmd_restart(args):
         run(f"sudo systemctl restart {svc}.service")
 
 
+def _build_workspace_image(repo):
+    """Rebuild the workspace Docker image if Dockerfile.workspace exists."""
+    dockerfile = os.path.join(repo, "Dockerfile.workspace")
+    if not os.path.isfile(dockerfile):
+        return
+    print("Building workspace image...")
+    run(f"docker build -t agent-workspace:latest -f {dockerfile} {repo}")
+
+
 def cmd_pull(args):
     """Pull latest code and restart services."""
     repo = get_repo_dir()
@@ -77,6 +86,7 @@ def cmd_pull(args):
     if result.returncode != 0:
         print("Pull failed — skipping restart.", file=sys.stderr)
         return
+    _build_workspace_image(repo)
     cmd_restart(args)
 
 

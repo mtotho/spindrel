@@ -471,6 +471,11 @@ async def run_stream(
     ):
         yield event
 
+    # Apply channel-level model override (lower priority than per-turn)
+    if model_override is None and assembly_result.channel_model_override:
+        model_override = assembly_result.channel_model_override
+        provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
+
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 # Which OpenAI-style params each provider family supports.
 MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
-    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
     "anthropic": {"temperature", "max_tokens"},
     "google": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "gemini": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "mistral": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
-    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
     "groq": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "_default": {"temperature", "max_tokens"},
 }
@@ -79,5 +79,13 @@ PARAM_DEFINITIONS: list[dict] = [
         "max": 2,
         "step": 0.05,
         "default": 0,
+    },
+    {
+        "name": "reasoning_effort",
+        "label": "Reasoning effort",
+        "description": "How much effort the model spends thinking before responding (o-series, DeepSeek R1)",
+        "type": "select",
+        "options": ["low", "medium", "high"],
+        "default": None,
     },
 ]

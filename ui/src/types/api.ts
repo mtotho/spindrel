@@ -51,7 +51,7 @@ export interface BotConfig {
   integration_config?: Record<string, any>;
   workspace?: Record<string, any>;
   docker_sandbox_profiles?: string[];
-  model_params?: Record<string, number>;
+  model_params?: Record<string, any>;
   delegation_config?: Record<string, any>;
   user_id?: string | null;
   shared_workspace_id?: string | null;
@@ -90,11 +90,12 @@ export interface ModelParamDefinition {
   name: string;
   label: string;
   description: string;
-  type: "slider" | "number";
-  min: number;
-  max: number;
-  step: number;
-  default: number | null;
+  type: "slider" | "number" | "select";
+  min?: number;
+  max?: number;
+  step?: number;
+  default: number | string | null;
+  options?: string[];
 }
 
 export interface BotEditorData {
@@ -110,6 +111,18 @@ export interface BotEditorData {
   model_param_support: Record<string, string[]>;
 }
 
+// Integration binding
+export interface IntegrationBinding {
+  id: string;
+  channel_id: string;
+  integration_type: string;
+  client_id: string;
+  dispatch_config?: Record<string, any> | null;
+  display_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Channel types (matches server ChannelOut)
 export interface Channel {
   id: string;
@@ -123,6 +136,9 @@ export interface Channel {
   private: boolean;
   user_id?: string;
   display_name?: string;
+  model_override?: string;
+  model_provider_id_override?: string;
+  integrations?: IntegrationBinding[];
   created_at: string;
   updated_at: string;
 }
@@ -149,6 +165,8 @@ export interface ChannelSettings {
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;
+  model_override?: string;
+  model_provider_id_override?: string;
   // Tool / skill overrides
   local_tools_override?: string[] | null;
   local_tools_disabled?: string[] | null;
@@ -294,6 +312,7 @@ export interface ChatRequest {
   client_id: string;
   session_id?: string;
   channel_id?: string;
+  model_override?: string;
   attachments?: ChatAttachment[];
   file_metadata?: ChatFileMetadata[];
 }
@@ -419,6 +438,45 @@ export interface WorkspaceFileEntry {
   is_dir: boolean;
   size?: number | null;
   path: string;
+}
+
+// Context breakdown types
+export interface ContextCategory {
+  key: string;
+  label: string;
+  chars: number;
+  tokens_approx: number;
+  percentage: number;
+  category: "static" | "rag" | "conversation" | "compaction";
+  description: string;
+}
+
+export interface CompactionState {
+  enabled: boolean;
+  has_summary: boolean;
+  summary_chars: number;
+  messages_since_watermark: number;
+  total_messages: number;
+  compaction_interval: number;
+  compaction_keep_turns: number;
+  turns_until_next: number | null;
+}
+
+export interface EffectiveSetting {
+  value: any;
+  source: "channel" | "bot" | "global";
+}
+
+export interface ContextBreakdown {
+  channel_id: string;
+  session_id: string | null;
+  bot_id: string;
+  categories: ContextCategory[];
+  total_chars: number;
+  total_tokens_approx: number;
+  compaction: CompactionState;
+  effective_settings: Record<string, EffectiveSetting>;
+  disclaimer: string;
 }
 
 // Admin types

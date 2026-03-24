@@ -217,6 +217,37 @@ async def update_plan_item_status(
     r.raise_for_status()
 
 
+async def list_models() -> list[dict]:
+    """GET /api/v1/admin/models — returns grouped model list."""
+    r = await http.get(
+        f"{AGENT_BASE_URL}/api/v1/admin/models",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def get_channel_settings(channel_id: str) -> dict:
+    """GET /api/v1/admin/channels/{id}/settings."""
+    r = await http.get(
+        f"{AGENT_BASE_URL}/api/v1/admin/channels/{channel_id}/settings",
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def update_channel_settings(channel_id: str, updates: dict) -> dict:
+    """PUT /api/v1/admin/channels/{id}/settings."""
+    r = await http.put(
+        f"{AGENT_BASE_URL}/api/v1/admin/channels/{channel_id}/settings",
+        json=updates,
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 async def stream_chat(
     *,
     message: str,

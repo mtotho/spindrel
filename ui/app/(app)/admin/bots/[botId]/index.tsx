@@ -199,14 +199,14 @@ function ModelParamsSection({
   definitions: ModelParamDefinition[];
   support: Record<string, string[]>;
   model: string;
-  params: Record<string, number>;
-  onChange: (p: Record<string, number>) => void;
+  params: Record<string, any>;
+  onChange: (p: Record<string, any>) => void;
 }) {
   // Derive provider family from model string
   const family = model.includes("/") ? model.split("/")[0].toLowerCase() : "openai";
   const supported = new Set(support[family] || support["_default"] || ["temperature", "max_tokens"]);
 
-  const setParam = (name: string, value: number | undefined) => {
+  const setParam = (name: string, value: any) => {
     const next = { ...params };
     if (value === undefined) {
       delete next[name];
@@ -223,9 +223,11 @@ function ModelParamsSection({
         const isSupported = supported.has(def.name);
         const hasValue = params[def.name] !== undefined;
         const currentValue = hasValue ? params[def.name] : (def.default ?? 0);
+        const desc = (!isSupported ? `Not supported by ${family} models` : def.description)
+          + ` \u00b7 ${def.name}`;
 
         return (
-          <FormRow key={def.name} label={def.label} description={!isSupported ? `Not supported by ${family} models` : def.description}>
+          <FormRow key={def.name} label={def.label} description={desc}>
             {def.type === "slider" ? (
               <Slider
                 value={currentValue}
@@ -236,6 +238,24 @@ function ModelParamsSection({
                 disabled={!isSupported}
                 defaultValue={def.default}
               />
+            ) : def.type === "select" ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <select
+                  value={hasValue ? params[def.name] : ""}
+                  onChange={(e) => setParam(def.name, e.target.value || undefined)}
+                  disabled={!isSupported}
+                  style={{
+                    background: "#111", border: "1px solid #333", borderRadius: 8,
+                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, width: 160,
+                    outline: "none", opacity: isSupported ? 1 : 0.4, cursor: isSupported ? "pointer" : "not-allowed",
+                  }}
+                >
+                  <option value="">Default</option>
+                  {((def as any).options || []).map((opt: string) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input

@@ -91,6 +91,8 @@ async def lifespan(app: FastAPI):
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+    from app.agent.base_prompt import load_base_prompt
+    load_base_prompt()
     logger.info("Loading MCP server config...")
     load_mcp_config()
     extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]

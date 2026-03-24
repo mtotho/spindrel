@@ -15,6 +15,7 @@ import {
   Settings,
   Users,
   Container,
+  Plus,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -122,9 +123,16 @@ export function Sidebar() {
 
         {/* Channels */}
         <View className="px-2 py-1">
-          <Text className="text-text-dim text-[9px] font-semibold tracking-wider px-2.5 mb-1">
-            CHANNELS
-          </Text>
+          <View className="flex-row items-center justify-between px-2.5 mb-1">
+            <Text className="text-text-dim text-[9px] font-semibold tracking-wider">
+              CHANNELS
+            </Text>
+            <Link href={"/channels/new" as any} asChild>
+              <Pressable onPress={closeMobile} className="p-0.5 rounded hover:bg-surface-overlay">
+                <Plus size={11} color="#9ca3af" />
+              </Pressable>
+            </Link>
+          </View>
           {channels?.map((channel) => {
             const bot = botMap.get(channel.bot_id);
             const isActive = pathname.includes(channel.id);

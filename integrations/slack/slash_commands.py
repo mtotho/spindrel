@@ -13,8 +13,11 @@ from agent_client import (
     fetch_session_context_diagnostics,
     fetch_todos,
     get_channel_session_id,
+    get_channel_settings,
     list_bots,
+    list_models,
     stream_chat,
+    update_channel_settings,
     update_plan_item_status,
     update_plan_status,
 )
@@ -673,3 +676,110 @@ def register_slash_commands(app):
         lines.append(f"  `{git_raw[:120]}`")
 
         await respond("\n".join(lines))
+
+    @app.command("/model")
+    async def cmd_model(ack, command, respond):
+        """View or change the model override for this channel."""
+        await ack()
+        channel = command.get("channel_id") or ""
+        state = get_channel_state(channel)
+        bot_id = state["bot_id"]
+        arg = (command.get("text") or "").strip()
+
+        # Resolve the server-side channel
+        client_id = slack_client_id(channel)
+        ch_data = await ensure_channel(client_id, bot_id)
+        if not ch_data or not ch_data.get("id"):
+            await respond("No channel registered yet. Send a message first.")
+            return
+        channel_uuid = ch_data["id"]
+
+        # /model (no args) — show current
+        if not arg:
+            try:
+                settings = await get_channel_settings(channel_uuid)
+            except Exception as e:
+                await respond(f"Error: {e}")
+                return
+            override = settings.get("model_override")
+            if override:
+                await respond(f"*Model override:* `{override}`\n_Bot default: `{bot_id}`_\nUse `/model clear` to revert.")
+            else:
+                bots_list = await list_bots()
+                bot_model = next((b.get("model", "?") for b in bots_list if b["id"] == bot_id), "?")
+                await respond(f"*No model override set.*\nUsing bot default: `{bot_model}`\nUse `/model <model-name>` to override.")
+            return
+
+        # /model clear — remove override
+        if arg.lower() == "clear":
+            try:
+                await update_channel_settings(channel_uuid, {"model_override": None, "model_provider_id_override": None})
+            except Exception as e:
+                await respond(f"Error: {e}")
+                return
+            await respond("Model override cleared. Using bot default.")
+            return
+
+        # /model list — show available models
+        if arg.lower() == "list":
+            try:
+                groups = await list_models()
+            except Exception as e:
+                await respond(f"Error fetching models: {e}")
+                return
+            lines = ["*Available Models*"]
+            for g in groups:
+                provider = g.get("provider_name", "Unknown")
+                models = g.get("models", [])
+                if not models:
+                    continue
+                lines.append(f"\n*{provider}*")
+                for m in models:
+                    lines.append(f"  `{m['id']}`")
+            await respond("\n".join(lines))
+            return
+
+        # /model <name> — set override (fuzzy match)
+        target = arg.lower()
+        try:
+            groups = await list_models()
+        except Exception as e:
+            await respond(f"Error: {e}")
+            return
+
+        all_models = []
+        for g in groups:
+            for m in g.get("models", []):
+                all_models.append(m["id"])
+
+        # Exact match first
+        match = None
+        for mid in all_models:
+            if mid.lower() == target:
+                match = mid
+                break
+
+        # Partial match
+        if not match:
+            candidates = [mid for mid in all_models if target in mid.lower()]
+            if len(candidates) == 1:
+                match = candidates[0]
+            elif len(candidates) > 1:
+                top = candidates[:10]
+                await respond(
+                    f"Ambiguous — {len(candidates)} models match `{arg}`:\n"
+                    + "\n".join(f"  `{c}`" for c in top)
+                    + ("\n  ..." if len(candidates) > 10 else "")
+                )
+                return
+
+        if not match:
+            await respond(f"No model matching `{arg}`. Use `/model list` to see available models.")
+            return
+
+        try:
+            await update_channel_settings(channel_uuid, {"model_override": match})
+        except Exception as e:
+            await respond(f"Error: {e}")
+            return
+        await respond(f"Model override set to `{match}`.\nUse `/model clear` to revert to bot default.")

@@ -38,6 +38,19 @@ router = APIRouter()
 # Channel schemas
 # ---------------------------------------------------------------------------
 
+class IntegrationBindingOut(BaseModel):
+    id: uuid.UUID
+    channel_id: uuid.UUID
+    integration_type: str
+    client_id: str
+    dispatch_config: Optional[dict] = None
+    display_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ChannelOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -50,6 +63,9 @@ class ChannelOut(BaseModel):
     private: bool = False
     user_id: Optional[uuid.UUID] = None
     display_name: Optional[str] = None
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    integrations: list[IntegrationBindingOut] = []
     created_at: datetime
     updated_at: datetime
 
@@ -261,6 +277,8 @@ class ChannelSettingsOut(BaseModel):
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
     # Tool / skill overrides
     local_tools_override: Optional[list[str]] = None
     local_tools_disabled: Optional[list[str]] = None
@@ -293,6 +311,8 @@ class ChannelSettingsUpdate(BaseModel):
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
     # Tool / skill overrides (set to null to clear → revert to inherit)
     local_tools_override: Optional[list[str]] = None
     local_tools_disabled: Optional[list[str]] = None
@@ -935,6 +955,10 @@ async def get_channel_knowledge(
     _auth=Depends(verify_auth_or_user),
 ):
     """Return knowledge entries scoped to this channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
     stmt = (
         select(BotKnowledge, KnowledgeAccess.mode)
         .join(KnowledgeAccess, KnowledgeAccess.knowledge_id == BotKnowledge.id)
@@ -948,16 +972,51 @@ async def get_channel_knowledge(
     return [
         {
             "id": str(k.id),
-            "title": k.title,
+            "title": k.name,
             "content": k.content[:500] if k.content else None,
             "content_length": len(k.content) if k.content else 0,
             "bot_id": k.bot_id,
             "mode": mode,
-            "created_at": k.created_at.isoformat() if k.created_at else None,
             "updated_at": k.updated_at.isoformat() if k.updated_at else None,
         }
         for k, mode in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Context breakdown
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/context-breakdown")
+async def admin_channel_context_breakdown(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Compute a detailed context breakdown for the channel's active session."""
+    from app.services.context_breakdown import compute_context_breakdown
+    from dataclasses import asdict
+
+    try:
+        result = await compute_context_breakdown(str(channel_id), db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    # Convert dataclasses to dicts for JSON serialization
+    return {
+        "channel_id": result.channel_id,
+        "session_id": result.session_id,
+        "bot_id": result.bot_id,
+        "categories": [asdict(c) for c in result.categories],
+        "total_chars": result.total_chars,
+        "total_tokens_approx": result.total_tokens_approx,
+        "compaction": asdict(result.compaction),
+        "effective_settings": {
+            k: {"value": v.value, "source": v.source}
+            for k, v in result.effective_settings.items()
+        },
+        "disclaimer": result.disclaimer,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1012,16 +1071,18 @@ async def admin_channels_enriched(
     auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with integration-resolved display names."""
-    stmt = select(Channel).order_by(Channel.updated_at.desc())
-    stmt = apply_channel_visibility(stmt, auth_result)
+    stmt_base = select(Channel).order_by(Channel.updated_at.desc())
+    stmt_base = apply_channel_visibility(stmt_base, auth_result)
     if integration:
-        stmt = stmt.where(Channel.integration == integration)
+        stmt_base = stmt_base.where(Channel.integration == integration)
     if bot_id:
-        stmt = stmt.where(Channel.bot_id == bot_id)
+        stmt_base = stmt_base.where(Channel.bot_id == bot_id)
 
     total = (await db.execute(
-        select(func.count()).select_from(stmt.subquery())
+        select(func.count()).select_from(stmt_base.subquery())
     )).scalar_one()
+
+    stmt = stmt_base.options(selectinload(Channel.integrations))
 
     offset = (page - 1) * page_size
     channels = (await db.execute(
@@ -1042,3 +1103,25 @@ async def admin_channels_enriched(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Available integrations
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/integrations/available")
+async def available_integrations(
+    _auth=Depends(verify_auth_or_user),
+):
+    """List registered integration types (from discovery + dispatcher registry)."""
+    from app.agent import dispatchers as disp_mod
+    from integrations import discover_integrations
+
+    # Collect from dispatcher registry
+    types = set(disp_mod._registry.keys()) - {"none", "webhook", "internal"}
+
+    # Collect from integration discovery
+    for integration_id, _ in discover_integrations():
+        types.add(integration_id)
+
+    return sorted(types)

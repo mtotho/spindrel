@@ -8,6 +8,11 @@ import {
   useUpdateChannelSettings,
   useChannel,
   useChannelEffectiveTools,
+  useChannelIntegrations,
+  useBindIntegration,
+  useUnbindIntegration,
+  useAvailableIntegrations,
+  useChannelContextBreakdown,
 } from "@/src/api/hooks/useChannels";
 import { useBots, useBotEditorData } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -19,7 +24,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ChannelSettings, BotEditorData, ToolGroup } from "@/src/types/api";
+import type { ChannelSettings, BotEditorData, ToolGroup, ContextBreakdown } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useChannelElevation } from "@/src/api/hooks/useElevation";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
@@ -44,7 +49,9 @@ const INTERVAL_OPTIONS = [
 // ---------------------------------------------------------------------------
 const TABS = [
   { key: "general", label: "General" },
+  { key: "context", label: "Context" },
   { key: "tools", label: "Tools" },
+  { key: "integrations", label: "Integrations" },
   { key: "sessions", label: "Sessions" },
   { key: "knowledge", label: "Knowledge" },
   { key: "heartbeat", label: "Heartbeat" },
@@ -91,6 +98,8 @@ export default function ChannelSettingsScreen() {
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
+        model_override: settings.model_override,
+        model_provider_id_override: settings.model_provider_id_override,
       });
     }
   }, [settings]);
@@ -175,7 +184,9 @@ export default function ChannelSettingsScreen() {
         {tab === "general" && (
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} />
         )}
+        {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
+        {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
@@ -222,6 +233,20 @@ function GeneralTab({ form, patch, bots, settings, elevationData }: {
             </FormRow>
           </Col>
         </Row>
+      </Section>
+
+      <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">
+        <FormRow label="Model" description="All messages in this channel will use this model instead of the bot default.">
+          <LlmModelDropdown
+            value={form.model_override ?? ""}
+            onChange={(v) => {
+              patch("model_override", v || undefined);
+              if (!v) patch("model_provider_id_override", undefined);
+            }}
+            placeholder={`inherit (${bots?.find((b) => b.id === settings.bot_id)?.model ?? "bot default"})`}
+            allowClear
+          />
+        </FormRow>
       </Section>
 
       <Section title="Behavior">
@@ -444,6 +469,135 @@ function GeneralTab({ form, patch, bots, settings, elevationData }: {
     </>
   );
 }
+
+// ===========================================================================
+// Integrations Tab
+// ===========================================================================
+function IntegrationsTab({ channelId }: { channelId: string }) {
+  const { data: bindings, isLoading } = useChannelIntegrations(channelId);
+  const { data: availableTypes } = useAvailableIntegrations();
+  const bindMutation = useBindIntegration(channelId);
+  const unbindMutation = useUnbindIntegration(channelId);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [newType, setNewType] = useState("");
+  const [newClientId, setNewClientId] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+
+  const handleBind = async () => {
+    if (!newType || !newClientId.trim()) return;
+    await bindMutation.mutateAsync({
+      integration_type: newType,
+      client_id: newClientId.trim(),
+      display_name: newDisplayName.trim() || undefined,
+    });
+    setShowAdd(false);
+    setNewType("");
+    setNewClientId("");
+    setNewDisplayName("");
+  };
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+
+  return (
+    <>
+      <Section title="Integration Bindings">
+        {(!bindings || bindings.length === 0) ? (
+          <EmptyState message="No integrations bound to this channel" />
+        ) : (
+          <View className="gap-2">
+            {bindings.map((b) => (
+              <View key={b.id} className="flex-row items-center gap-3 bg-surface-raised border border-surface-border rounded-lg px-3 py-2">
+                <Text className="text-accent text-xs font-semibold bg-accent/15 px-2 py-0.5 rounded">
+                  {b.integration_type}
+                </Text>
+                <View className="flex-1 min-w-0">
+                  <Text className="text-text text-sm" numberOfLines={1}>{b.client_id}</Text>
+                  {b.display_name && (
+                    <Text className="text-text-muted text-xs" numberOfLines={1}>{b.display_name}</Text>
+                  )}
+                </View>
+                <Pressable
+                  onPress={() => unbindMutation.mutate(b.id)}
+                  className="p-1 rounded hover:bg-surface-overlay"
+                >
+                  <X size={14} color="#ef4444" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+      </Section>
+
+      {!showAdd ? (
+        <Pressable
+          onPress={() => {
+            setShowAdd(true);
+            if (availableTypes?.length && !newType) setNewType(availableTypes[0]);
+          }}
+          className="flex-row items-center gap-2 px-3 py-2"
+        >
+          <Plus size={14} color="#3b82f6" />
+          <Text className="text-accent text-sm font-medium">Add Integration</Text>
+        </Pressable>
+      ) : (
+        <Section title="Add Integration">
+          <View className="gap-3">
+            <FormRow label="Type">
+              <SelectInput
+                value={newType}
+                onChange={setNewType}
+                options={(availableTypes ?? []).map((t) => ({ label: t, value: t }))}
+              />
+            </FormRow>
+            <FormRow label="Client ID">
+              <TextInput
+                value={newClientId}
+                onChangeText={setNewClientId}
+                placeholder="slack:C01ABC123"
+              />
+            </FormRow>
+            <FormRow label="Display Name (optional)">
+              <TextInput
+                value={newDisplayName}
+                onChangeText={setNewDisplayName}
+                placeholder="#general"
+              />
+            </FormRow>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={handleBind}
+                disabled={!newType || !newClientId.trim() || bindMutation.isPending}
+                style={{
+                  backgroundColor: newType && newClientId.trim() ? "#3b82f6" : "#333",
+                  paddingHorizontal: 14,
+                  paddingVertical: 7,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                  {bindMutation.isPending ? "Binding..." : "Bind"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowAdd(false)}
+                className="px-3 py-1.5 rounded-lg hover:bg-surface-overlay"
+              >
+                <Text className="text-text-muted text-sm">Cancel</Text>
+              </Pressable>
+            </View>
+            {bindMutation.isError && (
+              <Text className="text-red-400 text-xs">
+                {bindMutation.error instanceof Error ? bindMutation.error.message : "Failed to bind"}
+              </Text>
+            )}
+          </View>
+        </Section>
+      )}
+    </>
+  );
+}
+
 
 // ===========================================================================
 // Sessions Tab
@@ -952,6 +1106,169 @@ function PlansTab({ channelId }: { channelId: string }) {
         })}
       </div>
     </Section>
+  );
+}
+
+// ===========================================================================
+// Context Tab
+// ===========================================================================
+
+const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
+  static:       { bar: "#3b82f6", dot: "#60a5fa" },
+  rag:          { bar: "#22c55e", dot: "#4ade80" },
+  conversation: { bar: "#f59e0b", dot: "#fbbf24" },
+  compaction:   { bar: "#a855f7", dot: "#c084fc" },
+};
+
+const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
+  channel: { bg: "#1e3a5f", fg: "#93c5fd" },
+  bot:     { bg: "#365314", fg: "#bef264" },
+  global:  { bg: "#333",    fg: "#999"    },
+};
+
+function ContextTab({ channelId }: { channelId: string }) {
+  const { data, isLoading } = useChannelContextBreakdown(channelId);
+
+  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
+  if (!data) return <EmptyState message="No context data available." />;
+
+  const legend = [
+    { key: "static", label: "Static", color: CATEGORY_COLORS.static.bar },
+    { key: "rag", label: "RAG", color: CATEGORY_COLORS.rag.bar },
+    { key: "conversation", label: "Conversation", color: CATEGORY_COLORS.conversation.bar },
+    { key: "compaction", label: "Compaction", color: CATEGORY_COLORS.compaction.bar },
+  ];
+
+  return (
+    <>
+      {/* Summary card */}
+      <Section title="Summary">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+          {[
+            ["Total Tokens", `~${data.total_tokens_approx.toLocaleString()}`],
+            ["Total Chars", data.total_chars.toLocaleString()],
+            ["Bot", data.bot_id],
+            ["Session", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
+          ].map(([label, val]) => (
+            <div key={String(label)} style={{
+              padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#e5e5e5" }}>{val}</div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* Stacked bar */}
+      <Section title="Proportions">
+        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", background: "#1a1a1a" }}>
+          {data.categories
+            .filter((c) => c.percentage > 0)
+            .map((c) => (
+              <div
+                key={c.key}
+                title={`${c.label}: ${c.percentage}%`}
+                style={{
+                  width: `${c.percentage}%`,
+                  background: CATEGORY_COLORS[c.category]?.bar || "#555",
+                  minWidth: c.percentage > 0.5 ? 3 : 0,
+                }}
+              />
+            ))}
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+          {legend.map((l) => (
+            <div key={l.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#999" }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: l.color }} />
+              {l.label}
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* Category list */}
+      <Section title="Components">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {data.categories.map((c) => (
+            <div key={c.key} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+            }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+                background: CATEGORY_COLORS[c.category]?.dot || "#555",
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>{c.label}</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>{c.description}</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>~{c.tokens_approx.toLocaleString()} tok</div>
+                <div style={{ fontSize: 11, color: "#666" }}>{c.percentage}%</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* Compaction state */}
+      {data.compaction && (
+        <Section title="Compaction">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {[
+              ["Enabled", data.compaction.enabled ? "Yes" : "No"],
+              ["Has Summary", data.compaction.has_summary ? `Yes (${data.compaction.summary_chars.toLocaleString()} chars)` : "No"],
+              ["Total Messages", data.compaction.total_messages],
+              ["Since Watermark", data.compaction.messages_since_watermark],
+              ["Interval", data.compaction.compaction_interval],
+              ["Keep Turns", data.compaction.compaction_keep_turns],
+              ["Turns Until Next", data.compaction.turns_until_next ?? "N/A"],
+            ].map(([label, val]) => (
+              <div key={String(label)} style={{
+                padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#e5e5e5" }}>{String(val)}</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Effective settings */}
+      {data.effective_settings && (
+        <Section title="Effective Settings">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {Object.entries(data.effective_settings).map(([key, setting]) => {
+              const badge = SOURCE_BADGE_COLORS[setting.source] || SOURCE_BADGE_COLORS.global;
+              return (
+                <div key={key} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+                }}>
+                  <span style={{ fontSize: 12, color: "#999", fontFamily: "monospace" }}>{key}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#e5e5e5" }}>{String(setting.value)}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
+                      background: badge.bg, color: badge.fg,
+                    }}>
+                      {setting.source}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Disclaimer */}
+      <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginTop: 4 }}>
+        {data.disclaimer}
+      </div>
+    </>
   );
 }
 
