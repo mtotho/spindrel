@@ -48,6 +48,17 @@ class Channel(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
+    # Tool / skill overrides (null = inherit from bot)
+    local_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    local_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    mcp_servers_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    mcp_servers_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    client_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    client_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    pinned_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    skills_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )

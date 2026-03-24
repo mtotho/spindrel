@@ -8,7 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from dataclasses import replace as _dc_replace
+
 from app.agent.bots import BotConfig
+from app.agent.channel_overrides import resolve_effective_tools
 from app.agent.context import set_ephemeral_delegates
 from app.agent.knowledge import retrieve_knowledge
 from app.agent.memory import retrieve_memories
@@ -74,6 +77,23 @@ async def assemble_context(
         })
     except Exception:
         pass  # non-fatal if timezone lookup fails
+
+    # --- channel-level tool/skill overrides ---
+    if channel_id is not None:
+        from app.db.engine import async_session
+        from app.db.models import Channel
+        async with async_session() as _ch_db:
+            _ch_row = await _ch_db.get(Channel, channel_id)
+        if _ch_row is not None:
+            _eff = resolve_effective_tools(bot, _ch_row)
+            bot = _dc_replace(
+                bot,
+                local_tools=_eff.local_tools,
+                mcp_servers=_eff.mcp_servers,
+                client_tools=_eff.client_tools,
+                pinned_tools=_eff.pinned_tools,
+                skills=_eff.skills,
+            )
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(

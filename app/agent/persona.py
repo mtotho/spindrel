@@ -55,11 +55,11 @@ async def append_to_persona(bot_id: str, content: str) -> tuple[bool, str | None
             row = existing.scalar_one_or_none()
             if row:
                 row.persona_layer = (row.persona_layer or "") + content
-                await db.commit()
-                logger.info("Appended to persona for bot %s (%d chars appended)", bot_id, len(content))
-                return (True, None)
             else:
-                return (False, "Persona not found")
+                db.add(BotPersona(bot_id=bot_id, persona_layer=content))
+            await db.commit()
+            logger.info("Appended to persona for bot %s (%d chars appended)", bot_id, len(content))
+            return (True, None)
     except Exception as e:
         logger.exception("Failed to append to persona for bot %s", bot_id)
         return (False, str(e))

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "react-native";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -156,7 +156,14 @@ export default function ChatScreen() {
   return (
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
+      <View
+        className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border bg-surface"
+        style={{
+          flexShrink: 0,
+          zIndex: 10,
+          ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
+        }}
+      >
         {columns === "single" && (
           <Pressable onPress={goBack} className="p-1.5 rounded-md hover:bg-surface-overlay">
             <ArrowLeft size={18} color="#9ca3af" />

@@ -243,7 +243,7 @@ function FullscreenEditor({
           autoFocus
           style={{
             flex: 1, width: "100%",
-            fontFamily: "monospace", fontSize: 14, lineHeight: "1.6",
+            fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
             padding: "16px 20px", borderRadius: 10,
             border: "1px solid #333", background: "#0a0a0a", color: "#e5e7eb",
             resize: "none", outline: "none",
@@ -374,7 +374,7 @@ export function LlmPrompt({
           placeholder={placeholder}
           rows={rows}
           style={{
-            fontFamily: "monospace", fontSize: 13, lineHeight: "1.5",
+            fontFamily: "monospace", fontSize: 16, lineHeight: "1.5",
             padding: "8px 12px", borderRadius: 8, width: "100%",
             border: "1px solid #333", background: "#111", color: "#e5e7eb",
             resize: "vertical", outline: "none", transition: "border-color 0.15s",

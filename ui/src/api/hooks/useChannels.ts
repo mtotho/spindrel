@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelSettings } from "../../types/api";
+import type { Channel, ChannelSettings, EffectiveTools } from "../../types/api";
 
 interface ChannelListResponse {
   channels: Channel[];
@@ -45,7 +45,16 @@ export function useUpdateChannelSettings(channelId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-settings", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
     },
+  });
+}
+
+export function useChannelEffectiveTools(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["channel-effective-tools", channelId],
+    queryFn: () => apiFetch<EffectiveTools>(`/api/v1/admin/channels/${channelId}/effective-tools`),
+    enabled: !!channelId,
   });
 }

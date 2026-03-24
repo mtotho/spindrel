@@ -11,7 +11,7 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col, Slider,
 } from "@/src/components/shared/FormControls";
-import type { BotConfig, BotEditorData, ModelParamDefinition } from "@/src/types/api";
+import type { BotConfig, BotEditorData, ModelParamDefinition, ToolGroup } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
 // Sections — Prompt & Persona adjacent, no compaction
@@ -55,7 +55,7 @@ function BigTextarea({
       placeholder={placeholder}
       rows={minRows}
       style={{
-        width: "100%", fontFamily: "monospace", fontSize: 13, lineHeight: "1.6",
+        width: "100%", fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
         padding: "12px 16px", borderRadius: 8,
         border: "1px solid #333", background: "#0a0a0a", color: "#e5e7eb",
         resize: "vertical", outline: "none", transition: "border-color 0.15s",
@@ -118,19 +118,20 @@ function SectionNav({
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
           style={{
-            display: "flex", alignItems: "center", gap: 6, width: "100%",
-            padding: "8px 16px", background: "#0a0a0a", border: "none",
-            color: "#e5e5e5", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 8, width: "100%",
+            padding: "12px 16px", background: "#0a0a0a", border: "none",
+            color: "#e5e5e5", fontSize: 15, fontWeight: 600, cursor: "pointer",
+            minHeight: 48,
           }}
         >
           <span style={{ flex: 1, textAlign: "left" }}>{activeLabel}</span>
-          <ChevronDown size={14} color="#555" style={{ transform: mobileOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } as any} />
+          <ChevronDown size={16} color="#555" style={{ transform: mobileOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } as any} />
         </button>
         {mobileOpen && (
           <div style={{
             position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
             background: "#0a0a0a", border: "1px solid #1a1a1a", borderTop: "none",
-            maxHeight: 300, overflowY: "auto",
+            maxHeight: 400, overflowY: "auto",
           }}>
             {SECTIONS.map((s) => {
               const dimmed = filter && !matchingSections.has(s.key);
@@ -139,11 +140,12 @@ function SectionNav({
                   key={s.key}
                   onClick={() => { onSelect(s.key); setMobileOpen(false); }}
                   style={{
-                    display: "block", width: "100%", padding: "7px 16px", border: "none",
+                    display: "block", width: "100%", padding: "12px 16px", border: "none",
                     background: active === s.key ? "#1a1a1a" : "transparent",
-                    color: dimmed ? "#333" : active === s.key ? "#3b82f6" : "#888",
-                    fontSize: 12, fontWeight: active === s.key ? 600 : 400,
+                    color: dimmed ? "#333" : active === s.key ? "#3b82f6" : "#999",
+                    fontSize: 14, fontWeight: active === s.key ? 600 : 400,
                     cursor: "pointer", textAlign: "left",
+                    minHeight: 44,
                   }}
                 >
                   {s.label}
@@ -338,6 +340,18 @@ function ToolsSection({
     }
   };
 
+  // Toggle all tools in an entire integration group
+  const toggleGroup = (group: ToolGroup) => {
+    const allNames = group.packs.flatMap((p) => p.tools.map((t) => t.name));
+    const allEnabled = allNames.every((n) => localTools.includes(n));
+    if (allEnabled) {
+      update({ local_tools: localTools.filter((t) => !allNames.includes(t)) });
+    } else {
+      const toAdd = allNames.filter((n) => !localTools.includes(n));
+      update({ local_tools: [...localTools, ...toAdd] });
+    }
+  };
+
   const q = toolFilter.toLowerCase();
 
   return (
@@ -394,7 +408,29 @@ function ToolsSection({
                   {group.integration}
                 </span>
               )}
-              <span style={{ fontSize: 10, color: "#444", marginLeft: "auto" }}>{group.total}</span>
+              {(() => {
+                const allNames = group.packs.flatMap((p) => p.tools.map((t) => t.name));
+                const selectedCount = allNames.filter((n) => localTools.includes(n)).length;
+                const allEnabled = selectedCount === allNames.length && allNames.length > 0;
+                return (
+                  <>
+                    <span style={{ fontSize: 9, color: "#555", marginLeft: "auto" }}>
+                      {selectedCount}/{allNames.length}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleGroup(group); }}
+                      style={{
+                        background: "none", border: "1px solid #333", borderRadius: 4,
+                        padding: "1px 6px", fontSize: 9, cursor: "pointer",
+                        color: allEnabled ? "#f87171" : "#86efac",
+                      }}
+                      title={allEnabled ? "Deselect all in group" : "Select all in group"}
+                    >
+                      {allEnabled ? "none" : "all"}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
 
             {/* Packs */}
@@ -1161,6 +1197,7 @@ export default function BotEditorScreen() {
 
   const [activeSection, setActiveSection] = useState<SectionKey>("identity");
   const [filter, setFilter] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState<BotConfig | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1240,43 +1277,68 @@ export default function BotEditorScreen() {
     <View className="flex-1 bg-surface">
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "10px 16px", borderBottom: "1px solid #1a1a1a",
+        display: "flex", alignItems: "center", gap: isMobile ? 8 : 12,
+        padding: isMobile ? "10px 12px" : "10px 16px", borderBottom: "1px solid #1a1a1a",
+        flexWrap: isMobile && searchOpen ? "wrap" : "nowrap",
       }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ArrowLeft size={16} color="#888" />
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>{isNew ? "New Bot" : draft.name}</div>
-          {!isNew && <div style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{draft.id}</div>}
-        </div>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6,
-          background: "#111", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", width: 180,
-        }}>
-          <Search size={12} color="#555" />
-          <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }} />
-          {filter && (
-            <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-              <X size={10} color="#555" />
+        {(!isMobile || !searchOpen) && (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isNew ? "New Bot" : draft.name}</div>
+            {!isNew && <div style={{ fontSize: 10, color: "#555", fontFamily: "monospace" }}>{draft.id}</div>}
+          </div>
+        )}
+        {isMobile ? (
+          searchOpen ? (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6, flex: 1,
+              background: "#111", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", minHeight: 36,
+            }}>
+              <Search size={14} color="#555" />
+              <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
+                autoFocus
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 16 }} />
+              <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <X size={14} color="#555" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Search size={16} color="#888" />
             </button>
-          )}
-        </div>
+          )
+        ) : (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            background: "#111", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", width: 180,
+          }}>
+            <Search size={12} color="#555" />
+            <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 14 }} />
+            {filter && (
+              <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                <X size={10} color="#555" />
+              </button>
+            )}
+          </div>
+        )}
         <button
           onClick={handleSave}
           disabled={!dirty || saveMutation.isPending}
           style={{
             display: "flex", alignItems: "center", gap: 6,
-            padding: "6px 16px", borderRadius: 6, border: "none",
+            padding: isMobile ? "6px 12px" : "6px 16px", borderRadius: 6, border: "none",
             background: dirty ? "#3b82f6" : "#1a1a1a",
             color: dirty ? "#fff" : "#555",
             fontSize: 12, fontWeight: 600, cursor: dirty ? "pointer" : "default",
             opacity: saveMutation.isPending ? 0.6 : 1,
+            minHeight: 36,
           }}
         >
           <Save size={13} />
-          {saveMutation.isPending ? "Saving..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
+          {saveMutation.isPending ? "..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
         </button>
       </div>
 

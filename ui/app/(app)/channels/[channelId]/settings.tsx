@@ -2,13 +2,14 @@ import { useCallback, useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
   useChannel,
+  useChannelEffectiveTools,
 } from "@/src/api/hooks/useChannels";
-import { useBots } from "@/src/api/hooks/useBots";
+import { useBots, useBotEditorData } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
@@ -18,7 +19,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ChannelSettings } from "@/src/types/api";
+import type { ChannelSettings, BotEditorData, ToolGroup } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useChannelElevation } from "@/src/api/hooks/useElevation";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
@@ -43,6 +44,7 @@ const INTERVAL_OPTIONS = [
 // ---------------------------------------------------------------------------
 const TABS = [
   { key: "general", label: "General" },
+  { key: "tools", label: "Tools" },
   { key: "sessions", label: "Sessions" },
   { key: "knowledge", label: "Knowledge" },
   { key: "heartbeat", label: "Heartbeat" },
@@ -173,6 +175,7 @@ export default function ChannelSettingsScreen() {
         {tab === "general" && (
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} />
         )}
+        {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}

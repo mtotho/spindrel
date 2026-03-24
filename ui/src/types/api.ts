@@ -149,6 +149,25 @@ export interface ChannelSettings {
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;
+  // Tool / skill overrides
+  local_tools_override?: string[] | null;
+  local_tools_disabled?: string[] | null;
+  mcp_servers_override?: string[] | null;
+  mcp_servers_disabled?: string[] | null;
+  client_tools_override?: string[] | null;
+  client_tools_disabled?: string[] | null;
+  pinned_tools_override?: string[] | null;
+  skills_override?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
+  skills_disabled?: string[] | null;
+}
+
+export interface EffectiveTools {
+  local_tools: string[];
+  mcp_servers: string[];
+  client_tools: string[];
+  pinned_tools: string[];
+  skills: { id: string; mode: string; similarity_threshold?: number }[];
+  mode: Record<string, "inherit" | "override" | "disabled">;
 }
 
 // Elevation types
