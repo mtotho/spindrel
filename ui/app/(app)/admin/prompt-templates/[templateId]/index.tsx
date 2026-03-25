@@ -10,8 +10,9 @@ import {
   useUpdatePromptTemplate,
   useDeletePromptTemplate,
 } from "@/src/api/hooks/usePromptTemplates";
-import { useWorkspaces } from "@/src/api/hooks/useWorkspaces";
+import { useWorkspaces, useWorkspaceFileContent } from "@/src/api/hooks/useWorkspaces";
 import { FormRow, TextInput, Section, SelectInput } from "@/src/components/shared/FormControls";
+import { WorkspaceFilePicker } from "@/src/components/shared/WorkspaceFilePicker";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -68,6 +69,12 @@ export default function PromptTemplateDetailScreen() {
 
   const isFileManaged = template?.source_type === "file";
   const isWorkspaceFile = sourceType === "workspace_file";
+
+  // Preview workspace file content
+  const { data: wsFilePreview, isLoading: wsFileLoading } = useWorkspaceFileContent(
+    isWorkspaceFile ? workspaceId || undefined : undefined,
+    isWorkspaceFile && sourcePath ? sourcePath : null,
+  );
 
   const handleSave = useCallback(async () => {
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
@@ -220,24 +227,52 @@ export default function PromptTemplateDetailScreen() {
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
-            {isWorkspaceFile ? "Content (from workspace file)" : "Content"}
+            {isWorkspaceFile ? "Content Preview" : "Content"}
           </div>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            readOnly={isFileManaged || isWorkspaceFile}
-            placeholder={isWorkspaceFile ? "Content will be loaded from the workspace file..." : "Template content that will be inserted..."}
-            style={{
+          {isWorkspaceFile ? (
+            <div style={{
               flex: 1, minHeight: isWide ? 400 : 250,
-              background: (isFileManaged || isWorkspaceFile) ? "#0a0a0a" : "#111",
-              border: "1px solid #222", borderRadius: 8,
-              padding: 12, fontSize: 13, lineHeight: 1.6,
-              color: (isFileManaged || isWorkspaceFile) ? "#888" : "#e5e5e5",
-              fontFamily: "monospace", resize: "vertical",
-              outline: "none",
-              opacity: (isFileManaged || isWorkspaceFile) ? 0.7 : 1,
-            }}
-          />
+              background: "#0a0a0a", border: "1px solid #222", borderRadius: 8,
+              padding: 12, overflowY: "auto",
+            }}>
+              {!sourcePath ? (
+                <div style={{ color: "#555", fontSize: 12, fontStyle: "italic" }}>
+                  Select a file from the workspace to preview its content.
+                </div>
+              ) : wsFileLoading ? (
+                <div style={{ color: "#555", fontSize: 12 }}>Loading file content...</div>
+              ) : wsFilePreview?.content ? (
+                <pre style={{
+                  color: "#ccc", fontSize: 12, fontFamily: "monospace",
+                  whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
+                  wordBreak: "break-all",
+                }}>
+                  {wsFilePreview.content}
+                </pre>
+              ) : (
+                <div style={{ color: "#555", fontSize: 12, fontStyle: "italic" }}>
+                  {sourcePath ? "(empty file)" : "No file selected"}
+                </div>
+              )}
+            </div>
+          ) : (
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              readOnly={isFileManaged}
+              placeholder="Template content that will be inserted..."
+              style={{
+                flex: 1, minHeight: isWide ? 400 : 250,
+                background: isFileManaged ? "#0a0a0a" : "#111",
+                border: "1px solid #222", borderRadius: 8,
+                padding: 12, fontSize: 13, lineHeight: 1.6,
+                color: isFileManaged ? "#888" : "#e5e5e5",
+                fontFamily: "monospace", resize: "vertical",
+                outline: "none",
+                opacity: isFileManaged ? 0.7 : 1,
+              }}
+            />
+          )}
         </div>
 
         {/* Metadata panel */}
@@ -275,12 +310,17 @@ export default function PromptTemplateDetailScreen() {
                         ]}
                       />
                     </FormRow>
-                    <FormRow label="File Path" description="Path within the workspace (e.g. bots/coder/prompts/nightly.md)">
-                      <TextInput
-                        value={sourcePath}
-                        onChangeText={setSourcePath}
-                        placeholder="e.g. prompts/nightly.md"
-                      />
+                    <FormRow label="File" description="Browse and select a file from the workspace">
+                      {workspaceId ? (
+                        <WorkspaceFilePicker
+                          workspaceId={workspaceId}
+                          value={sourcePath}
+                          onChange={setSourcePath}
+                          fileFilter=".md"
+                        />
+                      ) : (
+                        <div style={{ fontSize: 11, color: "#666" }}>Select a workspace first</div>
+                      )}
                     </FormRow>
                   </>
                 )}
