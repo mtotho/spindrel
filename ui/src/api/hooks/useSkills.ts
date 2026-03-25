@@ -10,6 +10,11 @@ export interface SkillItem {
   chunk_count: number;
   created_at: string;
   updated_at: string;
+  // Workspace skill fields (only set when source_type === "workspace")
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  mode?: string | null;
+  bot_id?: string | null;
 }
 
 export function useSkills() {

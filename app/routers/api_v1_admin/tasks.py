@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import get_bot
 from app.db.models import Channel, Task
 from app.dependencies import get_db, verify_auth_or_user
+from ._helpers import _heartbeat_correlation_ids
 
 router = APIRouter()
 
@@ -38,6 +39,7 @@ class TaskDetailOut(BaseModel):
     parent_task_id: Optional[uuid.UUID] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
+    correlation_id: Optional[str] = None
     # Surfaced from callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -150,8 +152,12 @@ async def admin_list_tasks(
     tasks = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
     schedules = (await db.execute(sched_stmt)).scalars().all()
 
+    # Look up correlation_ids for tasks that have run
+    corr_map = await _heartbeat_correlation_ids(db, list(tasks))
+
     def _task_dict(t: Task) -> dict:
         cb = t.callback_config or {}
+        cid = corr_map.get(t.id)
         return {
             "id": str(t.id),
             "status": t.status,
@@ -166,6 +172,7 @@ async def admin_list_tasks(
             "run_count": t.run_count,
             "channel_id": str(t.channel_id) if t.channel_id else None,
             "parent_task_id": str(t.parent_task_id) if t.parent_task_id else None,
+            "correlation_id": str(cid) if cid else None,
             "model_override": cb.get("model_override"),
             "model_provider_id_override": cb.get("model_provider_id_override"),
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
@@ -194,7 +201,12 @@ async def admin_get_task(
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    return TaskDetailOut.model_validate(task)
+    out = TaskDetailOut.model_validate(task)
+    corr_map = await _heartbeat_correlation_ids(db, [task])
+    cid = corr_map.get(task.id)
+    if cid:
+        out.correlation_id = str(cid)
+    return out
 
 
 @router.post("/tasks", response_model=TaskDetailOut, status_code=201)

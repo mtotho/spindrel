@@ -47,14 +47,18 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
         return json.dumps({"error": "Workspace indexing is not enabled for this bot."})
 
     from app.services.workspace import workspace_service
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
     from app.agent.fs_indexer import retrieve_filesystem_context
 
-    root = workspace_service.get_workspace_root(bot_id, bot=bot)
-    threshold = bot.workspace.indexing.similarity_threshold
-    k = top_k or bot.workspace.indexing.top_k
+    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+    roots = get_all_roots(bot, workspace_service)
+    threshold = _resolved["similarity_threshold"]
+    k = top_k or _resolved["top_k"]
 
     chunks, best_sim = await retrieve_filesystem_context(
-        query, bot_id, roots=[root], top_k=k, threshold=threshold,
+        query, bot_id, roots=roots, top_k=k, threshold=threshold,
+        embedding_model=_resolved["embedding_model"],
+        segments=_resolved.get("segments"),
     )
     if not chunks:
         return "No relevant results found."
@@ -92,10 +96,16 @@ async def reindex_workspace() -> str:
         return json.dumps({"error": "Workspace indexing is not enabled for this bot."})
 
     from app.services.workspace import workspace_service
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
     from app.agent.fs_indexer import index_directory
 
-    root = workspace_service.get_workspace_root(bot_id, bot=bot)
-    patterns = bot.workspace.indexing.patterns
-
-    stats = await index_directory(root, bot_id, patterns, force=True)
-    return json.dumps(stats)
+    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+    all_stats = []
+    for root in get_all_roots(bot, workspace_service):
+        stats = await index_directory(
+            root, bot_id, _resolved["patterns"], force=True,
+            embedding_model=_resolved["embedding_model"],
+            segments=_resolved.get("segments"),
+        )
+        all_stats.append(stats)
+    return json.dumps(all_stats[0] if len(all_stats) == 1 else all_stats)

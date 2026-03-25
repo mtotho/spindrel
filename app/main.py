@@ -66,7 +66,11 @@ async def _index_filesystems_and_start_watchers() -> None:
             _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
             for root in get_all_roots(bot, workspace_service):
                 try:
-                    stats = await index_directory(root, bot.id, _resolved["patterns"], force=True)
+                    stats = await index_directory(
+                        root, bot.id, _resolved["patterns"], force=True,
+                        embedding_model=_resolved["embedding_model"],
+                        segments=_resolved.get("segments"),
+                    )
                     logger.info("Indexed workspace root %s for bot %s: %s", root, bot.id, stats)
                 except Exception:
                     logger.exception("Failed to index workspace root %s for bot %s", root, bot.id)

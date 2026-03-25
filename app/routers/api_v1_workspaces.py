@@ -777,7 +777,11 @@ async def reindex_workspace(
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
                 bot_results = []
                 for root in get_all_roots(bot):
-                    stats = await index_directory(root, swb.bot_id, _resolved["patterns"], force=True)
+                    stats = await index_directory(
+                        root, swb.bot_id, _resolved["patterns"], force=True,
+                        embedding_model=_resolved["embedding_model"],
+                        segments=_resolved.get("segments"),
+                    )
                     bot_results.append(stats)
                 results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results
         except Exception as exc:
@@ -822,6 +826,16 @@ async def list_workspace_skills(
 
 # ── Indexing visibility + per-bot override ────────────────────────
 
+class IndexSegmentUpdate(BaseModel):
+    """Per-path-prefix config overrides within a bot's indexing config."""
+    path_prefix: str
+    embedding_model: Optional[str] = None
+    patterns: Optional[list[str]] = None
+    similarity_threshold: Optional[float] = None
+    top_k: Optional[int] = None
+    watch: Optional[bool] = None
+
+
 class BotIndexingUpdate(BaseModel):
     """Per-bot indexing override. Send null for a field to clear it (inherit from workspace/global)."""
     enabled: Optional[bool] = None
@@ -831,6 +845,8 @@ class BotIndexingUpdate(BaseModel):
     watch: Optional[bool] = None
     cooldown_seconds: Optional[int] = None
     include_bots: Optional[list[str]] = None
+    embedding_model: Optional[str] = None
+    segments: Optional[list[IndexSegmentUpdate]] = None
 
 
 @router.get("/{workspace_id}/indexing")
@@ -860,6 +876,7 @@ async def get_workspace_indexing(
         "top_k": settings.FS_INDEX_TOP_K,
         "watch": True,
         "cooldown_seconds": settings.FS_INDEX_COOLDOWN_SECONDS,
+        "embedding_model": settings.EMBEDDING_MODEL,
     }
 
     bots_out = []
@@ -870,7 +887,7 @@ async def get_workspace_indexing(
         raw_idx = bot._workspace_raw.get("indexing", {})
         # Detect which keys were explicitly set on the bot
         explicit = {}
-        for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled", "include_bots"):
+        for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled", "include_bots", "embedding_model", "segments"):
             if key in raw_idx:
                 explicit[key] = raw_idx[key]
         resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
@@ -939,6 +956,12 @@ async def update_bot_indexing(
     for key, val in updates.items():
         if val is None:
             indexing.pop(key, None)
+        elif key == "segments" and isinstance(val, list):
+            # Serialize segment Pydantic models to dicts
+            indexing[key] = [
+                {k: v for k, v in seg.items() if v is not None} if isinstance(seg, dict) else seg
+                for seg in val
+            ]
         else:
             indexing[key] = val
 

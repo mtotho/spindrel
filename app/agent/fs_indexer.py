@@ -252,12 +252,28 @@ def chunk_file(path: Path, root: Path) -> list[ChunkResult]:
 # Embedding
 # ---------------------------------------------------------------------------
 
-async def _embed_batch(texts: list[str]) -> list[list[float]]:
+async def _embed_batch(texts: list[str], model: str | None = None) -> list[list[float]]:
     response = await _client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
+        model=model or settings.EMBEDDING_MODEL,
         input=texts,
     )
     return [item.embedding for item in response.data]
+
+
+def _match_segment(file_rel_path: str, segments: list[dict] | None) -> dict | None:
+    """Return the most-specific matching segment (longest path_prefix) or None."""
+    if not segments:
+        return None
+    best: dict | None = None
+    best_len = -1
+    for seg in segments:
+        prefix = seg["path_prefix"]
+        # Normalize: ensure prefix ends with / for directory matching (unless it's exact)
+        if file_rel_path == prefix or file_rel_path.startswith(prefix if prefix.endswith("/") else prefix + "/"):
+            if len(prefix) > best_len:
+                best = seg
+                best_len = len(prefix)
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +301,8 @@ async def index_directory(
     force: bool = False,
     file_paths: list[Path] | None = None,
     cooldown_seconds: int | None = None,
+    embedding_model: str | None = None,
+    segments: list[dict] | None = None,
 ) -> dict:
     """
     Index a directory for semantic search.
@@ -351,12 +369,13 @@ async def index_directory(
             conds.append(FilesystemChunk.client_id == client_id)
         return conds
 
-    # Fetch existing content_hashes in bulk for this (bot_id, client_id, root)
+    # Fetch existing content_hashes + embedding_model in bulk for this (bot_id, client_id, root)
     async with async_session() as db:
         _fs_sub = (
             select(
                 FilesystemChunk.file_path,
                 FilesystemChunk.content_hash,
+                FilesystemChunk.embedding_model,
                 func.row_number().over(
                     partition_by=FilesystemChunk.file_path,
                     order_by=FilesystemChunk.id,
@@ -366,12 +385,17 @@ async def index_directory(
             .subquery()
         )
         rows = (await db.execute(
-            select(_fs_sub.c.file_path, _fs_sub.c.content_hash)
+            select(_fs_sub.c.file_path, _fs_sub.c.content_hash, _fs_sub.c.embedding_model)
             .where(_fs_sub.c._rn == 1)
         )).all()
     existing_hashes: dict[str, str] = {row.file_path: row.content_hash for row in rows}
+    existing_models: dict[str, str | None] = {row.file_path: row.embedding_model for row in rows}
+
+    # Resolve the base embedding model for this index run
+    base_model = embedding_model or settings.EMBEDDING_MODEL
 
     # Process each candidate
+    _dims_validated = False
     for path in candidates:
         rel = str(PurePosixPath(path.relative_to(root_path)))
         chunks = chunk_file(path, root_path)
@@ -381,7 +405,14 @@ async def index_directory(
         raw = path.read_bytes()
         file_hash = hashlib.sha256(raw).hexdigest()
 
-        if existing_hashes.get(rel) == file_hash:
+        # Determine effective embedding model for this file (segment override or base)
+        seg = _match_segment(rel, segments)
+        effective_model = seg["embedding_model"] if seg else base_model
+
+        # Re-embed if content changed OR if the embedding model changed
+        content_unchanged = existing_hashes.get(rel) == file_hash
+        model_unchanged = existing_models.get(rel) == effective_model
+        if content_unchanged and model_unchanged:
             stats["skipped"] += 1
             continue
 
@@ -391,11 +422,23 @@ async def index_directory(
             # Batch in groups of 50
             embeddings: list[list[float]] = []
             for i in range(0, len(texts), 50):
-                embeddings.extend(await _embed_batch(texts[i:i + 50]))
+                embeddings.extend(await _embed_batch(texts[i:i + 50], model=effective_model))
         except Exception:
             logger.exception("Failed to embed %s", rel)
             stats["errors"] += 1
             continue
+
+        # Validate dimensions on first successful batch
+        if not _dims_validated and embeddings:
+            dim = len(embeddings[0])
+            if dim != settings.EMBEDDING_DIMENSIONS:
+                logger.error(
+                    "Embedding dimension mismatch: model %s returned %d dims, expected %d",
+                    effective_model, dim, settings.EMBEDDING_DIMENSIONS,
+                )
+                stats["errors"] += 1
+                continue
+            _dims_validated = True
 
         async with async_session() as db:
             # Delete old chunks for this file
@@ -420,11 +463,12 @@ async def index_directory(
                     symbol=chunk.symbol,
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
+                    embedding_model=effective_model,
                 ))
             await db.commit()
 
         stats["indexed"] += 1
-        logger.debug("Indexed %s (%d chunks)", rel, len(chunks))
+        logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)
 
     # Remove stale DB entries for files no longer on disk (full re-index only)
     if file_paths is None:
@@ -460,6 +504,8 @@ async def retrieve_filesystem_context(
     roots: list[str] | None = None,
     top_k: int | None = None,
     threshold: float | None = None,
+    embedding_model: str | None = None,
+    segments: list[dict] | None = None,
 ) -> tuple[list[str], float]:
     """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
 
@@ -469,18 +515,13 @@ async def retrieve_filesystem_context(
     """
     top_k = top_k or settings.FS_INDEX_TOP_K
     threshold = threshold if threshold is not None else settings.FS_INDEX_SIMILARITY_THRESHOLD
+    base_model = embedding_model or settings.EMBEDDING_MODEL
 
-    try:
-        response = await _client.embeddings.create(
-            model=settings.EMBEDDING_MODEL,
-            input=[query],
-        )
-        query_embedding = response.data[0].embedding
-    except Exception:
-        logger.exception("Failed to embed query for filesystem retrieval")
-        return [], 0.0
-
-    distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
+    # Collect unique embedding models: base + any segment-specific models
+    unique_models: set[str] = {base_model}
+    if segments:
+        for seg in segments:
+            unique_models.add(seg["embedding_model"])
 
     from sqlalchemy import or_
 
@@ -494,32 +535,99 @@ async def retrieve_filesystem_context(
         if client_id is not None
         else FilesystemChunk.client_id.is_(None)
     )
+    abs_roots = [str(Path(r).resolve()) for r in roots] if roots else None
 
-    stmt = (
-        select(
-            FilesystemChunk.content,
-            FilesystemChunk.file_path,
-            FilesystemChunk.symbol,
-            FilesystemChunk.start_line,
-            FilesystemChunk.end_line,
-            distance_expr.label("distance"),
+    # Single-model fast path (most common case: no segments or all same model)
+    if len(unique_models) == 1:
+        model = next(iter(unique_models))
+        try:
+            response = await _client.embeddings.create(model=model, input=[query])
+            query_embedding = response.data[0].embedding
+        except Exception:
+            logger.exception("Failed to embed query for filesystem retrieval")
+            return [], 0.0
+
+        distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
+        # Match chunks with this model or legacy NULL (embedded with default model)
+        model_filter = or_(
+            FilesystemChunk.embedding_model == model,
+            FilesystemChunk.embedding_model.is_(None),
         )
-        .where(bot_filter, client_filter)
-        .order_by(distance_expr)
-        .limit(top_k)
-    )
+        stmt = (
+            select(
+                FilesystemChunk.content,
+                FilesystemChunk.file_path,
+                FilesystemChunk.symbol,
+                FilesystemChunk.start_line,
+                FilesystemChunk.end_line,
+                distance_expr.label("distance"),
+            )
+            .where(bot_filter, client_filter, model_filter)
+            .order_by(distance_expr)
+            .limit(top_k)
+        )
+        if abs_roots:
+            stmt = stmt.where(FilesystemChunk.root.in_(abs_roots))
 
-    if roots:
-        abs_roots = [str(Path(r).resolve()) for r in roots]
-        stmt = stmt.where(FilesystemChunk.root.in_(abs_roots))
+        try:
+            async with async_session() as db:
+                rows = (await db.execute(stmt)).all()
+        except Exception:
+            logger.exception("Filesystem retrieval query failed")
+            return [], 0.0
 
-    try:
-        async with async_session() as db:
-            rows = (await db.execute(stmt)).all()
-    except Exception:
-        logger.exception("Filesystem retrieval query failed")
-        return [], 0.0
+        return _format_retrieval_results(rows, threshold, query)
 
+    # Multi-model path: embed query once per unique model, query separately, merge
+    all_rows: list = []
+    for model in unique_models:
+        try:
+            response = await _client.embeddings.create(model=model, input=[query])
+            query_embedding = response.data[0].embedding
+        except Exception:
+            logger.exception("Failed to embed query with model %s", model)
+            continue
+
+        distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
+        model_filter = or_(
+            FilesystemChunk.embedding_model == model,
+            # Legacy NULL chunks only queried with default model
+            FilesystemChunk.embedding_model.is_(None),
+        ) if model == base_model else (FilesystemChunk.embedding_model == model)
+
+        stmt = (
+            select(
+                FilesystemChunk.content,
+                FilesystemChunk.file_path,
+                FilesystemChunk.symbol,
+                FilesystemChunk.start_line,
+                FilesystemChunk.end_line,
+                distance_expr.label("distance"),
+            )
+            .where(bot_filter, client_filter, model_filter)
+            .order_by(distance_expr)
+            .limit(top_k)
+        )
+        if abs_roots:
+            stmt = stmt.where(FilesystemChunk.root.in_(abs_roots))
+
+        try:
+            async with async_session() as db:
+                rows = (await db.execute(stmt)).all()
+            all_rows.extend(rows)
+        except Exception:
+            logger.exception("Filesystem retrieval query failed for model %s", model)
+
+    # Merge: sort by distance, take top_k
+    all_rows.sort(key=lambda r: r.distance)
+    all_rows = all_rows[:top_k]
+    return _format_retrieval_results(all_rows, threshold, query)
+
+
+def _format_retrieval_results(
+    rows: list, threshold: float, query: str,
+) -> tuple[list[str], float]:
+    """Format DB rows into retrieval results."""
     if not rows:
         return [], 0.0
 
@@ -534,7 +642,6 @@ async def retrieve_filesystem_context(
         similarity = 1.0 - row.distance
         if similarity < threshold:
             break
-        # Format: header with file path + optional symbol/lines, then content
         location = row.file_path
         if row.symbol:
             location += f" ({row.symbol})"

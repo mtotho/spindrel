@@ -86,6 +86,17 @@ export interface SkillOption {
   description?: string;
 }
 
+export interface WorkspaceSkill {
+  skill_id: string;
+  name: string;
+  mode: string;
+  source_path: string;
+  bot_id?: string | null;
+  workspace_id: string;
+  workspace_name?: string;
+  chunk_count: number;
+}
+
 export interface ModelParamDefinition {
   name: string;
   label: string;
@@ -104,6 +115,7 @@ export interface BotEditorData {
   mcp_servers: string[];
   client_tools: string[];
   all_skills: SkillOption[];
+  workspace_skills: WorkspaceSkill[];
   all_bots: { id: string; name: string }[];
   all_harnesses: string[];
   all_sandbox_profiles: { name: string; description?: string }[];

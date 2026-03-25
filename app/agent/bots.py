@@ -108,6 +108,17 @@ class WorkspaceHostConfig:
 
 
 @dataclass
+class IndexSegment:
+    """Per-path-prefix config overrides within a bot's indexing config."""
+    path_prefix: str                          # e.g. "src/", "docs/"
+    embedding_model: str | None = None        # None = inherit base
+    patterns: list[str] | None = None
+    similarity_threshold: float | None = None
+    top_k: int | None = None
+    watch: bool | None = None
+
+
+@dataclass
 class WorkspaceIndexingConfig:
     enabled: bool = True
     patterns: list[str] = field(default_factory=lambda: ["**/*.py", "**/*.md", "**/*.yaml"])
@@ -116,6 +127,8 @@ class WorkspaceIndexingConfig:
     watch: bool = True
     cooldown_seconds: int = 300
     include_bots: list[str] = field(default_factory=list)  # index other bots' directories too
+    embedding_model: str | None = None
+    segments: list[IndexSegment] = field(default_factory=list)
 
 
 @dataclass
@@ -329,6 +342,19 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
             watch=ws_indexing_raw.get("watch", True),
             cooldown_seconds=ws_indexing_raw.get("cooldown_seconds", 300),
             include_bots=ws_indexing_raw.get("include_bots", []),
+            embedding_model=ws_indexing_raw.get("embedding_model"),
+            segments=[
+                IndexSegment(
+                    path_prefix=seg["path_prefix"],
+                    embedding_model=seg.get("embedding_model"),
+                    patterns=seg.get("patterns"),
+                    similarity_threshold=seg.get("similarity_threshold"),
+                    top_k=seg.get("top_k"),
+                    watch=seg.get("watch"),
+                )
+                for seg in ws_indexing_raw.get("segments", [])
+                if isinstance(seg, dict) and "path_prefix" in seg
+            ],
         ),
     )
     # Read user_id (UUID → string)

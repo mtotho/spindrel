@@ -462,6 +462,7 @@ class FilesystemChunk(Base):
     symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_line: Mapped[int | None] = mapped_column(nullable=True)
     end_line: Mapped[int | None] = mapped_column(nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column(
         "metadata_", JSONB, server_default=text("'{}'::jsonb")
     )
