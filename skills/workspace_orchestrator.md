@@ -83,10 +83,71 @@ agent-api METHOD /path [json_body]
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/workspaces/{id}/bots` | Add bot (`bot_id`, `role`, `cwd_override`) |
-| PUT | `/api/v1/workspaces/{id}/bots/{bot_id}` | Update role or cwd_override |
+| GET | `/api/v1/workspaces/{id}/bots/{bot_id}` | Get bot config (system_prompt, model, skills, etc.) |
+| PUT | `/api/v1/workspaces/{id}/bots/{bot_id}` | Update bot config and/or workspace membership |
 | DELETE | `/api/v1/workspaces/{id}/bots/{bot_id}` | Remove bot from workspace |
 
 **Roles**: `orchestrator` (full access, cwd=/workspace) or `member` (scoped, cwd=/workspace/bots/{bot_id})
+
+#### Reading a Bot's Config
+
+```
+GET /api/v1/workspaces/{id}/bots/{bot_id}
+```
+
+Returns:
+```json
+{
+  "bot_id": "baking-bot",
+  "name": "Baking Bot",
+  "model": "gemini/gemini-2.5-flash",
+  "system_prompt": "You are a baking assistant...",
+  "role": "member",
+  "cwd_override": null,
+  "skills": [{"id": "baking-recipes", "mode": "on_demand"}],
+  "local_tools": ["web_search"],
+  "persona": true,
+  "workspace": {"enabled": true, "indexing": {"patterns": ["**/*.md"]}},
+  "indexing_enabled": true
+}
+```
+
+#### Updating a Bot's Config
+
+```
+PUT /api/v1/workspaces/{id}/bots/{bot_id}
+```
+
+All fields are optional — only send what you want to change:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `system_prompt` | string | Replace the bot's system prompt |
+| `name` | string | Change display name |
+| `model` | string | Change LLM model |
+| `skills` | list | Set skill list (`[{"id": "skill-id", "mode": "on_demand"}]`) |
+| `local_tools` | list | Set local tool list |
+| `persona` | bool | Enable/disable persona |
+| `persona_content` | string | Update persona content text |
+| `role` | string | Change workspace role (`orchestrator` / `member`) |
+| `cwd_override` | string | Override default working directory |
+
+Example — update a bot's system prompt:
+```json
+PUT /api/v1/workspaces/{id}/bots/baking-bot
+{
+  "system_prompt": "You are a baking assistant specializing in sourdough. Always suggest starter maintenance tips."
+}
+```
+
+Example — change model and add a skill:
+```json
+PUT /api/v1/workspaces/{id}/bots/baking-bot
+{
+  "model": "gemini/gemini-2.5-pro",
+  "skills": [{"id": "baking-recipes", "mode": "on_demand"}, {"id": "nutrition-facts", "mode": "on_demand"}]
+}
+```
 
 ### File Browser
 

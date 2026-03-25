@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.agent.bots import list_bots, reload_bots
 from app.db.models import (
+    Bot as BotRow,
     Channel, ChannelHeartbeat, ChannelIntegration, Message, PromptTemplate,
     Session, SharedWorkspace, SharedWorkspaceBot,
 )
@@ -97,8 +98,17 @@ class WorkspaceBotAdd(BaseModel):
 
 
 class WorkspaceBotUpdate(BaseModel):
+    # Workspace membership fields
     role: Optional[str] = None
     cwd_override: Optional[str] = None
+    # Bot config fields (written to bots table)
+    system_prompt: Optional[str] = None
+    name: Optional[str] = None
+    model: Optional[str] = None
+    skills: Optional[list[dict]] = None
+    local_tools: Optional[list[str]] = None
+    persona: Optional[bool] = None
+    persona_content: Optional[str] = None
 
 
 class WorkspaceChannelOut(BaseModel):
@@ -428,14 +438,14 @@ async def add_bot_to_workspace(
     return _ws_to_out(ws, sw_bots)
 
 
-@router.put("/{workspace_id}/bots/{bot_id}")
-async def update_workspace_bot(
+@router.get("/{workspace_id}/bots/{bot_id}")
+async def get_workspace_bot(
     workspace_id: str,
     bot_id: str,
-    body: WorkspaceBotUpdate,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
+    """Get a bot's full config within a workspace context."""
     ws_id = uuid.UUID(workspace_id)
     swb = (await db.execute(
         select(SharedWorkspaceBot).where(
@@ -445,13 +455,68 @@ async def update_workspace_bot(
     )).scalar_one_or_none()
     if not swb:
         raise HTTPException(404, "Bot not in workspace")
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(404, "Bot not found")
+    bot_map = {b.id: b for b in list_bots()}
+    bot_cfg = bot_map.get(bot_id)
+    return {
+        "bot_id": bot_id,
+        "name": bot_row.name,
+        "model": bot_row.model,
+        "system_prompt": bot_row.system_prompt,
+        "role": swb.role,
+        "cwd_override": swb.cwd_override,
+        "skills": bot_row.skills or [],
+        "local_tools": bot_row.local_tools or [],
+        "persona": bot_row.persona,
+        "workspace": bot_row.workspace or {},
+        "indexing_enabled": bot_cfg.workspace.indexing.enabled if bot_cfg else False,
+    }
+
+
+@router.put("/{workspace_id}/bots/{bot_id}")
+async def update_workspace_bot(
+    workspace_id: str,
+    bot_id: str,
+    body: WorkspaceBotUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Update a bot's workspace membership and/or config fields."""
+    ws_id = uuid.UUID(workspace_id)
+    swb = (await db.execute(
+        select(SharedWorkspaceBot).where(
+            SharedWorkspaceBot.workspace_id == ws_id,
+            SharedWorkspaceBot.bot_id == bot_id,
+        )
+    )).scalar_one_or_none()
+    if not swb:
+        raise HTTPException(404, "Bot not in workspace")
+    # Workspace membership fields
     if body.role is not None:
         swb.role = body.role
     if body.cwd_override is not None:
         swb.cwd_override = body.cwd_override or None
+    # Bot config fields (written to bots table)
+    bot_fields = body.model_dump(
+        include={"system_prompt", "name", "model", "skills", "local_tools", "persona"},
+        exclude_none=True,
+    )
+    if bot_fields:
+        bot_row = await db.get(BotRow, bot_id)
+        if not bot_row:
+            raise HTTPException(404, "Bot not found")
+        for key, val in bot_fields.items():
+            setattr(bot_row, key, val)
+        bot_row.updated_at = datetime.now(timezone.utc)
+    # Handle persona_content separately (file-based)
+    if body.persona_content is not None:
+        from app.agent.persona import write_persona
+        await write_persona(bot_id, body.persona_content)
     await db.commit()
     await reload_bots()
-    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override}
+    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, **bot_fields}
 
 
 @router.delete("/{workspace_id}/bots/{bot_id}", status_code=204)
