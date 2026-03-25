@@ -197,7 +197,7 @@ export default function ChannelSettingsScreen() {
         key={tab}
       >
         {tab === "general" && (
-          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} />
+          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} workspaceId={currentBot?.shared_workspace_id} />
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workspace" && (
@@ -215,7 +215,7 @@ export default function ChannelSettingsScreen() {
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
-        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
+        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} />}
         {tab === "memories" && <MemoriesTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "compression" && <CompressionTab channelId={channelId!} />}
@@ -228,12 +228,13 @@ export default function ChannelSettingsScreen() {
 // ===========================================================================
 // General Tab — settings form
 // ===========================================================================
-function GeneralTab({ form, patch, bots, settings, elevationData }: {
+function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   bots: any[] | undefined;
   settings: ChannelSettings;
   elevationData: any;
+  workspaceId?: string | null;
 }) {
   return (
     <>
@@ -329,6 +330,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData }: {
               templateId={form.compaction_prompt_template_id ?? null}
               onLink={(id) => patch("compaction_prompt_template_id", id)}
               onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+              workspaceId={workspaceId ?? undefined}
             />
             <LlmPrompt
               value={form.memory_knowledge_compaction_prompt ?? ""}
@@ -814,7 +816,7 @@ function KnowledgeTab({ channelId }: { channelId: string }) {
 // ===========================================================================
 // Heartbeat Tab
 // ===========================================================================
-function HeartbeatTab({ channelId }: { channelId: string }) {
+function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-heartbeat", channelId],
@@ -924,6 +926,7 @@ function HeartbeatTab({ channelId }: { channelId: string }) {
             templateId={hbForm.prompt_template_id ?? null}
             onLink={(id) => setHbForm((f: any) => ({ ...f, prompt_template_id: id }))}
             onUnlink={() => setHbForm((f: any) => ({ ...f, prompt_template_id: null }))}
+            workspaceId={workspaceId ?? undefined}
           />
           <LlmPrompt
             value={hbForm.prompt ?? ""}
