@@ -368,6 +368,7 @@ export function TaskEditor({
   if (typeof document === "undefined") return null;
   const ReactDOM = require("react-dom");
 
+  const selectedBot = bots?.find((b) => b.id === botId);
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
   const channelOptions = [
     { label: "\u2014 None \u2014", value: "" },
@@ -501,6 +502,7 @@ export function TaskEditor({
                 templateId={promptTemplateId}
                 onLink={(id) => setPromptTemplateId(id)}
                 onUnlink={() => setPromptTemplateId(null)}
+                workspaceId={selectedBot?.shared_workspace_id ?? undefined}
               />
               <LlmPrompt
                 value={prompt}
