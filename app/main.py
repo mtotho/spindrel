@@ -57,19 +57,19 @@ async def _index_filesystems_and_start_watchers() -> None:
     from app.agent.fs_watcher import start_watchers
     from app.services.workspace import workspace_service
 
-    from app.services.workspace_indexing import resolve_indexing
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     logger.info("Background: indexing configured filesystem directories...")
     for bot in list_bots():
         # Workspace-based indexing
         if bot.workspace.enabled and bot.workspace.indexing.enabled:
             _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-            root = workspace_service.get_workspace_root(bot.id, bot=bot)
-            try:
-                stats = await index_directory(root, bot.id, _resolved["patterns"], force=True)
-                logger.info("Indexed workspace for bot %s: %s", bot.id, stats)
-            except Exception:
-                logger.exception("Failed to index workspace for bot %s", bot.id)
+            for root in get_all_roots(bot, workspace_service):
+                try:
+                    stats = await index_directory(root, bot.id, _resolved["patterns"], force=True)
+                    logger.info("Indexed workspace root %s for bot %s: %s", root, bot.id, stats)
+                except Exception:
+                    logger.exception("Failed to index workspace root %s for bot %s", root, bot.id)
         # Legacy filesystem_indexes (backwards compat)
         for cfg in bot.filesystem_indexes:
             try:

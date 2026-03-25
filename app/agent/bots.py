@@ -115,6 +115,7 @@ class WorkspaceIndexingConfig:
     top_k: int | None = None
     watch: bool = True
     cooldown_seconds: int = 300
+    include_bots: list[str] = field(default_factory=list)  # index other bots' directories too
 
 
 @dataclass
@@ -327,6 +328,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
             top_k=ws_indexing_raw.get("top_k"),
             watch=ws_indexing_raw.get("watch", True),
             cooldown_seconds=ws_indexing_raw.get("cooldown_seconds", 300),
+            include_bots=ws_indexing_raw.get("include_bots", []),
         ),
     )
     # Read user_id (UUID → string)

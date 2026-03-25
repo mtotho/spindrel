@@ -702,8 +702,7 @@ async def reindex_workspace(
     )).scalars().all()
 
     from app.agent.fs_indexer import index_directory
-    from app.services.workspace import workspace_service
-    from app.services.workspace_indexing import resolve_indexing
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     results = {}
     for swb in sw_bots:
@@ -711,9 +710,11 @@ async def reindex_workspace(
             bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
             if bot and bot.workspace.indexing.enabled:
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
-                root = workspace_service.get_workspace_root(swb.bot_id, bot=bot)
-                stats = await index_directory(root, swb.bot_id, _resolved["patterns"], force=True)
-                results[swb.bot_id] = stats
+                bot_results = []
+                for root in get_all_roots(bot):
+                    stats = await index_directory(root, swb.bot_id, _resolved["patterns"], force=True)
+                    bot_results.append(stats)
+                results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results
         except Exception as exc:
             results[swb.bot_id] = {"error": str(exc)}
 
@@ -764,6 +765,7 @@ class BotIndexingUpdate(BaseModel):
     top_k: Optional[int] = None
     watch: Optional[bool] = None
     cooldown_seconds: Optional[int] = None
+    include_bots: Optional[list[str]] = None
 
 
 @router.get("/{workspace_id}/indexing")
@@ -803,7 +805,7 @@ async def get_workspace_indexing(
         raw_idx = bot._workspace_raw.get("indexing", {})
         # Detect which keys were explicitly set on the bot
         explicit = {}
-        for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled"):
+        for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled", "include_bots"):
             if key in raw_idx:
                 explicit[key] = raw_idx[key]
         resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)

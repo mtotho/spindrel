@@ -9,8 +9,9 @@ You are a member bot in a shared workspace. You work inside a Docker container w
 
 ## Your Environment
 
-- **cwd**: `/workspace/bots/{your_bot_id}/` (your working directory)
-- **Shared files**: `/workspace/common/` (read — orchestrator places resources here)
+- **cwd**: `/workspace/bots/{your_bot_id}/` (your default working directory)
+- **Shared files**: `/workspace/common/` (orchestrator places resources here)
+- **Other bots**: `/workspace/bots/{other_bot_id}/` (readable via exec — e.g., `cat /workspace/bots/other-bot/output.md`)
 - **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
 - **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
 

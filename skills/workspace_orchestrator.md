@@ -13,7 +13,29 @@ You are the orchestrator of a shared workspace. You have full visibility over th
 - **Visibility**: all directories — `/workspace/bots/`, `/workspace/common/`, `/workspace/users/`
 - **Responsibilities**: container lifecycle, member bot coordination, file organization, task routing
 
-Member bots are scoped to `/workspace/bots/{bot_id}/` and can only see their own directory. You see everything.
+Member bots default to `/workspace/bots/{bot_id}/` as their working directory. You default to `/workspace`.
+
+## Roles, CWD, and Access
+
+| Role | Default cwd | `search_workspace` scope | File access | Delegation |
+|------|-------------|--------------------------|-------------|------------|
+| **orchestrator** | `/workspace` | Entire workspace | All files via exec | Configured via `delegate_bots` |
+| **member** | `/workspace/bots/{bot_id}` | Own `bots/{bot_id}/` only | All files via exec | Configured via `delegate_bots` |
+
+**What roles actually control:**
+- **Default working directory** — where exec commands start (`cd` target). Orchestrator gets `/workspace`, member gets `/workspace/bots/{bot_id}/`.
+- **`search_workspace` index scope** — semantic file search only indexes files under the bot's workspace root. Orchestrator indexes everything; member indexes only its own directory.
+- **`cwd_override`** — any bot can have a custom cwd regardless of role (set via `PUT /workspaces/{id}/bots/{bot_id}` with `cwd_override`).
+
+**What roles do NOT control:**
+- **Filesystem access** — there is no sandboxing within the container. A member bot can `cat /workspace/bots/other-bot/file.md` via exec commands. The cwd is just the default starting directory.
+- **Delegation** — any bot can delegate to others if configured with `delegate_bots` in its bot config. This is independent of workspace role.
+- **Context assembly** — both roles get the same skill injection, RAG, and context pipeline.
+
+**When to use each role:**
+- **orchestrator** — bots that coordinate others, manage the workspace, need `search_workspace` across all directories
+- **member** — bots that do focused work in their own directory, with organized output under `bots/{bot_id}/`
+- **member + `delegate_bots`** — a member that supervises other members (e.g., a synthesis bot that reads others' output and delegates tasks to them). Gets the organizational benefit of its own directory while still coordinating others.
 
 ## Directory Layout
 
@@ -30,6 +52,7 @@ Member bots are scoped to `/workspace/bots/{bot_id}/` and can only see their own
 - Place shared resources (datasets, configs, specs) in `/workspace/common/`
 - Each member bot's working files stay in `/workspace/bots/{bot_id}/`
 - Final deliverables go in `/workspace/users/`
+- Any bot can read any path via exec — use `/workspace/common/` for intentionally shared data
 
 ## Workspace Management API
 
@@ -115,8 +138,18 @@ Settings resolve with a three-tier cascade: **bot-explicit > workspace default >
 | `top_k` | Max chunks to inject per request | `8` |
 | `watch` | Enable filesystem watcher for auto-reindex | `true` |
 | `cooldown_seconds` | Min seconds between full re-indexes | `300` |
+| `include_bots` | Also index these other bots' directories | `[]` |
 
 If a bot has an explicit value, it wins. Otherwise workspace defaults apply. If neither is set, global env defaults are used.
+
+**Cross-bot file visibility**: A member bot normally only indexes its own `bots/{bot_id}/` directory. Set `include_bots` to also index other bots' directories. This gives the bot semantic search over those files without changing its role.
+
+```sh
+# Give sag-bot visibility into baking-bot and olivia-bot's files
+agent-api PUT /api/v1/workspaces/$WSID/bots/sag-bot/indexing '{
+  "include_bots": ["baking-bot", "olivia-bot"]
+}'
+```
 
 #### Viewing Current Config
 
