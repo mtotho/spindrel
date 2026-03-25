@@ -923,6 +923,8 @@ function WorkspaceSection({
   const [newBlocked, setNewBlocked] = useState("");
   const [newEnvPass, setNewEnvPass] = useState("");
   const [newPattern, setNewPattern] = useState("");
+  const [newSegPrefix, setNewSegPrefix] = useState("");
+  const [newSegModel, setNewSegModel] = useState("");
 
   const envEntries = Object.entries(docker.env || {});
   const ports: any[] = docker.ports || [];
@@ -931,6 +933,7 @@ function WorkspaceSection({
   const blocked: string[] = host.blocked_patterns || [];
   const envPass: string[] = host.env_passthrough || [];
   const patterns: string[] = indexing.patterns || [];
+  const segments: any[] = indexing.segments || [];
 
   const rowStyle: React.CSSProperties = {
     display: "flex", alignItems: "center", gap: 6, padding: "3px 6px",
@@ -1206,7 +1209,37 @@ function WorkspaceSection({
                   <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
                   <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
                   <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Embedding Model"><TextInput value={indexing.embedding_model ?? ""} onChangeText={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
                 </Row>
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>
+                    Index Segments
+                    <span style={{ fontWeight: 400, color: "#555", textTransform: "none", marginLeft: 6 }}>per-path-prefix overrides</span>
+                  </div>
+                  {segments.map((seg: any, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "#111", borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
+                      <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{seg.path_prefix}</span>
+                      {seg.embedding_model && <span style={{ color: "#888" }}>model: <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
+                      {seg.patterns && <span style={{ color: "#666" }}>patterns: {seg.patterns.length}</span>}
+                      {seg.similarity_threshold != null && <span style={{ color: "#666" }}>thresh: {seg.similarity_threshold}</span>}
+                      {seg.top_k != null && <span style={{ color: "#666" }}>k: {seg.top_k}</span>}
+                      {removeBtn(() => setIndexing({ segments: segments.filter((_: any, j: number) => j !== i) }))}
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    {miniInput(newSegPrefix, setNewSegPrefix, "path_prefix (e.g. src/)", { width: 180 })}
+                    {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { width: 200 })}
+                    {addBtn("Add Segment", () => {
+                      if (newSegPrefix.trim()) {
+                        const seg: any = { path_prefix: newSegPrefix.trim() };
+                        if (newSegModel.trim()) seg.embedding_model = newSegModel.trim();
+                        setIndexing({ segments: [...segments, seg] });
+                        setNewSegPrefix("");
+                        setNewSegModel("");
+                      }
+                    })}
+                  </div>
+                </div>
               </>
             )}
           </div>
