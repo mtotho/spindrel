@@ -1,10 +1,11 @@
 """Unit tests for workspace indexing resolution service."""
-from unittest.mock import patch
+import os
+from unittest.mock import patch, MagicMock
 
 import pytest
 
-from app.agent.bots import WorkspaceIndexingConfig
-from app.services.workspace_indexing import resolve_indexing
+from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
+from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
 
 class TestResolveIndexing:
@@ -131,3 +132,85 @@ class TestResolveIndexing:
         assert result["similarity_threshold"] == 0.50
         assert result["top_k"] == 20
         assert result["cooldown_seconds"] == 600
+
+    def test_include_bots_from_config(self):
+        """include_bots is passed through from bot config."""
+        bot_indexing = WorkspaceIndexingConfig(include_bots=["baking-bot", "olivia-bot"])
+        result = resolve_indexing(bot_indexing, {}, None)
+        assert result["include_bots"] == ["baking-bot", "olivia-bot"]
+
+    def test_include_bots_defaults_empty(self):
+        """include_bots defaults to empty list."""
+        result = resolve_indexing(self._defaults(), {}, None)
+        assert result["include_bots"] == []
+
+
+class TestGetAllRoots:
+    """Test root directory resolution including include_bots."""
+
+    def test_single_root_no_include_bots(self):
+        """Without include_bots, returns only the bot's own root."""
+        bot = BotConfig(
+            id="sag-bot", name="Sag", model="m", system_prompt="",
+            workspace=WorkspaceConfig(enabled=True),
+            shared_workspace_id="ws-123",
+        )
+        mock_ws = MagicMock()
+        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
+        roots = get_all_roots(bot, mock_ws)
+        assert roots == ["/data/shared/ws-123/bots/sag-bot"]
+
+    def test_include_bots_adds_extra_roots(self):
+        """include_bots expands to additional bots/{id} roots."""
+        bot = BotConfig(
+            id="sag-bot", name="Sag", model="m", system_prompt="",
+            workspace=WorkspaceConfig(
+                enabled=True,
+                indexing=WorkspaceIndexingConfig(include_bots=["baking-bot", "olivia-bot"]),
+            ),
+            shared_workspace_id="ws-123",
+        )
+        mock_ws = MagicMock()
+        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
+        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sws:
+            mock_sws.get_host_root.return_value = "/data/shared/ws-123"
+            roots = get_all_roots(bot, mock_ws)
+        assert roots == [
+            "/data/shared/ws-123/bots/sag-bot",
+            "/data/shared/ws-123/bots/baking-bot",
+            "/data/shared/ws-123/bots/olivia-bot",
+        ]
+
+    def test_include_bots_no_shared_workspace(self):
+        """include_bots is ignored when bot has no shared_workspace_id."""
+        bot = BotConfig(
+            id="sag-bot", name="Sag", model="m", system_prompt="",
+            workspace=WorkspaceConfig(
+                enabled=True,
+                indexing=WorkspaceIndexingConfig(include_bots=["baking-bot"]),
+            ),
+        )
+        mock_ws = MagicMock()
+        mock_ws.get_workspace_root.return_value = "/data/sag-bot"
+        roots = get_all_roots(bot, mock_ws)
+        assert roots == ["/data/sag-bot"]
+
+    def test_no_duplicate_roots(self):
+        """Own root is not duplicated if it appears in include_bots."""
+        bot = BotConfig(
+            id="sag-bot", name="Sag", model="m", system_prompt="",
+            workspace=WorkspaceConfig(
+                enabled=True,
+                indexing=WorkspaceIndexingConfig(include_bots=["sag-bot", "baking-bot"]),
+            ),
+            shared_workspace_id="ws-123",
+        )
+        mock_ws = MagicMock()
+        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
+        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sws:
+            mock_sws.get_host_root.return_value = "/data/shared/ws-123"
+            roots = get_all_roots(bot, mock_ws)
+        assert roots == [
+            "/data/shared/ws-123/bots/sag-bot",
+            "/data/shared/ws-123/bots/baking-bot",
+        ]

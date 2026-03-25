@@ -74,21 +74,20 @@ async def start_watchers(bots: list) -> None:
         # Workspace-based watcher (new)
         ws = getattr(bot, "workspace", None)
         if ws and ws.enabled and ws.indexing.enabled:
-            from app.services.workspace_indexing import resolve_indexing
+            from app.services.workspace_indexing import resolve_indexing, get_all_roots
             _resolved = resolve_indexing(ws.indexing, getattr(bot, "_workspace_raw", {}), getattr(bot, "_ws_indexing_config", None))
             if not _resolved["watch"]:
                 continue
-            from app.services.workspace import workspace_service
-            ws_root = workspace_service.get_workspace_root(bot.id, bot=bot)
-            abs_root = str(Path(ws_root).resolve())
-            key = (abs_root, bot.id)
-            if key not in seen:
-                seen.add(key)
-                task = asyncio.create_task(
-                    _debounced_watch(ws_root, bot.id, _resolved["patterns"]),
-                    name=f"fs_watcher:{bot.id}:{abs_root}",
-                )
-                _watcher_tasks.append(task)
+            for ws_root in get_all_roots(bot):
+                abs_root = str(Path(ws_root).resolve())
+                key = (abs_root, bot.id)
+                if key not in seen:
+                    seen.add(key)
+                    task = asyncio.create_task(
+                        _debounced_watch(ws_root, bot.id, _resolved["patterns"]),
+                        name=f"fs_watcher:{bot.id}:{abs_root}",
+                    )
+                    _watcher_tasks.append(task)
         # Legacy filesystem_indexes
         for cfg in getattr(bot, "filesystem_indexes", []):
             if not cfg.watch:
