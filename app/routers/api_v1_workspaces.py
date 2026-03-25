@@ -129,6 +129,11 @@ class WorkspaceChannelOut(BaseModel):
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_prompt_template_name: Optional[str] = None
     heartbeat_prompt: Optional[str] = None
+    # Summarizer
+    summarizer_enabled: bool = False
+    summarizer_threshold_minutes: Optional[int] = None
+    summarizer_model: Optional[str] = None
+    summarizer_prompt: Optional[str] = None
     # Activity
     last_user_turn_at: Optional[datetime] = None
     user_turns_24h: int = 0
@@ -657,6 +662,10 @@ async def list_workspace_channels(
             heartbeat_prompt_template_id=hb.prompt_template_id if hb else None,
             heartbeat_prompt_template_name=tmpl_names.get(hb.prompt_template_id) if hb and hb.prompt_template_id else None,
             heartbeat_prompt=hb.prompt if hb else None,
+            summarizer_enabled=ch.summarizer_enabled,
+            summarizer_threshold_minutes=ch.summarizer_threshold_minutes,
+            summarizer_model=ch.summarizer_model,
+            summarizer_prompt=ch.summarizer_prompt,
             last_user_turn_at=act.get("last_user_turn_at"),
             user_turns_24h=act.get("user_turns_24h", 0),
             user_turns_48h=act.get("user_turns_48h", 0),

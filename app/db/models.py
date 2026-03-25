@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, time, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, Time, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -42,6 +42,14 @@ class Channel(Base):
     compression_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     compression_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compression_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compression_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Summarizer (auto-resume after idle)
+    summarizer_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), default=False)
+    summarizer_threshold_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summarizer_message_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summarizer_target_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summarizer_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarizer_model: Mapped[str | None] = mapped_column(String, nullable=True)
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)

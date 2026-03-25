@@ -778,6 +778,13 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
+                # Dispatch error to integration so the user sees it
+                _err_text = f"[Error: API rate limit exceeded after {t.retry_count} retries]"
+                try:
+                    dispatcher = dispatchers.get(task.dispatch_type)
+                    await dispatcher.deliver(task, _err_text)
+                except Exception:
+                    logger.warning("Failed to dispatch rate limit error for task %s", task.id)
 
     except Exception as exc:
         logger.exception("Task %s failed", task.id)
@@ -788,6 +795,13 @@ async def run_task(task: Task) -> None:
                 t.error = str(exc)[:4000]
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        # Dispatch error to integration so the user sees it
+        _err_text = f"[Error: {type(exc).__name__}: {str(exc)[:500]}]"
+        try:
+            dispatcher = dispatchers.get(task.dispatch_type)
+            await dispatcher.deliver(task, _err_text)
+        except Exception:
+            logger.warning("Failed to dispatch error for task %s", task.id)
     finally:
         if task.session_id:
             session_locks.release(task.session_id)

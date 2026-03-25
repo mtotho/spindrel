@@ -5,6 +5,7 @@ import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from app.agent.bots import BotConfig
@@ -201,7 +202,9 @@ async def run_agent_tool_loop(
                             "completion_tokens": response.usage.completion_tokens,
                             "total_tokens": response.usage.total_tokens,
                             "iteration": iteration + 1,
+                            "model": effective_model,
                         },
+                        duration_ms=_llm_latency_ms,
                     ))
 
             if not msg.tool_calls:
@@ -209,7 +212,16 @@ async def run_agent_tool_loop(
                 _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
+                    _empty_msg = (
+                        f"LLM returned empty response after {iteration + 1} iteration(s) "
+                        f"({len(tool_calls_made)} tool calls). Forcing retry."
+                    )
                     logger.warning("LLM response was empty. Forcing a response...")
+                    yield _event_with_compaction_tag({
+                        "type": "warning",
+                        "code": "empty_response",
+                        "message": _empty_msg,
+                    }, compaction)
                     messages.append({
                         "role": "system",
                         "content": "You must respond to the user. Write a response now."
@@ -238,8 +250,13 @@ async def run_agent_tool_loop(
                                 event_name="forced_response_retry",
                                 data={"message": str(exc)[:2000]},
                             ))
-                        text = "(I encountered an error generating a response. Please try again.)"
+                        text = f"[Error: {_empty_msg} Retry also failed: {type(exc).__name__}]"
                         messages.append({"role": "assistant", "content": text})
+                        yield _event_with_compaction_tag({
+                            "type": "error",
+                            "code": "llm_error",
+                            "message": text,
+                        }, compaction)
 
                 if native_audio and user_msg_index is not None and not transcript_emitted:
                     transcript, text = _extract_transcript(text)
@@ -334,7 +351,27 @@ async def run_agent_tool_loop(
                 })
                 yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
+        _max_iter_msg = (
+            f"Max iterations reached ({settings.AGENT_MAX_ITERATIONS} tool calls). "
+            "Generating final response without tools."
+        )
         logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="warning",
+                event_name="max_iterations",
+                data={"iterations": settings.AGENT_MAX_ITERATIONS, "message": _max_iter_msg},
+            ))
+        yield _event_with_compaction_tag({
+            "type": "warning",
+            "code": "max_iterations",
+            "message": _max_iter_msg,
+        }, compaction)
+
         messages.append({
             "role": "system",
             "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
@@ -344,8 +381,27 @@ async def run_agent_tool_loop(
             final_kw["tools"] = tools_param
             final_kw["tool_choice"] = "none"
         from app.services.providers import get_llm_client as _get_client
-        response = await _get_client(provider_id).chat.completions.create(**final_kw)
-        msg = response.choices[0].message
+        try:
+            response = await _get_client(provider_id).chat.completions.create(**final_kw)
+            msg = response.choices[0].message
+        except Exception as exc:
+            logger.error("Max-iterations final LLM call failed: %s", exc)
+            _fallback_text = f"[Error: {_max_iter_msg} Final response generation also failed: {type(exc).__name__}]"
+            messages.append({"role": "assistant", "content": _fallback_text})
+            yield _event_with_compaction_tag({
+                "type": "error",
+                "code": "llm_error",
+                "message": _fallback_text,
+            }, compaction)
+            yield _event_with_compaction_tag({
+                "type": "response",
+                "text": _fallback_text,
+                "client_actions": (
+                    _extract_client_actions(messages, turn_start) + embedded_client_actions
+                ),
+            }, compaction)
+            return
+
         messages.append(msg.model_dump(exclude_none=True))
         if response.usage and correlation_id is not None:
             asyncio.create_task(_record_trace_event(
@@ -359,6 +415,7 @@ async def run_agent_tool_loop(
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens,
                     "iteration": settings.AGENT_MAX_ITERATIONS + 1,
+                    "model": model,
                 },
             ))
 
@@ -489,6 +546,54 @@ async def run_stream(
 
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
+
+    # --- Auto-summarize on resume after idle ---
+    if channel_id:
+        try:
+            from app.services.summarizer import get_last_user_message_time, summarize_messages
+            from app.db.models import Channel as _ChannelModel
+            from app.db.engine import async_session as _async_session
+            from sqlalchemy import select as _sel
+
+            async with _async_session() as _db:
+                _ch = (await _db.execute(
+                    _sel(_ChannelModel).where(_ChannelModel.id == channel_id)
+                )).scalar_one_or_none()
+
+            if _ch and _ch.summarizer_enabled:
+                _threshold = _ch.summarizer_threshold_minutes or settings.SUMMARIZER_THRESHOLD_MINUTES
+                _last_ts = await get_last_user_message_time(channel_id)
+                if _last_ts is not None:
+                    _idle_minutes = (datetime.now(timezone.utc) - _last_ts).total_seconds() / 60
+                    if _idle_minutes > _threshold:
+                        _msg_count = _ch.summarizer_message_count or settings.SUMMARIZER_MESSAGE_COUNT
+                        _summary = await summarize_messages(
+                            channel_id=channel_id,
+                            take=_msg_count,
+                            provider_id=provider_id_override or bot.model_provider_id,
+                        )
+                        if _summary and not _summary.startswith("Error:"):
+                            _auto_msg = (
+                                f"[Auto-summary of prior conversation — last activity "
+                                f"was {int(_idle_minutes)} minutes ago]\n\n{_summary}"
+                            )
+                            messages.insert(turn_start, {"role": "system", "content": _auto_msg})
+                            turn_start += 1
+                            if user_msg_index is not None:
+                                user_msg_index += 1
+
+                            if correlation_id is not None:
+                                asyncio.create_task(_record_trace_event(
+                                    correlation_id=correlation_id,
+                                    session_id=session_id,
+                                    bot_id=bot.id,
+                                    client_id=client_id,
+                                    event_type="auto_summarize",
+                                    data={"idle_minutes": int(_idle_minutes), "summary_len": len(_summary)},
+                                ))
+                            yield {"type": "trace", "event_type": "auto_summarize", "idle_minutes": int(_idle_minutes)}
+        except Exception:
+            logger.warning("Auto-summarize failed, continuing without", exc_info=True)
 
     # --- Context compression (pre-turn) ---
     _compression_active = False

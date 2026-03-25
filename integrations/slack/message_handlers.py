@@ -215,6 +215,37 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     )
                     thinking_ts = msg["ts"]
                     thinking_channel = msg["channel"]
+            elif etype == "warning":
+                _warn_code = event.get("code", "unknown")
+                _warn_msg = event.get("message", "")
+                logger.warning("Agent warning for channel %s: [%s] %s", channel, _warn_code, _warn_msg)
+                # Show warnings inline in the thinking placeholder
+                await client.chat_update(
+                    channel=thinking_channel,
+                    ts=thinking_ts,
+                    text=f"⚠️ _{_warn_msg}_",
+                    **identity,
+                )
+            elif etype == "error":
+                _err_code = event.get("code", "")
+                _err_msg = event.get("message") or event.get("detail") or "Unknown error"
+                logger.error("Agent error for channel %s: [%s] %s", channel, _err_code, _err_msg)
+                _err_display = f"⚠️ _{_err_msg[:500]}_"
+                if thinking_ts and thinking_channel:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=_err_display,
+                        **identity,
+                    )
+                else:
+                    await client.chat_postMessage(
+                        channel=channel,
+                        text=_err_display,
+                        **identity,
+                    )
+                thinking_ts = None
+                return
             elif etype == "delegation_post":
                 _delegation_posts_seen = True
                 child_bot_id = event.get("bot_id") or ""

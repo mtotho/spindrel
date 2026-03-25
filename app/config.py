@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     CONTEXT_COMPRESSION_KEEP_TURNS: int = 2      # recent user turns kept verbatim
     CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS: int = 2000
 
+    # Summarizer (auto-resume after idle)
+    SUMMARIZER_THRESHOLD_MINUTES: int = 45
+    SUMMARIZER_MESSAGE_COUNT: int = 100
+    SUMMARIZER_TARGET_SIZE: int = 1000   # ~200 words
+    SUMMARIZER_MODEL: str = ""           # empty = use compression model / bot model
+
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this

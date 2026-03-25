@@ -109,6 +109,13 @@ export default function ChannelSettingsScreen() {
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
         compression_keep_turns: settings.compression_keep_turns,
+        compression_prompt: settings.compression_prompt,
+        summarizer_enabled: settings.summarizer_enabled,
+        summarizer_threshold_minutes: settings.summarizer_threshold_minutes,
+        summarizer_message_count: settings.summarizer_message_count,
+        summarizer_target_size: settings.summarizer_target_size,
+        summarizer_prompt: settings.summarizer_prompt,
+        summarizer_model: settings.summarizer_model,
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
@@ -387,6 +394,81 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }:
             </FormRow>
           </Col>
         </Row>
+        <LlmPrompt
+          value={form.compression_prompt ?? ""}
+          onChange={(v) => patch("compression_prompt", v || undefined)}
+          label="Compression Prompt"
+          placeholder="Leave blank to use the built-in default prompt..."
+          helpText="Custom system prompt for the compression LLM. Overrides the hardcoded default."
+          rows={5}
+        />
+      </Section>
+
+      <Section title="Summarizer" description="Auto-inject a summary of prior conversation when the channel resumes after idle. The summary is generated from raw messages, not compaction summaries.">
+        <Row>
+          <Col>
+            <FormRow label="Enable Auto-Summarize">
+              <Toggle
+                value={!!form.summarizer_enabled}
+                onValueChange={(v) => patch("summarizer_enabled", v)}
+              />
+            </FormRow>
+          </Col>
+        </Row>
+        {form.summarizer_enabled && (
+          <>
+            <Row>
+              <Col>
+                <FormRow label="Idle Threshold (minutes)">
+                  <TextInput
+                    value={form.summarizer_threshold_minutes?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_threshold_minutes", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (45)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Message Count">
+                  <TextInput
+                    value={form.summarizer_message_count?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_message_count", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (100)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+            <Row>
+              <Col>
+                <FormRow label="Target Size (chars)">
+                  <TextInput
+                    value={form.summarizer_target_size?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_target_size", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (1000)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <LlmModelDropdown
+                  label="Summarizer Model"
+                  value={form.summarizer_model ?? ""}
+                  onChange={(v) => patch("summarizer_model", v || undefined)}
+                  placeholder="inherit"
+                />
+              </Col>
+            </Row>
+            <LlmPrompt
+              value={form.summarizer_prompt ?? ""}
+              onChange={(v) => patch("summarizer_prompt", v || undefined)}
+              label="Summarizer Prompt"
+              placeholder="Leave blank to use the default prompt..."
+              helpText="Custom focus prompt for the summarizer, e.g. 'Focus on technical decisions and action items'"
+              rows={4}
+            />
+          </>
+        )}
       </Section>
 
       <Section title="Model Elevation" description="Per-channel elevation overrides. Leave blank to inherit.">
