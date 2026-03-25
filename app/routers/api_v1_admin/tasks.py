@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,10 @@ class TaskDetailOut(BaseModel):
     parent_task_id: Optional[uuid.UUID] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
+    # Surfaced from callback_config for convenience
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    trigger_rag_loop: bool = False
     retry_count: int = 0
     run_count: int = 0
     created_at: datetime
@@ -46,6 +50,17 @@ class TaskDetailOut(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _surface_callback_fields(self):
+        cb = self.callback_config or {}
+        if cb.get("model_override") and self.model_override is None:
+            self.model_override = cb["model_override"]
+        if cb.get("model_provider_id_override") and self.model_provider_id_override is None:
+            self.model_provider_id_override = cb["model_provider_id_override"]
+        if cb.get("trigger_rag_loop") and not self.trigger_rag_loop:
+            self.trigger_rag_loop = cb["trigger_rag_loop"]
+        return self
 
 
 class TaskCreateIn(BaseModel):
@@ -136,11 +151,13 @@ async def admin_list_tasks(
     schedules = (await db.execute(sched_stmt)).scalars().all()
 
     def _task_dict(t: Task) -> dict:
+        cb = t.callback_config or {}
         return {
             "id": str(t.id),
             "status": t.status,
             "bot_id": t.bot_id,
             "prompt": t.prompt,
+            "prompt_template_id": str(t.prompt_template_id) if t.prompt_template_id else None,
             "result": t.result[:500] if t.result else None,
             "error": t.error,
             "dispatch_type": t.dispatch_type,
@@ -149,6 +166,9 @@ async def admin_list_tasks(
             "run_count": t.run_count,
             "channel_id": str(t.channel_id) if t.channel_id else None,
             "parent_task_id": str(t.parent_task_id) if t.parent_task_id else None,
+            "model_override": cb.get("model_override"),
+            "model_provider_id_override": cb.get("model_provider_id_override"),
+            "trigger_rag_loop": cb.get("trigger_rag_loop", False),
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,

@@ -191,6 +191,9 @@ class BotConfig:
     shared_workspace_id: str | None = None  # UUID string
     shared_workspace_role: str | None = None  # 'member' | 'orchestrator'
     shared_workspace_cwd: str | None = None  # resolved cwd override
+    # Cached for three-tier indexing resolution (populated by load_bots)
+    _workspace_raw: dict = field(default_factory=dict)
+    _ws_indexing_config: dict | None = None
 
     @property
     def skill_ids(self) -> list[str]:
@@ -381,6 +384,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         shared_workspace_id=str(_sw_id) if _sw_id else None,
         shared_workspace_role=_sw_role,
         shared_workspace_cwd=_sw_cwd,
+        _workspace_raw=ws_raw,
     )
 
 
@@ -493,6 +497,16 @@ async def load_bots() -> None:
         rows = (await db.execute(select(BotRow))).scalars().all()
         # Load shared workspace memberships
         sw_rows = (await db.execute(select(SharedWorkspaceBot))).scalars().all()
+        # Batch-fetch workspace indexing_config for cascade resolution
+        ws_ids = {r.workspace_id for r in sw_rows}
+        ws_indexing_map: dict[str, dict | None] = {}
+        if ws_ids:
+            from app.db.models import SharedWorkspace
+            ws_objs = (await db.execute(
+                select(SharedWorkspace.id, SharedWorkspace.indexing_config)
+                .where(SharedWorkspace.id.in_(ws_ids))
+            )).all()
+            ws_indexing_map = {str(r.id): r.indexing_config for r in ws_objs}
     sw_by_bot = {r.bot_id: r for r in sw_rows}
     for row in rows:
         # Attach shared workspace info as transient attributes
@@ -506,6 +520,9 @@ async def load_bots() -> None:
             row._sw_role = None
             row._sw_cwd_override = None
         bot = _bot_row_to_config(row)
+        # Cache workspace-level indexing config for three-tier resolution
+        if sw and sw.workspace_id:
+            bot._ws_indexing_config = ws_indexing_map.get(str(sw.workspace_id))
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)
     logger.info("Loaded %d bot(s) from DB", len(_registry))

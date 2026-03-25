@@ -443,3 +443,243 @@ class TestFileBrowser:
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Indexing config on workspace CRUD
+# ---------------------------------------------------------------------------
+
+class TestWorkspaceIndexingConfig:
+    async def test_create_workspace_no_indexing_config(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            body = await _create_workspace(client)
+        assert body.get("indexing_config") is None
+
+    async def test_update_workspace_with_indexing_config(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        ws_id = created["id"]
+        cfg = {"patterns": ["**/*.py", "**/*.ts"], "similarity_threshold": 0.25, "top_k": 12}
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}",
+                json={"indexing_config": cfg},
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["indexing_config"]["patterns"] == ["**/*.py", "**/*.ts"]
+        assert body["indexing_config"]["similarity_threshold"] == 0.25
+        assert body["indexing_config"]["top_k"] == 12
+
+    async def test_get_workspace_returns_indexing_config(self, client, db_session):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        ws_id = created["id"]
+        # Set indexing config directly in DB
+        ws = await db_session.get(SharedWorkspace, uuid.UUID(ws_id))
+        ws.indexing_config = {"patterns": ["**/*.md"], "top_k": 5}
+        await db_session.commit()
+
+        resp = await client.get(f"/api/v1/workspaces/{ws_id}", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["indexing_config"]["patterns"] == ["**/*.md"]
+        assert body["indexing_config"]["top_k"] == 5
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/workspaces/{id}/indexing
+# ---------------------------------------------------------------------------
+
+class TestGetWorkspaceIndexing:
+    async def test_indexing_not_found(self, client):
+        resp = await client.get(
+            f"/api/v1/workspaces/{uuid.uuid4()}/indexing",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_indexing_returns_global_defaults(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        ws_id = created["id"]
+        resp = await client.get(f"/api/v1/workspaces/{ws_id}/indexing", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "global_defaults" in body
+        assert body["global_defaults"]["patterns"] == ["**/*.py", "**/*.md", "**/*.yaml"]
+        assert body["global_defaults"]["similarity_threshold"] == 0.30
+        assert body["global_defaults"]["top_k"] == 8
+        assert "supported_languages" in body
+        assert "skip_extensions" in body
+        assert "skip_directories" in body
+        assert body["workspace_defaults"] is None  # no workspace config set
+        assert body["bots"] == []  # no bots added
+
+    async def test_indexing_with_workspace_defaults(self, client, db_session):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        ws_id = created["id"]
+        ws = await db_session.get(SharedWorkspace, uuid.UUID(ws_id))
+        ws.indexing_config = {"patterns": ["**/*.py"], "similarity_threshold": 0.20}
+        await db_session.commit()
+
+        resp = await client.get(f"/api/v1/workspaces/{ws_id}/indexing", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["workspace_defaults"]["patterns"] == ["**/*.py"]
+        assert body["workspace_defaults"]["similarity_threshold"] == 0.20
+
+    async def test_indexing_with_bots(self, client, db_session):
+        """Bot list includes resolved indexing config when bots are added."""
+        from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
+
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+                created = await _create_workspace(client)
+                ws_id = created["id"]
+                # Add bot to workspace
+                await client.post(
+                    f"/api/v1/workspaces/{ws_id}/bots",
+                    json={"bot_id": "test-bot", "role": "member"},
+                    headers=AUTH_HEADERS,
+                )
+
+        # Patch list_bots to return a bot with workspace config
+        test_bot = BotConfig(
+            id="test-bot",
+            name="Test Bot",
+            model="test/model",
+            system_prompt="test",
+            workspace=WorkspaceConfig(
+                enabled=True,
+                indexing=WorkspaceIndexingConfig(
+                    enabled=True,
+                    patterns=["**/*.py"],
+                    similarity_threshold=0.15,
+                ),
+            ),
+            _workspace_raw={"indexing": {"patterns": ["**/*.py"], "similarity_threshold": 0.15}},
+        )
+        with patch("app.routers.api_v1_workspaces.list_bots", return_value=[test_bot]):
+            resp = await client.get(f"/api/v1/workspaces/{ws_id}/indexing", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["bots"]) == 1
+        bot_info = body["bots"][0]
+        assert bot_info["bot_id"] == "test-bot"
+        assert bot_info["indexing_enabled"] is True
+        assert bot_info["explicit_overrides"]["patterns"] == ["**/*.py"]
+        assert bot_info["resolved"]["patterns"] == ["**/*.py"]
+        assert bot_info["resolved"]["similarity_threshold"] == 0.15
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/v1/workspaces/{id}/bots/{bot_id}/indexing
+# ---------------------------------------------------------------------------
+
+class TestUpdateBotIndexing:
+    async def _setup_workspace_with_bot(self, client, db_session):
+        """Create workspace and add a bot, return ws_id."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+                created = await _create_workspace(client)
+                ws_id = created["id"]
+                await client.post(
+                    f"/api/v1/workspaces/{ws_id}/bots",
+                    json={"bot_id": "test-bot", "role": "member"},
+                    headers=AUTH_HEADERS,
+                )
+        # Need a Bot row for the update to work
+        from app.db.models import Bot as BotRow
+        bot_row = BotRow(
+            id="test-bot",
+            name="Test Bot",
+            model="test/model",
+            system_prompt="test",
+            workspace={"enabled": True, "indexing": {"enabled": True}},
+        )
+        db_session.add(bot_row)
+        await db_session.commit()
+        return ws_id
+
+    async def test_update_not_found_workspace(self, client):
+        resp = await client.put(
+            f"/api/v1/workspaces/{uuid.uuid4()}/bots/test-bot/indexing",
+            json={"top_k": 15},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_update_bot_not_in_workspace(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        ws_id = created["id"]
+        resp = await client.put(
+            f"/api/v1/workspaces/{ws_id}/bots/nonexistent/indexing",
+            json={"top_k": 15},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_update_sets_indexing_override(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
+        test_bot = BotConfig(
+            id="test-bot",
+            name="Test Bot",
+            model="test/model",
+            system_prompt="test",
+            workspace=WorkspaceConfig(
+                enabled=True,
+                indexing=WorkspaceIndexingConfig(
+                    enabled=True,
+                    patterns=["**/*.py"],
+                    top_k=15,
+                ),
+            ),
+            _workspace_raw={"enabled": True, "indexing": {"enabled": True, "patterns": ["**/*.py"], "top_k": 15}},
+        )
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            with patch("app.routers.api_v1_workspaces.list_bots", return_value=[test_bot]):
+                resp = await client.put(
+                    f"/api/v1/workspaces/{ws_id}/bots/test-bot/indexing",
+                    json={"patterns": ["**/*.py"], "top_k": 15},
+                    headers=AUTH_HEADERS,
+                )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["bot_id"] == "test-bot"
+        assert body["explicit_overrides"]["patterns"] == ["**/*.py"]
+        assert body["explicit_overrides"]["top_k"] == 15
+
+    async def test_update_null_clears_override(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        # First set a top_k override
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            with patch("app.routers.api_v1_workspaces.list_bots", return_value=[]):
+                await client.put(
+                    f"/api/v1/workspaces/{ws_id}/bots/test-bot/indexing",
+                    json={"top_k": 15},
+                    headers=AUTH_HEADERS,
+                )
+        # Verify top_k was set on bot row
+        from app.db.models import Bot as BotRow
+        db_session.expire_all()
+        bot_row = await db_session.get(BotRow, "test-bot")
+        assert bot_row.workspace["indexing"]["top_k"] == 15
+
+        # Now clear it
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            with patch("app.routers.api_v1_workspaces.list_bots", return_value=[]):
+                resp = await client.put(
+                    f"/api/v1/workspaces/{ws_id}/bots/test-bot/indexing",
+                    json={"top_k": None},
+                    headers=AUTH_HEADERS,
+                )
+        assert resp.status_code == 200
+        db_session.expire_all()
+        bot_row = await db_session.get(BotRow, "test-bot")
+        assert "top_k" not in bot_row.workspace.get("indexing", {})
