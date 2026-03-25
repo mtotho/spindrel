@@ -9,12 +9,19 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+class EmptyChoicesError(Exception):
+    """Raised when the LLM returns a response with an empty choices list."""
+    pass
+
+
 # All transient error types worth retrying.
 _RETRYABLE_ERRORS = (
     openai.RateLimitError,
     openai.APITimeoutError,
     openai.APIConnectionError,
     openai.InternalServerError,
+    EmptyChoicesError,
 )
 
 
@@ -75,6 +82,11 @@ async def _llm_call_with_retries(
                 tool_choice=tool_choice,
                 **filtered_params,
             )
+            if not resp.choices:
+                raise EmptyChoicesError(
+                    f"LLM returned empty choices list (model={model}, "
+                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
+                )
             if resp.usage:
                 record_usage(provider_id, resp.usage.total_tokens)
             return resp
@@ -85,6 +97,15 @@ async def _llm_call_with_retries(
             logger.warning(
                 "LLM call rate limited (attempt %d/%d), waiting %ds before retry...",
                 attempt + 1, max_retries, wait,
+            )
+            await asyncio.sleep(wait)
+        except EmptyChoicesError as exc:
+            if attempt >= max_retries:
+                raise
+            wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
+            logger.warning(
+                "LLM returned empty choices (attempt %d/%d), waiting %.1fs before retry: %s",
+                attempt + 1, max_retries, wait, exc,
             )
             await asyncio.sleep(wait)
         except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:

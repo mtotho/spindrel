@@ -541,8 +541,10 @@ async def assemble_context(
         from app.agent.fs_indexer import retrieve_filesystem_context
         from app.services.workspace import workspace_service
         _ws_root = workspace_service.get_workspace_root(bot.id, bot=bot)
-        _ws_threshold = bot.workspace.indexing.similarity_threshold
-        _ws_top_k = bot.workspace.indexing.top_k
+        from app.services.workspace_indexing import resolve_indexing
+        _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+        _ws_threshold = _resolved["similarity_threshold"]
+        _ws_top_k = _resolved["top_k"]
         fs_chunks, fs_sim = await retrieve_filesystem_context(
             user_message, bot.id, roots=[_ws_root],
             threshold=_ws_threshold, top_k=_ws_top_k,

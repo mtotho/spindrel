@@ -57,6 +57,7 @@ class WorkspaceUpdate(BaseModel):
     startup_script: Optional[str] = None
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
+    indexing_config: Optional[dict] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -75,6 +76,7 @@ class WorkspaceOut(BaseModel):
     startup_script: Optional[str]
     workspace_skills_enabled: bool = True
     workspace_base_prompt_enabled: bool = True
+    indexing_config: Optional[dict] = None
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -140,6 +142,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
                 "role": swb.role,
                 "cwd_override": swb.cwd_override,
                 "user_id": bot.user_id if bot else None,
+                "indexing_enabled": bot.workspace.indexing.enabled if bot else False,
             })
     return WorkspaceOut(
         id=str(ws.id),
@@ -157,6 +160,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         startup_script=ws.startup_script,
         workspace_skills_enabled=ws.workspace_skills_enabled,
         workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
+        indexing_config=ws.indexing_config,
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -246,7 +250,7 @@ async def update_workspace(
         raise HTTPException(404, "Workspace not found")
     for field in ("name", "description", "image", "network", "env", "ports", "mounts",
                   "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script",
-                  "workspace_skills_enabled", "workspace_base_prompt_enabled"):
+                  "workspace_skills_enabled", "workspace_base_prompt_enabled", "indexing_config"):
         val = getattr(body, field, None)
         if val is not None:
             if isinstance(val, str):
@@ -257,6 +261,9 @@ async def update_workspace(
     ws.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(ws)
+    # Refresh cached _ws_indexing_config on all bots when indexing config changes
+    if body.indexing_config is not None:
+        await reload_bots()
     sw_bots = (await db.execute(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
     )).scalars().all()
@@ -696,14 +703,16 @@ async def reindex_workspace(
 
     from app.agent.fs_indexer import index_directory
     from app.services.workspace import workspace_service
+    from app.services.workspace_indexing import resolve_indexing
 
     results = {}
     for swb in sw_bots:
         try:
             bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
             if bot and bot.workspace.indexing.enabled:
+                _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
                 root = workspace_service.get_workspace_root(swb.bot_id, bot=bot)
-                stats = await index_directory(root, swb.bot_id, bot.workspace.indexing.patterns, force=True)
+                stats = await index_directory(root, swb.bot_id, _resolved["patterns"], force=True)
                 results[swb.bot_id] = stats
         except Exception as exc:
             results[swb.bot_id] = {"error": str(exc)}
@@ -743,3 +752,144 @@ async def list_workspace_skills(
     from app.services.workspace_skills import list_workspace_skill_files
     skills = await list_workspace_skill_files(workspace_id)
     return {"skills": skills}
+
+
+# ── Indexing visibility + per-bot override ────────────────────────
+
+class BotIndexingUpdate(BaseModel):
+    """Per-bot indexing override. Send null for a field to clear it (inherit from workspace/global)."""
+    enabled: Optional[bool] = None
+    patterns: Optional[list[str]] = None
+    similarity_threshold: Optional[float] = None
+    top_k: Optional[int] = None
+    watch: Optional[bool] = None
+    cooldown_seconds: Optional[int] = None
+
+
+@router.get("/{workspace_id}/indexing")
+async def get_workspace_indexing(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Full indexing visibility: global defaults, workspace defaults, and per-bot resolved config."""
+    from app.agent.fs_indexer import _SKIP_EXTENSIONS, _SKIP_DIRS
+    from app.config import settings
+    from app.services.workspace_indexing import resolve_indexing
+
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
+    )).scalars().all()
+
+    bot_map = {b.id: b for b in list_bots()}
+
+    global_defaults = {
+        "patterns": ["**/*.py", "**/*.md", "**/*.yaml"],
+        "similarity_threshold": settings.FS_INDEX_SIMILARITY_THRESHOLD,
+        "top_k": settings.FS_INDEX_TOP_K,
+        "watch": True,
+        "cooldown_seconds": settings.FS_INDEX_COOLDOWN_SECONDS,
+    }
+
+    bots_out = []
+    for swb in sw_bots:
+        bot = bot_map.get(swb.bot_id)
+        if not bot:
+            continue
+        raw_idx = bot._workspace_raw.get("indexing", {})
+        # Detect which keys were explicitly set on the bot
+        explicit = {}
+        for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled"):
+            if key in raw_idx:
+                explicit[key] = raw_idx[key]
+        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
+        resolved["enabled"] = bot.workspace.indexing.enabled
+        bots_out.append({
+            "bot_id": swb.bot_id,
+            "bot_name": bot.name,
+            "role": swb.role,
+            "indexing_enabled": bot.workspace.indexing.enabled,
+            "explicit_overrides": explicit,
+            "resolved": resolved,
+        })
+
+    supported_languages = [
+        "python (.py) — AST-based chunking",
+        "markdown (.md) — header-based chunking",
+        "yaml (.yaml/.yml) — key-based chunking",
+        "json (.json) — key-based chunking",
+        "typescript (.ts/.tsx) — symbol-based chunking",
+        "javascript (.js/.jsx) — symbol-based chunking",
+        "go (.go) — function-based chunking",
+        "rust (.rs) — function-based chunking",
+        "other — sliding-window chunking",
+    ]
+
+    return {
+        "global_defaults": global_defaults,
+        "workspace_defaults": ws.indexing_config,
+        "bots": bots_out,
+        "supported_languages": supported_languages,
+        "skip_extensions": sorted(_SKIP_EXTENSIONS),
+        "skip_directories": sorted(_SKIP_DIRS),
+    }
+
+
+@router.put("/{workspace_id}/bots/{bot_id}/indexing")
+async def update_bot_indexing(
+    workspace_id: str,
+    bot_id: str,
+    body: BotIndexingUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit)."""
+    from app.db.models import Bot as BotRow
+
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+
+    # Verify bot belongs to workspace
+    swb = await db.get(SharedWorkspaceBot, (ws_id, bot_id))
+    if not swb:
+        raise HTTPException(404, f"Bot '{bot_id}' not in workspace")
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(404, f"Bot '{bot_id}' not found")
+
+    ws_jsonb = dict(bot_row.workspace or {})
+    indexing = dict(ws_jsonb.get("indexing", {}))
+
+    # Merge: set provided fields, remove null fields (inherit)
+    updates = body.model_dump(exclude_unset=True)
+    for key, val in updates.items():
+        if val is None:
+            indexing.pop(key, None)
+        else:
+            indexing[key] = val
+
+    ws_jsonb["indexing"] = indexing
+    bot_row.workspace = ws_jsonb
+    await db.commit()
+    await reload_bots()
+
+    # Return resolved config for this bot
+    from app.services.workspace_indexing import resolve_indexing
+    bot = next((b for b in list_bots() if b.id == bot_id), None)
+    resolved = {}
+    if bot:
+        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
+        resolved["enabled"] = bot.workspace.indexing.enabled
+
+    return {
+        "bot_id": bot_id,
+        "explicit_overrides": indexing,
+        "resolved": resolved,
+    }

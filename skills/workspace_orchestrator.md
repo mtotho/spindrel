@@ -72,6 +72,141 @@ agent-api METHOD /path [json_body]
 | GET | `/api/v1/workspaces/{id}/files` | Browse files (`?path=/`) |
 | POST | `/api/v1/workspaces/{id}/reindex` | Reindex all bot workspace files |
 
+### Workspace File Indexing
+
+Workspace files are automatically indexed for semantic retrieval (RAG). When a user sends a message, relevant file chunks are retrieved by cosine similarity and injected into the bot's context.
+
+#### How It Works
+
+1. **Discovery** — files matching configured glob patterns are found under each bot's workspace root
+2. **Chunking** — files are split into chunks using language-aware strategies (AST for Python, headers for Markdown, symbols for TS/JS, etc.)
+3. **Embedding** — chunks are embedded using the configured embedding model and stored in `filesystem_chunks` table
+4. **Retrieval** — on each request, user message is embedded and matched against indexed chunks by cosine similarity; top-K above threshold are injected into context
+
+#### Supported Languages
+
+| Extension | Chunking Strategy |
+|-----------|------------------|
+| `.py` | AST-based (functions, classes) |
+| `.md` | Header-based (`##` splits) |
+| `.yaml` / `.yml` | Key-based |
+| `.json` | Key-based |
+| `.ts` / `.tsx` | Symbol-based |
+| `.js` / `.jsx` | Symbol-based |
+| `.go` | Function-based |
+| `.rs` | Function-based |
+| Other | Sliding window (1500 chars, 200 overlap) |
+
+#### Always Skipped
+
+- **Extensions**: `.pyc`, `.pyo`, `.so`, `.dylib`, `.dll`, `.exe`, `.bin`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.pdf`, `.zip`, `.tar`, `.gz`, `.bz2`, `.xz`, `.7z`, `.lock`, `.sum`, `.mod`
+- **Directories**: `.git`, `__pycache__`, `node_modules`, `.venv`, `venv`, `.mypy_cache`, `.ruff_cache`, `dist`, `build`, `.next`
+- **Files > 500KB** are skipped
+- `.gitignore` patterns are respected
+
+#### Configuration Hierarchy
+
+Settings resolve with a three-tier cascade: **bot-explicit > workspace default > global env**
+
+| Setting | Description | Global Default |
+|---------|-------------|---------------|
+| `patterns` | Glob patterns for file discovery | `["**/*.py", "**/*.md", "**/*.yaml"]` |
+| `similarity_threshold` | Min cosine similarity for retrieval | `0.30` |
+| `top_k` | Max chunks to inject per request | `8` |
+| `watch` | Enable filesystem watcher for auto-reindex | `true` |
+| `cooldown_seconds` | Min seconds between full re-indexes | `300` |
+
+If a bot has an explicit value, it wins. Otherwise workspace defaults apply. If neither is set, global env defaults are used.
+
+#### Viewing Current Config
+
+```sh
+agent-api GET /api/v1/workspaces/$WSID/indexing
+```
+
+Returns:
+```json
+{
+  "global_defaults": {"patterns": ["**/*.py", "**/*.md", "**/*.yaml"], "similarity_threshold": 0.30, "top_k": 8, "watch": true, "cooldown_seconds": 300},
+  "workspace_defaults": {"patterns": ["**/*.py", "**/*.ts"], "similarity_threshold": 0.25},
+  "bots": [
+    {
+      "bot_id": "coder",
+      "bot_name": "Coder",
+      "role": "member",
+      "indexing_enabled": true,
+      "explicit_overrides": {"patterns": ["**/*.py"]},
+      "resolved": {"patterns": ["**/*.py"], "similarity_threshold": 0.25, "top_k": 8, "watch": true, "cooldown_seconds": 300, "enabled": true}
+    }
+  ],
+  "supported_languages": ["python (.py) — AST-based chunking", "..."],
+  "skip_extensions": [".pyc", ".png", "..."],
+  "skip_directories": [".git", "node_modules", "..."]
+}
+```
+
+#### Setting Workspace-Level Defaults
+
+Set default indexing config for all bots in the workspace (bots without explicit overrides inherit these):
+
+```sh
+agent-api PUT /api/v1/workspaces/$WSID '{
+  "indexing_config": {
+    "patterns": ["**/*.py", "**/*.ts", "**/*.md"],
+    "similarity_threshold": 0.25,
+    "top_k": 12
+  }
+}'
+```
+
+#### Per-Bot Overrides
+
+Override indexing settings for a specific bot. Only provided fields are updated; send `null` to clear an override (inherit from workspace/global):
+
+```sh
+# Set custom patterns and top_k for coder bot
+agent-api PUT /api/v1/workspaces/$WSID/bots/coder/indexing '{
+  "patterns": ["**/*.py", "**/*.ts"],
+  "top_k": 15
+}'
+
+# Clear top_k override (inherit from workspace or global)
+agent-api PUT /api/v1/workspaces/$WSID/bots/coder/indexing '{
+  "top_k": null
+}'
+
+# Disable indexing entirely for a bot
+agent-api PUT /api/v1/workspaces/$WSID/bots/coder/indexing '{
+  "enabled": false
+}'
+```
+
+#### Triggering Re-Index
+
+Force re-index all files for all bots in the workspace (uses each bot's resolved patterns):
+
+```sh
+agent-api POST /api/v1/workspaces/$WSID/reindex
+# Returns: {"results": {"coder": {"files_indexed": 42, ...}, "researcher": {"files_indexed": 15, ...}}}
+```
+
+#### Channel-Level RAG Toggle
+
+Disable workspace file RAG for a specific channel without changing indexing config:
+
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{"workspace_rag": false}'
+```
+
+#### Indexing Checklist
+
+1. Review current config: `GET /workspaces/{id}/indexing`
+2. Set workspace-level patterns if needed: `PUT /workspaces/{id}` with `indexing_config`
+3. Set per-bot overrides where needed: `PUT /workspaces/{id}/bots/{bot_id}/indexing`
+4. Tune `similarity_threshold` (lower = more results, less precise) and `top_k` (higher = more context)
+5. Trigger reindex: `POST /workspaces/{id}/reindex`
+6. Verify retrieval via trace events (`fs_context` events show chunk count and similarity)
+
 ### Skills & Knowledge Management
 
 Create and manage skills (reusable knowledge chunks) that bots can reference. Skills are auto-embedded for RAG retrieval.
@@ -649,3 +784,6 @@ Use the admin API when you need prompt templates or model overrides. Use the age
 - [ ] Recurring schedules use `prompt_template_id` (not inline prompt) so edits propagate
 - [ ] Heartbeat `model`/`model_provider_id` set or left empty to inherit bot default
 - [ ] Task status confirmed after creation (`GET /admin/tasks/{id}`)
+- [ ] File indexing config reviewed (`GET /workspaces/{id}/indexing`)
+- [ ] Indexing patterns set per workspace or per bot as needed
+- [ ] Workspace reindexed after config changes (`POST /workspaces/{id}/reindex`)

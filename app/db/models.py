@@ -640,6 +640,7 @@ class SharedWorkspace(Base):
     startup_script: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'/workspace/startup.sh'"))
     workspace_skills_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     workspace_base_prompt_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    indexing_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     bots: Mapped[list["SharedWorkspaceBot"]] = relationship("SharedWorkspaceBot", back_populates="workspace", cascade="all, delete-orphan")

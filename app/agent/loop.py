@@ -18,7 +18,7 @@ from app.agent.message_utils import (
 from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
-from app.agent.llm import _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
+from app.agent.llm import EmptyChoicesError, _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
