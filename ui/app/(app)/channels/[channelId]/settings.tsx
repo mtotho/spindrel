@@ -104,6 +104,7 @@ export default function ChannelSettingsScreen() {
         compaction_interval: settings.compaction_interval,
         compaction_keep_turns: settings.compaction_keep_turns,
         memory_knowledge_compaction_prompt: settings.memory_knowledge_compaction_prompt,
+        compaction_prompt_template_id: settings.compaction_prompt_template_id,
         context_compression: settings.context_compression,
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
@@ -835,6 +836,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         prompt: data.config.prompt ?? "",
         dispatch_results: data.config.dispatch_results ?? true,
         trigger_response: data.config.trigger_response ?? false,
+        prompt_template_id: data.config.prompt_template_id ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -844,6 +846,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         prompt: "",
         dispatch_results: true,
         trigger_response: false,
+        prompt_template_id: null,
       });
     }
   }, [data]);
@@ -1067,8 +1070,9 @@ function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-tasks", channelId],
-    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/tasks`),
+    queryFn: () => apiFetch<{ tasks: any[] }>(`/api/v1/admin/channels/${channelId}/tasks`),
   });
+  const tasks = data?.tasks ?? [];
 
   type EditorState =
     | { mode: "closed" }
@@ -1082,6 +1086,8 @@ function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
     running: { bg: "#1e3a5f", fg: "#93c5fd" },
     complete: { bg: "#166534", fg: "#86efac" },
     failed: { bg: "#7f1d1d", fg: "#fca5a5" },
+    active: { bg: "#92400e", fg: "#fcd34d" },
+    cancelled: { bg: "#333", fg: "#666" },
   };
 
   const handleEditorSaved = () => {
@@ -1094,7 +1100,7 @@ function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
 
   return (
     <>
-      <Section title={`Tasks (${data?.length ?? 0})`} action={
+      <Section title={`Tasks (${tasks.length})`} action={
         <button
           onClick={() => setEditorState({ mode: "create" })}
           style={{
@@ -1110,11 +1116,11 @@ function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
       }>
         {isLoading ? (
           <ActivityIndicator color="#3b82f6" />
-        ) : !data?.length ? (
+        ) : !tasks.length ? (
           <EmptyState message="No tasks yet." />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {data.map((t: any) => {
+            {tasks.map((t: any) => {
               const sc = statusColors[t.status] || statusColors.pending;
               return (
                 <div

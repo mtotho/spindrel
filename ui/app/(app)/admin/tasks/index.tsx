@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, Plus,
   Clock, AlertCircle, CheckCircle2, Loader2, RefreshCw, Calendar,
+  List,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
+import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
 import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
@@ -29,6 +31,8 @@ interface TaskItem {
   completed_at?: string;
   is_schedule?: boolean;
   is_virtual?: boolean;
+  /** For virtual entries, the real schedule ID to open in editor */
+  _schedule_id?: string;
 }
 
 interface TasksResponse {
@@ -37,7 +41,7 @@ interface TasksResponse {
   total: number;
 }
 
-type ViewMode = "day" | "week";
+type ViewMode = "day" | "week" | "list";
 type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api";
 
 type EditorState =
@@ -75,6 +79,7 @@ const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any }> = {
   failed: { bg: "#7f1d1d", fg: "#fca5a5", icon: AlertCircle },
   active: { bg: "#92400e", fg: "#fcd34d", icon: RefreshCw },
   upcoming: { bg: "#1a1a2e", fg: "#555", icon: Clock },
+  cancelled: { bg: "#333", fg: "#666", icon: Clock },
 };
 
 // Parse recurrence interval like "+1d", "+2h" into milliseconds
@@ -145,7 +150,7 @@ function HourLabels() {
           <div key={h} style={{
             position: "absolute", left: 0, top: `${pct}%`,
             fontSize: 10, color: "#444", width: 40, textAlign: "right", paddingRight: 8,
-            transform: "translateY(-50%)",
+            transform: "translateY(-50%)", pointerEvents: "none",
           }}>
             {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
           </div>
@@ -167,6 +172,7 @@ function HourGrid() {
           position: "absolute", left: 48, right: 0,
           top: `${(h / 24) * 100}%`,
           borderTop: "1px solid #1a1a1a",
+          pointerEvents: "none",
         }} />
       ))}
     </>
@@ -207,7 +213,7 @@ function TaskCard({
 
   return (
     <div
-      onClick={isVirtual ? undefined : onPress}
+      onClick={onPress}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -215,12 +221,12 @@ function TaskCard({
         background: isVirtual
           ? (hovered ? "#151520" : "#0e0e18")
           : (hovered ? "#222" : isPast ? "#111" : "#1a1a1a"),
-        border: `1px solid ${isVirtual ? "#1a1a2e" : hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
+        border: `1px solid ${isVirtual ? (hovered ? "#3b82f6" : "#1a1a2e") : hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
         borderStyle: isVirtual ? "dashed" : "solid",
-        opacity: isVirtual ? 0.6 : (isPast && !hovered ? 0.5 : 1),
+        opacity: isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
-        cursor: isVirtual ? "default" : "pointer",
-        boxShadow: hovered && !isVirtual ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
+        cursor: "pointer",
+        boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
         zIndex: hovered ? 100 : undefined,
         ...extraStyle,
       }}
@@ -345,31 +351,129 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 }
 
 // ---------------------------------------------------------------------------
+// List view
+// ---------------------------------------------------------------------------
+function TaskListView({ tasks, schedules, onTaskPress }: {
+  tasks: TaskItem[];
+  schedules: TaskItem[];
+  onTaskPress: (t: TaskItem) => void;
+}) {
+  const now = new Date();
+  // Combine active schedules (at the top) + concrete tasks (sorted by time desc)
+  const allItems = useMemo(() => {
+    const schedulesWithFlag = schedules.map(s => ({ ...s, is_schedule: true }));
+    const sortedTasks = [...tasks].sort((a, b) => {
+      const ta = getTaskTime(a).getTime();
+      const tb = getTaskTime(b).getTime();
+      return tb - ta; // newest first
+    });
+    return [...schedulesWithFlag, ...sortedTasks];
+  }, [tasks, schedules]);
+
+  if (!allItems.length) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+        No tasks found.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 16px" }}>
+      {allItems.map((t) => {
+        const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+        const Icon = s.icon;
+        const time = t.scheduled_at || t.created_at;
+        const isPast = getTaskTime(t) < now && t.status !== "running";
+        return (
+          <div
+            key={t.id}
+            onClick={() => onTaskPress(t)}
+            style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 14px", background: "#111", borderRadius: 8,
+              border: "1px solid #1a1a1a", cursor: "pointer",
+              opacity: isPast && t.status !== "active" ? 0.6 : 1,
+            }}
+          >
+            <Icon size={14} color={s.fg} />
+            <span style={{
+              fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+              background: s.bg, color: s.fg, minWidth: 55, textAlign: "center",
+            }}>
+              {t.status}
+            </span>
+            {t.task_type && <TypeBadge type={t.task_type} />}
+            {t.recurrence && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                background: "#92400e", color: "#fcd34d",
+                padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+              }}>
+                <RefreshCw size={9} color="#fcd34d" />
+                {t.recurrence}
+              </span>
+            )}
+            {t.run_count != null && t.run_count > 0 && (
+              <span style={{ fontSize: 10, color: "#666" }}>{t.run_count} runs</span>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: "#999", fontFamily: "monospace" }}>
+                {t.bot_id}
+              </div>
+              {t.prompt && (
+                <div style={{
+                  fontSize: 11, color: "#666", marginTop: 2,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {t.prompt.substring(0, 200)}
+                </div>
+              )}
+            </div>
+            <span style={{ fontSize: 11, color: "#555", whiteSpace: "nowrap" }}>
+              {time ? new Date(time).toLocaleString() : "\u2014"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
+  const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
+  const { data: bots } = useBots();
 
+  const isCalendar = viewMode !== "list";
   const rangeDays = viewMode === "day" ? 1 : 7;
   const rangeStart = baseDate;
   const rangeEnd = addDays(baseDate, rangeDays);
 
   const typeParam = typeFilter !== "all" ? `&task_type=${typeFilter}` : "";
+  const botParam = botFilter ? `&bot_id=${botFilter}` : "";
+  const dateParams = isCalendar
+    ? `&after=${rangeStart.toISOString()}&before=${rangeEnd.toISOString()}`
+    : "";
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-tasks-timeline", rangeStart.toISOString(), rangeEnd.toISOString(), typeFilter],
+    queryKey: ["admin-tasks-timeline", viewMode, rangeStart.toISOString(), rangeEnd.toISOString(), typeFilter, botFilter],
     queryFn: () => apiFetch<TasksResponse>(
-      `/api/v1/admin/tasks?after=${rangeStart.toISOString()}&before=${rangeEnd.toISOString()}&limit=200${typeParam}`
+      `/api/v1/admin/tasks?limit=200${dateParams}${typeParam}${botParam}`
     ),
   });
 
   const tasksByDay = useMemo(() => {
+    if (!isCalendar) return {};
     const map: Record<string, TaskItem[]> = {};
     for (let i = 0; i < rangeDays; i++) {
       const d = addDays(baseDate, i);
@@ -400,9 +504,6 @@ export default function TasksScreen() {
       const rangeEndMs = rangeEnd.getTime();
       const schedStart = new Date(sched.scheduled_at).getTime();
 
-      // Generate occurrences within the visible range
-      // Start from the schedule's next scheduled_at and work forward
-      // Also look backwards for occurrences that might have been missed
       let t = schedStart;
 
       // If the schedule starts before the range, skip forward
@@ -432,6 +533,7 @@ export default function TasksScreen() {
               scheduled_at: occDate.toISOString(),
               is_schedule: true,
               is_virtual: true,
+              _schedule_id: sched.id,
               result: undefined,
               error: undefined,
             });
@@ -442,7 +544,7 @@ export default function TasksScreen() {
       }
     }
     return map;
-  }, [data, baseDate, rangeDays, rangeStart, rangeEnd]);
+  }, [data, baseDate, rangeDays, rangeStart, rangeEnd, isCalendar]);
 
   const goToday = () => setBaseDate(startOfDay(new Date()));
   const goPrev = () => setBaseDate(addDays(baseDate, -rangeDays));
@@ -452,6 +554,12 @@ export default function TasksScreen() {
   const handleEditorSaved = () => {
     setEditorState({ mode: "closed" });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+  };
+
+  const handleTaskPress = (t: TaskItem) => {
+    // Virtual entries open the parent schedule template
+    const taskId = t.is_virtual && t._schedule_id ? t._schedule_id : t.id;
+    setEditorState({ mode: "edit", taskId });
   };
 
   // Derive TaskEditor props from editor state
@@ -493,9 +601,26 @@ export default function TasksScreen() {
             {!isMobile && "New Task"}
           </button>
 
+          {/* Bot filter */}
+          <select
+            value={botFilter}
+            onChange={(e) => setBotFilter(e.target.value)}
+            style={{
+              padding: "5px 8px", fontSize: 11, borderRadius: 6,
+              background: "#1a1a1a", color: botFilter ? "#e5e5e5" : "#666",
+              border: botFilter ? "1px solid #3b82f6" : "1px solid #333",
+              cursor: "pointer", maxWidth: 140,
+            }}
+          >
+            <option value="">All Bots</option>
+            {bots?.map((b: any) => (
+              <option key={b.id} value={b.id}>{b.name || b.id}</option>
+            ))}
+          </select>
+
           {/* View mode toggle */}
           <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
-            {(["day", "week"] as ViewMode[]).map((m) => (
+            {(["day", "week", "list"] as ViewMode[]).map((m) => (
               <button
                 key={m}
                 onClick={() => setViewMode(m)}
@@ -505,33 +630,39 @@ export default function TasksScreen() {
                   background: viewMode === m ? "#3b82f6" : "transparent",
                   color: viewMode === m ? "#fff" : "#999",
                   textTransform: "capitalize",
+                  display: "flex", alignItems: "center", gap: 4,
                 }}
               >
-                {isMobile ? m[0].toUpperCase() : m}
+                {m === "list" && <List size={12} />}
+                {isMobile ? (m === "list" ? "" : m[0].toUpperCase()) : m}
               </button>
             ))}
           </div>
 
-          {/* Navigation */}
-          <button onClick={goToday} style={{
-            padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
-            background: "transparent", color: "#999", cursor: "pointer",
-          }}>
-            Today
-          </button>
-          <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-            <ChevronLeft size={16} color="#999" />
-          </button>
-          <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
-            {viewMode === "day"
-              ? fmtDate(baseDate)
-              : isMobile
-                ? fmtDate(baseDate)
-                : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
-          </span>
-          <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-            <ChevronRight size={16} color="#999" />
-          </button>
+          {/* Navigation (only for calendar views) */}
+          {isCalendar && (
+            <>
+              <button onClick={goToday} style={{
+                padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
+                background: "transparent", color: "#999", cursor: "pointer",
+              }}>
+                Today
+              </button>
+              <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                <ChevronLeft size={16} color="#999" />
+              </button>
+              <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
+                {viewMode === "day"
+                  ? fmtDate(baseDate)
+                  : isMobile
+                    ? fmtDate(baseDate)
+                    : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
+              </span>
+              <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                <ChevronRight size={16} color="#999" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -558,11 +689,19 @@ export default function TasksScreen() {
         ))}
       </div>
 
-      {/* Timeline body */}
+      {/* Body */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#3b82f6" />
         </View>
+      ) : viewMode === "list" ? (
+        <ScrollView className="flex-1">
+          <TaskListView
+            tasks={data?.tasks ?? []}
+            schedules={data?.schedules ?? []}
+            onTaskPress={handleTaskPress}
+          />
+        </ScrollView>
       ) : (
         <ScrollView className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
           <div style={{
@@ -574,10 +713,7 @@ export default function TasksScreen() {
                 key={dayStr}
                 date={new Date(dayStr)}
                 tasks={tasks}
-                onTaskPress={(t) => {
-                  if (t.is_virtual) return; // virtual entries are not clickable
-                  setEditorState({ mode: "edit", taskId: t.id });
-                }}
+                onTaskPress={handleTaskPress}
               />
             ))}
           </div>
