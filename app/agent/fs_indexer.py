@@ -11,20 +11,14 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from openai import AsyncOpenAI
 from sqlalchemy import delete, func, select
 
+from app.agent.embeddings import embed_batch, embed_text
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import FilesystemChunk
 
 logger = logging.getLogger(__name__)
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=120.0,
-)
 
 # In-memory cooldown: (abs_root, bot_id, client_id) -> monotonic timestamp of last full index
 _last_indexed: dict[tuple[str, str, str], float] = {}
@@ -248,18 +242,6 @@ def chunk_file(path: Path, root: Path) -> list[ChunkResult]:
     return _chunk_sliding_window(source, rel, None)
 
 
-# ---------------------------------------------------------------------------
-# Embedding
-# ---------------------------------------------------------------------------
-
-async def _embed_batch(texts: list[str], model: str | None = None) -> list[list[float]]:
-    response = await _client.embeddings.create(
-        model=model or settings.EMBEDDING_MODEL,
-        input=texts,
-    )
-    return [item.embedding for item in response.data]
-
-
 def _match_segment(file_rel_path: str, segments: list[dict] | None) -> dict | None:
     """Return the most-specific matching segment (longest path_prefix) or None."""
     if not segments:
@@ -422,7 +404,7 @@ async def index_directory(
             # Batch in groups of 50
             embeddings: list[list[float]] = []
             for i in range(0, len(texts), 50):
-                embeddings.extend(await _embed_batch(texts[i:i + 50], model=effective_model))
+                embeddings.extend(await embed_batch(texts[i:i + 50], model=effective_model))
         except Exception:
             logger.exception("Failed to embed %s", rel)
             stats["errors"] += 1
@@ -497,6 +479,25 @@ async def index_directory(
 # Retrieval
 # ---------------------------------------------------------------------------
 
+def _excluded_prefixes(segments: list[dict] | None, channel_id: str | None) -> list[str]:
+    """Return path prefixes of segments whose channel_id doesn't match the active channel.
+
+    A segment with channel_id=None is always included (matches all channels).
+    A segment with channel_id set is included only if it matches the active channel_id.
+    """
+    if not segments:
+        return []
+    excluded: list[str] = []
+    for seg in segments:
+        seg_ch = seg.get("channel_id")
+        if seg_ch is None:
+            continue  # no channel restriction → always included
+        # Segment is channel-gated: exclude unless active channel matches
+        if channel_id is None or seg_ch != str(channel_id):
+            excluded.append(seg["path_prefix"])
+    return excluded
+
+
 async def retrieve_filesystem_context(
     query: str,
     bot_id: str | None,
@@ -506,24 +507,30 @@ async def retrieve_filesystem_context(
     threshold: float | None = None,
     embedding_model: str | None = None,
     segments: list[dict] | None = None,
+    channel_id: str | None = None,
 ) -> tuple[list[str], float]:
     """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
 
     Scope semantics (matches knowledge system):
     - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
     - client_id: returns chunks where chunk.client_id == client_id OR chunk.client_id IS NULL
+    - channel_id: segments with a channel_id are skipped unless the active channel matches
     """
     top_k = top_k or settings.FS_INDEX_TOP_K
     threshold = threshold if threshold is not None else settings.FS_INDEX_SIMILARITY_THRESHOLD
     base_model = embedding_model or settings.EMBEDDING_MODEL
 
-    # Collect unique embedding models: base + any segment-specific models
+    # Build list of path prefixes to exclude (channel-gated segments that don't match)
+    _excl = _excluded_prefixes(segments, channel_id)
+
+    # Collect unique embedding models: base + any segment-specific models (only from included segments)
     unique_models: set[str] = {base_model}
     if segments:
         for seg in segments:
-            unique_models.add(seg["embedding_model"])
+            if seg["path_prefix"] not in _excl:
+                unique_models.add(seg["embedding_model"])
 
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
 
     bot_filter = (
         or_(FilesystemChunk.bot_id == bot_id, FilesystemChunk.bot_id.is_(None))
@@ -537,12 +544,19 @@ async def retrieve_filesystem_context(
     )
     abs_roots = [str(Path(r).resolve()) for r in roots] if roots else None
 
+    # Build path-prefix exclusion filters for channel-gated segments
+    _path_excl_filters = []
+    for prefix in _excl:
+        normalized = prefix if prefix.endswith("/") else prefix + "/"
+        _path_excl_filters.append(~FilesystemChunk.file_path.startswith(normalized))
+        # Also exclude exact match (e.g. file_path == prefix without trailing slash)
+        _path_excl_filters.append(FilesystemChunk.file_path != prefix.rstrip("/"))
+
     # Single-model fast path (most common case: no segments or all same model)
     if len(unique_models) == 1:
         model = next(iter(unique_models))
         try:
-            response = await _client.embeddings.create(model=model, input=[query])
-            query_embedding = response.data[0].embedding
+            query_embedding = await embed_text(query, model=model)
         except Exception:
             logger.exception("Failed to embed query for filesystem retrieval")
             return [], 0.0
@@ -562,7 +576,7 @@ async def retrieve_filesystem_context(
                 FilesystemChunk.end_line,
                 distance_expr.label("distance"),
             )
-            .where(bot_filter, client_filter, model_filter)
+            .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
             .order_by(distance_expr)
             .limit(top_k)
         )
@@ -582,8 +596,7 @@ async def retrieve_filesystem_context(
     all_rows: list = []
     for model in unique_models:
         try:
-            response = await _client.embeddings.create(model=model, input=[query])
-            query_embedding = response.data[0].embedding
+            query_embedding = await embed_text(query, model=model)
         except Exception:
             logger.exception("Failed to embed query with model %s", model)
             continue
@@ -604,7 +617,7 @@ async def retrieve_filesystem_context(
                 FilesystemChunk.end_line,
                 distance_expr.label("distance"),
             )
-            .where(bot_filter, client_filter, model_filter)
+            .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
             .order_by(distance_expr)
             .limit(top_k)
         )

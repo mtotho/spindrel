@@ -116,6 +116,7 @@ class IndexSegment:
     similarity_threshold: float | None = None
     top_k: int | None = None
     watch: bool | None = None
+    channel_id: str | None = None             # None = all channels; set = only RAG'd for this channel
 
 
 @dataclass

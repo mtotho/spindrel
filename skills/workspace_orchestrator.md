@@ -859,6 +859,54 @@ agent-api DELETE /api/v1/admin/tasks/$TASK_ID
 
 Use the admin API when you need prompt templates or model overrides. Use the agent tool for simple task creation within a conversation.
 
+## Server Logs
+
+Query the agent-server's own Python logs (in-memory ring buffer of the last 10,000 entries). Use this to diagnose errors, check startup health, or monitor agent activity.
+
+```sh
+# Recent 200 entries (default)
+agent-api GET /api/v1/admin/server-logs
+
+# Only errors
+agent-api GET "/api/v1/admin/server-logs?level=ERROR&tail=100"
+
+# Errors and warnings from the last 30 minutes
+agent-api GET "/api/v1/admin/server-logs?level=WARNING&since_minutes=30"
+
+# Search for a specific term
+agent-api GET "/api/v1/admin/server-logs?search=workspace&tail=50"
+
+# Filter by logger module
+agent-api GET "/api/v1/admin/server-logs?logger=app.agent&tail=100"
+```
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tail` | int | 200 | Max entries to return (1–5000) |
+| `level` | string | — | Min severity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `logger` | string | — | Logger name prefix (e.g. `app.agent.loop`) |
+| `search` | string | — | Case-insensitive substring match in message |
+| `since_minutes` | float | — | Only entries from the last N minutes |
+
+**Response:**
+```json
+{
+  "entries": [
+    {"timestamp": 1711367400.0, "level": "ERROR", "logger": "app.agent.loop", "message": "...", "formatted": "14:30:00 ERROR [app.agent.loop] ..."}
+  ],
+  "total": 3,
+  "levels": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+}
+```
+
+**Tips:**
+- Start with `level=ERROR` to check for problems without loading too much data
+- Use `logger=app.agent` to focus on agent loop activity
+- Use `since_minutes=5` to narrow to recent activity
+- Combine filters: `?level=WARNING&search=workspace&since_minutes=60`
+
 ## Orchestrator Checklist
 
 - [ ] Workspace container is running (`GET /workspaces/{id}/status`)

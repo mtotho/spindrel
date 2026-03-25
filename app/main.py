@@ -89,6 +89,9 @@ async def _index_filesystems_and_start_watchers() -> None:
 async def lifespan(app: FastAPI):
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+    # Install in-memory ring buffer handler for /api/v1/admin/server-logs
+    from app.services.log_buffer import install as _install_log_buffer
+    _install_log_buffer(capacity=10_000)
     logger.info("Running database migrations...")
     await run_migrations()
     logger.info("Loading provider configs from DB...")

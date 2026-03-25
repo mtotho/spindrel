@@ -21,21 +21,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from openai import AsyncOpenAI
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.embeddings import embed_text as _embed_text, embed_batch as _embed_batch
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import BotKnowledge, PromptTemplate, Skill as SkillRow
 
 logger = logging.getLogger(__name__)
-
-_EMBED_CLIENT = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=120.0,
-)
 
 # Source type constants
 SOURCE_FILE = "file"
@@ -58,22 +52,6 @@ def _parse_frontmatter(content: str) -> tuple[dict, str]:
     except Exception:
         meta = {}
     return meta, content[match.end():]
-
-
-async def _embed_text(text: str) -> list[float]:
-    response = await _EMBED_CLIENT.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text],
-    )
-    return response.data[0].embedding
-
-
-async def _embed_batch(texts: list[str]) -> list[list[float]]:
-    response = await _EMBED_CLIENT.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=texts,
-    )
-    return [item.embedding for item in response.data]
 
 
 def _chunk_markdown(body: str, skill_name: str, max_chunk: int = 1500) -> list[str]:

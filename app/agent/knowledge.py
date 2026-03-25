@@ -2,22 +2,16 @@ import logging
 import uuid
 from typing import Any
 
+from app.agent.embeddings import embed_text as _embed
 from app.db.engine import async_session
 from app.db.models import BotKnowledge, KnowledgeAccess, KnowledgePin, KnowledgeWrite
 from app.config import settings
 from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from openai import AsyncOpenAI
 from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 _MISSING_ST = object()
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -85,19 +79,6 @@ def _ka_name_scope_filter(
             (KnowledgeAccess.scope_type == "channel") & (KnowledgeAccess.scope_key == str(channel_id))
         )
     return or_(*filters)
-
-
-# ---------------------------------------------------------------------------
-# Embedding
-# ---------------------------------------------------------------------------
-
-async def _embed(text: str) -> list[float]:
-    """Embed text via LiteLLM embeddings endpoint."""
-    response = await _client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text],
-    )
-    return response.data[0].embedding
 
 
 # ---------------------------------------------------------------------------

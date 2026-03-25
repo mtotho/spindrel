@@ -549,6 +549,7 @@ async def assemble_context(
             threshold=_ws_threshold, top_k=_ws_top_k,
             embedding_model=_resolved["embedding_model"],
             segments=_resolved.get("segments"),
+            channel_id=str(channel_id) if channel_id else None,
         )
         if fs_chunks:
             yield {"type": "fs_context", "count": len(fs_chunks)}

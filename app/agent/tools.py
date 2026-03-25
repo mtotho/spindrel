@@ -7,21 +7,15 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from openai import AsyncOpenAI
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.agent.embeddings import embed_text as _embed_query
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import ToolEmbedding
 
 logger = logging.getLogger(__name__)
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
 
 
 def tool_key_for(server_name: str | None, tool_name: str) -> str:
@@ -60,14 +54,6 @@ def build_embed_text(openai_tool: dict[str, Any], tool_name: str, server_name: s
         parts.append("Parameters: " + " | ".join(param_bits))
 
     return "\n".join(parts)
-
-
-async def _embed_query(text: str) -> list[float]:
-    response = await _client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text],
-    )
-    return response.data[0].embedding
 
 
 async def _upsert_tool_row(

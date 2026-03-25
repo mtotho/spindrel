@@ -25,6 +25,7 @@ def _resolve_segments(segments: list[IndexSegment], base: dict) -> list[dict]:
             "similarity_threshold": seg.similarity_threshold if seg.similarity_threshold is not None else base["similarity_threshold"],
             "top_k": seg.top_k if seg.top_k is not None else base["top_k"],
             "watch": seg.watch if seg.watch is not None else base["watch"],
+            "channel_id": seg.channel_id,
         })
     return result
 

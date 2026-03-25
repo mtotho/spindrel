@@ -1,7 +1,8 @@
-"""Logs & Traces: /logs, /traces/{id}."""
+"""Logs & Traces: /logs, /traces/{id}, /server-logs."""
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Optional
 
@@ -294,4 +295,72 @@ async def admin_trace_detail(
         client_id=client_id,
         time_range_start=time_range_start.isoformat() if time_range_start else None,
         time_range_end=time_range_end.isoformat() if time_range_end else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server Logs (in-memory ring buffer)
+# ---------------------------------------------------------------------------
+
+class ServerLogEntry(BaseModel):
+    timestamp: float
+    level: str
+    logger: str
+    message: str
+    formatted: str
+
+
+class ServerLogsOut(BaseModel):
+    entries: list[ServerLogEntry]
+    total: int
+    levels: list[str]
+
+
+@router.get("/server-logs", response_model=ServerLogsOut)
+async def server_logs(
+    tail: int = Query(200, ge=1, le=5000, description="Number of entries to return"),
+    level: Optional[str] = Query(None, description="Minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
+    logger: Optional[str] = Query(None, description="Logger name prefix filter (e.g. 'app.agent')"),
+    search: Optional[str] = Query(None, description="Case-insensitive text search in message"),
+    since_minutes: Optional[float] = Query(None, ge=0, description="Only entries from last N minutes"),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return recent server log entries from the in-memory ring buffer.
+
+    Filters:
+    - **level**: minimum severity (e.g. ERROR returns ERROR + CRITICAL)
+    - **logger**: prefix match on logger name (e.g. "app.agent" matches "app.agent.loop")
+    - **search**: substring match in log message text
+    - **since_minutes**: only entries from the last N minutes
+    - **tail**: max entries to return (newest last)
+    """
+    from app.services.log_buffer import get_handler
+
+    handler = get_handler()
+    if handler is None:
+        return ServerLogsOut(entries=[], total=0, levels=[])
+
+    since = time.time() - (since_minutes * 60) if since_minutes else None
+
+    entries = handler.query(
+        tail=tail,
+        level=level,
+        logger=logger,
+        search=search,
+        since=since,
+    )
+
+    return ServerLogsOut(
+        entries=[
+            ServerLogEntry(
+                timestamp=e.timestamp,
+                level=e.level,
+                logger=e.logger,
+                message=e.message,
+                formatted=e.formatted,
+            )
+            for e in entries
+        ],
+        total=len(entries),
+        levels=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
