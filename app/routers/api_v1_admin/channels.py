@@ -166,6 +166,7 @@ class HeartbeatOut(BaseModel):
 
 
 class HeartbeatUpdate(BaseModel):
+    enabled: Optional[bool] = None
     interval_minutes: int = Field(60, ge=1)
     model: str = ""
     model_provider_id: Optional[str] = None
@@ -658,6 +659,8 @@ async def admin_channel_heartbeat_update(
         )
         db.add(heartbeat)
 
+    if body.enabled is not None:
+        heartbeat.enabled = body.enabled
     heartbeat.interval_minutes = max(1, body.interval_minutes)
     heartbeat.model = body.model.strip()
     heartbeat.model_provider_id = body.model_provider_id.strip() if body.model_provider_id else None

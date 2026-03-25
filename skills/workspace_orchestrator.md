@@ -213,6 +213,32 @@ Include `model_override` in the ChatRequest body:
 - `/model <name>` — set channel override (supports partial matching)
 - `/model clear` — clear override, revert to bot default
 
+## Available Models
+
+Discover available LLM models dynamically. Use this to pick the right model for heartbeats, scheduled tasks, or channel overrides.
+
+```sh
+agent-api GET /api/v1/admin/models
+# Returns: [{provider_id, provider_name, provider_type, models: [{id, display, max_tokens}]}]
+```
+
+- `provider_id: null` = .env LiteLLM fallback (no provider override needed)
+- `models[].id` is the value for `model_override`, `model`, and similar fields
+- `provider_id` is the value for `model_provider_id` and `model_provider_id_override` fields
+
+**Workflow:** list models → pick one → assign to heartbeat, task, or channel override.
+
+```sh
+# List all models, pick one
+agent-api GET /api/v1/admin/models
+
+# Use in a heartbeat
+agent-api PUT /api/v1/admin/channels/$CHID/heartbeat '{"model": "gemini/gemini-2.5-flash", "model_provider_id": "provider-uuid"}'
+
+# Use in a scheduled task
+agent-api POST /api/v1/admin/tasks '{"prompt": "...", "bot_id": "coder", "model_override": "gemini/gemini-2.5-flash", "model_provider_id_override": "provider-uuid"}'
+```
+
 ## Workspace Skills
 
 Workspace skills are `.md` files auto-discovered from the workspace filesystem and injected into bot context. Three modes determine when/how content is injected:
@@ -365,10 +391,11 @@ Configure compaction and heartbeat prompts per channel. Use the workspace channe
 | GET | `/api/v1/admin/channels/{id}/heartbeat` | Heartbeat config |
 | PUT | `/api/v1/admin/channels/{id}/heartbeat` | Update heartbeat prompt/template |
 
-**Batch overview** — returns all workspace channels with inline compaction + heartbeat config + resolved template names:
+**Batch overview** — returns all workspace channels with inline compaction + heartbeat config + activity metrics:
 ```sh
 agent-api GET /api/v1/workspaces/$WSID/channels
-# Returns: [{id, name, bot_id, bot_name, heartbeat_enabled, heartbeat_prompt_template_name, compaction_prompt_template_name, ...}]
+# Returns: [{id, name, bot_id, bot_name, heartbeat_enabled, heartbeat_prompt_template_name,
+#   compaction_prompt_template_name, last_user_turn_at, user_turns_24h, user_turns_48h, user_turns_72h, ...}]
 ```
 
 **Link a prompt template to a channel's compaction:**
@@ -385,13 +412,36 @@ agent-api PUT /api/v1/admin/channels/$CHID/settings '{
 }'
 ```
 
-**Update heartbeat prompt template:**
+**Update heartbeat config (including enable/disable and model):**
 ```sh
 agent-api PUT /api/v1/admin/channels/$CHID/heartbeat '{
-  "prompt_template_id": "'$TEMPLATE_ID'",
   "enabled": true,
-  "interval_minutes": 30
+  "prompt_template_id": "'$TEMPLATE_ID'",
+  "interval_minutes": 30,
+  "model": "gemini/gemini-2.5-flash",
+  "model_provider_id": "'$PROVIDER_ID'"
 }'
+```
+
+**Heartbeat fields reference:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | — | Toggle on/off (null = no change) |
+| `interval_minutes` | 60 | Minutes between runs (min 1) |
+| `model` | `""` | Model id; empty string = inherit bot default |
+| `model_provider_id` | null | Provider id; null = .env LiteLLM fallback |
+| `prompt` | `""` | Inline prompt text |
+| `prompt_template_id` | null | Linked template (overrides inline prompt) |
+| `dispatch_results` | true | Post result to channel integration |
+| `trigger_response` | false | Fire follow-up agent turn after heartbeat completes |
+| `quiet_start` | null | `"HH:MM"` — suppress heartbeats after this time |
+| `quiet_end` | null | `"HH:MM"` — resume heartbeats after this time |
+| `timezone` | null | IANA timezone for quiet hours (e.g. `"America/New_York"`) |
+
+**Quick toggle** (flips enabled without touching other settings):
+```sh
+agent-api POST /api/v1/admin/channels/$CHID/heartbeat/toggle
 ```
 
 **Resolution chain:** channel template > channel inline prompt > bot default
@@ -458,6 +508,128 @@ agent-api PUT /api/v1/admin/channels/$CHID/settings '{
 agent-api GET /api/v1/admin/channels/$CHID/effective-tools
 ```
 
+## Scheduled Tasks & Recurring Jobs
+
+Create one-off tasks or recurring schedules via the admin API. Tasks can link to prompt templates and override models.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/tasks` | List tasks + schedules (filters: `status`, `bot_id`, `channel_id`, `task_type`, `after`, `before`) |
+| GET | `/api/v1/admin/tasks/{id}` | Full task detail |
+| POST | `/api/v1/admin/tasks` | Create task or recurring schedule |
+| PUT | `/api/v1/admin/tasks/{id}` | Update any field |
+| DELETE | `/api/v1/admin/tasks/{id}` | Hard delete |
+
+### Task vs Schedule
+
+- **Schedule**: `status=active` + `recurrence` set → template that spawns concrete tasks on each fire
+- **One-off task**: `status=pending` → runs once at `scheduled_at` (or immediately if null)
+- `run_count` tracks how many times a schedule has fired
+- `parent_task_id` links spawned concrete tasks back to their schedule
+
+### Examples
+
+**Create an immediate one-off task:**
+```sh
+agent-api POST /api/v1/admin/tasks '{
+  "prompt": "Summarize today'\''s activity",
+  "bot_id": "researcher",
+  "channel_id": "'$CHID'"
+}'
+```
+
+**Create a future scheduled task:**
+```sh
+agent-api POST /api/v1/admin/tasks '{
+  "prompt": "Run nightly report",
+  "bot_id": "researcher",
+  "channel_id": "'$CHID'",
+  "scheduled_at": "+2h"
+}'
+```
+
+**Create a recurring schedule with prompt template:**
+```sh
+agent-api POST /api/v1/admin/tasks '{
+  "prompt": "placeholder (template overrides this)",
+  "bot_id": "researcher",
+  "channel_id": "'$CHID'",
+  "recurrence": "+1d",
+  "prompt_template_id": "'$TEMPLATE_ID'",
+  "task_type": "scheduled"
+}'
+```
+
+**Create a task with model override:**
+```sh
+agent-api POST /api/v1/admin/tasks '{
+  "prompt": "Deep analysis of codebase",
+  "bot_id": "coder",
+  "channel_id": "'$CHID'",
+  "model_override": "openai/gpt-4o",
+  "model_provider_id_override": "'$PROVIDER_ID'"
+}'
+```
+
+**List/filter tasks:**
+```sh
+# All tasks for a channel
+agent-api GET "/api/v1/admin/tasks?channel_id=$CHID"
+
+# Active schedules only
+agent-api GET "/api/v1/admin/tasks?status=active&task_type=scheduled"
+
+# Tasks from last 24 hours
+agent-api GET "/api/v1/admin/tasks?after=2026-03-24T00:00:00Z"
+```
+
+**Check task status:**
+```sh
+agent-api GET /api/v1/admin/tasks/$TASK_ID
+# Returns: {id, status, prompt, result, bot_id, channel_id, recurrence, run_count, ...}
+```
+
+**Update a schedule (change recurrence, swap template, update model):**
+```sh
+agent-api PUT /api/v1/admin/tasks/$TASK_ID '{
+  "recurrence": "+12h",
+  "prompt_template_id": "'$NEW_TEMPLATE_ID'",
+  "model_override": "gemini/gemini-2.5-flash"
+}'
+```
+
+**Pause a schedule:**
+```sh
+agent-api PUT /api/v1/admin/tasks/$TASK_ID '{"status": "complete"}'
+```
+
+**Delete a task/schedule:**
+```sh
+agent-api DELETE /api/v1/admin/tasks/$TASK_ID
+```
+
+### Key Concepts
+
+- **`prompt_template_id`** — resolved at execution time; recurring schedules always get the latest template content
+- **`scheduled_at` formats**: relative (`+30m`, `+2h`, `+1d`), ISO 8601 (`2026-03-25T14:00:00Z`), or null (immediate)
+- **`recurrence` format**: same relative syntax (`+1h`, `+1d`, `+7d`)
+- **`model_override` / `model_provider_id_override`**: null = inherit bot default; use `GET /api/v1/admin/models` to find valid values
+- **`trigger_rag_loop`**: fires a follow-up agent turn after the task completes (useful for tasks that generate context the bot should react to)
+- **`dispatch_type`**: auto-resolved from `channel_id` — no need to set manually
+
+### Agent Tool vs Admin API
+
+| Capability | `create_task` tool | `POST /admin/tasks` |
+|---|---|---|
+| `prompt_template_id` | No | Yes |
+| `model_override` | No | Yes |
+| `recurrence` | Yes | Yes |
+| `trigger_rag_loop` | Yes | Yes |
+
+Use the admin API when you need prompt templates or model overrides. Use the agent tool for simple task creation within a conversation.
+
 ## Orchestrator Checklist
 
 - [ ] Workspace container is running (`GET /workspaces/{id}/status`)
@@ -473,3 +645,7 @@ agent-api GET /api/v1/admin/channels/$CHID/effective-tools
 - [ ] Member bots given clear, self-contained prompts (they can't see your context)
 - [ ] Polling deferred tasks to completion before reporting results
 - [ ] Collecting outputs from `/workspace/bots/{bot_id}/` after members finish
+- [ ] Models listed before assigning (`GET /admin/models`)
+- [ ] Recurring schedules use `prompt_template_id` (not inline prompt) so edits propagate
+- [ ] Heartbeat `model`/`model_provider_id` set or left empty to inherit bot default
+- [ ] Task status confirmed after creation (`GET /admin/tasks/{id}`)

@@ -3,19 +3,19 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.agent.bots import list_bots, reload_bots
 from app.db.models import (
-    Channel, ChannelHeartbeat, ChannelIntegration, PromptTemplate,
-    SharedWorkspace, SharedWorkspaceBot,
+    Channel, ChannelHeartbeat, ChannelIntegration, Message, PromptTemplate,
+    Session, SharedWorkspace, SharedWorkspaceBot,
 )
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
@@ -117,6 +117,11 @@ class WorkspaceChannelOut(BaseModel):
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_prompt_template_name: Optional[str] = None
     heartbeat_prompt: Optional[str] = None
+    # Activity
+    last_user_turn_at: Optional[datetime] = None
+    user_turns_24h: int = 0
+    user_turns_48h: int = 0
+    user_turns_72h: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -517,13 +522,51 @@ async def list_workspace_channels(
         )).all()
         tmpl_names = {r.id: r.name for r in rows}
 
-    # 5. Bot names from in-memory registry
+    # 5. Activity stats (batched across all channels)
+    now = datetime.now(timezone.utc)
+    t24 = now - timedelta(hours=24)
+    t48 = now - timedelta(hours=48)
+    t72 = now - timedelta(hours=72)
+    activity_q = (
+        select(
+            Session.channel_id,
+            func.max(Message.created_at)
+                .filter(Message.role == "user")
+                .label("last_user_turn_at"),
+            func.count()
+                .filter(Message.role == "user", Message.created_at >= t24)
+                .label("user_turns_24h"),
+            func.count()
+                .filter(Message.role == "user", Message.created_at >= t48)
+                .label("user_turns_48h"),
+            func.count()
+                .filter(Message.role == "user", Message.created_at >= t72)
+                .label("user_turns_72h"),
+        )
+        .select_from(Message)
+        .join(Session, Message.session_id == Session.id)
+        .where(Session.channel_id.in_(channel_ids))
+        .group_by(Session.channel_id)
+    )
+    activity_rows = (await db.execute(activity_q)).all()
+    activity_map: dict[uuid.UUID, dict] = {
+        row.channel_id: {
+            "last_user_turn_at": row.last_user_turn_at,
+            "user_turns_24h": row.user_turns_24h,
+            "user_turns_48h": row.user_turns_48h,
+            "user_turns_72h": row.user_turns_72h,
+        }
+        for row in activity_rows
+    }
+
+    # 6. Bot names from in-memory registry
     bot_map = {b.id: b.name for b in list_bots()}
 
-    # 6. Assemble
+    # 7. Assemble
     out = []
     for ch in channels:
         hb = hb_map.get(ch.id)
+        act = activity_map.get(ch.id, {})
         # First integration's display_name (if any)
         ci = ch.integrations[0] if ch.integrations else None
         out.append(WorkspaceChannelOut(
@@ -542,6 +585,10 @@ async def list_workspace_channels(
             heartbeat_prompt_template_id=hb.prompt_template_id if hb else None,
             heartbeat_prompt_template_name=tmpl_names.get(hb.prompt_template_id) if hb and hb.prompt_template_id else None,
             heartbeat_prompt=hb.prompt if hb else None,
+            last_user_turn_at=act.get("last_user_turn_at"),
+            user_turns_24h=act.get("user_turns_24h", 0),
+            user_turns_48h=act.get("user_turns_48h", 0),
+            user_turns_72h=act.get("user_turns_72h", 0),
         ))
     return out
 
