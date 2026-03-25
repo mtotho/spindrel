@@ -70,9 +70,41 @@ def _get_compaction_keep_turns(bot: BotConfig, channel: Channel | None = None) -
     return settings.COMPACTION_KEEP_TURNS
 
 
-def _get_compaction_prompt(bot: BotConfig, channel: Channel | None = None) -> str:
+async def _get_compaction_prompt(bot: BotConfig, channel: Channel | None = None) -> str:
+    from app.services.prompt_resolution import resolve_prompt_template
+
+    has_template = (
+        (channel and getattr(channel, "compaction_prompt_template_id", None))
+        or bot.compaction_prompt_template_id
+    )
+
+    if has_template:
+        async with async_session() as db:
+            # 1. Channel-level template link
+            if channel and getattr(channel, "compaction_prompt_template_id", None):
+                resolved = await resolve_prompt_template(
+                    str(channel.compaction_prompt_template_id), "", db,
+                )
+                if resolved:
+                    return resolved
+
+            # 2. Channel inline prompt
+            if channel and channel.memory_knowledge_compaction_prompt:
+                return channel.memory_knowledge_compaction_prompt
+
+            # 3. Bot-level template link
+            if bot.compaction_prompt_template_id:
+                resolved = await resolve_prompt_template(
+                    bot.compaction_prompt_template_id, "", db,
+                )
+                if resolved:
+                    return resolved
+
+    # 2 (no template path). Channel inline prompt
     if channel and channel.memory_knowledge_compaction_prompt:
         return channel.memory_knowledge_compaction_prompt
+
+    # 4. Bot inline prompt → global setting
     return (bot.memory_knowledge_compaction_prompt or settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT).strip()
 
 
@@ -119,7 +151,7 @@ async def _run_compaction_memory_phase(
     Model decides what to store in memory/knowledge/persona and uses tools; _generate_summary does the actual summary separately.
     Yields events with compaction=True.
     """
-    system_content = _get_compaction_prompt(bot, channel)
+    system_content = await _get_compaction_prompt(bot, channel)
     transcript = "\n".join(
         f"[{m['role'].upper()}]: {m['content']}" for m in memory_phase_messages
     )

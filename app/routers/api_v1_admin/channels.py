@@ -121,6 +121,7 @@ class HeartbeatConfigOut(BaseModel):
     model: str = ""
     model_provider_id: Optional[str] = None
     prompt: str = ""
+    prompt_template_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
     trigger_response: bool = False
     quiet_start: Optional[str] = None
@@ -137,7 +138,8 @@ class HeartbeatConfigOut(BaseModel):
     def from_orm_heartbeat(cls, hb: ChannelHeartbeat) -> "HeartbeatConfigOut":
         data = {c: getattr(hb, c) for c in [
             "id", "channel_id", "enabled", "interval_minutes", "model",
-            "model_provider_id", "prompt", "dispatch_results", "trigger_response",
+            "model_provider_id", "prompt", "prompt_template_id",
+            "dispatch_results", "trigger_response",
             "timezone", "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -168,6 +170,7 @@ class HeartbeatUpdate(BaseModel):
     model: str = ""
     model_provider_id: Optional[str] = None
     prompt: str = ""
+    prompt_template_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
     trigger_response: bool = False
     quiet_start: Optional[str] = None  # "HH:MM" or null
@@ -270,6 +273,7 @@ class ChannelSettingsOut(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -289,6 +293,9 @@ class ChannelSettingsOut(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    # Workspace overrides (null = inherit from workspace)
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 
@@ -304,6 +311,7 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -323,6 +331,9 @@ class ChannelSettingsUpdate(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    # Workspace overrides (null = inherit from workspace)
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +662,7 @@ async def admin_channel_heartbeat_update(
     heartbeat.model = body.model.strip()
     heartbeat.model_provider_id = body.model_provider_id.strip() if body.model_provider_id else None
     heartbeat.prompt = body.prompt.strip()
+    heartbeat.prompt_template_id = body.prompt_template_id
     heartbeat.dispatch_results = body.dispatch_results
     heartbeat.trigger_response = body.trigger_response
     heartbeat.updated_at = now

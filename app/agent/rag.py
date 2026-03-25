@@ -20,11 +20,13 @@ async def retrieve_context(
     query: str,
     skill_ids: list[str] | None = None,
     similarity_threshold: float | None = None,
+    sources: list[str] | None = None,
 ) -> tuple[list[str], float]:
     """Retrieve relevant skill chunks via pgvector cosine similarity search.
 
-    If skill_ids is provided, only search those skills.
-    If skill_ids is None, search all skill documents.
+    If skill_ids is provided, only search those skills (source = "skill:{id}").
+    If sources is provided, filter by exact source values (overrides skill_ids).
+    If neither, search all skill documents.
     If similarity_threshold is provided, use it instead of RAG_SIMILARITY_THRESHOLD.
     """
     threshold = similarity_threshold if similarity_threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
@@ -41,16 +43,25 @@ async def retrieve_context(
 
     distance_expr = Document.embedding.cosine_distance(query_embedding)
 
-    stmt = (
-        select(Document.content, distance_expr.label("distance"))
-        .where(Document.source.like("skill:%"))
-        .order_by(distance_expr)
-        .limit(settings.RAG_TOP_K)
-    )
+    if sources:
+        # Use explicit source list (for workspace skills, etc.)
+        stmt = (
+            select(Document.content, distance_expr.label("distance"))
+            .where(Document.source.in_(sources))
+            .order_by(distance_expr)
+            .limit(settings.RAG_TOP_K)
+        )
+    else:
+        stmt = (
+            select(Document.content, distance_expr.label("distance"))
+            .where(Document.source.like("skill:%"))
+            .order_by(distance_expr)
+            .limit(settings.RAG_TOP_K)
+        )
 
-    if skill_ids:
-        skill_sources = [f"skill:{sid}" for sid in skill_ids]
-        stmt = stmt.where(Document.source.in_(skill_sources))
+        if skill_ids:
+            skill_sources = [f"skill:{sid}" for sid in skill_ids]
+            stmt = stmt.where(Document.source.in_(skill_sources))
 
     try:
         async with async_session() as db:

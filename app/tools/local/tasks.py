@@ -141,6 +141,8 @@ async def create_task(
         dispatch_config["reply_in_thread"] = reply_in_thread
 
     callback_cfg = {"trigger_rag_loop": True} if trigger_rag_loop else None
+    # If recurrence is set, create as an active schedule template
+    initial_status = "active" if recurrence else "pending"
     task = Task(
         bot_id=effective_bot_id,
         client_id=effective_client_id,
@@ -148,7 +150,7 @@ async def create_task(
         channel_id=effective_channel_id,
         prompt=prompt,
         scheduled_at=scheduled,
-        status="pending",
+        status=initial_status,
         task_type="scheduled",
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
@@ -211,7 +213,7 @@ async def list_my_tasks(include_completed: bool = False) -> str:
             scope_filters.append(Task.session_id == session_id)
         conditions = [_or(*scope_filters)]
         if not include_completed:
-            conditions.append(Task.status.in_(["pending", "running"]))
+            conditions.append(Task.status.in_(["pending", "running", "active"]))
         stmt = (
             select(Task)
             .where(_and(*conditions))
@@ -221,18 +223,22 @@ async def list_my_tasks(include_completed: bool = False) -> str:
         tasks = list((await db.execute(stmt)).scalars().all())
 
     if not tasks:
-        label = "No tasks found for this session." if include_completed else "No pending/running tasks found."
+        label = "No tasks found for this session." if include_completed else "No pending/running/active tasks found."
         return label
 
     lines = []
     for t in tasks:
         scheduled = t.scheduled_at.strftime("%Y-%m-%d %H:%M UTC") if t.scheduled_at else "immediately"
-        recur = f" recurrence={t.recurrence}" if t.recurrence else ""
+        if t.status == "active" and t.recurrence:
+            status_label = f"active, recurs {t.recurrence}, {t.run_count} runs"
+        else:
+            status_label = t.status
+        recur = f" recurrence={t.recurrence}" if t.recurrence and t.status != "active" else ""
         result_preview = ""
         if t.result:
             result_preview = " | result: " + (t.result[:80] + "..." if len(t.result) > 80 else t.result)
         lines.append(
-            f"- {t.id} [{t.status}] bot={t.bot_id} scheduled={scheduled}{recur}{result_preview}"
+            f"- {t.id} [{status_label}] bot={t.bot_id} scheduled={scheduled}{recur}{result_preview}"
         )
     return "Tasks:\n" + "\n".join(lines)
 
@@ -287,8 +293,8 @@ async def get_task(task_id: str) -> str:
     "function": {
         "name": "cancel_task",
         "description": (
-            "Cancel a pending task so it will not run. "
-            "Only works on tasks with status=pending. "
+            "Cancel a pending task or active recurring schedule so it will not run. "
+            "Works on tasks with status=pending or status=active (recurring schedules). "
             "Use list_my_tasks to find the task ID first."
         ),
         "parameters": {
@@ -313,13 +319,15 @@ async def cancel_task(task_id: str) -> str:
         task = await db.get(Task, tid)
         if not task:
             return json.dumps({"error": f"Task {task_id} not found."})
-        if task.status != "pending":
-            return json.dumps({"error": f"Task is {task.status}, can only cancel pending tasks."})
+        if task.status not in ("pending", "active"):
+            return json.dumps({"error": f"Task is {task.status}, can only cancel pending or active tasks."})
+        was_schedule = task.status == "active"
         task.status = "cancelled"
         task.completed_at = datetime.now(timezone.utc)
         await db.commit()
 
-    return f"Task {task_id} cancelled."
+    label = "Schedule" if was_schedule else "Task"
+    return f"{label} {task_id} cancelled."
 
 
 @register({
@@ -388,8 +396,8 @@ async def reschedule_task(
         task = await db.get(Task, tid)
         if not task:
             return json.dumps({"error": f"Task {task_id} not found."})
-        if task.status != "pending":
-            return json.dumps({"error": f"Task is {task.status}, can only reschedule pending tasks."})
+        if task.status not in ("pending", "active"):
+            return json.dumps({"error": f"Task is {task.status}, can only reschedule pending or active tasks."})
 
         changes: list[str] = []
         if scheduled_at is not _UNSET:

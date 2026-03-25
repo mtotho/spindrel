@@ -158,6 +158,7 @@ export interface ChannelSettings {
   compaction_interval?: number;
   compaction_keep_turns?: number;
   memory_knowledge_compaction_prompt?: string;
+  compaction_prompt_template_id?: string | null;
   context_compression?: boolean;
   compression_model?: string;
   compression_threshold?: number;
@@ -177,6 +178,9 @@ export interface ChannelSettings {
   pinned_tools_override?: string[] | null;
   skills_override?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   skills_disabled?: string[] | null;
+  // Workspace overrides
+  workspace_skills_enabled?: boolean | null;
+  workspace_base_prompt_enabled?: boolean | null;
 }
 
 export interface EffectiveTools {
@@ -394,6 +398,8 @@ export interface SharedWorkspace {
   docker_user?: string | null;
   read_only_root: boolean;
   startup_script?: string | null;
+  workspace_skills_enabled: boolean;
+  workspace_base_prompt_enabled: boolean;
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -418,6 +424,8 @@ export interface WorkspaceCreate {
   docker_user?: string;
   read_only_root?: boolean;
   startup_script?: string;
+  workspace_skills_enabled?: boolean;
+  workspace_base_prompt_enabled?: boolean;
   created_by_user_id?: string;
 }
 
@@ -434,6 +442,8 @@ export interface WorkspaceUpdate {
   docker_user?: string;
   read_only_root?: boolean;
   startup_script?: string;
+  workspace_skills_enabled?: boolean;
+  workspace_base_prompt_enabled?: boolean;
 }
 
 export interface WorkspaceFileEntry {

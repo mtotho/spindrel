@@ -269,6 +269,75 @@ async def assemble_context(
                         data={"skill_ids": [r.id for r in _rows]},
                     ))
 
+    # --- workspace skills ---
+    if bot.shared_workspace_id and channel_id is not None:
+        from sqlalchemy import select as _ws_select
+        from app.db.engine import async_session as _ws_async_session
+        from app.db.models import Channel as _WsChannel, SharedWorkspace as _WsSharedWorkspace, SharedWorkspaceBot as _WsSWBot
+        from app.services.workspace_skills import get_workspace_skills_for_bot, SOURCE_PREFIX
+        _ws_skills_enabled = False
+        async with _ws_async_session() as _wsdb:
+            _ws_ch = await _wsdb.get(_WsChannel, channel_id)
+            if _ws_ch is not None:
+                if _ws_ch.workspace_skills_enabled is not None:
+                    _ws_skills_enabled = _ws_ch.workspace_skills_enabled
+                else:
+                    _ws_swb = (await _wsdb.execute(
+                        _ws_select(_WsSWBot)
+                        .where(_WsSWBot.bot_id == bot.id)
+                    )).scalar_one_or_none()
+                    if _ws_swb:
+                        _ws_row = await _wsdb.get(_WsSharedWorkspace, _ws_swb.workspace_id)
+                        if _ws_row:
+                            _ws_skills_enabled = _ws_row.workspace_skills_enabled
+
+        if _ws_skills_enabled:
+            _ws_skills = await get_workspace_skills_for_bot(bot.shared_workspace_id, bot.id)
+
+            # Pinned workspace skills: inject full content
+            if _ws_skills["pinned"]:
+                _ws_pinned_content = "\n\n---\n\n".join(s.content for s in _ws_skills["pinned"])
+                _ws_pinned_chars = len(_ws_pinned_content)
+                _inject_chars["ws_skill_pinned"] = _ws_pinned_chars
+                messages.append({
+                    "role": "system",
+                    "content": f"Workspace pinned skills:\n\n{_ws_pinned_content}",
+                })
+                yield {"type": "ws_skill_pinned_context", "count": len(_ws_skills["pinned"]), "chars": _ws_pinned_chars}
+
+            # RAG workspace skills: query from documents table
+            if _ws_skills["rag"]:
+                _ws_rag_sources = [
+                    f"{SOURCE_PREFIX}:{bot.shared_workspace_id}:{s.source_path}"
+                    for s in _ws_skills["rag"]
+                ]
+                from app.agent.rag import retrieve_context as _ws_retrieve
+                _ws_rag_chunks, _ws_rag_sim = await _ws_retrieve(
+                    user_message, sources=_ws_rag_sources,
+                )
+                if _ws_rag_chunks:
+                    _ws_rag_chars = sum(len(c) for c in _ws_rag_chunks)
+                    _inject_chars["ws_skill_rag"] = _ws_rag_chars
+                    messages.append({
+                        "role": "system",
+                        "content": f"Relevant workspace skills:\n\n" + "\n\n---\n\n".join(_ws_rag_chunks),
+                    })
+                    yield {"type": "ws_skill_rag_context", "count": len(_ws_rag_chunks), "chars": _ws_rag_chars}
+
+            # On-demand workspace skills: inject index
+            if _ws_skills["on_demand"]:
+                _ws_od_lines = "\n".join(
+                    f"- {s.skill_id}: {s.display_name} ({s.source_path})"
+                    for s in _ws_skills["on_demand"]
+                )
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        f"Available workspace skills (use get_workspace_skill to retrieve full content):\n{_ws_od_lines}"
+                    ),
+                })
+                yield {"type": "ws_skill_index", "count": len(_ws_skills["on_demand"])}
+
     # --- delegate bot index ---
     _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))
     if _all_delegate_ids:

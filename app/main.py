@@ -136,6 +136,14 @@ async def lifespan(app: FastAPI):
                 await shared_workspace_service.ensure_container(_sw)
             except Exception:
                 logger.warning("Failed to auto-start shared workspace %s", _sw.name)
+    # Embed workspace skills for all workspaces
+    from app.services.workspace_skills import embed_workspace_skills as _embed_ws_skills
+    for _sw in _sw_rows:
+        if _sw.workspace_skills_enabled:
+            try:
+                await _embed_ws_skills(str(_sw.id))
+            except Exception:
+                logger.warning("Failed to embed workspace skills for %s", _sw.name)
     # Index filesystem directories + start watchers in background (doesn't block startup)
     asyncio.create_task(_index_filesystems_and_start_watchers())
 

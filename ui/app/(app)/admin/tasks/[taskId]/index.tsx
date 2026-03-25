@@ -14,6 +14,7 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
 const STATUS_OPTIONS = [
   { label: "Pending", value: "pending" },
+  { label: "Active (Schedule)", value: "active" },
   { label: "Running", value: "running" },
   { label: "Complete", value: "complete" },
   { label: "Failed", value: "failed" },
@@ -318,7 +319,10 @@ export default function TaskDetailScreen() {
         </button>
         <EnableToggle
           enabled={status !== "cancelled"}
-          onChange={(on) => setStatus(on ? "pending" : "cancelled")}
+          onChange={(on) => {
+            const isSchedule = !!recurrence;
+            setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
+          }}
           compact={!isWide}
         />
         <button
@@ -450,6 +454,9 @@ export default function TaskDetailScreen() {
                   <InfoRow label="Run At" value={fmtDatetime(task.run_at)} />
                   <InfoRow label="Completed" value={fmtDatetime(task.completed_at)} />
                   <InfoRow label="Retry Count" value={String(task.retry_count)} />
+                  {task.run_count > 0 && (
+                    <InfoRow label="Run Count" value={String(task.run_count)} />
+                  )}
                 </div>
               </Section>
             )}

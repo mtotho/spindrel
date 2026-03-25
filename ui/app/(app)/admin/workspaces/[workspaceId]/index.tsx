@@ -709,6 +709,8 @@ export default function WorkspaceDetailScreen() {
   const [dockerUser, setDockerUser] = useState("");
   const [readOnlyRoot, setReadOnlyRoot] = useState(false);
   const [startupScript, setStartupScript] = useState("/workspace/startup.sh");
+  const [skillsEnabled, setSkillsEnabled] = useState(true);
+  const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {
@@ -730,6 +732,8 @@ export default function WorkspaceDetailScreen() {
     setDockerUser(workspace.docker_user || "");
     setReadOnlyRoot(workspace.read_only_root || false);
     setStartupScript(workspace.startup_script ?? "/workspace/startup.sh");
+    setSkillsEnabled(workspace.workspace_skills_enabled ?? true);
+    setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
     setInitialized(true);
   }
 
@@ -754,6 +758,8 @@ export default function WorkspaceDetailScreen() {
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
         startup_script: startupScript || undefined,
+        workspace_skills_enabled: skillsEnabled,
+        workspace_base_prompt_enabled: basePromptEnabled,
       });
       goBack();
     } else {
@@ -773,13 +779,15 @@ export default function WorkspaceDetailScreen() {
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
         startup_script: startupScript || undefined,
+        workspace_skills_enabled: skillsEnabled,
+        workspace_base_prompt_enabled: basePromptEnabled,
       });
       // Update snapshot so dirty tracking resets
       savedSnapshot.current = currentSnapshot;
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -790,8 +798,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -1142,6 +1150,63 @@ export default function WorkspaceDetailScreen() {
               >
                 <Plus size={12} /> Add Mount
               </button>
+            </div>
+          </Section>
+
+          {/* Workspace Skills */}
+          <Section title="Workspace Skills" description="Auto-discover skill .md files from workspace filesystem and inject into bot context.">
+            <FormRow label="Enable workspace skills injection">
+              <Toggle value={skillsEnabled} onValueChange={setSkillsEnabled} />
+            </FormRow>
+            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>Directory conventions:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span><code style={{ color: "#93c5fd" }}>common/skills/pinned/*.md</code> — injected into every request</span>
+                <span><code style={{ color: "#93c5fd" }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
+                <span><code style={{ color: "#93c5fd" }}>common/skills/on-demand/*.md</code> — available via tool call</span>
+                <span><code style={{ color: "#93c5fd" }}>common/skills/*.md</code> — top-level defaults to pinned</span>
+                <span style={{ marginTop: 4 }}><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
+              </div>
+            </div>
+            {!isNew && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                <button
+                  onClick={async () => {
+                    try {
+                      const resp = await fetch(
+                        `${process.env.EXPO_PUBLIC_API_URL || ""}/api/v1/workspaces/${workspaceId}/reindex-skills`,
+                        { method: "POST", headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_API_KEY || ""}` } },
+                      );
+                      const data = await resp.json();
+                      alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
+                    } catch (e) {
+                      alert("Failed to reindex skills");
+                    }
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                    border: "1px solid #333", borderRadius: 5,
+                    background: "transparent", color: "#999", cursor: "pointer",
+                  }}
+                >
+                  <RefreshCw size={11} /> Reindex Skills
+                </button>
+              </div>
+            )}
+          </Section>
+
+          {/* Workspace Base Prompt */}
+          <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
+            <FormRow label="Enable workspace base prompt override">
+              <Toggle value={basePromptEnabled} onValueChange={setBasePromptEnabled} />
+            </FormRow>
+            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File conventions:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span><code style={{ color: "#93c5fd" }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
+                <span><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
+              </div>
             </div>
           </Section>
 

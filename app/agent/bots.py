@@ -148,6 +148,7 @@ class BotConfig:
     compaction_keep_turns: int | None = None
     compaction_model: str | None = None
     memory_knowledge_compaction_prompt: str | None = None # Optional prompt. Before compaction, the agent will be given this prompt to determine what memories or knowledge chunks to include.
+    compaction_prompt_template_id: str | None = None
     audio_input: str = "transcribe"  # "transcribe" or "native"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -352,6 +353,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         compaction_keep_turns=row.compaction_keep_turns,
         compaction_model=row.compaction_model,
         memory_knowledge_compaction_prompt=row.memory_knowledge_compaction_prompt,
+        compaction_prompt_template_id=str(row.compaction_prompt_template_id) if getattr(row, "compaction_prompt_template_id", None) else None,
         audio_input=row.audio_input or "transcribe",
         memory=memory_cfg,
         knowledge=knowledge_cfg,
@@ -424,6 +426,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "compaction_keep_turns": data.get("compaction_keep_turns"),
         "compaction_model": data.get("compaction_model"),
         "memory_knowledge_compaction_prompt": data.get("memory_knowledge_compaction_prompt"),
+        "compaction_prompt_template_id": data.get("compaction_prompt_template_id"),
         "audio_input": data.get("audio_input", "transcribe"),
         "memory_config": {
             "enabled": mem_data.get("enabled", False),

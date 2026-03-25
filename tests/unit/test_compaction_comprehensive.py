@@ -79,35 +79,41 @@ def _mock_llm_response(content):
 # ===================================================================
 
 class TestGetCompactionPrompt:
-    def test_channel_override(self):
+    @pytest.mark.asyncio
+    async def test_channel_override(self):
         bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
         ch = _make_channel(memory_knowledge_compaction_prompt="channel prompt")
-        assert _get_compaction_prompt(bot, ch) == "channel prompt"
+        assert await _get_compaction_prompt(bot, ch) == "channel prompt"
 
-    def test_bot_override(self):
+    @pytest.mark.asyncio
+    async def test_bot_override(self):
         bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
-        assert _get_compaction_prompt(bot) == "bot prompt"
+        assert await _get_compaction_prompt(bot) == "bot prompt"
 
-    def test_fallback_to_settings(self):
+    @pytest.mark.asyncio
+    async def test_fallback_to_settings(self):
         bot = _make_bot(memory_knowledge_compaction_prompt=None)
         from app.config import settings
-        assert _get_compaction_prompt(bot) == settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT.strip()
+        assert await _get_compaction_prompt(bot) == settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT.strip()
 
-    def test_channel_none_falls_to_bot(self):
+    @pytest.mark.asyncio
+    async def test_channel_none_falls_to_bot(self):
         bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
         ch = _make_channel(memory_knowledge_compaction_prompt=None)
-        assert _get_compaction_prompt(bot, ch) == "bot prompt"
+        assert await _get_compaction_prompt(bot, ch) == "bot prompt"
 
-    def test_channel_empty_string_is_falsy(self):
+    @pytest.mark.asyncio
+    async def test_channel_empty_string_is_falsy(self):
         """Empty string channel prompt falls through to bot/settings."""
         bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
         ch = _make_channel(memory_knowledge_compaction_prompt="")
         # Empty string is falsy, so should fall through
-        assert _get_compaction_prompt(bot, ch) == "bot prompt"
+        assert await _get_compaction_prompt(bot, ch) == "bot prompt"
 
-    def test_strips_whitespace(self):
+    @pytest.mark.asyncio
+    async def test_strips_whitespace(self):
         bot = _make_bot(memory_knowledge_compaction_prompt="  trimmed  \n")
-        assert _get_compaction_prompt(bot) == "trimmed"
+        assert await _get_compaction_prompt(bot) == "trimmed"
 
 
 # ===================================================================

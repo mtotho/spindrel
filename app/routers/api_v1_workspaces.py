@@ -51,6 +51,8 @@ class WorkspaceUpdate(BaseModel):
     docker_user: Optional[str] = None
     read_only_root: Optional[bool] = None
     startup_script: Optional[str] = None
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -67,6 +69,8 @@ class WorkspaceOut(BaseModel):
     docker_user: Optional[str]
     read_only_root: bool
     startup_script: Optional[str]
+    workspace_skills_enabled: bool = True
+    workspace_base_prompt_enabled: bool = True
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -120,6 +124,8 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         docker_user=ws.docker_user,
         read_only_root=ws.read_only_root,
         startup_script=ws.startup_script,
+        workspace_skills_enabled=ws.workspace_skills_enabled,
+        workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -208,7 +214,8 @@ async def update_workspace(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     for field in ("name", "description", "image", "network", "env", "ports", "mounts",
-                  "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script"):
+                  "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script",
+                  "workspace_skills_enabled", "workspace_base_prompt_enabled"):
         val = getattr(body, field, None)
         if val is not None:
             if isinstance(val, str):
@@ -545,3 +552,37 @@ async def reindex_workspace(
             results[swb.bot_id] = {"error": str(exc)}
 
     return {"results": results}
+
+
+@router.post("/{workspace_id}/reindex-skills")
+async def reindex_workspace_skills(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Re-discover and re-embed workspace skill .md files."""
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+
+    from app.services.workspace_skills import embed_workspace_skills
+    stats = await embed_workspace_skills(workspace_id)
+    return stats
+
+
+@router.get("/{workspace_id}/skills")
+async def list_workspace_skills(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List discovered workspace skill files with metadata."""
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+
+    from app.services.workspace_skills import list_workspace_skill_files
+    skills = await list_workspace_skill_files(workspace_id)
+    return {"skills": skills}

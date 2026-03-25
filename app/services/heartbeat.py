@@ -151,8 +151,13 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         if hb.model_provider_id:
             callback_config["model_provider_id_override"] = hb.model_provider_id
 
-        # Auto-inject last heartbeat result as lightweight context
-        prompt = hb.prompt
+        # Resolve prompt from linked template (falls back to inline prompt)
+        from app.services.prompt_resolution import resolve_prompt_template
+        prompt = await resolve_prompt_template(
+            str(hb.prompt_template_id) if hb.prompt_template_id else None,
+            hb.prompt,
+            db,
+        )
         last_task_stmt = (
             select(Task)
             .where(

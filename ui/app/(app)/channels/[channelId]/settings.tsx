@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
@@ -28,6 +28,7 @@ import type { ChannelSettings, BotEditorData, ToolGroup, ContextBreakdown } from
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useChannelElevation } from "@/src/api/hooks/useElevation";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
+import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -47,7 +48,7 @@ const INTERVAL_OPTIONS = [
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
-const TABS = [
+const BASE_TABS = [
   { key: "general", label: "General" },
   { key: "context", label: "Context" },
   { key: "tools", label: "Tools" },
@@ -74,6 +75,19 @@ export default function ChannelSettingsScreen() {
   const updateMutation = useUpdateChannelSettings(channelId!);
   const { data: elevationData } = useChannelElevation(channelId);
 
+  // Check if the channel's bot is in a workspace
+  const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
+  const hasWorkspace = !!currentBot?.shared_workspace_id;
+  const TABS = useMemo(() => {
+    if (hasWorkspace) {
+      const idx = BASE_TABS.findIndex((t) => t.key === "context");
+      const tabs = [...BASE_TABS];
+      tabs.splice(idx + 1, 0, { key: "workspace", label: "Workspace" });
+      return tabs;
+    }
+    return BASE_TABS;
+  }, [hasWorkspace]);
+
   const [tab, setTab] = useState("general");
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
@@ -99,6 +113,8 @@ export default function ChannelSettingsScreen() {
         elevated_model: settings.elevated_model,
         model_override: settings.model_override,
         model_provider_id_override: settings.model_provider_id_override,
+        workspace_skills_enabled: settings.workspace_skills_enabled,
+        workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
       });
     }
   }, [settings]);
@@ -140,7 +156,7 @@ export default function ChannelSettingsScreen() {
             Channel Settings
           </Text>
         </View>
-        {tab === "general" && (
+        {(tab === "general" || tab === "workspace") && (
           <Pressable
             onPress={handleSave}
             disabled={updateMutation.isPending}
@@ -184,6 +200,17 @@ export default function ChannelSettingsScreen() {
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} />
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
+        {tab === "workspace" && (
+          <WorkspaceOverrideTab
+            form={form}
+            patch={patch}
+            workspaceId={currentBot?.shared_workspace_id}
+            channelId={channelId!}
+            onSave={handleSave}
+            saving={updateMutation.isPending}
+            saved={saved}
+          />
+        )}
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
@@ -298,11 +325,16 @@ function GeneralTab({ form, patch, bots, settings, elevationData }: {
                 </FormRow>
               </Col>
             </Row>
+            <PromptTemplateLink
+              templateId={form.compaction_prompt_template_id ?? null}
+              onLink={(id) => patch("compaction_prompt_template_id", id)}
+              onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+            />
             <LlmPrompt
               value={form.memory_knowledge_compaction_prompt ?? ""}
               onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
               label="Memory/Knowledge Compaction Prompt"
-              placeholder="Leave blank to use the global default prompt..."
+              placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
               helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
               rows={5}
             />
@@ -888,11 +920,16 @@ function HeartbeatTab({ channelId }: { channelId: string }) {
         </Row>
 
         <div style={{ marginTop: 16 }}>
+          <PromptTemplateLink
+            templateId={hbForm.prompt_template_id ?? null}
+            onLink={(id) => setHbForm((f: any) => ({ ...f, prompt_template_id: id }))}
+            onUnlink={() => setHbForm((f: any) => ({ ...f, prompt_template_id: null }))}
+          />
           <LlmPrompt
             value={hbForm.prompt ?? ""}
             onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
             label="Heartbeat Prompt"
-            placeholder="Enter the heartbeat prompt..."
+            placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
             helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
             rows={10}
           />
@@ -1142,6 +1179,92 @@ const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   bot:     { bg: "#365314", fg: "#bef264" },
   global:  { bg: "#333",    fg: "#999"    },
 };
+
+// ---------------------------------------------------------------------------
+// Workspace override tab
+// ---------------------------------------------------------------------------
+function WorkspaceOverrideTab({
+  form,
+  patch,
+  workspaceId,
+  channelId,
+  onSave,
+  saving,
+  saved,
+}: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  workspaceId?: string | null;
+  channelId: string;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+}) {
+  return (
+    <>
+      <Section title="Workspace Skills" description="Override the workspace-level skill injection setting for this channel.">
+        <FormRow label="Skills injection" description="null = inherit from workspace, on/off = override">
+          <SelectInput
+            value={form.workspace_skills_enabled === null || form.workspace_skills_enabled === undefined ? "inherit" : form.workspace_skills_enabled ? "on" : "off"}
+            options={[
+              { label: "Inherit from workspace", value: "inherit" },
+              { label: "Enabled", value: "on" },
+              { label: "Disabled", value: "off" },
+            ]}
+            onChange={(v) => patch("workspace_skills_enabled" as any, v === "inherit" ? null : v === "on")}
+          />
+        </FormRow>
+        <div style={{ fontSize: 11, color: "#666", padding: "4px 0" }}>
+          When enabled, skill .md files from the workspace filesystem are discovered and injected into the bot's context by mode (pinned/rag/on-demand).
+        </div>
+        {workspaceId && (
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={async () => {
+                try {
+                  const resp = await fetch(
+                    `${process.env.EXPO_PUBLIC_API_URL || ""}/api/v1/workspaces/${workspaceId}/reindex-skills`,
+                    { method: "POST", headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_API_KEY || ""}` } },
+                  );
+                  const data = await resp.json();
+                  alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
+                } catch (e) {
+                  alert("Failed to reindex skills");
+                }
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                border: "1px solid #333", borderRadius: 5,
+                background: "transparent", color: "#999", cursor: "pointer",
+              }}
+            >
+              <RotateCw size={11} /> Reindex Skills
+            </button>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Workspace Base Prompt" description="Override the workspace-level base prompt setting for this channel.">
+        <FormRow label="Base prompt override" description="null = inherit from workspace, on/off = override">
+          <SelectInput
+            value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
+            options={[
+              { label: "Inherit from workspace", value: "inherit" },
+              { label: "Enabled", value: "on" },
+              { label: "Disabled", value: "off" },
+            ]}
+            onChange={(v) => patch("workspace_base_prompt_enabled" as any, v === "inherit" ? null : v === "on")}
+          />
+        </FormRow>
+        <div style={{ fontSize: 11, color: "#666", padding: "4px 0" }}>
+          When enabled, <code>common/prompts/base.md</code> from the workspace replaces the global base prompt. Per-bot additions from <code>bots/&lt;bot-id&gt;/prompts/base.md</code> are concatenated after.
+        </div>
+      </Section>
+    </>
+  );
+}
+
 
 function ContextTab({ channelId }: { channelId: string }) {
   const { data, isLoading } = useChannelContextBreakdown(channelId);
