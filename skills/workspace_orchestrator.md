@@ -641,6 +641,37 @@ agent-api PUT /api/v1/admin/channels/$CHID/settings '{
 }'
 ```
 
+**Set a custom compression prompt (overrides hardcoded default for pre-turn context compression):**
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "compression_prompt": "Your custom compression prompt here..."
+}'
+```
+
+### Summarizer (Auto-Resume)
+
+When a channel has been idle for a configurable period, the summarizer auto-injects a summary of prior conversation into context before the first response. The summary is generated from raw messages (not compaction summaries).
+
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "summarizer_enabled": true,
+  "summarizer_threshold_minutes": 45,
+  "summarizer_message_count": 100,
+  "summarizer_target_size": 1000,
+  "summarizer_model": "gemini/gemini-2.5-flash",
+  "summarizer_prompt": "Focus on technical decisions and action items"
+}'
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `summarizer_enabled` | bool | false | Enable auto-summarize on resume |
+| `summarizer_threshold_minutes` | int | 45 | Idle minutes before triggering |
+| `summarizer_message_count` | int | 100 | Max messages to include in summary |
+| `summarizer_target_size` | int | 1000 | Target summary size in characters |
+| `summarizer_model` | string | inherit | LLM model for summarizer (falls back to compression model) |
+| `summarizer_prompt` | string | null | Custom focus prompt for the summarizer |
+
 **Update heartbeat config (including enable/disable and model):**
 ```sh
 agent-api PUT /api/v1/admin/channels/$CHID/heartbeat '{
@@ -858,6 +889,92 @@ agent-api DELETE /api/v1/admin/tasks/$TASK_ID
 | `trigger_rag_loop` | Yes | Yes |
 
 Use the admin API when you need prompt templates or model overrides. Use the agent tool for simple task creation within a conversation.
+
+## Agent Turns (Troubleshooting)
+
+Query recent agent turns across all bots and channels. Each turn represents one user message → agent response cycle, with full tool call details, token usage, model info, errors, and timing. Use this for troubleshooting bot behavior, monitoring activity, and diagnosing failures.
+
+```sh
+# Last 20 turns (default)
+agent-api GET /api/v1/admin/turns
+
+# Last 10 turns for a specific channel
+agent-api GET "/api/v1/admin/turns?channel_id=$CHID&count=10"
+
+# Only turns with errors
+agent-api GET "/api/v1/admin/turns?has_error=true&count=50"
+
+# Turns from a specific bot in the last hour
+agent-api GET "/api/v1/admin/turns?bot_id=coder&after=1h"
+
+# Turns with tool calls from the last 30 minutes
+agent-api GET "/api/v1/admin/turns?has_tool_calls=true&after=30m"
+
+# Search for turns mentioning a keyword
+agent-api GET "/api/v1/admin/turns?search=deploy&count=10"
+```
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `count` | int | 20 | Max turns to return (1–200) |
+| `channel_id` | UUID | — | Filter by channel |
+| `bot_id` | string | — | Filter by bot ID |
+| `after` | string | — | Only turns after this time (ISO 8601 or relative: `30m`, `2h`, `1d`) |
+| `before` | string | — | Only turns before this time (ISO 8601) |
+| `has_error` | bool | — | Filter to turns with/without errors |
+| `has_tool_calls` | bool | — | Filter to turns with/without tool calls |
+| `search` | string | — | Search in user message text |
+
+**Response:**
+```json
+{
+  "turns": [
+    {
+      "correlation_id": "uuid",
+      "created_at": "2026-03-25T14:30:00+00:00",
+      "bot_id": "coder",
+      "model": "gemini/gemini-2.5-flash",
+      "channel_id": "uuid",
+      "channel_name": "dev-chat",
+      "session_id": "uuid",
+      "user_message": "Build the API client",
+      "response_preview": "I'll start by creating...",
+      "total_tokens": 4500,
+      "prompt_tokens": 3800,
+      "completion_tokens": 700,
+      "iterations": 3,
+      "duration_ms": 12500,
+      "llm_duration_ms": 8200,
+      "has_error": false,
+      "tool_call_count": 2,
+      "tool_calls": [
+        {
+          "tool_name": "exec_sandbox",
+          "tool_type": "local",
+          "iteration": 1,
+          "duration_ms": 3200,
+          "error": null,
+          "arguments_preview": "{\"command\": \"npm init...\"}",
+          "result_preview": "Initialized project..."
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "total": 1,
+  "count": 20
+}
+```
+
+**Troubleshooting workflows:**
+- **Check for failures**: `?has_error=true&after=1h` — find all recent errors
+- **Monitor a bot**: `?bot_id=coder&count=10` — see what a bot has been doing
+- **Channel audit**: `?channel_id=$CHID&count=50` — review all activity in a channel
+- **Slow turns**: Look at `duration_ms` and `llm_duration_ms` to find bottlenecks
+- **Token burn**: Check `total_tokens` across turns to monitor cost
+- **Deep dive**: Use `correlation_id` with `GET /api/v1/admin/traces/{correlation_id}` for the full trace timeline
 
 ## Server Logs
 

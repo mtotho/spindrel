@@ -244,6 +244,7 @@ class TestResolveSegments:
             "similarity_threshold": 0.3,
             "top_k": 8,
             "watch": True,
+            "channel_id": None,
         }]
 
     def test_partial_override(self):

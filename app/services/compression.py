@@ -220,9 +220,13 @@ async def compress_context(
 
     numbered_text = "\n".join(numbered_text_lines)
 
-    # Build compression prompt
+    # Build compression prompt (channel override or hardcoded default)
+    _effective_compression_prompt = (
+        channel.compression_prompt if channel and channel.compression_prompt
+        else _COMPRESSION_PROMPT
+    )
     prompt_messages = [
-        {"role": "system", "content": _COMPRESSION_PROMPT},
+        {"role": "system", "content": _effective_compression_prompt},
         {"role": "user", "content": (
             f"User's current question: {user_message}\n\n"
             f"Conversation to summarise ({len(older)} messages):\n\n{numbered_text}"
