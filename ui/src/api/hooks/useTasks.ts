@@ -6,6 +6,7 @@ export interface TaskDetail {
   status: string;
   bot_id: string;
   prompt: string;
+  prompt_template_id?: string | null;
   result?: string | null;
   error?: string | null;
   dispatch_type: string;
@@ -18,16 +19,19 @@ export interface TaskDetail {
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
   retry_count: number;
+  run_count: number;
   created_at: string;
   scheduled_at?: string | null;
   run_at?: string | null;
   completed_at?: string | null;
+  is_schedule?: boolean;
 }
 
 export interface TaskCreatePayload {
   prompt: string;
   bot_id: string;
   channel_id?: string | null;
+  prompt_template_id?: string | null;
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
@@ -39,6 +43,7 @@ export interface TaskCreatePayload {
 export interface TaskUpdatePayload {
   prompt?: string;
   bot_id?: string;
+  prompt_template_id?: string | null;
   status?: string;
   scheduled_at?: string | null;
   recurrence?: string | null;

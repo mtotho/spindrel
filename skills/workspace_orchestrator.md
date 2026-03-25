@@ -213,11 +213,112 @@ Include `model_override` in the ChatRequest body:
 - `/model <name>` — set channel override (supports partial matching)
 - `/model clear` — clear override, revert to bot default
 
+## Workspace Skills
+
+Workspace skills are `.md` files auto-discovered from the workspace filesystem and injected into bot context. Three modes determine when/how content is injected:
+
+### Directory Conventions
+
+```
+/workspace/
+├── common/
+│   ├── prompts/
+│   │   └── base.md              ← replaces global base prompt for all workspace bots
+│   └── skills/
+│       ├── pinned/*.md          ← injected into every request (full content)
+│       ├── rag/*.md             ← retrieved by semantic similarity
+│       ├── on-demand/*.md       ← available via get_workspace_skill tool call
+│       └── *.md                 ← top-level defaults to pinned
+└── bots/
+    └── <bot-id>/
+        ├── prompts/
+        │   └── base.md          ← concatenated AFTER common base prompt (per-bot)
+        └── skills/
+            ├── pinned/*.md
+            ├── rag/*.md
+            ├── on-demand/*.md
+            └── *.md             ← top-level defaults to pinned
+```
+
+### Skill Modes
+
+| Mode | Subdirectory | Behavior |
+|------|-------------|----------|
+| **Pinned** | `pinned/` or top-level | Full content injected into every turn's system messages |
+| **RAG** | `rag/` | Chunked, embedded, and retrieved by semantic similarity to user message |
+| **On-demand** | `on-demand/` | Skill index shown; agent calls `get_workspace_skill(path)` to retrieve |
+
+### Creating Skills
+
+```sh
+# Create a pinned skill available to all bots
+cat > /workspace/common/skills/pinned/coding-standards.md << 'EOF'
+# Coding Standards
+- Use TypeScript strict mode
+- Follow ESLint config
+EOF
+
+# Create a RAG skill (retrieved when relevant)
+cat > /workspace/common/skills/rag/api-reference.md << 'EOF'
+# API Reference
+## GET /users
+Returns list of users...
+EOF
+
+# Create a bot-specific on-demand skill
+mkdir -p /workspace/bots/coder/skills/on-demand/
+cat > /workspace/bots/coder/skills/on-demand/deployment-guide.md << 'EOF'
+# Deployment Guide
+Step-by-step deployment process...
+EOF
+```
+
+### Reindexing Skills
+
+After creating or modifying workspace skill files, reindex to update embeddings:
+
+```sh
+agent-api POST /api/v1/workspaces/$WSID/reindex-skills
+# Returns: {"total": 5, "embedded": 2, "unchanged": 3, "errors": 0}
+```
+
+### Listing Discovered Skills
+
+```sh
+agent-api GET /api/v1/workspaces/$WSID/skills
+# Returns: {"skills": [{"skill_id": "ws:...", "source_path": "common/skills/pinned/coding.md", "mode": "pinned", ...}]}
+```
+
+## Workspace Base Prompt Override
+
+Replace the global base prompt with workspace-specific content:
+
+- **`common/prompts/base.md`** — replaces the global base prompt for all workspace bots
+- **`bots/<bot-id>/prompts/base.md`** — concatenated after common (per-bot additions)
+
+If `common/prompts/base.md` doesn't exist, the global base prompt is used as fallback.
+
+### Config Inheritance
+
+- **Workspace level**: `workspace_skills_enabled` and `workspace_base_prompt_enabled` (default: true)
+- **Channel level**: `workspace_skills_enabled` and `workspace_base_prompt_enabled` (null = inherit from workspace)
+
+```sh
+# Update workspace settings
+agent-api PUT /api/v1/workspaces/$WSID '{"workspace_skills_enabled": true, "workspace_base_prompt_enabled": true}'
+
+# Override at channel level
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{"workspace_skills_enabled": false}'
+```
+
 ## Orchestrator Checklist
 
 - [ ] Workspace container is running (`GET /workspaces/{id}/status`)
 - [ ] All needed member bots are added (`GET /workspaces/{id}` — check `bots` array)
 - [ ] Shared resources placed in `/workspace/common/` before delegating
+- [ ] Workspace skills created in `common/skills/` or `bots/<id>/skills/` as needed
+- [ ] Skills reindexed after modifications (`POST /workspaces/{id}/reindex-skills`)
+- [ ] Base prompt customized if needed (`common/prompts/base.md`)
 - [ ] Member bots given clear, self-contained prompts (they can't see your context)
 - [ ] Polling deferred tasks to completion before reporting results
 - [ ] Collecting outputs from `/workspace/bots/{bot_id}/` after members finish

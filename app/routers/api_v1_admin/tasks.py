@@ -26,6 +26,7 @@ class TaskDetailOut(BaseModel):
     status: str
     bot_id: str
     prompt: str
+    prompt_template_id: Optional[uuid.UUID] = None
     result: Optional[str] = None
     error: Optional[str] = None
     dispatch_type: str = "none"
@@ -38,6 +39,7 @@ class TaskDetailOut(BaseModel):
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
     retry_count: int = 0
+    run_count: int = 0
     created_at: datetime
     scheduled_at: Optional[datetime] = None
     run_at: Optional[datetime] = None
@@ -50,6 +52,7 @@ class TaskCreateIn(BaseModel):
     prompt: str
     bot_id: str
     channel_id: Optional[uuid.UUID] = None
+    prompt_template_id: Optional[uuid.UUID] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
     task_type: str = "scheduled"
@@ -61,6 +64,7 @@ class TaskCreateIn(BaseModel):
 class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
     bot_id: Optional[str] = None
+    prompt_template_id: Optional[uuid.UUID] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
@@ -87,22 +91,33 @@ async def admin_list_tasks(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """List tasks with optional filters. `after`/`before` are ISO datetime strings filtering on scheduled_at or created_at."""
-    stmt = select(Task).order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
-    count_stmt = select(func.count()).select_from(Task)
+    """List tasks with optional filters. `after`/`before` are ISO datetime strings filtering on scheduled_at or created_at.
 
-    if status:
+    Returns both concrete tasks (filtered by date range) and active schedule templates
+    (always returned, not filtered by date range — the frontend expands them into virtual entries).
+    """
+    # Concrete tasks query (excludes active schedule templates)
+    stmt = select(Task).where(Task.status != "active").order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
+    count_stmt = select(func.count()).select_from(Task).where(Task.status != "active")
+
+    # Schedule templates query (always returned)
+    sched_stmt = select(Task).where(Task.status == "active", Task.recurrence.isnot(None))
+
+    if status and status != "active":
         stmt = stmt.where(Task.status == status)
         count_stmt = count_stmt.where(Task.status == status)
     if bot_id:
         stmt = stmt.where(Task.bot_id == bot_id)
         count_stmt = count_stmt.where(Task.bot_id == bot_id)
+        sched_stmt = sched_stmt.where(Task.bot_id == bot_id)
     if channel_id:
         stmt = stmt.where(Task.channel_id == channel_id)
         count_stmt = count_stmt.where(Task.channel_id == channel_id)
+        sched_stmt = sched_stmt.where(Task.channel_id == channel_id)
     if task_type:
         stmt = stmt.where(Task.task_type == task_type)
         count_stmt = count_stmt.where(Task.task_type == task_type)
+        sched_stmt = sched_stmt.where(Task.task_type == task_type)
     if after:
         from datetime import datetime as dt
         after_dt = dt.fromisoformat(after)
@@ -118,27 +133,31 @@ async def admin_list_tasks(
 
     total = (await db.execute(count_stmt)).scalar_one()
     tasks = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
+    schedules = (await db.execute(sched_stmt)).scalars().all()
+
+    def _task_dict(t: Task) -> dict:
+        return {
+            "id": str(t.id),
+            "status": t.status,
+            "bot_id": t.bot_id,
+            "prompt": t.prompt,
+            "result": t.result[:500] if t.result else None,
+            "error": t.error,
+            "dispatch_type": t.dispatch_type,
+            "task_type": t.task_type,
+            "recurrence": t.recurrence,
+            "run_count": t.run_count,
+            "channel_id": str(t.channel_id) if t.channel_id else None,
+            "parent_task_id": str(t.parent_task_id) if t.parent_task_id else None,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
+            "run_at": t.run_at.isoformat() if t.run_at else None,
+            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+        }
 
     return {
-        "tasks": [
-            {
-                "id": str(t.id),
-                "status": t.status,
-                "bot_id": t.bot_id,
-                "prompt": t.prompt,
-                "result": t.result[:500] if t.result else None,
-                "error": t.error,
-                "dispatch_type": t.dispatch_type,
-                "task_type": t.task_type,
-                "recurrence": t.recurrence,
-                "channel_id": str(t.channel_id) if t.channel_id else None,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-                "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
-                "run_at": t.run_at.isoformat() if t.run_at else None,
-                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-            }
-            for t in tasks
-        ],
+        "tasks": [_task_dict(t) for t in tasks],
+        "schedules": [_task_dict(s) for s in schedules],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -200,10 +219,14 @@ async def admin_create_task(
     if extras:
         callback_config = extras
 
+    # If recurrence is set, create as an active schedule template
+    initial_status = "active" if body.recurrence else "pending"
+
     task = Task(
         bot_id=body.bot_id,
         prompt=body.prompt,
-        status="pending",
+        prompt_template_id=body.prompt_template_id,
+        status=initial_status,
         task_type=body.task_type,
         scheduled_at=scheduled,
         recurrence=body.recurrence,
@@ -236,6 +259,8 @@ async def admin_update_task(
 
     if body.prompt is not None:
         task.prompt = body.prompt
+    if body.prompt_template_id is not None:
+        task.prompt_template_id = body.prompt_template_id
     if body.bot_id is not None:
         task.bot_id = body.bot_id
     if body.status is not None:

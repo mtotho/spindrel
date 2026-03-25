@@ -6,6 +6,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { FormRow, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
@@ -33,6 +34,7 @@ function fmtDatetime(iso: string | null | undefined) {
 // ---------------------------------------------------------------------------
 const STATUS_OPTIONS = [
   { label: "Pending", value: "pending" },
+  { label: "Active (Schedule)", value: "active" },
   { label: "Running", value: "running" },
   { label: "Complete", value: "complete" },
   { label: "Failed", value: "failed" },
@@ -264,6 +266,7 @@ export function TaskEditor({
 
   // Form state
   const [prompt, setPrompt] = useState("");
+  const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [status, setStatus] = useState("pending");
@@ -277,6 +280,7 @@ export function TaskEditor({
   // Populate form when existing task loads (edit mode)
   if (!isCreate && !cloneFromId && existingTask && !initialized) {
     setPrompt(existingTask.prompt || "");
+    setPromptTemplateId(existingTask.prompt_template_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setStatus(existingTask.status || "pending");
@@ -291,6 +295,7 @@ export function TaskEditor({
   // Populate form when cloning
   if (isCreate && cloneFromId && existingTask && !initialized) {
     setPrompt(existingTask.prompt || "");
+    setPromptTemplateId(existingTask.prompt_template_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setTaskType(existingTask.task_type || "scheduled");
@@ -324,6 +329,7 @@ export function TaskEditor({
       if (isCreate) {
         await createMut.mutateAsync({
           prompt,
+          prompt_template_id: promptTemplateId,
           bot_id: botId,
           channel_id: channelId || null,
           scheduled_at: scheduledAt || null,
@@ -335,6 +341,7 @@ export function TaskEditor({
       } else {
         await updateMut.mutateAsync({
           prompt,
+          prompt_template_id: promptTemplateId,
           bot_id: botId,
           status,
           scheduled_at: scheduledAt || null,
@@ -445,7 +452,11 @@ export function TaskEditor({
         {!isCreate && (
           <EnableToggle
             enabled={status !== "cancelled"}
-            onChange={(on) => setStatus(on ? "pending" : "cancelled")}
+            onChange={(on) => {
+              // For schedules (has recurrence), toggle between active and cancelled
+              const isSchedule = !!recurrence;
+              setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
+            }}
             compact={!isWide}
           />
         )}
@@ -486,11 +497,16 @@ export function TaskEditor({
             display: "flex", flexDirection: "column",
           }}>
             <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              <PromptTemplateLink
+                templateId={promptTemplateId}
+                onLink={(id) => setPromptTemplateId(id)}
+                onUnlink={() => setPromptTemplateId(null)}
+              />
               <LlmPrompt
                 value={prompt}
                 onChange={setPrompt}
                 label="Prompt"
-                placeholder="Task prompt... (type @ for autocomplete)"
+                placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
                 rows={isWide ? 12 : 6}
               />
 
@@ -598,6 +614,9 @@ export function TaskEditor({
                     <InfoRow label="Run At" value={fmtDatetime(existingTask.run_at)} />
                     <InfoRow label="Completed" value={fmtDatetime(existingTask.completed_at)} />
                     <InfoRow label="Retry Count" value={String(existingTask.retry_count)} />
+                    {existingTask.run_count > 0 && (
+                      <InfoRow label="Run Count" value={String(existingTask.run_count)} />
+                    )}
                   </div>
                 </Section>
               )}

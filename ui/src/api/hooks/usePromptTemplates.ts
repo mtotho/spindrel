@@ -23,11 +23,13 @@ export function useCreatePromptTemplate() {
   return useMutation({
     mutationFn: (data: {
       name: string;
-      content: string;
+      content?: string;
       description?: string;
       category?: string;
       tags?: string[];
       workspace_id?: string;
+      source_type?: string;
+      source_path?: string;
     }) =>
       apiFetch<PromptTemplate>("/api/v1/prompt-templates", {
         method: "POST",
@@ -49,6 +51,8 @@ export function useUpdatePromptTemplate(id: string | undefined) {
       category?: string;
       tags?: string[];
       workspace_id?: string | null;
+      source_type?: string;
+      source_path?: string;
     }) =>
       apiFetch<PromptTemplate>(`/api/v1/prompt-templates/${id}`, {
         method: "PUT",

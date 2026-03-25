@@ -20,15 +20,20 @@ interface TaskItem {
   dispatch_type: string;
   task_type?: string;
   recurrence?: string;
+  run_count?: number;
   channel_id?: string;
+  parent_task_id?: string;
   created_at?: string;
   scheduled_at?: string;
   run_at?: string;
   completed_at?: string;
+  is_schedule?: boolean;
+  is_virtual?: boolean;
 }
 
 interface TasksResponse {
   tasks: TaskItem[];
+  schedules: TaskItem[];
   total: number;
 }
 
@@ -68,7 +73,17 @@ const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any }> = {
   running: { bg: "#1e3a5f", fg: "#93c5fd", icon: Loader2 },
   complete: { bg: "#166534", fg: "#86efac", icon: CheckCircle2 },
   failed: { bg: "#7f1d1d", fg: "#fca5a5", icon: AlertCircle },
+  active: { bg: "#92400e", fg: "#fcd34d", icon: RefreshCw },
+  upcoming: { bg: "#1a1a2e", fg: "#555", icon: Clock },
 };
+
+// Parse recurrence interval like "+1d", "+2h" into milliseconds
+const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+function parseRecurrenceMs(recurrence: string): number | null {
+  const m = recurrence.match(/^\+(\d+)([smhd])$/);
+  if (!m) return null;
+  return parseInt(m[1]) * (UNIT_MS[m[2]] || 0);
+}
 
 function startOfDay(d: Date) {
   const r = new Date(d);
@@ -184,6 +199,7 @@ function TaskCard({
   task: TaskItem; isPast: boolean; onPress: () => void; style?: React.CSSProperties;
 }) {
   const [hovered, setHovered] = useState(false);
+  const isVirtual = task.is_virtual;
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const isRecurring = !!task.recurrence;
@@ -191,24 +207,29 @@ function TaskCard({
 
   return (
     <div
-      onClick={onPress}
+      onClick={isVirtual ? undefined : onPress}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         padding: "8px 12px", borderRadius: 8,
-        background: hovered ? "#222" : isPast ? "#111" : "#1a1a1a",
-        border: `1px solid ${hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
-        opacity: isPast && !hovered ? 0.5 : 1,
+        background: isVirtual
+          ? (hovered ? "#151520" : "#0e0e18")
+          : (hovered ? "#222" : isPast ? "#111" : "#1a1a1a"),
+        border: `1px solid ${isVirtual ? "#1a1a2e" : hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
+        borderStyle: isVirtual ? "dashed" : "solid",
+        opacity: isVirtual ? 0.6 : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
-        cursor: "pointer",
-        boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
+        cursor: isVirtual ? "default" : "pointer",
+        boxShadow: hovered && !isVirtual ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
         zIndex: hovered ? 100 : undefined,
         ...extraStyle,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon size={13} color={s.fg} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: s.fg }}>{task.status}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: s.fg }}>
+          {isVirtual ? "upcoming" : task.status}
+        </span>
 
         {task.task_type && <TypeBadge type={task.task_type} />}
 
@@ -223,6 +244,12 @@ function TaskCard({
           </span>
         )}
 
+        {task.run_count != null && task.run_count > 0 && task.status === "active" && (
+          <span style={{ fontSize: 10, color: "#666" }}>
+            {task.run_count} runs
+          </span>
+        )}
+
         <span style={{ fontSize: 11, color: "#555", marginLeft: "auto" }}>
           {time ? fmtTime(time) : "\u2014"}
         </span>
@@ -233,7 +260,7 @@ function TaskCard({
       </div>
       {task.prompt && (
         <div style={{
-          fontSize: 11, color: isPast ? "#555" : "#888", marginTop: 4,
+          fontSize: 11, color: isVirtual ? "#444" : isPast ? "#555" : "#888", marginTop: 4,
           whiteSpace: "pre-wrap", maxHeight: 40, overflow: "hidden",
         }}>
           {task.prompt.substring(0, 150)}{task.prompt.length > 150 ? "..." : ""}
@@ -348,12 +375,74 @@ export default function TasksScreen() {
       const d = addDays(baseDate, i);
       map[d.toDateString()] = [];
     }
+    // Add concrete tasks
     for (const t of data?.tasks ?? []) {
       const d = startOfDay(getTaskTime(t)).toDateString();
       (map[d] ??= []).push(t);
     }
+
+    // Build a set of (schedule_id, day) pairs that already have concrete tasks
+    const concreteByScheduleDay = new Set<string>();
+    for (const t of data?.tasks ?? []) {
+      if (t.parent_task_id) {
+        const d = startOfDay(getTaskTime(t)).toDateString();
+        concreteByScheduleDay.add(`${t.parent_task_id}:${d}`);
+      }
+    }
+
+    // Expand schedule templates into virtual entries
+    for (const sched of data?.schedules ?? []) {
+      if (!sched.recurrence || !sched.scheduled_at) continue;
+      const intervalMs = parseRecurrenceMs(sched.recurrence);
+      if (!intervalMs) continue;
+
+      const rangeStartMs = rangeStart.getTime();
+      const rangeEndMs = rangeEnd.getTime();
+      const schedStart = new Date(sched.scheduled_at).getTime();
+
+      // Generate occurrences within the visible range
+      // Start from the schedule's next scheduled_at and work forward
+      // Also look backwards for occurrences that might have been missed
+      let t = schedStart;
+
+      // If the schedule starts before the range, skip forward
+      if (t < rangeStartMs) {
+        const steps = Math.floor((rangeStartMs - t) / intervalMs);
+        t += steps * intervalMs;
+      }
+      // If we overshot, go back one
+      if (t > rangeStartMs) {
+        const prevT = t - intervalMs;
+        if (prevT >= rangeStartMs) t = prevT;
+      }
+
+      let count = 0;
+      while (t < rangeEndMs && count < 200) {
+        if (t >= rangeStartMs) {
+          const occDate = new Date(t);
+          const dayStr = startOfDay(occDate).toDateString();
+          const key = `${sched.id}:${dayStr}`;
+
+          // Only inject virtual if no concrete task exists for this schedule+day
+          if (!concreteByScheduleDay.has(key)) {
+            (map[dayStr] ??= []).push({
+              ...sched,
+              id: `virtual-${sched.id}-${t}`,
+              status: "upcoming",
+              scheduled_at: occDate.toISOString(),
+              is_schedule: true,
+              is_virtual: true,
+              result: undefined,
+              error: undefined,
+            });
+          }
+        }
+        t += intervalMs;
+        count++;
+      }
+    }
     return map;
-  }, [data, baseDate, rangeDays]);
+  }, [data, baseDate, rangeDays, rangeStart, rangeEnd]);
 
   const goToday = () => setBaseDate(startOfDay(new Date()));
   const goPrev = () => setBaseDate(addDays(baseDate, -rangeDays));
@@ -485,7 +574,10 @@ export default function TasksScreen() {
                 key={dayStr}
                 date={new Date(dayStr)}
                 tasks={tasks}
-                onTaskPress={(t) => setEditorState({ mode: "edit", taskId: t.id })}
+                onTaskPress={(t) => {
+                  if (t.is_virtual) return; // virtual entries are not clickable
+                  setEditorState({ mode: "edit", taskId: t.id });
+                }}
               />
             ))}
           </div>

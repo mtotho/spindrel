@@ -33,6 +33,11 @@ class Channel(Base):
     compaction_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compaction_prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     context_compression: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     compression_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     compression_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -60,6 +65,8 @@ class Channel(Base):
     pinned_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    workspace_skills_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -561,6 +568,11 @@ class Bot(Base):
     compaction_keep_turns: Mapped[int | None] = mapped_column(nullable=True)
     compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compaction_prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     audio_input: Mapped[str] = mapped_column(Text, nullable=False, default="transcribe")
     memory_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     knowledge_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
@@ -626,6 +638,8 @@ class SharedWorkspace(Base):
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     startup_script: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'/workspace/startup.sh'"))
+    workspace_skills_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    workspace_base_prompt_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     bots: Mapped[list["SharedWorkspaceBot"]] = relationship("SharedWorkspaceBot", back_populates="workspace", cascade="all, delete-orphan")
@@ -711,6 +725,12 @@ class ChannelHeartbeat(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
+    prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     channel: Mapped["Channel"] = relationship("Channel")
 
 
@@ -759,6 +779,12 @@ class Task(Base):
     recurrence: Mapped[str | None] = mapped_column(Text, nullable=True)  # e.g. "+1h", "+1d"
     task_type: Mapped[str] = mapped_column(Text, nullable=False, default="agent", server_default=text("'agent'"))
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class Plan(Base):

@@ -40,10 +40,12 @@ class PromptTemplateOut(BaseModel):
 class PromptTemplateCreateIn(BaseModel):
     name: str
     description: Optional[str] = None
-    content: str
+    content: str = ""
     category: Optional[str] = None
     tags: list[str] = []
     workspace_id: Optional[UUID] = None
+    source_type: str = "manual"  # "manual" | "workspace_file"
+    source_path: Optional[str] = None
 
 
 class PromptTemplateUpdateIn(BaseModel):
@@ -53,6 +55,8 @@ class PromptTemplateUpdateIn(BaseModel):
     category: Optional[str] = None
     tags: Optional[list[str]] = None
     workspace_id: Optional[UUID] = None
+    source_type: Optional[str] = None
+    source_path: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -94,18 +98,38 @@ async def create_prompt_template(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    if not body.name.strip() or not body.content.strip():
-        raise HTTPException(status_code=422, detail="name and content are required")
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="name is required")
+
+    content = body.content
+    source_type = body.source_type or "manual"
+
+    if source_type == "workspace_file":
+        if not body.workspace_id:
+            raise HTTPException(status_code=422, detail="workspace_id required for workspace_file source")
+        if not body.source_path:
+            raise HTTPException(status_code=422, detail="source_path required for workspace_file source")
+        # Read initial content from workspace file
+        try:
+            from app.services.shared_workspace import shared_workspace_service
+            result = shared_workspace_service.read_file(str(body.workspace_id), body.source_path)
+            content = result["content"]
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Cannot read workspace file: {exc}")
+    elif not content.strip():
+        raise HTTPException(status_code=422, detail="content is required for manual templates")
+
     now = datetime.now(timezone.utc)
     row = PromptTemplate(
         name=body.name.strip(),
         description=body.description,
-        content=body.content,
+        content=content,
         category=body.category,
         tags=body.tags or [],
         workspace_id=body.workspace_id,
-        source_type="manual",
-        content_hash=hashlib.sha256(body.content.encode()).hexdigest(),
+        source_type=source_type,
+        source_path=body.source_path,
+        content_hash=hashlib.sha256(content.encode()).hexdigest(),
         created_at=now,
         updated_at=now,
     )
@@ -125,7 +149,7 @@ async def update_prompt_template(
     row = await db.get(PromptTemplate, template_id)
     if not row:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    if row.source_type in ("file",):
+    if row.source_type == "file":
         raise HTTPException(status_code=403, detail="Cannot edit a file-managed template")
 
     if body.name is not None:
@@ -141,6 +165,22 @@ async def update_prompt_template(
         row.tags = body.tags
     if body.workspace_id is not None:
         row.workspace_id = body.workspace_id
+    if body.source_type is not None:
+        row.source_type = body.source_type
+    if body.source_path is not None:
+        row.source_path = body.source_path
+
+    # If switching to workspace_file, validate and cache content
+    if row.source_type == "workspace_file" and row.workspace_id and row.source_path:
+        if body.source_type is not None or body.source_path is not None:
+            try:
+                from app.services.shared_workspace import shared_workspace_service
+                result = shared_workspace_service.read_file(str(row.workspace_id), row.source_path)
+                row.content = result["content"]
+                row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=f"Cannot read workspace file: {exc}")
+
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(row)

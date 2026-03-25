@@ -1,4 +1,4 @@
-"""Priority 3 tests for app.agent.tasks — run_task, schedule_next, fetch_due_tasks."""
+"""Priority 3 tests for app.agent.tasks — run_task, spawn_from_schedule, fetch_due_tasks."""
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
@@ -10,52 +10,230 @@ from app.agent.tasks import _parse_recurrence
 
 
 # ---------------------------------------------------------------------------
-# _schedule_next_occurrence (mocked DB)
+# _spawn_from_schedule (mocked DB)
 # ---------------------------------------------------------------------------
 
-class TestScheduleNextOccurrence:
+class TestSpawnFromSchedule:
     @pytest.mark.asyncio
-    async def test_creates_next_task(self):
-        from app.agent.tasks import _schedule_next_occurrence
+    async def test_spawns_concrete_task_and_advances_schedule(self):
+        from app.agent.tasks import _spawn_from_schedule
 
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.bot_id = "test_bot"
-        task.client_id = "client1"
-        task.session_id = uuid.uuid4()
-        task.channel_id = None
-        task.prompt = "do thing"
-        task.dispatch_type = "none"
-        task.dispatch_config = {}
-        task.recurrence = "+1h"
+        schedule_id = uuid.uuid4()
+        scheduled_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+        schedule = MagicMock()
+        schedule.id = schedule_id
+        schedule.bot_id = "test_bot"
+        schedule.client_id = "client1"
+        schedule.session_id = uuid.uuid4()
+        schedule.channel_id = None
+        schedule.prompt = "do thing"
+        schedule.prompt_template_id = None
+        schedule.dispatch_type = "none"
+        schedule.dispatch_config = {"key": "val"}
+        schedule.callback_config = None
+        schedule.recurrence = "+1h"
+        schedule.task_type = "scheduled"
+        schedule.status = "active"
+        schedule.scheduled_at = scheduled_at
+        schedule.run_count = 0
 
         db = AsyncMock()
+        db.add = MagicMock()
+        db.get = AsyncMock(return_value=schedule)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm):
+            await _spawn_from_schedule(schedule_id)
+
+            # Should have added a concrete task
+            db.add.assert_called_once()
+            concrete = db.add.call_args[0][0]
+            assert concrete.bot_id == "test_bot"
+            assert concrete.status == "pending"
+            assert concrete.parent_task_id == schedule_id
+            assert concrete.recurrence is None  # concrete, not schedule
+            assert concrete.scheduled_at == scheduled_at
+
+            # Schedule should be advanced
+            assert schedule.scheduled_at == scheduled_at + timedelta(hours=1)
+            assert schedule.run_count == 1
+            db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_recurrence_skips(self):
+        from app.agent.tasks import _spawn_from_schedule
+
+        schedule_id = uuid.uuid4()
+        schedule = MagicMock()
+        schedule.id = schedule_id
+        schedule.status = "active"
+        schedule.recurrence = "invalid"
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=schedule)
         db.add = MagicMock()
         cm = AsyncMock()
         cm.__aenter__ = AsyncMock(return_value=db)
         cm.__aexit__ = AsyncMock(return_value=False)
 
         with patch("app.agent.tasks.async_session", return_value=cm):
-            await _schedule_next_occurrence(task)
-            db.add.assert_called_once()
-            new_task = db.add.call_args[0][0]
-            assert new_task.bot_id == "test_bot"
-            assert new_task.status == "pending"
-            assert new_task.parent_task_id == task.id
-            assert new_task.recurrence == "+1h"
-            db.commit.assert_awaited_once()
+            await _spawn_from_schedule(schedule_id)
+            # Should not have added any task
+            db.add.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_invalid_recurrence_skips(self):
-        from app.agent.tasks import _schedule_next_occurrence
+    async def test_non_active_status_skips(self):
+        from app.agent.tasks import _spawn_from_schedule
 
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.recurrence = "invalid"
+        schedule_id = uuid.uuid4()
+        schedule = MagicMock()
+        schedule.id = schedule_id
+        schedule.status = "cancelled"
+        schedule.recurrence = "+1h"
 
-        with patch("app.agent.tasks.async_session") as mock_session:
-            await _schedule_next_occurrence(task)
-            mock_session.assert_not_called()
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=schedule)
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm):
+            await _spawn_from_schedule(schedule_id)
+            db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_schedule_skips(self):
+        from app.agent.tasks import _spawn_from_schedule
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm):
+            await _spawn_from_schedule(uuid.uuid4())
+            db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_copies_dispatch_and_callback_config(self):
+        from app.agent.tasks import _spawn_from_schedule
+
+        schedule_id = uuid.uuid4()
+        schedule = MagicMock()
+        schedule.id = schedule_id
+        schedule.bot_id = "test_bot"
+        schedule.client_id = "c"
+        schedule.session_id = uuid.uuid4()
+        schedule.channel_id = uuid.uuid4()
+        schedule.prompt = "task prompt"
+        schedule.prompt_template_id = None
+        schedule.dispatch_type = "slack"
+        schedule.dispatch_config = {"channel_id": "C123", "thread_ts": "1234"}
+        schedule.callback_config = {"trigger_rag_loop": True}
+        schedule.recurrence = "+1d"
+        schedule.task_type = "scheduled"
+        schedule.status = "active"
+        schedule.scheduled_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        schedule.run_count = 5
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.get = AsyncMock(return_value=schedule)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm):
+            await _spawn_from_schedule(schedule_id)
+
+            concrete = db.add.call_args[0][0]
+            assert concrete.dispatch_type == "slack"
+            assert concrete.dispatch_config == {"channel_id": "C123", "thread_ts": "1234"}
+            assert concrete.callback_config == {"trigger_rag_loop": True}
+            assert concrete.channel_id == schedule.channel_id
+            assert schedule.run_count == 6
+
+
+# ---------------------------------------------------------------------------
+# spawn_due_schedules (mocked DB)
+# ---------------------------------------------------------------------------
+
+class TestSpawnDueSchedules:
+    @pytest.mark.asyncio
+    async def test_queries_active_schedules_and_spawns(self):
+        from app.agent.tasks import spawn_due_schedules
+
+        sid1 = uuid.uuid4()
+        sid2 = uuid.uuid4()
+
+        db = AsyncMock()
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = [sid1, sid2]
+        result.scalars.return_value = scalars
+        db.execute = AsyncMock(return_value=result)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks._spawn_from_schedule", new_callable=AsyncMock) as mock_spawn:
+            await spawn_due_schedules()
+            assert mock_spawn.await_count == 2
+            mock_spawn.assert_any_await(sid1)
+            mock_spawn.assert_any_await(sid2)
+
+    @pytest.mark.asyncio
+    async def test_no_due_schedules(self):
+        from app.agent.tasks import spawn_due_schedules
+
+        db = AsyncMock()
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = []
+        result.scalars.return_value = scalars
+        db.execute = AsyncMock(return_value=result)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks._spawn_from_schedule", new_callable=AsyncMock) as mock_spawn:
+            await spawn_due_schedules()
+            mock_spawn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_individual_spawn_failure_doesnt_stop_others(self):
+        from app.agent.tasks import spawn_due_schedules
+
+        sid1 = uuid.uuid4()
+        sid2 = uuid.uuid4()
+
+        db = AsyncMock()
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = [sid1, sid2]
+        result.scalars.return_value = scalars
+        db.execute = AsyncMock(return_value=result)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        async def _mock_spawn(schedule_id):
+            if schedule_id == sid1:
+                raise RuntimeError("DB error")
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks._spawn_from_schedule", side_effect=_mock_spawn) as mock_spawn:
+            await spawn_due_schedules()
+            # Both should have been attempted even though sid1 failed
+            assert mock_spawn.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +249,7 @@ class TestRunTask:
         task.session_id = overrides.get("session_id", uuid.uuid4())
         task.channel_id = overrides.get("channel_id", None)
         task.prompt = overrides.get("prompt", "do something")
+        task.prompt_template_id = overrides.get("prompt_template_id", None)
         task.dispatch_type = overrides.get("dispatch_type", "none")
         task.dispatch_config = overrides.get("dispatch_config", {})
         task.callback_config = overrides.get("callback_config", {})
@@ -122,6 +301,41 @@ class TestRunTask:
             # Task should be marked complete
             assert task.status == "complete" or db.commit.await_count >= 1
             mock_dispatcher.deliver.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_concrete_task_does_not_reschedule(self):
+        """Concrete tasks (no recurrence) should NOT spawn any next occurrence."""
+        from app.agent.tasks import run_task
+        from app.agent.loop import RunResult
+
+        task = self._make_task(recurrence=None)
+        cm, db = self._mock_db_session(task)
+
+        mock_run_result = RunResult(response="Done", client_actions=[])
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        )
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks.session_locks") as mock_locks, \
+             patch("app.agent.tasks.get_bot", return_value=bot), \
+             patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result), \
+             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.agent.tasks.dispatchers") as mock_dispatchers, \
+             patch("app.agent.tasks._spawn_from_schedule", new_callable=AsyncMock) as mock_spawn:
+            mock_locks.acquire.return_value = True
+            mock_dispatchers.get.return_value = mock_dispatcher
+
+            await run_task(task)
+
+            # _spawn_from_schedule should NOT be called from run_task
+            mock_spawn.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_error_marks_failed(self):

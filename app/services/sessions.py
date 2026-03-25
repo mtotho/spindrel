@@ -13,10 +13,38 @@ from app.agent.persona import get_persona
 from app.db.engine import async_session
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Message, Session
+from app.db.models import Attachment, Channel, Message, Session, SharedWorkspace, SharedWorkspaceBot
 
 
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_workspace_base_prompt_enabled(
+    db: AsyncSession, bot_id: str, channel_id: uuid.UUID | None,
+) -> bool:
+    """Check if workspace base prompt override is enabled for this bot+channel.
+
+    Resolution: channel override → workspace setting → False
+    """
+    if not channel_id:
+        return False
+    ch = await db.get(Channel, channel_id)
+    if not ch:
+        return False
+    # If channel has explicit override, use it
+    if ch.workspace_base_prompt_enabled is not None:
+        return ch.workspace_base_prompt_enabled
+    # Look up workspace via bot membership
+    swb = (await db.execute(
+        select(SharedWorkspaceBot)
+        .where(SharedWorkspaceBot.bot_id == bot_id)
+    )).scalar_one_or_none()
+    if not swb:
+        return False
+    ws = await db.get(SharedWorkspace, swb.workspace_id)
+    if not ws:
+        return False
+    return ws.workspace_base_prompt_enabled
 
 
 from app.services.channels import INTEGRATION_CLIENT_PREFIXES as _INTEGRATION_CLIENT_PREFIXES
@@ -103,13 +131,30 @@ def _content_for_db(msg: dict) -> str | dict | list | None:
     return raw
 
 
-def _effective_system_prompt(bot: BotConfig) -> str:
-    """Base prompt + bot system prompt + optional memory guidelines."""
-    from app.agent.base_prompt import render_base_prompt
+def _effective_system_prompt(
+    bot: BotConfig,
+    workspace_base_prompt_enabled: bool = False,
+) -> str:
+    """Base prompt + bot system prompt + optional memory guidelines.
+
+    If workspace_base_prompt_enabled and the bot belongs to a shared workspace,
+    reads common/prompts/base.md (+ bots/{bot_id}/prompts/base.md) from the
+    workspace filesystem and uses that instead of the global base prompt.
+    """
+    from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
     parts = []
-    base = render_base_prompt(bot)
-    if base:
-        parts.append(base.rstrip())
+
+    ws_base = None
+    if workspace_base_prompt_enabled and bot.shared_workspace_id:
+        ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
+
+    if ws_base:
+        parts.append(ws_base.rstrip())
+    else:
+        base = render_base_prompt(bot)
+        if base:
+            parts.append(base.rstrip())
+
     parts.append(bot.system_prompt.rstrip())
     if bot.memory.enabled and bot.memory.prompt:
         parts.append(bot.memory.prompt.strip())
@@ -147,7 +192,8 @@ async def load_or_create(
     )
     db.add(session)
 
-    system_content = _effective_system_prompt(bot)
+    ws_base_enabled = await _resolve_workspace_base_prompt_enabled(db, bot_id, channel_id)
+    system_content = _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)
     system_msg = Message(
         session_id=session_id,
         role="system",
@@ -186,12 +232,16 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     """Load messages for a session, using compacted summary when available."""
     bot = get_bot(session.bot_id)
 
+    ws_base_enabled = await _resolve_workspace_base_prompt_enabled(
+        db, session.bot_id, session.channel_id,
+    )
+
     persona_layer = None
     if bot.persona:
         persona_layer = await get_persona(bot.id)
 
     def _base_messages() -> list[dict]:
-        msgs = [{"role": "system", "content": _effective_system_prompt(bot)}]
+        msgs = [{"role": "system", "content": _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)}]
         if persona_layer:
             msgs.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
         return msgs

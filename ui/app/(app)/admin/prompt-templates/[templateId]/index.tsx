@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Info } from "lucide-react";
+import { ChevronLeft, Trash2, Info, FileText, Pencil } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,7 +10,8 @@ import {
   useUpdatePromptTemplate,
   useDeletePromptTemplate,
 } from "@/src/api/hooks/usePromptTemplates";
-import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
+import { useWorkspaces } from "@/src/api/hooks/useWorkspaces";
+import { FormRow, TextInput, Section, SelectInput } from "@/src/components/shared/FormControls";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -41,11 +42,16 @@ export default function PromptTemplateDetailScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
+  const { data: workspaces } = useWorkspaces();
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
   const [tags, setTags] = useState("");
+  const [sourceType, setSourceType] = useState<"manual" | "workspace_file">("manual");
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [sourcePath, setSourcePath] = useState("");
   const [initialized, setInitialized] = useState(isNew);
 
   if (template && !initialized) {
@@ -54,36 +60,46 @@ export default function PromptTemplateDetailScreen() {
     setContent(template.content || "");
     setCategory(template.category || "");
     setTags((template.tags || []).join(", "));
+    setSourceType((template.source_type as any) || "manual");
+    setWorkspaceId(template.workspace_id || "");
+    setSourcePath(template.source_path || "");
     setInitialized(true);
   }
 
   const isFileManaged = template?.source_type === "file";
+  const isWorkspaceFile = sourceType === "workspace_file";
 
   const handleSave = useCallback(async () => {
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const base: Record<string, any> = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      category: category.trim() || undefined,
+      tags: tagList,
+    };
+
+    if (sourceType === "workspace_file") {
+      base.source_type = "workspace_file";
+      base.workspace_id = workspaceId || undefined;
+      base.source_path = sourcePath.trim() || undefined;
+    } else {
+      base.source_type = "manual";
+      base.content = content;
+    }
+
     if (isNew) {
-      if (!name.trim() || !content.trim()) return;
-      await createMut.mutateAsync({
-        name: name.trim(),
-        content,
-        description: description.trim() || undefined,
-        category: category.trim() || undefined,
-        tags: tagList,
-      });
+      if (!name.trim()) return;
+      if (sourceType === "manual" && !content.trim()) return;
+      if (sourceType === "workspace_file" && (!workspaceId || !sourcePath.trim())) return;
+      await createMut.mutateAsync(base as any);
       qc.invalidateQueries({ queryKey: ["prompt-templates"] });
       goBack();
     } else {
       if (!name.trim()) return;
-      await updateMut.mutateAsync({
-        name: name.trim(),
-        content,
-        description: description.trim() || undefined,
-        category: category.trim() || undefined,
-        tags: tagList,
-      });
+      await updateMut.mutateAsync(base as any);
       qc.invalidateQueries({ queryKey: ["prompt-templates"] });
     }
-  }, [isNew, name, description, content, category, tags, createMut, updateMut, qc, goBack]);
+  }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, qc, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!templateId || !confirm("Delete this template?")) return;
@@ -93,7 +109,9 @@ export default function PromptTemplateDetailScreen() {
   }, [templateId, deleteMut, qc, goBack]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
-  const canSave = isNew ? (name.trim() && content.trim()) : name.trim();
+  const canSave = isNew
+    ? (name.trim() && (sourceType === "workspace_file" ? (workspaceId && sourcePath.trim()) : content.trim()))
+    : name.trim();
   const mutError = createMut.error || updateMut.error || deleteMut.error;
 
   if (!isNew && isLoading) {
@@ -174,6 +192,23 @@ export default function PromptTemplateDetailScreen() {
         </div>
       )}
 
+      {/* Workspace file banner */}
+      {!isFileManaged && isWorkspaceFile && !isNew && (
+        <div style={{
+          margin: isWide ? "16px 20px 0" : "12px 12px 0",
+          padding: "12px 16px", borderRadius: 8,
+          background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
+          display: "flex", alignItems: "flex-start", gap: 10,
+        }}>
+          <FileText size={14} color="#86efac" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: "#86efac", lineHeight: 1.5 }}>
+            Content is sourced from workspace file (
+            <code style={{ fontSize: 11, color: "#4ade80" }}>{sourcePath}</code>
+            ). Content updates automatically when the file changes.
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{
         ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
@@ -185,22 +220,22 @@ export default function PromptTemplateDetailScreen() {
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
-            Content
+            {isWorkspaceFile ? "Content (from workspace file)" : "Content"}
           </div>
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            readOnly={isFileManaged}
-            placeholder="Template content that will be inserted..."
+            readOnly={isFileManaged || isWorkspaceFile}
+            placeholder={isWorkspaceFile ? "Content will be loaded from the workspace file..." : "Template content that will be inserted..."}
             style={{
               flex: 1, minHeight: isWide ? 400 : 250,
-              background: isFileManaged ? "#0a0a0a" : "#111",
+              background: (isFileManaged || isWorkspaceFile) ? "#0a0a0a" : "#111",
               border: "1px solid #222", borderRadius: 8,
               padding: 12, fontSize: 13, lineHeight: 1.6,
-              color: isFileManaged ? "#666" : "#e5e5e5",
+              color: (isFileManaged || isWorkspaceFile) ? "#888" : "#e5e5e5",
               fontFamily: "monospace", resize: "vertical",
               outline: "none",
-              opacity: isFileManaged ? 0.6 : 1,
+              opacity: (isFileManaged || isWorkspaceFile) ? 0.7 : 1,
             }}
           />
         </div>
@@ -212,6 +247,46 @@ export default function PromptTemplateDetailScreen() {
           borderTop: isWide ? "none" : "1px solid #2a2a2a",
         }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Source type (only for new or non-file-managed) */}
+            {!isFileManaged && (
+              <Section title="Source">
+                <FormRow label="Source Type">
+                  <SelectInput
+                    value={sourceType}
+                    onChange={(v) => setSourceType(v as "manual" | "workspace_file")}
+                    options={[
+                      { label: "Manual", value: "manual" },
+                      { label: "Workspace File", value: "workspace_file" },
+                    ]}
+                  />
+                </FormRow>
+                {isWorkspaceFile && (
+                  <>
+                    <FormRow label="Workspace">
+                      <SelectInput
+                        value={workspaceId}
+                        onChange={setWorkspaceId}
+                        options={[
+                          { label: "Select workspace...", value: "" },
+                          ...(workspaces || []).map((w) => ({
+                            label: w.name,
+                            value: w.id,
+                          })),
+                        ]}
+                      />
+                    </FormRow>
+                    <FormRow label="File Path" description="Path within the workspace (e.g. bots/coder/prompts/nightly.md)">
+                      <TextInput
+                        value={sourcePath}
+                        onChangeText={setSourcePath}
+                        placeholder="e.g. prompts/nightly.md"
+                      />
+                    </FormRow>
+                  </>
+                )}
+              </Section>
+            )}
+
             <Section title="Details">
               <FormRow label="Name">
                 <TextInput

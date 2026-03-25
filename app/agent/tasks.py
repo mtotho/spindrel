@@ -13,7 +13,7 @@ from app.agent import dispatchers
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Session, Task
+from app.db.models import Channel, Session, Task
 from app.services import session_locks
 
 logger = logging.getLogger(__name__)
@@ -36,30 +36,80 @@ def _parse_recurrence(value: str) -> timedelta | None:
     return timedelta(seconds=n * _UNIT_SECONDS[unit])
 
 
-async def _schedule_next_occurrence(task: Task) -> None:
-    interval = _parse_recurrence(task.recurrence or "")
-    if not interval:
-        logger.warning("Task %s has invalid recurrence %r — skipping", task.id, task.recurrence)
-        return
-    next_run = datetime.now(timezone.utc) + interval
+async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
+    """Spawn a concrete one-off task from an active schedule template.
+
+    Atomically: create the concrete task, advance schedule.scheduled_at, bump run_count.
+    """
     async with async_session() as db:
-        db.add(Task(
-            bot_id=task.bot_id,
-            client_id=task.client_id,
-            session_id=task.session_id,
-            channel_id=task.channel_id,
-            prompt=task.prompt,
-            scheduled_at=next_run,
+        schedule = await db.get(Task, schedule_id)
+        if schedule is None or schedule.status != "active" or not schedule.recurrence:
+            return
+
+        interval = _parse_recurrence(schedule.recurrence)
+        if not interval:
+            logger.warning("Schedule %s has invalid recurrence %r — skipping", schedule.id, schedule.recurrence)
+            return
+
+        # Resolve latest content from linked template (if any)
+        prompt = schedule.prompt
+        if schedule.prompt_template_id:
+            from app.services.prompt_resolution import resolve_prompt_template
+            prompt = await resolve_prompt_template(
+                str(schedule.prompt_template_id), schedule.prompt, db,
+            )
+
+        # Create concrete execution task
+        concrete = Task(
+            bot_id=schedule.bot_id,
+            client_id=schedule.client_id,
+            session_id=schedule.session_id,
+            channel_id=schedule.channel_id,
+            prompt=prompt,
+            prompt_template_id=schedule.prompt_template_id,
+            scheduled_at=schedule.scheduled_at,
             status="pending",
-            task_type=task.task_type,
-            dispatch_type=task.dispatch_type,
-            dispatch_config=task.dispatch_config,
-            recurrence=task.recurrence,
-            parent_task_id=task.id,
+            task_type=schedule.task_type,
+            dispatch_type=schedule.dispatch_type,
+            dispatch_config=dict(schedule.dispatch_config) if schedule.dispatch_config else None,
+            callback_config=dict(schedule.callback_config) if schedule.callback_config else None,
+            recurrence=None,  # concrete task, not a schedule
+            parent_task_id=schedule.id,
             created_at=datetime.now(timezone.utc),
-        ))
+        )
+        db.add(concrete)
+
+        # Advance schedule to next occurrence
+        base = schedule.scheduled_at or datetime.now(timezone.utc)
+        schedule.scheduled_at = base + interval
+        schedule.run_count = (schedule.run_count or 0) + 1
+
         await db.commit()
-    logger.info("Task %s recurring: next run at %s", task.id, next_run.strftime("%Y-%m-%d %H:%M UTC"))
+        logger.info(
+            "Schedule %s spawned concrete task %s (run #%d), next at %s",
+            schedule.id, concrete.id, schedule.run_count,
+            schedule.scheduled_at.strftime("%Y-%m-%d %H:%M UTC"),
+        )
+
+
+async def spawn_due_schedules() -> None:
+    """Find active schedule templates that are due and spawn concrete tasks."""
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        stmt = (
+            select(Task.id)
+            .where(Task.status == "active")
+            .where(Task.recurrence.isnot(None))
+            .where(Task.scheduled_at <= now)
+            .limit(50)
+        )
+        schedule_ids = list((await db.execute(stmt)).scalars().all())
+
+    for sid in schedule_ids:
+        try:
+            await _spawn_from_schedule(sid)
+        except Exception:
+            logger.exception("Failed to spawn from schedule %s", sid)
 
 
 # ---------------------------------------------------------------------------
@@ -131,12 +181,21 @@ async def run_harness_task(task: Task) -> None:
         from app.services.harness import harness_service, HarnessError
         bot = get_bot(task.bot_id)
 
+        # Resolve latest content from linked template (if any)
+        prompt = task.prompt
+        if task.prompt_template_id:
+            from app.services.prompt_resolution import resolve_prompt_template
+            async with async_session() as resolve_db:
+                prompt = await resolve_prompt_template(
+                    str(task.prompt_template_id), task.prompt, resolve_db,
+                )
+
         # Pass extra_args from callback_config (used for --resume on retry)
         resume_extra_args: list[str] | None = cfg.get("resume_extra_args")
 
         result = await harness_service.run(
             harness_name=harness_name,
-            prompt=task.prompt,
+            prompt=prompt,
             working_directory=working_directory,
             bot=bot,
             sandbox_instance_id=sandbox_instance_id,
@@ -504,6 +563,22 @@ async def run_task(task: Task) -> None:
         await run_exec_task(task)
         return
 
+    # Resolve the channel's current active session so tasks always run in the
+    # live session, not a stale session_id captured at task-creation time.
+    # (Heartbeats already do this in fire_heartbeat; tasks created by bots via
+    # create_task or _schedule_next_occurrence can hold an outdated session_id
+    # after a channel session reset.)
+    if task.channel_id:
+        async with async_session() as db:
+            channel = await db.get(Channel, task.channel_id)
+            if channel and channel.active_session_id:
+                if task.session_id != channel.active_session_id:
+                    logger.info(
+                        "Task %s: resolving stale session %s → channel active session %s",
+                        task.id, task.session_id, channel.active_session_id,
+                    )
+                    task.session_id = channel.active_session_id
+
     # Respect the per-session active lock.  If a streaming HTTP request is still
     # running for this session, defer this task by 10 seconds rather than running
     # a parallel agent loop.
@@ -583,13 +658,22 @@ async def run_task(task: Task) -> None:
         correlation_id = _uuid.uuid4()
         messages_start = len(messages)  # capture before run() appends new turn
 
+        # Resolve latest content from linked template (if any)
+        task_prompt = task.prompt
+        if task.prompt_template_id:
+            from app.services.prompt_resolution import resolve_prompt_template
+            async with async_session() as resolve_db:
+                task_prompt = await resolve_prompt_template(
+                    str(task.prompt_template_id), task.prompt, resolve_db,
+                )
+
         # Model override from callback_config (used by heartbeats + admin tasks)
         _cb_pre = task.callback_config or {}
         _model_override = _cb_pre.get("model_override") or None
         _provider_id_override = _cb_pre.get("model_provider_id_override") or None
 
         run_result = await run(
-            messages, bot, task.prompt,
+            messages, bot, task_prompt,
             session_id=session_id,
             client_id=task.client_id or "task",
             correlation_id=correlation_id,
@@ -671,10 +755,6 @@ async def run_task(task: Task) -> None:
                 except Exception:
                     logger.exception("Failed to create parent callback task for task %s", task.id)
 
-        # Schedule next occurrence if recurring
-        if task.recurrence:
-            await _schedule_next_occurrence(task)
-
     except openai.RateLimitError as exc:
         async with async_session() as db:
             t = await db.get(Task, task.id)
@@ -733,6 +813,9 @@ async def task_worker() -> None:
     logger.info("Task worker started")
     while True:
         try:
+            # Spawn concrete tasks from active schedule templates first
+            await spawn_due_schedules()
+            # Then fetch and run all due concrete tasks
             due = await fetch_due_tasks()
             for task in due:
                 asyncio.create_task(run_task(task))
