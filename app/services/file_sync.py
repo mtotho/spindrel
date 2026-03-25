@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, Skill as SkillRow
+from app.db.models import BotKnowledge, PromptTemplate, Skill as SkillRow
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +177,19 @@ def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
     return items
 
 
+def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
+    """Return (path, name, source_type) for all discoverable prompt template .md files.
+
+    Scans prompts/*.md (global templates).
+    """
+    items: list[tuple[Path, str, str]] = []
+    prompts_dir = Path("prompts")
+    if prompts_dir.is_dir():
+        for p in sorted(prompts_dir.glob("*.md")):
+            items.append((p, p.stem, SOURCE_FILE))
+    return items
+
+
 async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
     """Scan all file-drop directories, upsert changed rows, delete orphaned rows.
 
@@ -322,6 +335,76 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
                 logger.info("file_sync: deleted orphaned knowledge '%s'", row.name)
         await session.commit()
 
+    # --- Prompt Templates ---
+    template_files = _collect_prompt_template_files()
+    seen_template_paths: set[str] = set()
+
+    for path, name, source_type in template_files:
+        source_path = str(path.resolve())
+        seen_template_paths.add(source_path)
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except Exception:
+            logger.exception("Cannot read prompt template file %s", path)
+            continue
+
+        content_hash = _sha256(raw)
+        meta, body = _parse_frontmatter(raw)
+        display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
+        category = meta.get("category")
+        description = meta.get("description")
+        tags = meta.get("tags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+        async with async_session() as session:
+            stmt = select(PromptTemplate).where(
+                PromptTemplate.source_path == source_path,
+                PromptTemplate.source_type == SOURCE_FILE,
+            )
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+
+            if existing is None:
+                row = PromptTemplate(
+                    name=display_name,
+                    description=description,
+                    content=raw,
+                    category=category,
+                    tags=tags if tags else [],
+                    source_type=source_type,
+                    source_path=source_path,
+                    content_hash=content_hash,
+                )
+                session.add(row)
+                await session.commit()
+                counts["added"] += 1
+                logger.info("file_sync: added prompt template '%s' from %s", display_name, path)
+            elif existing.content_hash != content_hash:
+                existing.name = display_name
+                existing.description = description
+                existing.content = raw
+                existing.category = category
+                existing.tags = tags if tags else []
+                existing.content_hash = content_hash
+                existing.source_path = source_path
+                existing.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+                counts["updated"] += 1
+                logger.info("file_sync: updated prompt template '%s' from %s", display_name, path)
+
+    # Delete orphaned file-managed prompt templates
+    async with async_session() as session:
+        stmt = select(PromptTemplate).where(
+            PromptTemplate.source_type == SOURCE_FILE
+        )
+        all_file_templates = list((await session.execute(stmt)).scalars().all())
+        for row in all_file_templates:
+            if row.source_path not in seen_template_paths:
+                await session.delete(row)
+                counts["deleted"] += 1
+                logger.info("file_sync: deleted orphaned prompt template '%s'", row.name)
+        await session.commit()
+
     logger.info(
         "file_sync complete: +%d added, ~%d updated, -%d deleted",
         counts["added"], counts["updated"], counts["deleted"],
@@ -347,7 +430,12 @@ async def sync_changed_file(path: Path) -> None:
             rows2 = list((await session.execute(stmt2)).scalars().all())
             for row in rows2:
                 await session.delete(row)
-            if rows or rows2:
+            # Prompt templates
+            stmt3 = select(PromptTemplate).where(PromptTemplate.source_path == path_str)
+            rows3 = list((await session.execute(stmt3)).scalars().all())
+            for row in rows3:
+                await session.delete(row)
+            if rows or rows2 or rows3:
                 await session.commit()
                 logger.info("file_sync: removed DB rows for deleted file %s", path)
         return
@@ -433,6 +521,45 @@ async def sync_changed_file(path: Path) -> None:
                     logger.exception("Failed to re-embed knowledge '%s'", name)
                 await session.commit()
                 logger.info("file_sync(watch): updated knowledge '%s'", name)
+    elif kind == "prompt_template":
+        name = skill_id_or_name
+        meta, _ = _parse_frontmatter(raw)
+        display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
+        category = meta.get("category")
+        description = meta.get("description")
+        tags = meta.get("tags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        async with async_session() as session:
+            stmt = select(PromptTemplate).where(
+                PromptTemplate.source_path == path_str,
+                PromptTemplate.source_type == SOURCE_FILE,
+            )
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            if existing is None:
+                row = PromptTemplate(
+                    name=display_name,
+                    description=description,
+                    content=raw,
+                    category=category,
+                    tags=tags if tags else [],
+                    source_type=source_type,
+                    source_path=path_str,
+                    content_hash=content_hash,
+                )
+                session.add(row)
+                await session.commit()
+                logger.info("file_sync(watch): added prompt template '%s'", display_name)
+            elif existing.content_hash != content_hash:
+                existing.name = display_name
+                existing.description = description
+                existing.content = raw
+                existing.category = category
+                existing.tags = tags if tags else []
+                existing.content_hash = content_hash
+                existing.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+                logger.info("file_sync(watch): updated prompt template '%s'", display_name)
 
 
 def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
@@ -473,6 +600,10 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "knowledge" and parts[3].endswith(".md"):
         return ("knowledge", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
 
+    # prompts/*.md
+    if len(parts) == 2 and parts[0] == "prompts" and parts[1].endswith(".md"):
+        return ("prompt_template", Path(parts[1]).stem, None, SOURCE_FILE)
+
     return None
 
 
@@ -485,7 +616,7 @@ async def watch_files() -> None:
         return
 
     watch_dirs: list[str] = []
-    for d in ["skills", "knowledge", "bots", "integrations"]:
+    for d in ["skills", "knowledge", "bots", "integrations", "prompts"]:
         p = Path(d)
         if p.exists():
             watch_dirs.append(str(p))

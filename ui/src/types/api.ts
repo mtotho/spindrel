@@ -393,6 +393,7 @@ export interface SharedWorkspace {
   memory_limit?: string | null;
   docker_user?: string | null;
   read_only_root: boolean;
+  startup_script?: string | null;
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -416,6 +417,7 @@ export interface WorkspaceCreate {
   memory_limit?: string;
   docker_user?: string;
   read_only_root?: boolean;
+  startup_script?: string;
   created_by_user_id?: string;
 }
 
@@ -431,6 +433,7 @@ export interface WorkspaceUpdate {
   memory_limit?: string;
   docker_user?: string;
   read_only_root?: boolean;
+  startup_script?: string;
 }
 
 export interface WorkspaceFileEntry {
@@ -462,6 +465,15 @@ export interface CompactionState {
   turns_until_next: number | null;
 }
 
+export interface CompressionState {
+  enabled: boolean;
+  model: string;
+  threshold: number;
+  keep_turns: number;
+  conversation_chars: number;
+  would_compress: boolean;
+}
+
 export interface EffectiveSetting {
   value: any;
   source: "channel" | "bot" | "global";
@@ -475,8 +487,24 @@ export interface ContextBreakdown {
   total_chars: number;
   total_tokens_approx: number;
   compaction: CompactionState;
+  compression: CompressionState;
   effective_settings: Record<string, EffectiveSetting>;
   disclaimer: string;
+}
+
+// Prompt Template types
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  content: string;
+  category?: string | null;
+  tags: string[];
+  workspace_id?: string | null;
+  source_type: string;
+  source_path?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // Admin types

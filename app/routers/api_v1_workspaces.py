@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import list_bots, reload_bots
 from app.db.models import SharedWorkspace, SharedWorkspaceBot
 from app.dependencies import get_db, verify_auth_or_user
-from app.services.shared_workspace import shared_workspace_service
+from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -34,6 +34,7 @@ class WorkspaceCreate(BaseModel):
     memory_limit: Optional[str] = None
     docker_user: Optional[str] = None
     read_only_root: bool = False
+    startup_script: Optional[str] = "/workspace/startup.sh"
     created_by_user_id: Optional[str] = None
 
 
@@ -49,6 +50,7 @@ class WorkspaceUpdate(BaseModel):
     memory_limit: Optional[str] = None
     docker_user: Optional[str] = None
     read_only_root: Optional[bool] = None
+    startup_script: Optional[str] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -64,6 +66,7 @@ class WorkspaceOut(BaseModel):
     memory_limit: Optional[str]
     docker_user: Optional[str]
     read_only_root: bool
+    startup_script: Optional[str]
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -116,6 +119,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         memory_limit=ws.memory_limit,
         docker_user=ws.docker_user,
         read_only_root=ws.read_only_root,
+        startup_script=ws.startup_script,
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -164,6 +168,7 @@ async def create_workspace(
         memory_limit=body.memory_limit,
         docker_user=body.docker_user,
         read_only_root=body.read_only_root,
+        startup_script=body.startup_script,
         created_by_user_id=uuid.UUID(body.created_by_user_id) if body.created_by_user_id else None,
         created_at=now,
         updated_at=now,
@@ -203,7 +208,7 @@ async def update_workspace(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     for field in ("name", "description", "image", "network", "env", "ports", "mounts",
-                  "cpus", "memory_limit", "docker_user", "read_only_root"):
+                  "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script"):
         val = getattr(body, field, None)
         if val is not None:
             if isinstance(val, str):
@@ -438,6 +443,75 @@ async def workspace_files(
         raise HTTPException(404)
     entries = shared_workspace_service.list_files(workspace_id, path)
     return {"path": path, "entries": entries}
+
+
+class FileWriteBody(BaseModel):
+    content: str
+
+
+@router.get("/{workspace_id}/files/content")
+async def read_workspace_file(
+    workspace_id: str,
+    path: str = Query(..., description="File path inside the workspace"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        return shared_workspace_service.read_file(workspace_id, path)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.put("/{workspace_id}/files/content")
+async def write_workspace_file(
+    workspace_id: str,
+    body: FileWriteBody,
+    path: str = Query(..., description="File path inside the workspace"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        return shared_workspace_service.write_file(workspace_id, path, body.content)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/{workspace_id}/files/mkdir")
+async def mkdir_workspace(
+    workspace_id: str,
+    path: str = Query(..., description="Directory path to create"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        return shared_workspace_service.mkdir(workspace_id, path)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.delete("/{workspace_id}/files")
+async def delete_workspace_file(
+    workspace_id: str,
+    path: str = Query(..., description="File or directory path to delete"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        return shared_workspace_service.delete_path(workspace_id, path)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
 
 
 # ── Reindex ─────────────────────────────────────────────────────

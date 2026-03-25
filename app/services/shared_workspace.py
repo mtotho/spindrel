@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -189,6 +190,10 @@ class SharedWorkspaceService:
             bot_dir = f"/workspace/bots/{swb.bot_id}"
             await self._docker_exec(container_name, f"mkdir -p {bot_dir}")
 
+        # Run startup script if configured
+        if ws.startup_script:
+            await self._run_startup_script(container_name, ws.startup_script)
+
         logger.info("Workspace container %s started: %s", container_name, container_id)
         return container_id
 
@@ -319,6 +324,26 @@ class SharedWorkspaceService:
             return "stopped"
         return stdout.decode().strip() or "unknown"
 
+    async def _run_startup_script(self, container_name: str, script_path: str) -> None:
+        """Run a startup script inside the container. Logs output, warns on failure."""
+        # Check if the script exists
+        rc, _ = await self._docker_exec(container_name, f"test -f {script_path}")
+        if rc != 0:
+            logger.info("Startup script %s not found in %s, skipping", script_path, container_name)
+            return
+
+        logger.info("Running startup script %s in %s", script_path, container_name)
+        rc, output = await self._docker_exec(
+            container_name, f"chmod +x {script_path} && {script_path}"
+        )
+        if rc != 0:
+            logger.warning(
+                "Startup script %s failed (exit %d) in %s: %s",
+                script_path, rc, container_name, output[:500],
+            )
+        else:
+            logger.info("Startup script %s completed in %s: %s", script_path, container_name, output[:200])
+
     # ── File browser ─────────────────────────────────────────────
 
     def list_files(self, workspace_id: str, path: str = "/") -> list[dict]:
@@ -350,6 +375,72 @@ class SharedWorkspaceService:
         except OSError:
             pass
         return entries
+
+    def _resolve_path(self, workspace_id: str, path: str) -> str | None:
+        """Resolve a workspace-relative path to a host-side path with security check.
+        Returns None if the path escapes the workspace root."""
+        host_root = self.get_host_root(workspace_id)
+        rel = path.lstrip("/")
+        if rel.startswith("workspace/"):
+            rel = rel[len("workspace/"):]
+        target = os.path.realpath(os.path.join(host_root, rel))
+        if not target.startswith(os.path.realpath(host_root)):
+            return None
+        return target
+
+    MAX_READ_SIZE = 1024 * 1024  # 1MB
+
+    def read_file(self, workspace_id: str, path: str) -> dict:
+        """Read file content from workspace. Returns {path, content, size} or raises."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        if not os.path.isfile(target):
+            raise SharedWorkspaceError("Not a file or does not exist")
+        size = os.path.getsize(target)
+        if size > self.MAX_READ_SIZE:
+            raise SharedWorkspaceError(f"File too large ({size} bytes, max {self.MAX_READ_SIZE})")
+        try:
+            with open(target, "r", encoding="utf-8", errors="strict") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            raise SharedWorkspaceError("Binary file — cannot display")
+        return {"path": path, "content": content, "size": size}
+
+    def write_file(self, workspace_id: str, path: str, content: str) -> dict:
+        """Write content to a file in the workspace. Creates parent dirs if needed."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+        size = os.path.getsize(target)
+        return {"path": path, "size": size}
+
+    def mkdir(self, workspace_id: str, path: str) -> dict:
+        """Create a directory (and parents) in the workspace."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        os.makedirs(target, exist_ok=True)
+        return {"path": path}
+
+    def delete_path(self, workspace_id: str, path: str) -> dict:
+        """Delete a file or directory in the workspace."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
+        if target == host_root:
+            raise SharedWorkspaceError("Cannot delete workspace root")
+        if not os.path.exists(target):
+            raise SharedWorkspaceError("Path does not exist")
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+        else:
+            os.remove(target)
+        return {"path": path, "deleted": True}
 
     # ── Internals ────────────────────────────────────────────────
 

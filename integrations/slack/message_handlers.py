@@ -157,6 +157,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     try:
         client_actions: list = []
         _delegation_posts_seen = False
+        _assistant_texts_posted = False
         async for event in stream_chat(
             message=full_message,
             bot_id=bot_id,
@@ -182,6 +183,38 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     text=status,
                     **identity,
                 )
+            elif etype == "assistant_text":
+                # Intermediate text the LLM produced alongside tool calls.
+                # Turn the current thinking placeholder into a real message,
+                # then post a fresh thinking placeholder for the next tool cycle.
+                _at_text = (event.get("text") or "").strip()
+                if _at_text:
+                    _assistant_texts_posted = True
+                    formatted_at = format_response_for_slack(_at_text)
+                    chunks_at = split_for_slack(formatted_at)
+                    # First chunk replaces the thinking placeholder
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=chunks_at[0],
+                        **identity,
+                    )
+                    # Extra chunks as follow-up messages
+                    for chunk in chunks_at[1:]:
+                        await client.chat_postMessage(
+                            channel=thinking_channel,
+                            text=chunk,
+                            thread_ts=thread_ts,
+                            **identity,
+                        )
+                    # Post a fresh thinking placeholder for the next iteration
+                    msg = await client.chat_postMessage(
+                        channel=thinking_channel,
+                        text="⏳ _working..._",
+                        **identity,
+                    )
+                    thinking_ts = msg["ts"]
+                    thinking_channel = msg["channel"]
             elif etype == "delegation_post":
                 _delegation_posts_seen = True
                 child_bot_id = event.get("bot_id") or ""
@@ -212,10 +245,10 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             elif etype == "response":
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []
-                formatted = format_response_for_slack(reply)
-                chunks = split_for_slack(formatted)
 
-                if _delegation_posts_seen:
+                # If the final response is empty but we already posted intermediate
+                # messages, just delete the trailing thinking placeholder.
+                if not reply and _assistant_texts_posted:
                     try:
                         await client.chat_delete(
                             channel=thinking_channel,
@@ -223,29 +256,43 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                         )
                     except Exception:
                         pass
-                    for chunk in chunks:
-                        await client.chat_postMessage(
-                            channel=thinking_channel,
-                            text=chunk,
-                            thread_ts=thread_ts,
-                            **identity,
-                        )
+                    # Clear thinking_ts so we don't try to update a deleted msg
+                    thinking_ts = None
                 else:
-                    # First chunk replaces the thinking placeholder.
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=chunks[0],
-                        **identity,
-                    )
-                    # Remaining chunks posted as follow-up messages.
-                    for chunk in chunks[1:]:
-                        await client.chat_postMessage(
+                    formatted = format_response_for_slack(reply)
+                    chunks = split_for_slack(formatted)
+
+                    if _delegation_posts_seen:
+                        try:
+                            await client.chat_delete(
+                                channel=thinking_channel,
+                                ts=thinking_ts,
+                            )
+                        except Exception:
+                            pass
+                        for chunk in chunks:
+                            await client.chat_postMessage(
+                                channel=thinking_channel,
+                                text=chunk,
+                                thread_ts=thread_ts,
+                                **identity,
+                            )
+                    else:
+                        # First chunk replaces the thinking placeholder.
+                        await client.chat_update(
                             channel=thinking_channel,
-                            text=chunk,
-                            thread_ts=thread_ts,
+                            ts=thinking_ts,
+                            text=chunks[0],
                             **identity,
                         )
+                        # Remaining chunks posted as follow-up messages.
+                        for chunk in chunks[1:]:
+                            await client.chat_postMessage(
+                                channel=thinking_channel,
+                                text=chunk,
+                                thread_ts=thread_ts,
+                                **identity,
+                            )
         if thinking_channel:
             await _handle_client_actions(client, thinking_channel, client_actions,
                                         thread_ts=thread_ts, identity=identity)

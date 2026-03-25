@@ -33,7 +33,7 @@ interface TasksResponse {
 }
 
 type ViewMode = "day" | "week";
-type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api" | "recurrence";
+type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api";
 
 type EditorState =
   | { mode: "closed" }
@@ -50,7 +50,6 @@ const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "exec", label: "Exec" },
   { key: "callback", label: "Callback" },
   { key: "api", label: "API" },
-  { key: "recurrence", label: "Recurrence" },
 ];
 
 const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -61,7 +60,6 @@ const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   exec: { bg: "#333", fg: "#a3a3a3" },
   callback: { bg: "#2e1a1a", fg: "#f87171" },
   api: { bg: "#1a2e1a", fg: "#86efac" },
-  recurrence: { bg: "#92400e", fg: "#fcd34d" },
   agent: { bg: "#222", fg: "#666" },
 };
 

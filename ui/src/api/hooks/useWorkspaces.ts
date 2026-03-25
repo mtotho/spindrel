@@ -199,6 +199,66 @@ export function useWorkspaceFiles(
   });
 }
 
+// File content operations
+
+export function useWorkspaceFileContent(
+  workspaceId: string | undefined,
+  path: string | null
+) {
+  return useQuery({
+    queryKey: ["workspace-file-content", workspaceId, path],
+    queryFn: () =>
+      apiFetch<{ path: string; content: string; size: number }>(
+        `/api/v1/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path!)}`
+      ),
+    enabled: !!workspaceId && !!path,
+  });
+}
+
+export function useWriteWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { path: string; content: string }) =>
+      apiFetch<{ path: string; size: number }>(
+        `/api/v1/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(data.path)}`,
+        { method: "PUT", body: JSON.stringify({ content: data.content }) }
+      ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["workspace-file-content", workspaceId, vars.path] });
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+    },
+  });
+}
+
+export function useMkdirWorkspace(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiFetch<{ path: string }>(
+        `/api/v1/workspaces/${workspaceId}/files/mkdir?path=${encodeURIComponent(path)}`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+    },
+  });
+}
+
+export function useDeleteWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiFetch<{ path: string; deleted: boolean }>(
+        `/api/v1/workspaces/${workspaceId}/files?path=${encodeURIComponent(path)}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-file-content", workspaceId] });
+    },
+  });
+}
+
 // Reindex
 
 export function useReindexWorkspace(workspaceId: string) {

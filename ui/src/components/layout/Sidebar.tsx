@@ -40,6 +40,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
       { label: "Knowledge", href: "/admin/knowledge", icon: Brain },
+      { label: "Templates", href: "/admin/prompt-templates", icon: FileText },
     ],
   },
   {

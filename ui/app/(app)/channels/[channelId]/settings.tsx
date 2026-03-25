@@ -57,7 +57,6 @@ const TABS = [
   { key: "heartbeat", label: "Heartbeat" },
   { key: "memories", label: "Memories" },
   { key: "tasks", label: "Tasks" },
-  { key: "plans", label: "Plans" },
   { key: "compression", label: "Compression" },
   { key: "logs", label: "Logs" },
 ];
@@ -192,7 +191,6 @@ export default function ChannelSettingsScreen() {
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} />}
         {tab === "memories" && <MemoriesTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "plans" && <PlansTab channelId={channelId!} />}
         {tab === "compression" && <CompressionTab channelId={channelId!} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </ScrollView>
@@ -603,41 +601,125 @@ function IntegrationsTab({ channelId }: { channelId: string }) {
 // Sessions Tab
 // ===========================================================================
 function SessionsTab({ channelId }: { channelId: string }) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-sessions", channelId],
-    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/sessions`),
+    queryFn: async () => {
+      const res = await apiFetch<{ sessions: any[] }>(`/api/v1/admin/channels/${channelId}/sessions`);
+      return res.sessions;
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/v1/channels/${channelId}/reset`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-sessions", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+
+  const switchMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
+        method: "POST",
+        body: JSON.stringify({ session_id: sessionId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-sessions", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
   });
 
   if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data?.length) return <EmptyState message="No sessions yet." />;
 
   return (
-    <Section title="Session History">
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {data.map((s: any) => (
-          <div key={s.id} style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-          }}>
-            <div>
-              <div style={{ fontSize: 13, color: "#e5e5e5", fontFamily: "monospace" }}>
-                {s.id?.substring(0, 12)}...
-                {s.title && <span style={{ fontFamily: "sans-serif", marginLeft: 8, color: "#999" }}>{s.title}</span>}
+    <>
+      {/* Actions bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button
+          onClick={() => resetMutation.mutate()}
+          disabled={resetMutation.isPending}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", fontSize: 12, fontWeight: 600,
+            border: "none", cursor: "pointer", borderRadius: 6,
+            background: "#3b82f6", color: "#fff",
+          }}
+        >
+          <RotateCw size={12} />
+          {resetMutation.isPending ? "Resetting..." : "New Session"}
+        </button>
+        <span style={{ fontSize: 11, color: "#555", alignSelf: "center" }}>
+          {data?.length ?? 0} session{data?.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {!data?.length ? (
+        <EmptyState message="No sessions yet." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {data.map((s: any) => (
+            <div key={s.id} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 12px", background: s.is_active ? "#0d1a0d" : "#1a1a1a",
+              borderRadius: 8, border: `1px solid ${s.is_active ? "#1a3a1a" : "#2a2a2a"}`,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
+                    {s.id?.substring(0, 12)}...
+                  </span>
+                  {s.title && (
+                    <span style={{ fontSize: 12, color: "#999", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.title}
+                    </span>
+                  )}
+                  {s.is_active && (
+                    <span style={{ fontSize: 9, background: "#166534", color: "#86efac", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                      ACTIVE
+                    </span>
+                  )}
+                  {s.locked && (
+                    <span style={{ fontSize: 9, background: "#7f1d1d", color: "#fca5a5", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                      LOCKED
+                    </span>
+                  )}
+                  {s.depth > 0 && (
+                    <span style={{ fontSize: 9, background: "#333", color: "#999", padding: "1px 6px", borderRadius: 3 }}>
+                      depth {s.depth}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#666", marginTop: 3 }}>
+                  <span>{s.message_count ?? 0} msgs</span>
+                  {s.last_active && <span>{new Date(s.last_active).toLocaleString()}</span>}
+                  {s.created_at && <span>created {new Date(s.created_at).toLocaleDateString()}</span>}
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
-                {s.message_count ?? 0} messages
-                {s.last_active && <span> · {new Date(s.last_active).toLocaleString()}</span>}
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                {!s.is_active && (
+                  <button
+                    onClick={() => switchMutation.mutate(s.id)}
+                    disabled={switchMutation.isPending}
+                    style={{
+                      padding: "4px 10px", fontSize: 10, fontWeight: 600,
+                      border: "1px solid #333", borderRadius: 4, cursor: "pointer",
+                      background: "transparent", color: "#86efac",
+                    }}
+                    title="Switch to this session"
+                  >
+                    Activate
+                  </button>
+                )}
               </div>
             </div>
-            {s.is_active && (
-              <span style={{ fontSize: 10, background: "#166534", color: "#86efac", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>
-                ACTIVE
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    </Section>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1041,71 +1123,6 @@ function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
         />
       )}
     </>
-  );
-}
-
-// ===========================================================================
-// Plans Tab
-// ===========================================================================
-function PlansTab({ channelId }: { channelId: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["channel-plans", channelId],
-    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/plans`),
-  });
-
-  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data?.length) return <EmptyState message="No plans yet." />;
-
-  const statusColors: Record<string, { bg: string; fg: string }> = {
-    active: { bg: "#1e3a5f", fg: "#93c5fd" },
-    complete: { bg: "#166534", fg: "#86efac" },
-    abandoned: { bg: "#333", fg: "#999" },
-  };
-
-  return (
-    <Section title={`Plans (${data.length})`}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {data.map((p: any) => {
-          const sc = statusColors[p.status] || statusColors.active;
-          return (
-            <div key={p.id} style={{
-              padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>
-                  {p.title || "Untitled Plan"}
-                </div>
-                <span style={{
-                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                  background: sc.bg, color: sc.fg,
-                }}>
-                  {p.status}
-                </span>
-              </div>
-              {p.description && (
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{p.description}</div>
-              )}
-              {p.items?.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {p.items.map((item: any) => (
-                    <div key={item.id} style={{ display: "flex", gap: 8, fontSize: 12, color: "#999" }}>
-                      <span style={{
-                        color: item.status === "done" ? "#86efac" : item.status === "in_progress" ? "#93c5fd" : item.status === "skipped" ? "#666" : "#999",
-                      }}>
-                        {item.status === "done" ? "✓" : item.status === "in_progress" ? "→" : item.status === "skipped" ? "—" : "○"}
-                      </span>
-                      <span style={{ color: item.status === "done" ? "#86efac" : "#999" }}>
-                        {item.content}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Section>
   );
 }
 

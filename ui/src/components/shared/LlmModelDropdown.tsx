@@ -7,6 +7,8 @@ interface Props {
   placeholder?: string;
   label?: string;
   allowClear?: boolean;
+  /** Where to anchor the dropdown relative to the trigger. Default "bottom". */
+  anchor?: "bottom" | "top";
 }
 
 /**
@@ -19,10 +21,11 @@ export function LlmModelDropdown({
   placeholder = "Select model...",
   label,
   allowClear = true,
+  anchor = "bottom",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, bottom: 0, width: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
   const { data: groups, isLoading } = useModelGroups();
 
@@ -30,11 +33,16 @@ export function LlmModelDropdown({
   const openDropdown = useCallback(() => {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      setPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        bottom: window.innerHeight - rect.top + 4,
+        width: rect.width,
+      });
     }
     setOpen(true);
     setSearch("");
-  }, []);
+  }, [anchor]);
 
   const filteredGroups = groups
     ?.map((g) => ({
@@ -99,8 +107,9 @@ export function LlmModelDropdown({
               <div
                 style={{
                   position: "fixed",
-                  top: pos.top,
-                  left: pos.left,
+                  ...(anchor === "top"
+                    ? { bottom: pos.bottom, left: pos.left }
+                    : { top: pos.top, left: pos.left }),
                   width: Math.max(pos.width, 320),
                   maxHeight: 340,
                   zIndex: 50001,

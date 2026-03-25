@@ -62,6 +62,58 @@ function getEventLabel(ev: TraceEvent): string {
 }
 
 // ---------------------------------------------------------------------------
+// Copy formatter
+// ---------------------------------------------------------------------------
+function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailResponse): string {
+  const lines: string[] = [];
+
+  lines.push(`=== Request Trace ===`);
+  lines.push(`Correlation: ${data.correlation_id}`);
+  if (data.bot_id) lines.push(`Bot: ${data.bot_id}`);
+  if (data.session_id) lines.push(`Session: ${data.session_id}`);
+  if (data.client_id) lines.push(`Client: ${data.client_id}`);
+  if (data.time_range_start && data.time_range_end) {
+    lines.push(`Time: ${fmtTime(data.time_range_start)} — ${fmtTime(data.time_range_end)}`);
+  }
+  lines.push("");
+
+  for (const ev of data.events) {
+    const time = fmtTime(ev.created_at);
+    const dur = ev.duration_ms != null ? ` (${fmtDuration(ev.duration_ms)})` : "";
+
+    if (ev.kind === "message") {
+      const role = ev.role === "user" ? "USER" : "ASSISTANT";
+      lines.push(`--- ${role} [${time}] ---`);
+      lines.push(ev.content || "[empty]");
+      lines.push("");
+    } else if (ev.kind === "tool_call") {
+      lines.push(`[${time}]${dur} TOOL: ${ev.tool_name || "unknown"}${ev.tool_type ? ` [${ev.tool_type}]` : ""}`);
+      if (ev.arguments && Object.keys(ev.arguments).length > 0) {
+        lines.push(`  Args: ${JSON.stringify(ev.arguments, null, 2).split("\n").join("\n  ")}`);
+      }
+      if (ev.result) {
+        const result = ev.result.length > 2000 ? ev.result.substring(0, 2000) + "... [truncated]" : ev.result;
+        lines.push(`  Result: ${result}`);
+      }
+      if (ev.error) lines.push(`  ERROR: ${ev.error}`);
+      lines.push("");
+    } else {
+      const evType = ev.event_type || "trace_event";
+      const evName = ev.event_name || ev.event_type || "event";
+      lines.push(`[${time}]${dur} ${evType.toUpperCase()}: ${evName}`);
+      if (ev.count != null) lines.push(`  Count: ${ev.count}`);
+      if (ev.error) lines.push(`  ERROR: ${ev.error}`);
+      if (ev.data) {
+        lines.push(`  Data: ${JSON.stringify(ev.data, null, 2).split("\n").join("\n  ")}`);
+      }
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 export default function TraceScreen() {
@@ -74,7 +126,7 @@ export default function TraceScreen() {
 
   const handleCopy = () => {
     if (!data) return;
-    navigator.clipboard.writeText(JSON.stringify(data.events, null, 2));
+    navigator.clipboard.writeText(formatTraceForCopy(data));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

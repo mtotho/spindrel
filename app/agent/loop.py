@@ -280,6 +280,16 @@ async def run_agent_tool_loop(
                     messages[user_msg_index] = {"role": "user", "content": transcript}
                     transcript_emitted = True
 
+            # Emit intermediate text when the LLM returns content alongside tool calls.
+            # Without this, the text is recorded in conversation history but never
+            # surfaces to streaming consumers (Slack, UI, etc.).
+            _intermediate_text = (msg.content or "").strip()
+            if _intermediate_text:
+                yield _event_with_compaction_tag(
+                    {"type": "assistant_text", "text": _intermediate_text},
+                    compaction,
+                )
+
             logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
 
             for tc in msg.tool_calls:
@@ -416,6 +426,7 @@ async def run_stream(
     Events:
       {"type": "tool_start", "tool": "<name>", "args": "<json>"}
       {"type": "tool_result", "tool": "<name>"}
+      {"type": "assistant_text", "text": "..."}   (intermediate text alongside tool calls)
       {"type": "memory_context", "count": <int>}
       {"type": "transcript", "text": "..."}
       {"type": "delegation_post", "bot_id": "...", "text": "...", "reply_in_thread": bool}
@@ -611,6 +622,7 @@ async def run(
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
+    _intermediate_texts: list[str] = []
     async for event in run_stream(
         messages, bot, user_message,
         session_id=session_id, client_id=client_id,
@@ -623,8 +635,16 @@ async def run(
         model_override=model_override,
         provider_id_override=provider_id_override,
     ):
-        if event["type"] == "response":
-            result.response = event["text"]
+        if event["type"] == "assistant_text":
+            _intermediate_texts.append(event["text"])
+        elif event["type"] == "response":
+            # If the final response is empty but intermediate text was produced,
+            # combine the intermediate messages as the result.
+            final_text = event["text"]
+            if not (final_text or "").strip() and _intermediate_texts:
+                result.response = "\n\n".join(_intermediate_texts)
+            else:
+                result.response = final_text
             result.client_actions = event.get("client_actions", [])
         elif event["type"] == "transcript":
             result.transcript = event["text"]
