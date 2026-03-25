@@ -51,7 +51,7 @@ async def _schedule_next_occurrence(task: Task) -> None:
             prompt=task.prompt,
             scheduled_at=next_run,
             status="pending",
-            task_type="recurrence",
+            task_type=task.task_type,
             dispatch_type=task.dispatch_type,
             dispatch_config=task.dispatch_config,
             recurrence=task.recurrence,

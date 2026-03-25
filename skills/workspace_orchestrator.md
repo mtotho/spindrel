@@ -72,6 +72,56 @@ agent-api METHOD /path [json_body]
 | GET | `/api/v1/workspaces/{id}/files` | Browse files (`?path=/`) |
 | POST | `/api/v1/workspaces/{id}/reindex` | Reindex all bot workspace files |
 
+### Skills & Knowledge Management
+
+Create and manage skills (reusable knowledge chunks) that bots can reference. Skills are auto-embedded for RAG retrieval.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/skills` | List all skills |
+| POST | `/api/v1/admin/skills` | Create skill (`{id, name, content}`) |
+| GET | `/api/v1/admin/skills/{id}` | Get skill by ID |
+| PUT | `/api/v1/admin/skills/{id}` | Update skill (`{name?, content?}`) |
+| DELETE | `/api/v1/admin/skills/{id}` | Delete skill |
+
+**Create a skill from workspace content:**
+```sh
+# Write workspace knowledge as a reusable skill
+agent-api POST /api/v1/admin/skills '{
+  "id": "project-api-spec",
+  "name": "Project API Specification",
+  "content": "# API Spec\n\n## Endpoints\n\n..."
+}'
+```
+
+**Assign skill to a bot** — add the skill ID to the bot's `skills` array:
+```sh
+agent-api PUT /api/v1/admin/bots/coder '{"skills": [{"id": "project-api-spec"}]}'
+```
+
+**Pattern: shared knowledge via skills** — create a skill from shared workspace content so all workspace bots can reference it. This is preferred over duplicating content in each bot's prompt.
+
+### Custom Tools via File Drop
+
+Tools are Python files with `@register` decorators. Agents can create tools by writing `.py` files to directories listed in `TOOL_DIRS`:
+
+```sh
+# Write a tool file to a workspace tool directory
+cat > /workspace/common/tools/my_tool.py << 'EOF'
+from app.tools.registry import register
+
+@register({
+    "name": "my_custom_tool",
+    "description": "Does something useful",
+    "parameters": {"type": "object", "properties": {"input": {"type": "string"}}}
+})
+async def my_custom_tool(input: str) -> str:
+    return f"Processed: {input}"
+EOF
+```
+
+Tools are discovered at server startup. After writing a tool file, the server must be restarted for it to take effect.
+
 ### Task Delegation
 
 To assign work to a member bot:

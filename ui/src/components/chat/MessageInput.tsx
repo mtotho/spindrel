@@ -25,6 +25,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   const [showModelPicker, setShowModelPicker] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
 
   // Autocomplete state (web only)
   const { data: completions } = useCompletions();
@@ -339,7 +340,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           </div>
           {/* Per-turn model picker */}
           {Platform.OS === "web" && onModelOverrideChange && (
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
               {modelOverride ? (
                 <div
                   style={{
@@ -382,13 +383,16 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               {showModelPicker && (() => {
                 const { LlmModelDropdown } = require("../shared/LlmModelDropdown");
                 const ReactDOM = require("react-dom");
+                const rect = modelPickerRef.current?.getBoundingClientRect();
+                const dropdownRight = rect ? window.innerWidth - rect.right : 16;
+                const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
                 return ReactDOM.createPortal(
                   <>
                     <div
                       onClick={() => setShowModelPicker(false)}
                       style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                     />
-                    <div style={{ position: "fixed", bottom: 80, right: 80, zIndex: 50001, width: 320 }}>
+                    <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
                       <LlmModelDropdown
                         value={modelOverride ?? ""}
                         onChange={(m: string) => {
@@ -397,6 +401,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                         }}
                         placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}
                         allowClear
+                        anchor="top"
                       />
                     </div>
                   </>,

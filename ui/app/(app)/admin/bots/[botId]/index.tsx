@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from "react";
 import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown } from "lucide-react";
@@ -8,6 +8,7 @@ import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { PromptTemplateSelector } from "@/src/components/shared/PromptTemplateSelector";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col, Slider,
 } from "@/src/components/shared/FormControls";
@@ -37,19 +38,15 @@ type SectionKey = (typeof SECTIONS)[number]["key"];
 // ---------------------------------------------------------------------------
 // Large plain textarea (no @-tags) for system prompt & persona
 // ---------------------------------------------------------------------------
-function BigTextarea({
-  value,
-  onChange,
-  placeholder,
-  minRows = 24,
-}: {
+const BigTextarea = forwardRef<HTMLTextAreaElement, {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   minRows?: number;
-}) {
+}>(function BigTextarea({ value, onChange, placeholder, minRows = 24 }, ref) {
   return (
     <textarea
+      ref={ref}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -65,7 +62,7 @@ function BigTextarea({
       onBlur={(e) => { e.target.style.borderColor = "#333"; }}
     />
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Dynamic list editor (for env vars, ports, mounts, commands, patterns)
@@ -1260,6 +1257,7 @@ export default function BotEditorScreen() {
   const updateMutation = useUpdateBot(isNew ? undefined : botId);
   const createMutation = useCreateBot();
   const scrollRef = useRef<ScrollView>(null);
+  const systemPromptRef = useRef<HTMLTextAreaElement>(null);
 
   const { width: windowWidth } = useWindowDimensions();
   const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
@@ -1467,8 +1465,17 @@ export default function BotEditorScreen() {
 
           {activeSection === "prompt" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>System Prompt</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>System Prompt</div>
+                <PromptTemplateSelector
+                  textareaRef={systemPromptRef}
+                  value={draft.system_prompt || ""}
+                  onChange={(v) => update({ system_prompt: v })}
+                  workspaceId={draft.shared_workspace_id ?? undefined}
+                />
+              </div>
               <BigTextarea
+                ref={systemPromptRef}
                 value={draft.system_prompt || ""}
                 onChange={(v) => update({ system_prompt: v })}
                 placeholder="Enter system prompt..."

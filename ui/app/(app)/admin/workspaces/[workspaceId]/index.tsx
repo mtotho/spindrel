@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Trash2, Play, Square, RefreshCw, Download,
   Plus, X, FolderOpen, ChevronRight, FileText, Folder, AlertCircle,
+  Edit3, Save, FolderPlus, FilePlus,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import {
   usePullWorkspaceImage, useWorkspaceStatus, useWorkspaceLogs,
   useAddBotToWorkspace, useUpdateWorkspaceBot, useRemoveBotFromWorkspace,
   useWorkspaceFiles, useReindexWorkspace,
+  useWorkspaceFileContent, useWriteWorkspaceFile, useMkdirWorkspace, useDeleteWorkspaceFile,
 } from "@/src/api/hooks/useWorkspaces";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
@@ -44,39 +46,25 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 // Env var editor
 // ---------------------------------------------------------------------------
-function EnvEditor({ env, onChange }: {
-  env: Record<string, string>;
-  onChange: (env: Record<string, string>) => void;
+function EnvEditor({ entries, onChange }: {
+  entries: { key: string; value: string }[];
+  onChange: (entries: { key: string; value: string }[]) => void;
 }) {
-  const entries = Object.entries(env);
-  const addEntry = () => onChange({ ...env, "": "" });
-  const removeEntry = (key: string) => {
-    const next = { ...env };
-    delete next[key];
-    onChange(next);
-  };
-  const updateKey = (oldKey: string, newKey: string) => {
-    const next: Record<string, string> = {};
-    for (const [k, v] of Object.entries(env)) {
-      next[k === oldKey ? newKey : k] = v;
-    }
-    onChange(next);
-  };
-  const updateValue = (key: string, value: string) => {
-    onChange({ ...env, [key]: value });
-  };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {entries.map(([key, value], i) => (
+      {entries.map((entry, i) => (
         <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
-            value={key}
-            onChange={(e) => updateKey(key, e.target.value)}
+            value={entry.key}
+            onChange={(e) => {
+              const next = [...entries];
+              next[i] = { ...next[i], key: e.target.value };
+              onChange(next);
+            }}
             placeholder="KEY"
             style={{
               flex: 1, background: "#111",
-              border: `1px solid ${!key ? "#7f1d1d" : "#333"}`,
+              border: `1px solid ${!entry.key ? "#7f1d1d" : "#333"}`,
               borderRadius: 6,
               padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
               outline: "none",
@@ -84,8 +72,12 @@ function EnvEditor({ env, onChange }: {
           />
           <span style={{ color: "#555" }}>=</span>
           <input
-            value={value}
-            onChange={(e) => updateValue(key, e.target.value)}
+            value={entry.value}
+            onChange={(e) => {
+              const next = [...entries];
+              next[i] = { ...next[i], value: e.target.value };
+              onChange(next);
+            }}
             placeholder="value"
             style={{
               flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
@@ -94,7 +86,7 @@ function EnvEditor({ env, onChange }: {
             }}
           />
           <button
-            onClick={() => removeEntry(key)}
+            onClick={() => onChange(entries.filter((_, j) => j !== i))}
             style={{
               background: "none", border: "none", cursor: "pointer",
               color: "#666", padding: 2, flexShrink: 0,
@@ -105,7 +97,7 @@ function EnvEditor({ env, onChange }: {
         </div>
       ))}
       <button
-        onClick={addEntry}
+        onClick={() => onChange([...entries, { key: "", value: "" }])}
         style={{
           display: "flex", alignItems: "center", gap: 4,
           padding: "4px 10px", fontSize: 11, fontWeight: 600,
@@ -344,24 +336,76 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
 }
 
 // ---------------------------------------------------------------------------
-// File browser
+// File browser with view/edit/create/delete
 // ---------------------------------------------------------------------------
 function FileBrowser({ workspaceId }: { workspaceId: string }) {
   const [path, setPath] = useState("/");
-  const { data, isLoading } = useWorkspaceFiles(workspaceId, path);
+  const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [creating, setCreating] = useState<"file" | "folder" | null>(null);
+  const [newName, setNewName] = useState("");
 
-  const navigateTo = (entryPath: string) => setPath(entryPath);
+  const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId, path);
+  const { data: fileData, isLoading: fileLoading, error: fileError } = useWorkspaceFileContent(
+    workspaceId, viewingFile
+  );
+  const writeMut = useWriteWorkspaceFile(workspaceId);
+  const mkdirMut = useMkdirWorkspace(workspaceId);
+  const deleteMut = useDeleteWorkspaceFile(workspaceId);
+
+  const navigateTo = (entryPath: string) => {
+    setViewingFile(null);
+    setEditing(false);
+    setPath(entryPath);
+  };
   const navigateUp = () => {
     const parent = path.replace(/\/[^/]+\/?$/, "") || "/";
-    setPath(parent);
+    navigateTo(parent);
+  };
+
+  const handleSaveFile = () => {
+    if (!viewingFile) return;
+    writeMut.mutate({ path: viewingFile, content: editContent }, {
+      onSuccess: () => { setEditing(false); refetch(); },
+    });
+  };
+
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    const newPath = path === "/" ? newName.trim() : `${path.replace(/^\//, "")}/${newName.trim()}`;
+    if (creating === "folder") {
+      mkdirMut.mutate(newPath, { onSuccess: () => { setCreating(null); setNewName(""); refetch(); } });
+    } else {
+      writeMut.mutate({ path: newPath, content: "" }, {
+        onSuccess: () => { setCreating(null); setNewName(""); refetch(); },
+      });
+    }
+  };
+
+  const handleDelete = (entryPath: string, entryName: string, isDir: boolean) => {
+    if (!confirm(`Delete ${isDir ? "directory" : "file"} "${entryName}"?`)) return;
+    deleteMut.mutate(entryPath, {
+      onSuccess: () => {
+        if (viewingFile === entryPath) { setViewingFile(null); setEditing(false); }
+        refetch();
+      },
+    });
+  };
+
+  const formatSize = (size: number | null | undefined) => {
+    if (size == null) return "";
+    if (size > 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)}M`;
+    if (size > 1024) return `${(size / 1024).toFixed(1)}K`;
+    return `${size}B`;
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {/* Breadcrumb */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+      {/* Breadcrumb + toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
         <button
-          onClick={() => setPath("/")}
+          onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
             color: "#93c5fd", fontSize: 12, padding: 0,
@@ -387,7 +431,80 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             </button>
           </>
         )}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => { setCreating("file"); setNewName(""); }}
+          style={{
+            display: "flex", alignItems: "center", gap: 3,
+            background: "none", border: "1px solid #333", borderRadius: 4,
+            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+          }}
+        >
+          <FilePlus size={11} /> New File
+        </button>
+        <button
+          onClick={() => { setCreating("folder"); setNewName(""); }}
+          style={{
+            display: "flex", alignItems: "center", gap: 3,
+            background: "none", border: "1px solid #333", borderRadius: 4,
+            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+          }}
+        >
+          <FolderPlus size={11} /> New Folder
+        </button>
+        <button
+          onClick={() => refetch()}
+          style={{
+            display: "flex", alignItems: "center", gap: 3,
+            background: "none", border: "1px solid #333", borderRadius: 4,
+            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+          }}
+        >
+          <RefreshCw size={10} />
+        </button>
       </div>
+
+      {/* Create inline form */}
+      {creating && (
+        <div style={{
+          display: "flex", gap: 6, alignItems: "center",
+          padding: "6px 10px", background: "#111", borderRadius: 6, border: "1px solid #333",
+        }}>
+          <span style={{ fontSize: 11, color: "#999" }}>
+            {creating === "folder" ? "Folder:" : "File:"}
+          </span>
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(null); }}
+            placeholder={creating === "folder" ? "folder-name" : "filename.txt"}
+            style={{
+              flex: 1, background: "#0a0a0a", border: "1px solid #333", borderRadius: 4,
+              padding: "3px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+              outline: "none",
+            }}
+          />
+          <button
+            onClick={handleCreate}
+            disabled={!newName.trim() || mkdirMut.isPending || writeMut.isPending}
+            style={{
+              padding: "3px 10px", fontSize: 11, fontWeight: 600,
+              background: newName.trim() ? "#3b82f6" : "#333",
+              color: newName.trim() ? "#fff" : "#666",
+              border: "none", borderRadius: 4, cursor: newName.trim() ? "pointer" : "not-allowed",
+            }}
+          >
+            Create
+          </button>
+          <button
+            onClick={() => setCreating(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 2 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Entries */}
       {isLoading ? (
@@ -401,41 +518,157 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Empty directory</div>
           )}
           {data?.entries?.map((entry) => (
-            <button
+            <div
               key={entry.path}
-              onClick={() => entry.is_dir && navigateTo(entry.path)}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 12px", width: "100%",
-                background: "transparent", border: "none",
+                padding: "6px 12px",
+                background: viewingFile === entry.path ? "rgba(59,130,246,0.08)" : "transparent",
                 borderBottom: "1px solid #111",
-                cursor: entry.is_dir ? "pointer" : "default",
-                textAlign: "left",
               }}
             >
-              {entry.is_dir ? (
-                <Folder size={13} color="#93c5fd" />
-              ) : (
-                <FileText size={13} color="#666" />
-              )}
-              <span style={{
-                flex: 1, fontSize: 12, color: entry.is_dir ? "#e5e5e5" : "#999",
-                fontFamily: "monospace",
-              }}>
-                {entry.name}
-              </span>
-              {!entry.is_dir && entry.size != null && (
-                <span style={{ fontSize: 10, color: "#555" }}>
-                  {entry.size > 1024 * 1024
-                    ? `${(entry.size / (1024 * 1024)).toFixed(1)}M`
-                    : entry.size > 1024
-                      ? `${(entry.size / 1024).toFixed(1)}K`
-                      : `${entry.size}B`}
+              <button
+                onClick={() => {
+                  if (entry.is_dir) {
+                    navigateTo(entry.path);
+                  } else {
+                    setViewingFile(entry.path);
+                    setEditing(false);
+                  }
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, flex: 1,
+                  background: "none", border: "none", cursor: "pointer",
+                  textAlign: "left", padding: 0,
+                }}
+              >
+                {entry.is_dir ? (
+                  <Folder size={13} color="#93c5fd" />
+                ) : (
+                  <FileText size={13} color="#666" />
+                )}
+                <span style={{
+                  flex: 1, fontSize: 12, color: entry.is_dir ? "#e5e5e5" : "#999",
+                  fontFamily: "monospace",
+                }}>
+                  {entry.name}
                 </span>
-              )}
-              {entry.is_dir && <ChevronRight size={12} color="#555" />}
-            </button>
+                {!entry.is_dir && entry.size != null && (
+                  <span style={{ fontSize: 10, color: "#555" }}>{formatSize(entry.size)}</span>
+                )}
+                {entry.is_dir && <ChevronRight size={12} color="#555" />}
+              </button>
+              <button
+                onClick={() => handleDelete(entry.path, entry.name, entry.is_dir)}
+                disabled={deleteMut.isPending}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#444", padding: 2, flexShrink: 0,
+                }}
+                title="Delete"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* File viewer/editor panel */}
+      {viewingFile && (
+        <div style={{
+          background: "#0a0a0a", borderRadius: 8, border: "1px solid #1a1a1a",
+          overflow: "hidden",
+        }}>
+          {/* File header */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "8px 12px", borderBottom: "1px solid #1a1a1a",
+            background: "#111",
+          }}>
+            <FileText size={13} color="#93c5fd" />
+            <span style={{ flex: 1, fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
+              {viewingFile}
+            </span>
+            {fileData && !editing && (
+              <button
+                onClick={() => { setEditing(true); setEditContent(fileData.content); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                  background: "transparent", border: "1px solid #333", borderRadius: 4,
+                  color: "#999", cursor: "pointer",
+                }}
+              >
+                <Edit3 size={11} /> Edit
+              </button>
+            )}
+            {editing && (
+              <>
+                <button
+                  onClick={handleSaveFile}
+                  disabled={writeMut.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                    background: "#3b82f6", border: "none", borderRadius: 4,
+                    color: "#fff", cursor: "pointer",
+                  }}
+                >
+                  <Save size={11} /> {writeMut.isPending ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  style={{
+                    padding: "3px 10px", fontSize: 11,
+                    background: "transparent", border: "1px solid #333", borderRadius: 4,
+                    color: "#999", cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => { setViewingFile(null); setEditing(false); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 2 }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* File content */}
+          <div style={{ padding: 12, maxHeight: 400, overflowY: "auto" }}>
+            {fileLoading && (
+              <div style={{ color: "#555", fontSize: 12 }}>Loading file...</div>
+            )}
+            {fileError && (
+              <div style={{ color: "#fca5a5", fontSize: 12 }}>
+                {(fileError as any)?.message || "Failed to load file"}
+              </div>
+            )}
+            {fileData && !editing && (
+              <pre style={{
+                color: "#ccc", fontSize: 12, fontFamily: "monospace",
+                whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
+                wordBreak: "break-all",
+              }}>
+                {fileData.content || <span style={{ color: "#555" }}>(empty file)</span>}
+              </pre>
+            )}
+            {editing && (
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                style={{
+                  width: "100%", minHeight: 200, background: "#0d0d0d",
+                  border: "1px solid #333", borderRadius: 6,
+                  padding: 10, color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                  lineHeight: 1.5, resize: "vertical", outline: "none",
+                }}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -468,13 +701,14 @@ export default function WorkspaceDetailScreen() {
   const [description, setDescription] = useState("");
   const [image, setImage] = useState("agent-workspace:latest");
   const [network, setNetwork] = useState("none");
-  const [env, setEnv] = useState<Record<string, string>>({});
+  const [env, setEnv] = useState<{ key: string; value: string }[]>([]);
   const [ports, setPorts] = useState<{ host: string; container: string }[]>([]);
   const [mounts, setMounts] = useState<{ host_path: string; container_path: string; mode: string }[]>([]);
   const [cpus, setCpus] = useState("");
   const [memoryLimit, setMemoryLimit] = useState("");
   const [dockerUser, setDockerUser] = useState("");
   const [readOnlyRoot, setReadOnlyRoot] = useState(false);
+  const [startupScript, setStartupScript] = useState("/workspace/startup.sh");
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {
@@ -482,7 +716,7 @@ export default function WorkspaceDetailScreen() {
     setDescription(workspace.description || "");
     setImage(workspace.image || "agent-workspace:latest");
     setNetwork(workspace.network || "none");
-    setEnv(workspace.env || {});
+    setEnv(Object.entries(workspace.env || {}).map(([k, v]) => ({ key: k, value: v as string })));
     setPorts((workspace.ports || []).map((p: any) =>
       typeof p === "string"
         ? { host: p.split(":")[0] || "", container: p.split(":")[1] || "" }
@@ -495,6 +729,7 @@ export default function WorkspaceDetailScreen() {
     setMemoryLimit(workspace.memory_limit || "");
     setDockerUser(workspace.docker_user || "");
     setReadOnlyRoot(workspace.read_only_root || false);
+    setStartupScript(workspace.startup_script ?? "/workspace/startup.sh");
     setInitialized(true);
   }
 
@@ -505,42 +740,46 @@ export default function WorkspaceDetailScreen() {
       if (!name.trim()) return;
       const validPorts = ports.filter((p) => p.host && p.container);
       const validMounts = mounts.filter((m) => m.host_path && m.container_path);
+      const envDict = Object.fromEntries(env.filter((e) => e.key).map((e) => [e.key, e.value]));
       await createMut.mutateAsync({
         name: name.trim(),
         description: description || undefined,
         image: image || undefined,
         network: network || undefined,
-        env: Object.keys(env).length ? env : undefined,
+        env: Object.keys(envDict).length ? envDict : undefined,
         ports: validPorts.length ? validPorts : undefined,
         mounts: validMounts.length ? validMounts : undefined,
         cpus: cpus ? parseFloat(cpus) : undefined,
         memory_limit: memoryLimit || undefined,
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
+        startup_script: startupScript || undefined,
       });
       goBack();
     } else {
       const validPorts = ports.filter((p) => p.host && p.container);
       const validMounts = mounts.filter((m) => m.host_path && m.container_path);
+      const envDict = Object.fromEntries(env.filter((e) => e.key).map((e) => [e.key, e.value]));
       await updateMut.mutateAsync({
         name: name.trim() || undefined,
         description,
         image: image || undefined,
         network: network || undefined,
-        env: Object.keys(env).length ? env : undefined,
+        env: envDict,
         ports: validPorts.length ? validPorts : undefined,
         mounts: validMounts.length ? validMounts : undefined,
         cpus: cpus ? parseFloat(cpus) : undefined,
         memory_limit: memoryLimit || undefined,
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
+        startup_script: startupScript || undefined,
       });
       // Update snapshot so dirty tracking resets
       savedSnapshot.current = currentSnapshot;
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -551,8 +790,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -567,7 +806,7 @@ export default function WorkspaceDetailScreen() {
   const [justSaved, setJustSaved] = useState(false);
 
   // -- Validation warnings --
-  const hasEmptyEnvKeys = Object.keys(env).some((k) => !k);
+  const hasEmptyEnvKeys = env.some((e) => !e.key);
   const hasIncompletePort = ports.some((p) => (!p.host && p.container) || (p.host && !p.container));
   const hasIncompleteMount = mounts.some((m) => (!m.host_path && m.container_path) || (m.host_path && !m.container_path));
   const hasWarnings = hasEmptyEnvKeys || hasIncompletePort || hasIncompleteMount;
@@ -730,6 +969,9 @@ export default function WorkspaceDetailScreen() {
                 </FormRow>
               </Col>
             </Row>
+            <FormRow label="Startup Script" description="Script path executed on every container start/recreate. Leave empty to disable.">
+              <TextInput value={startupScript} onChangeText={setStartupScript} placeholder="/workspace/startup.sh" />
+            </FormRow>
           </Section>
 
           {/* Resources */}
@@ -756,7 +998,7 @@ export default function WorkspaceDetailScreen() {
 
           {/* Environment */}
           <Section title="Environment Variables" description="Injected into the container. AGENT_SERVER_URL and AGENT_SERVER_API_KEY are auto-injected.">
-            <EnvEditor env={env} onChange={setEnv} />
+            <EnvEditor entries={env} onChange={setEnv} />
           </Section>
 
           {/* Port Mappings */}
@@ -837,7 +1079,9 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Host path"
                     style={{
-                      flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      flex: 2, background: "#111",
+                      border: `1px solid ${!m.host_path && m.container_path ? "#7f1d1d" : "#333"}`,
+                      borderRadius: 6,
                       padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
@@ -852,7 +1096,9 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Container path"
                     style={{
-                      flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
+                      flex: 2, background: "#111",
+                      border: `1px solid ${m.host_path && !m.container_path ? "#7f1d1d" : "#333"}`,
+                      borderRadius: 6,
                       padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
