@@ -1,7 +1,8 @@
 import { useState, useCallback } from "react";
 import { ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Trash2, Copy } from "lucide-react";
+import { useRouter } from "expo-router";
+import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
@@ -368,6 +369,7 @@ export function TaskEditor({
   if (typeof document === "undefined") return null;
   const ReactDOM = require("react-dom");
 
+  const router = useRouter();
   const selectedBot = bots?.find((b) => b.id === botId);
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
   const channelOptions = [
@@ -416,6 +418,26 @@ export function TaskEditor({
         )}
 
         <div style={{ flex: 1 }} />
+
+        {/* View Logs button (edit mode, when correlation_id available) */}
+        {!isCreate && existingTask?.correlation_id && (
+          <button
+            onClick={() => {
+              onClose();
+              router.push(`/admin/logs/${existingTask.correlation_id}`);
+            }}
+            title="View Logs"
+            style={{
+              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+              border: "1px solid #1e3a5f", borderRadius: 6,
+              background: "transparent", color: "#93c5fd", cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <FileText size={14} />
+            {isWide && "Logs"}
+          </button>
+        )}
 
         {/* Clone button (edit mode only) */}
         {!isCreate && onClone && taskId && (

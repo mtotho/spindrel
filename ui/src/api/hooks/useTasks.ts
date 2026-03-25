@@ -19,6 +19,7 @@ export interface TaskDetail {
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
   retry_count: number;
+  correlation_id?: string | null;
   run_count: number;
   created_at: string;
   scheduled_at?: string | null;

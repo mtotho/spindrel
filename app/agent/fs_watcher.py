@@ -22,7 +22,10 @@ def _matches_patterns(rel: Path, patterns: list[str]) -> bool:
     return False
 
 
-async def _debounced_watch(root: str, bot_id: str, patterns: list[str]) -> None:
+async def _debounced_watch(
+    root: str, bot_id: str, patterns: list[str],
+    embedding_model: str | None = None, segments: list[dict] | None = None,
+) -> None:
     try:
         import watchfiles
     except ImportError:
@@ -57,7 +60,10 @@ async def _debounced_watch(root: str, bot_id: str, patterns: list[str]) -> None:
                 logger.info("Watcher: re-indexing %d changed file(s) in %s", len(batch), root)
                 from app.agent.fs_indexer import index_directory
                 try:
-                    await index_directory(root, bot_id, patterns, file_paths=batch, force=True)
+                    await index_directory(
+                        root, bot_id, patterns, file_paths=batch, force=True,
+                        embedding_model=embedding_model, segments=segments,
+                    )
                 except Exception:
                     logger.exception("Watcher: index_directory failed for %s", root)
     except asyncio.CancelledError:
@@ -84,7 +90,11 @@ async def start_watchers(bots: list) -> None:
                 if key not in seen:
                     seen.add(key)
                     task = asyncio.create_task(
-                        _debounced_watch(ws_root, bot.id, _resolved["patterns"]),
+                        _debounced_watch(
+                            ws_root, bot.id, _resolved["patterns"],
+                            embedding_model=_resolved.get("embedding_model"),
+                            segments=_resolved.get("segments"),
+                        ),
                         name=f"fs_watcher:{bot.id}:{abs_root}",
                     )
                     _watcher_tasks.append(task)

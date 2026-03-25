@@ -25,6 +25,7 @@ interface TaskItem {
   run_count?: number;
   channel_id?: string;
   parent_task_id?: string;
+  correlation_id?: string;
   created_at?: string;
   scheduled_at?: string;
   run_at?: string;

@@ -4,8 +4,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
-from app.services.workspace_indexing import resolve_indexing, get_all_roots
+from app.agent.bots import BotConfig, IndexSegment, WorkspaceConfig, WorkspaceIndexingConfig
+from app.services.workspace_indexing import resolve_indexing, _resolve_segments, get_all_roots
 
 
 class TestResolveIndexing:
@@ -143,6 +143,123 @@ class TestResolveIndexing:
         """include_bots defaults to empty list."""
         result = resolve_indexing(self._defaults(), {}, None)
         assert result["include_bots"] == []
+
+    def test_embedding_model_defaults_to_global(self):
+        """When no bot or workspace override, uses global EMBEDDING_MODEL."""
+        result = resolve_indexing(self._defaults(), {}, None)
+        assert result["embedding_model"] == "text-embedding-3-small"
+
+    def test_embedding_model_workspace_overrides_global(self):
+        """Workspace embedding_model overrides global."""
+        ws_cfg = {"embedding_model": "text-embedding-3-large"}
+        result = resolve_indexing(self._defaults(), {}, ws_cfg)
+        assert result["embedding_model"] == "text-embedding-3-large"
+
+    def test_embedding_model_bot_overrides_workspace(self):
+        """Bot embedding_model overrides workspace."""
+        bot_indexing = WorkspaceIndexingConfig(embedding_model="custom-model")
+        ws_cfg = {"embedding_model": "text-embedding-3-large"}
+        result = resolve_indexing(bot_indexing, {}, ws_cfg)
+        assert result["embedding_model"] == "custom-model"
+
+    def test_embedding_model_bot_none_falls_to_workspace(self):
+        """Bot embedding_model=None falls through to workspace."""
+        bot_indexing = WorkspaceIndexingConfig(embedding_model=None)
+        ws_cfg = {"embedding_model": "text-embedding-3-large"}
+        result = resolve_indexing(bot_indexing, {}, ws_cfg)
+        assert result["embedding_model"] == "text-embedding-3-large"
+
+    def test_embedding_model_custom_global(self):
+        """Custom global EMBEDDING_MODEL when nothing else set."""
+        with patch("app.services.workspace_indexing.settings") as mock:
+            mock.EMBEDDING_MODEL = "my-custom-embed"
+            mock.FS_INDEX_SIMILARITY_THRESHOLD = 0.30
+            mock.FS_INDEX_TOP_K = 8
+            mock.FS_INDEX_COOLDOWN_SECONDS = 300
+            result = resolve_indexing(self._defaults(), {}, None)
+        assert result["embedding_model"] == "my-custom-embed"
+
+    def test_segments_empty_by_default(self):
+        """Segments default to empty list."""
+        result = resolve_indexing(self._defaults(), {}, None)
+        assert result["segments"] == []
+
+    def test_segments_inherit_base_values(self):
+        """Segment with all None fields inherits everything from base."""
+        bot_indexing = WorkspaceIndexingConfig(
+            embedding_model="base-model",
+            segments=[IndexSegment(path_prefix="src/")],
+        )
+        result = resolve_indexing(bot_indexing, {}, None)
+        assert len(result["segments"]) == 1
+        seg = result["segments"][0]
+        assert seg["path_prefix"] == "src/"
+        assert seg["embedding_model"] == "base-model"
+        assert seg["patterns"] == result["patterns"]
+        assert seg["similarity_threshold"] == result["similarity_threshold"]
+        assert seg["top_k"] == result["top_k"]
+
+    def test_segments_override_base_values(self):
+        """Segment with explicit fields overrides base."""
+        bot_indexing = WorkspaceIndexingConfig(
+            embedding_model="base-model",
+            segments=[
+                IndexSegment(
+                    path_prefix="docs/",
+                    embedding_model="docs-model",
+                    similarity_threshold=0.5,
+                    top_k=3,
+                ),
+            ],
+        )
+        result = resolve_indexing(bot_indexing, {}, None)
+        seg = result["segments"][0]
+        assert seg["embedding_model"] == "docs-model"
+        assert seg["similarity_threshold"] == 0.5
+        assert seg["top_k"] == 3
+        # patterns not overridden → inherits base
+        assert seg["patterns"] == result["patterns"]
+
+
+class TestResolveSegments:
+    """Test _resolve_segments helper directly."""
+
+    def test_empty_segments(self):
+        assert _resolve_segments([], {}) == []
+
+    def test_full_inheritance(self):
+        base = {
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+        }
+        segs = [IndexSegment(path_prefix="lib/")]
+        result = _resolve_segments(segs, base)
+        assert result == [{
+            "path_prefix": "lib/",
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+        }]
+
+    def test_partial_override(self):
+        base = {
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+        }
+        segs = [IndexSegment(path_prefix="src/", embedding_model="m2", top_k=20)]
+        result = _resolve_segments(segs, base)
+        assert result[0]["embedding_model"] == "m2"
+        assert result[0]["top_k"] == 20
+        assert result[0]["patterns"] == ["**/*.py"]  # inherited
+        assert result[0]["similarity_threshold"] == 0.3  # inherited
 
 
 class TestGetAllRoots:

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Document, Skill as SkillRow
+from app.db.models import Document, SharedWorkspace, Skill as SkillRow
 from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
@@ -29,6 +29,11 @@ class SkillOut(BaseModel):
     chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
+    # Workspace skill fields (only set when source_type == "workspace")
+    workspace_id: Optional[str] = None
+    workspace_name: Optional[str] = None
+    mode: Optional[str] = None
+    bot_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -65,7 +70,7 @@ async def admin_list_skills(
     )).all()
     chunk_map = {row[0]: row[1] for row in chunk_rows}
 
-    return [
+    result = [
         SkillOut(
             id=s.id,
             name=s.name,
@@ -78,6 +83,59 @@ async def admin_list_skills(
         )
         for s in skills
     ]
+
+    # Include workspace skills from documents table
+    ws_skill_rows = (await db.execute(
+        select(
+            Document.metadata_["skill_id"].as_string().label("skill_id"),
+            Document.metadata_["skill_name"].as_string().label("skill_name"),
+            Document.metadata_["workspace_id"].as_string().label("workspace_id"),
+            Document.metadata_["mode"].as_string().label("mode"),
+            Document.metadata_["bot_id"].as_string().label("bot_id"),
+            Document.metadata_["source_path"].as_string().label("source_path"),
+            func.count().label("chunk_count"),
+        )
+        .where(Document.source.like("workspace_skill:%"))
+        .group_by("skill_id", "skill_name", "workspace_id", "mode", "bot_id", "source_path")
+        .order_by("skill_name")
+    )).all()
+
+    if ws_skill_rows:
+        # Batch-fetch workspace names
+        ws_id_strs = list({r.workspace_id for r in ws_skill_rows if r.workspace_id})
+        ws_names: dict[str, str] = {}
+        if ws_id_strs:
+            import uuid as _uuid
+            ws_uuids = []
+            for s in ws_id_strs:
+                try:
+                    ws_uuids.append(_uuid.UUID(s))
+                except ValueError:
+                    pass
+            if ws_uuids:
+                ws_rows = (await db.execute(
+                    select(SharedWorkspace.id, SharedWorkspace.name)
+                    .where(SharedWorkspace.id.in_(ws_uuids))
+                )).all()
+                ws_names = {str(r.id): r.name for r in ws_rows}
+
+        now = datetime.now(timezone.utc)
+        for r in ws_skill_rows:
+            result.append(SkillOut(
+                id=r.skill_id,
+                name=r.skill_name or r.skill_id,
+                source_type="workspace",
+                source_path=r.source_path,
+                chunk_count=r.chunk_count,
+                created_at=now,
+                updated_at=now,
+                workspace_id=r.workspace_id,
+                workspace_name=ws_names.get(r.workspace_id, r.workspace_id),
+                mode=r.mode,
+                bot_id=r.bot_id,
+            ))
+
+    return result
 
 
 @router.get("/skills/{skill_id}", response_model=SkillOut)

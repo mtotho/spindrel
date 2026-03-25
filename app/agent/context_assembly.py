@@ -547,6 +547,8 @@ async def assemble_context(
         fs_chunks, fs_sim = await retrieve_filesystem_context(
             user_message, bot.id, roots=_ws_roots,
             threshold=_ws_threshold, top_k=_ws_top_k,
+            embedding_model=_resolved["embedding_model"],
+            segments=_resolved.get("segments"),
         )
         if fs_chunks:
             yield {"type": "fs_context", "count": len(fs_chunks)}

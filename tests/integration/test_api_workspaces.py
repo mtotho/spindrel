@@ -683,3 +683,160 @@ class TestUpdateBotIndexing:
         db_session.expire_all()
         bot_row = await db_session.get(BotRow, "test-bot")
         assert "top_k" not in bot_row.workspace.get("indexing", {})
+
+
+# ---------------------------------------------------------------------------
+# GET /workspaces/{id}/bots/{bot_id}  +  PUT (system_prompt etc.)
+# ---------------------------------------------------------------------------
+
+class TestWorkspaceBotConfig:
+    """Tests for reading and updating bot config via workspace endpoints."""
+
+    async def _setup_workspace_with_bot(self, client, db_session):
+        """Create workspace, add a bot row + workspace membership, return ws_id."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+                created = await _create_workspace(client)
+                ws_id = created["id"]
+                await client.post(
+                    f"/api/v1/workspaces/{ws_id}/bots",
+                    json={"bot_id": "cfg-bot", "role": "member"},
+                    headers=AUTH_HEADERS,
+                )
+        from app.db.models import Bot as BotRow
+        bot_row = BotRow(
+            id="cfg-bot",
+            name="Config Bot",
+            model="test/model",
+            system_prompt="Original prompt.",
+            workspace={"enabled": True},
+            skills=[{"id": "cooking", "mode": "on_demand"}],
+            local_tools=["web_search"],
+            persona=False,
+        )
+        db_session.add(bot_row)
+        await db_session.commit()
+        return ws_id
+
+    # ── GET ────────────────────────────────────────────────────────
+
+    async def test_get_bot_returns_config(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
+        mock_bot = BotConfig(
+            id="cfg-bot", name="Config Bot", model="test/model",
+            system_prompt="Original prompt.",
+            workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=True)),
+        )
+        with patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]):
+            resp = await client.get(
+                f"/api/v1/workspaces/{ws_id}/bots/cfg-bot",
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["bot_id"] == "cfg-bot"
+        assert body["name"] == "Config Bot"
+        assert body["model"] == "test/model"
+        assert body["system_prompt"] == "Original prompt."
+        assert body["role"] == "member"
+        assert body["skills"] == [{"id": "cooking", "mode": "on_demand"}]
+        assert body["local_tools"] == ["web_search"]
+        assert body["persona"] is False
+        assert body["indexing_enabled"] is True
+
+    async def test_get_bot_not_in_workspace(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        resp = await client.get(
+            f"/api/v1/workspaces/{created['id']}/bots/nonexistent",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    # ── PUT system_prompt ──────────────────────────────────────────
+
+    async def test_update_system_prompt(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}/bots/cfg-bot",
+                json={"system_prompt": "You are now a pastry chef."},
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["system_prompt"] == "You are now a pastry chef."
+        # Verify persisted to DB
+        from app.db.models import Bot as BotRow
+        db_session.expire_all()
+        row = await db_session.get(BotRow, "cfg-bot")
+        assert row.system_prompt == "You are now a pastry chef."
+
+    async def test_update_model_and_name(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}/bots/cfg-bot",
+                json={"name": "Chef Bot", "model": "openai/gpt-4o"},
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["name"] == "Chef Bot"
+        assert body["model"] == "openai/gpt-4o"
+        from app.db.models import Bot as BotRow
+        db_session.expire_all()
+        row = await db_session.get(BotRow, "cfg-bot")
+        assert row.name == "Chef Bot"
+        assert row.model == "openai/gpt-4o"
+
+    async def test_update_skills(self, client, db_session):
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+        new_skills = [
+            {"id": "cooking", "mode": "on_demand"},
+            {"id": "nutrition", "mode": "on_demand"},
+        ]
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}/bots/cfg-bot",
+                json={"skills": new_skills},
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 200
+        from app.db.models import Bot as BotRow
+        db_session.expire_all()
+        row = await db_session.get(BotRow, "cfg-bot")
+        assert len(row.skills) == 2
+        assert row.skills[1]["id"] == "nutrition"
+
+    async def test_update_only_role_no_bot_row_needed(self, client, db_session):
+        """Updating only workspace membership fields doesn't touch bots table."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+                created = await _create_workspace(client)
+                ws_id = created["id"]
+                await client.post(
+                    f"/api/v1/workspaces/{ws_id}/bots",
+                    json={"bot_id": "role-bot", "role": "member"},
+                    headers=AUTH_HEADERS,
+                )
+                # No BotRow created — should still work for role-only update
+                resp = await client.put(
+                    f"/api/v1/workspaces/{ws_id}/bots/role-bot",
+                    json={"role": "orchestrator"},
+                    headers=AUTH_HEADERS,
+                )
+        assert resp.status_code == 200
+        assert resp.json()["role"] == "orchestrator"
+
+    async def test_update_prompt_bot_not_in_workspace(self, client):
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{created['id']}/bots/nonexistent",
+                json={"system_prompt": "new prompt"},
+                headers=AUTH_HEADERS,
+            )
+        assert resp.status_code == 404
