@@ -51,8 +51,11 @@ class Settings(BaseSettings):
     WHISPER_BEAM_SIZE: int = 1
     WHISPER_LANGUAGE: str = "en"
 
-    # RAG / embeddings (skills, memory, knowledge). If you change EMBEDDING_MODEL, dimension
-    # may change — you must re-embed (wipe documents/memories/bot_knowledge or run a migration).
+    # RAG / embeddings (skills, memory, knowledge).
+    # `dimensions` is always passed on every embeddings.create() call, so models that
+    # support Matryoshka truncation (text-embedding-3-*) are automatically truncated to
+    # EMBEDDING_DIMENSIONS.  If you switch to a model whose native size < EMBEDDING_DIMENSIONS,
+    # you must re-embed everything (wipe documents/memories/bot_knowledge or run a migration).
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5

@@ -1,19 +1,13 @@
 import logging
 
-from openai import AsyncOpenAI
 from sqlalchemy import func, select
 
+from app.agent.embeddings import embed_text
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Document
 
 logger = logging.getLogger(__name__)
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
 
 
 async def retrieve_context(
@@ -32,11 +26,7 @@ async def retrieve_context(
     threshold = similarity_threshold if similarity_threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
 
     try:
-        response = await _client.embeddings.create(
-            model=settings.EMBEDDING_MODEL,
-            input=[query],
-        )
-        query_embedding = response.data[0].embedding
+        query_embedding = await embed_text(query)
     except Exception:
         logger.exception("Failed to embed query for retrieval")
         return [], 0.0

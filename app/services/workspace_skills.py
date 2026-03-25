@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.skills import _chunk_markdown, _embed_batch
+from app.agent.embeddings import embed_batch as _embed_batch
+from app.agent.skills import _chunk_markdown
 from app.db.engine import async_session
 from app.db.models import Document, SharedWorkspace, SharedWorkspaceBot
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError

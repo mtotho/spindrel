@@ -2,9 +2,9 @@ import logging
 import uuid
 from datetime import datetime
 
-from openai import AsyncOpenAI
 from sqlalchemy import and_, delete, select
 
+from app.agent.embeddings import embed_text as _embed
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Memory
@@ -14,21 +14,6 @@ logger = logging.getLogger(__name__)
 
 class _MemoryMergeAborted(Exception):
     """Rollback merge transaction when delete count does not match."""
-
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
-
-
-async def _embed(text: str) -> list[float]:
-    response = await _client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text],
-    )
-    return response.data[0].embedding
 
 
 def _date_prefix(range_start, range_end) -> str:

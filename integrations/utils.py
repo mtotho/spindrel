@@ -9,29 +9,14 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.embeddings import embed_text
 from app.config import settings
 from app.db.models import IntegrationDocument, Message, Session, Task
 from app.services.sessions import load_or_create, store_passive_message
 from datetime import datetime, timezone
-
-_embed_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
-
-
-async def embed_text(text: str) -> list[float]:
-    """Embed text using the configured embedding model."""
-    response = await _embed_client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text],
-    )
-    return response.data[0].embedding
 
 
 async def ingest_document(

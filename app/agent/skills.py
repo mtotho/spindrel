@@ -3,10 +3,10 @@ import logging
 import re
 from pathlib import Path
 
-from openai import AsyncOpenAI
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.agent.embeddings import embed_batch as _embed_batch
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Document, Skill as SkillRow
@@ -14,12 +14,6 @@ from app.db.models import Document, Skill as SkillRow
 logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path("skills")
-
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=120.0,
-)
 
 _loaded_skills: set[str] = set()
 
@@ -70,15 +64,6 @@ def _chunk_markdown(body: str, skill_name: str, max_chunk: int = 1500) -> list[s
                 chunks.append(current.strip())
 
     return [f"[Skill: {skill_name}]\n\n{chunk}" for chunk in chunks if chunk]
-
-
-async def _embed_batch(texts: list[str]) -> list[list[float]]:
-    """Embed a batch of texts via LiteLLM embeddings endpoint."""
-    response = await _client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=texts,
-    )
-    return [item.embedding for item in response.data]
 
 
 async def _embed_skill_row(skill_id: str, content: str, content_hash: str) -> None:

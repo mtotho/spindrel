@@ -2,30 +2,16 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from openai import AsyncOpenAI
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.embeddings import embed_text as _embed
 from app.config import settings
 from app.db.models import IntegrationDocument
 from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
-
-_embed_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=30.0,
-)
-
-
-async def _embed(text_: str) -> list[float]:
-    response = await _embed_client.embeddings.create(
-        model=settings.EMBEDDING_MODEL,
-        input=[text_],
-    )
-    return response.data[0].embedding
 
 
 class DocumentIn(BaseModel):
