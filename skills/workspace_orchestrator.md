@@ -311,6 +311,153 @@ agent-api PUT /api/v1/workspaces/$WSID '{"workspace_skills_enabled": true, "work
 agent-api PUT /api/v1/admin/channels/$CHID/settings '{"workspace_skills_enabled": false}'
 ```
 
+## Prompt Template Management
+
+Create, list, and link prompt templates to channels for compaction and heartbeat prompts.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/prompt-templates?workspace_id={id}` | List workspace templates |
+| POST | `/api/v1/prompt-templates` | Create template |
+| PUT | `/api/v1/prompt-templates/{id}` | Update template |
+| DELETE | `/api/v1/prompt-templates/{id}` | Delete template |
+
+**Source types:**
+- `manual` — inline content stored directly
+- `workspace_file` — reads content from a workspace filesystem path (auto-syncs on reindex)
+
+**Create a template from a workspace file:**
+```sh
+agent-api POST /api/v1/prompt-templates '{
+  "name": "Research Compaction",
+  "description": "Custom compaction prompt for research channels",
+  "category": "compaction",
+  "workspace_id": "'$WSID'",
+  "source_type": "workspace_file",
+  "source_path": "common/prompts/research-compaction.md"
+}'
+```
+
+**Create a manual template:**
+```sh
+agent-api POST /api/v1/prompt-templates '{
+  "name": "Heartbeat Check-in",
+  "content": "Review recent activity and summarize progress.",
+  "category": "heartbeat",
+  "workspace_id": "'$WSID'"
+}'
+```
+
+**List templates for a workspace:**
+```sh
+agent-api GET "/api/v1/prompt-templates?workspace_id=$WSID"
+```
+
+## Channel Prompt Configuration
+
+Configure compaction and heartbeat prompts per channel. Use the workspace channels endpoint for a batch overview, or individual channel endpoints for full settings.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/workspaces/{id}/channels` | List channels with prompt config (batch) |
+| GET | `/api/v1/admin/channels/{id}/settings` | Full channel settings |
+| PUT | `/api/v1/admin/channels/{id}/settings` | Update compaction prompt/template |
+| GET | `/api/v1/admin/channels/{id}/heartbeat` | Heartbeat config |
+| PUT | `/api/v1/admin/channels/{id}/heartbeat` | Update heartbeat prompt/template |
+
+**Batch overview** — returns all workspace channels with inline compaction + heartbeat config + resolved template names:
+```sh
+agent-api GET /api/v1/workspaces/$WSID/channels
+# Returns: [{id, name, bot_id, bot_name, heartbeat_enabled, heartbeat_prompt_template_name, compaction_prompt_template_name, ...}]
+```
+
+**Link a prompt template to a channel's compaction:**
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "compaction_prompt_template_id": "'$TEMPLATE_ID'"
+}'
+```
+
+**Set an inline compaction prompt (no template):**
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "memory_knowledge_compaction_prompt": "Focus on preserving technical decisions and code references."
+}'
+```
+
+**Update heartbeat prompt template:**
+```sh
+agent-api PUT /api/v1/admin/channels/$CHID/heartbeat '{
+  "prompt_template_id": "'$TEMPLATE_ID'",
+  "enabled": true,
+  "interval_minutes": 30
+}'
+```
+
+**Resolution chain:** channel template > channel inline prompt > bot default
+
+## Bot Skills & Tools Management
+
+Manage which skills and tools are available to bots and channels.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/bots/{id}` | Get bot config (includes skills, tools) |
+| PUT | `/api/v1/admin/bots/{id}` | Update bot skills/tools |
+| GET | `/api/v1/admin/tools` | List all available tools |
+| GET | `/api/v1/admin/skills` | List all skills |
+| POST | `/api/v1/admin/skills` | Create skill |
+| PUT | `/api/v1/admin/skills/{id}` | Update skill |
+| GET | `/api/v1/workspaces/{id}/skills` | List workspace-discovered skills |
+| POST | `/api/v1/workspaces/{id}/reindex-skills` | Reindex workspace skills |
+| GET | `/api/v1/admin/channels/{id}/effective-tools` | Resolved tools after overrides |
+
+### Skill Modes
+- **Pinned** — full content injected into every turn's system messages
+- **RAG** — chunked, embedded, retrieved by semantic similarity
+- **On-demand** — skill index shown; agent calls `get_skill(id)` to retrieve
+
+### Tool Types
+- **local_tools** — Python functions registered on the server
+- **mcp_servers** — remote MCP protocol endpoints
+- **client_tools** — actions handled client-side (e.g. shell_exec)
+- **pinned_tools** — always included, bypass tool retrieval filtering
+
+### Workspace skill auto-discovery
+Skills are auto-discovered from workspace filesystem:
+- `common/skills/` — available to all bots in workspace
+- `bots/{bot-id}/skills/` — bot-specific skills
+- Subdirectories: `pinned/`, `rag/`, `on-demand/` (top-level defaults to pinned)
+
+**Add a skill to a bot:**
+```sh
+agent-api PUT /api/v1/admin/bots/coder '{"skills": [{"id": "project-api-spec"}]}'
+```
+
+**List all tools available to assign:**
+```sh
+agent-api GET /api/v1/admin/tools
+```
+
+**Channel-level tool/skill overrides** — override or disable specific tools/skills at the channel level:
+```sh
+# Override tools for a channel (replaces bot defaults)
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "local_tools_override": ["web_search", "save_memory"],
+  "skills_override": [{"id": "custom-skill"}]
+}'
+
+# Disable specific tools while keeping others
+agent-api PUT /api/v1/admin/channels/$CHID/settings '{
+  "local_tools_disabled": ["exec_sandbox"]
+}'
+```
+
+**Check resolved tools for a channel** (after overrides applied):
+```sh
+agent-api GET /api/v1/admin/channels/$CHID/effective-tools
+```
+
 ## Orchestrator Checklist
 
 - [ ] Workspace container is running (`GET /workspaces/{id}/status`)
@@ -319,6 +466,10 @@ agent-api PUT /api/v1/admin/channels/$CHID/settings '{"workspace_skills_enabled"
 - [ ] Workspace skills created in `common/skills/` or `bots/<id>/skills/` as needed
 - [ ] Skills reindexed after modifications (`POST /workspaces/{id}/reindex-skills`)
 - [ ] Base prompt customized if needed (`common/prompts/base.md`)
+- [ ] Prompt templates created for reusable compaction/heartbeat prompts
+- [ ] Channel compaction + heartbeat prompts configured (`GET /workspaces/{id}/channels` to review)
+- [ ] Bot skills and tools assigned appropriately (`GET /admin/bots/{id}` to verify)
+- [ ] Channel-level tool/skill overrides applied where needed
 - [ ] Member bots given clear, self-contained prompts (they can't see your context)
 - [ ] Polling deferred tasks to completion before reporting results
 - [ ] Collecting outputs from `/workspace/bots/{bot_id}/` after members finish

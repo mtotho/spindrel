@@ -10,9 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.agent.bots import list_bots, reload_bots
-from app.db.models import SharedWorkspace, SharedWorkspaceBot
+from app.db.models import (
+    Channel, ChannelHeartbeat, ChannelIntegration, PromptTemplate,
+    SharedWorkspace, SharedWorkspaceBot,
+)
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
 
@@ -93,6 +97,28 @@ class WorkspaceBotAdd(BaseModel):
 class WorkspaceBotUpdate(BaseModel):
     role: Optional[str] = None
     cwd_override: Optional[str] = None
+
+
+class WorkspaceChannelOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    bot_id: str
+    bot_name: Optional[str] = None
+    display_name: Optional[str] = None
+    integration: Optional[str] = None
+    model_override: Optional[str] = None
+    # Compaction
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
+    compaction_prompt_template_name: Optional[str] = None
+    memory_knowledge_compaction_prompt: Optional[str] = None
+    # Heartbeat
+    heartbeat_enabled: bool = False
+    heartbeat_interval_minutes: int = 60
+    heartbeat_prompt_template_id: Optional[uuid.UUID] = None
+    heartbeat_prompt_template_name: Optional[str] = None
+    heartbeat_prompt: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 # ── Helpers ─────────────────────────────────────────────────────
@@ -434,6 +460,90 @@ async def remove_bot_from_workspace(
         raise HTTPException(404, "Bot not in workspace")
     await db.commit()
     await reload_bots()
+
+
+# ── Channels (batch-loaded) ─────────────────────────────────────
+
+@router.get("/{workspace_id}/channels", response_model=list[WorkspaceChannelOut])
+async def list_workspace_channels(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List all channels for bots in this workspace, with inline heartbeat/compaction config."""
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+
+    # 1. Get workspace bot IDs
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot.bot_id).where(SharedWorkspaceBot.workspace_id == ws_id)
+    )).scalars().all()
+    if not sw_bots:
+        return []
+
+    # 2. Channels with integrations eager-loaded
+    channels = (await db.execute(
+        select(Channel)
+        .where(Channel.bot_id.in_(sw_bots))
+        .options(selectinload(Channel.integrations))
+        .order_by(Channel.name)
+    )).scalars().all()
+    if not channels:
+        return []
+    channel_ids = [ch.id for ch in channels]
+
+    # 3. Heartbeats in batch
+    heartbeats = (await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
+    )).scalars().all()
+    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {hb.channel_id: hb for hb in heartbeats}
+
+    # 4. Collect template IDs and batch-fetch names
+    template_ids: set[uuid.UUID] = set()
+    for ch in channels:
+        if ch.compaction_prompt_template_id:
+            template_ids.add(ch.compaction_prompt_template_id)
+    for hb in heartbeats:
+        if hb.prompt_template_id:
+            template_ids.add(hb.prompt_template_id)
+
+    tmpl_names: dict[uuid.UUID, str] = {}
+    if template_ids:
+        rows = (await db.execute(
+            select(PromptTemplate.id, PromptTemplate.name)
+            .where(PromptTemplate.id.in_(template_ids))
+        )).all()
+        tmpl_names = {r.id: r.name for r in rows}
+
+    # 5. Bot names from in-memory registry
+    bot_map = {b.id: b.name for b in list_bots()}
+
+    # 6. Assemble
+    out = []
+    for ch in channels:
+        hb = hb_map.get(ch.id)
+        # First integration's display_name (if any)
+        ci = ch.integrations[0] if ch.integrations else None
+        out.append(WorkspaceChannelOut(
+            id=ch.id,
+            name=ch.name,
+            bot_id=ch.bot_id,
+            bot_name=bot_map.get(ch.bot_id, ch.bot_id),
+            display_name=ci.display_name if ci else None,
+            integration=ch.integration,
+            model_override=ch.model_override,
+            compaction_prompt_template_id=ch.compaction_prompt_template_id,
+            compaction_prompt_template_name=tmpl_names.get(ch.compaction_prompt_template_id) if ch.compaction_prompt_template_id else None,
+            memory_knowledge_compaction_prompt=ch.memory_knowledge_compaction_prompt,
+            heartbeat_enabled=hb.enabled if hb else False,
+            heartbeat_interval_minutes=hb.interval_minutes if hb else 60,
+            heartbeat_prompt_template_id=hb.prompt_template_id if hb else None,
+            heartbeat_prompt_template_name=tmpl_names.get(hb.prompt_template_id) if hb and hb.prompt_template_id else None,
+            heartbeat_prompt=hb.prompt if hb else None,
+        ))
+    return out
 
 
 # ── File browser ────────────────────────────────────────────────
