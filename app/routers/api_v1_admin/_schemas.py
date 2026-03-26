@@ -51,6 +51,8 @@ class BotOut(BaseModel):
     compression_config: dict = {}
     persona: bool = False
     persona_content: Optional[str] = None
+    persona_from_workspace: bool = False
+    workspace_persona_content: Optional[str] = None
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
@@ -73,6 +75,7 @@ class BotOut(BaseModel):
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
+    history_mode: Optional[str] = "summary"
     model_params: dict = {}
     delegation_config: dict = {}
     user_id: Optional[str] = None

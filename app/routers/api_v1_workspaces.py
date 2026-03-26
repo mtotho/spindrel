@@ -462,6 +462,10 @@ async def get_workspace_bot(
         raise HTTPException(404, "Bot not found")
     bot_map = {b.id: b for b in list_bots()}
     bot_cfg = bot_map.get(bot_id)
+
+    from app.agent.persona import resolve_workspace_persona
+    ws_persona = resolve_workspace_persona(workspace_id, bot_id)
+
     return {
         "bot_id": bot_id,
         "name": bot_row.name,
@@ -474,6 +478,8 @@ async def get_workspace_bot(
         "persona": bot_row.persona,
         "workspace": bot_row.workspace or {},
         "indexing_enabled": bot_cfg.workspace.indexing.enabled if bot_cfg else False,
+        "persona_from_workspace": ws_persona is not None,
+        "workspace_persona_content": ws_persona,
     }
 
 

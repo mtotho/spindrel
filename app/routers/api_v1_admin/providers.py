@@ -14,7 +14,7 @@ from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
-PROVIDER_TYPES = ["litellm", "openai", "anthropic", "anthropic-subscription"]
+PROVIDER_TYPES = ["litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "anthropic-subscription"]
 
 
 # ---------------------------------------------------------------------------
@@ -248,12 +248,69 @@ async def admin_delete_provider(
     return {"ok": True}
 
 
+class ProviderTestInlineIn(BaseModel):
+    provider_type: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    credentials_path: Optional[str] = None
+
+
+async def _test_provider_connection(
+    ptype: str, api_key: str | None, base_url: str | None, credentials_path: str | None,
+) -> ProviderTestResult:
+    """Test a provider connection given raw params (works for saved and unsaved configs)."""
+    from openai import AsyncOpenAI
+    from app.services.providers import _load_anthropic_subscription_token
+
+    if ptype in ("anthropic", "anthropic-subscription"):
+        try:
+            if ptype == "anthropic-subscription":
+                creds = credentials_path or "~/.claude/.credentials.json"
+                _load_anthropic_subscription_token(creds)
+            return ProviderTestResult(ok=True, message="Credentials OK")
+        except Exception as exc:
+            return ProviderTestResult(ok=False, message=str(exc)[:200])
+
+    # Build a temporary client for testing
+    try:
+        kw: dict = {"api_key": api_key or "dummy", "timeout": 15.0, "max_retries": 0}
+        if ptype == "litellm":
+            from app.config import settings as _s
+            kw["base_url"] = base_url or _s.LITELLM_BASE_URL
+        elif ptype in ("openai", "openai-compatible"):
+            if base_url:
+                kw["base_url"] = base_url
+        elif ptype in ("anthropic-compatible",):
+            kw["base_url"] = base_url or "https://api.anthropic.com/v1"
+            kw["default_headers"] = {"anthropic-version": "2023-06-01"}
+        else:
+            return ProviderTestResult(ok=False, message=f"Unknown provider type: {ptype}")
+
+        client = AsyncOpenAI(**kw)
+        models = await client.models.list()
+        count = len(models.data)
+        return ProviderTestResult(ok=True, message=f"Connected ({count} models)")
+    except Exception as exc:
+        return ProviderTestResult(ok=False, message=str(exc)[:200])
+
+
+@router.post("/providers/test-inline", response_model=ProviderTestResult)
+async def admin_test_provider_inline(
+    body: ProviderTestInlineIn,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Test provider connection without saving — works for new/unsaved providers."""
+    return await _test_provider_connection(
+        body.provider_type, body.api_key, body.base_url, body.credentials_path,
+    )
+
+
 @router.post("/providers/{provider_id}/test", response_model=ProviderTestResult)
 async def admin_test_provider(
     provider_id: str,
     _auth: str = Depends(verify_auth_or_user),
 ):
-    from app.services.providers import get_llm_client, get_provider, load_providers as _reload
+    from app.services.providers import get_provider, load_providers as _reload
 
     provider = get_provider(provider_id)
     if not provider:
@@ -262,21 +319,7 @@ async def admin_test_provider(
     if not provider:
         return ProviderTestResult(ok=False, message="Provider not found in registry")
 
-    ptype = provider.provider_type
-    if ptype in ("anthropic", "anthropic-subscription"):
-        try:
-            if ptype == "anthropic-subscription":
-                from app.services.providers import _load_anthropic_subscription_token
-                creds = (provider.config or {}).get("credentials_path", "~/.claude/.credentials.json")
-                _load_anthropic_subscription_token(creds)
-            return ProviderTestResult(ok=True, message="Credentials OK")
-        except Exception as exc:
-            return ProviderTestResult(ok=False, message=str(exc)[:200])
-    else:
-        try:
-            client = get_llm_client(provider_id)
-            models = await client.models.list()
-            count = len(models.data)
-            return ProviderTestResult(ok=True, message=f"Connected ({count} models)")
-        except Exception as exc:
-            return ProviderTestResult(ok=False, message=str(exc)[:200])
+    creds_path = (provider.config or {}).get("credentials_path")
+    return await _test_provider_connection(
+        provider.provider_type, provider.api_key, provider.base_url, creds_path,
+    )

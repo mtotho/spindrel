@@ -8,7 +8,9 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   litellm: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
   openai: { bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
+  "openai-compatible": { bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
   anthropic: { bg: "rgba(249,115,22,0.15)", fg: "#fdba74" },
+  "anthropic-compatible": { bg: "rgba(249,115,22,0.15)", fg: "#fdba74" },
   "anthropic-subscription": { bg: "rgba(168,85,247,0.15)", fg: "#c4b5fd" },
 };
 

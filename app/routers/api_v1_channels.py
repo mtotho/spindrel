@@ -153,6 +153,7 @@ class ChannelConfigOut(BaseModel):
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     max_iterations: Optional[int] = None
+    channel_prompt: Optional[str] = None
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -162,6 +163,7 @@ class ChannelConfigOut(BaseModel):
     compaction_keep_turns: Optional[int] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
+    history_mode: Optional[str] = None
     # Compression
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
@@ -220,6 +222,7 @@ class ChannelConfigUpdate(BaseModel):
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     max_iterations: Optional[int] = None
+    channel_prompt: Optional[str] = None
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -229,6 +232,7 @@ class ChannelConfigUpdate(BaseModel):
     compaction_keep_turns: Optional[int] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
+    history_mode: Optional[str] = None
     # Compression
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
@@ -474,6 +478,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
         "max_iterations": channel.max_iterations,
+        "channel_prompt": channel.channel_prompt,
         "model_override": channel.model_override,
         "model_provider_id_override": channel.model_provider_id_override,
         "context_compaction": channel.context_compaction,
@@ -481,6 +486,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compaction_keep_turns": channel.compaction_keep_turns,
         "compaction_prompt_template_id": channel.compaction_prompt_template_id,
         "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
+        "history_mode": channel.history_mode,
         "context_compression": channel.context_compression,
         "compression_model": channel.compression_model,
         "compression_threshold": channel.compression_threshold,

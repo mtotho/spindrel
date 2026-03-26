@@ -205,7 +205,7 @@ async def load_or_create(
     # Build initial message list with persona if enabled
     messages = [{"role": "system", "content": system_content}]
     if bot.persona:
-        persona_layer = await get_persona(bot.id)
+        persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
         if persona_layer:
             messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
 
@@ -238,7 +238,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
 
     persona_layer = None
     if bot.persona:
-        persona_layer = await get_persona(bot.id)
+        persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
 
     def _base_messages() -> list[dict]:
         msgs = [{"role": "system", "content": _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)}]
@@ -257,6 +257,13 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
         return messages
 
     if session.summary and session.summary_message_id and bot.context_compaction:
+        # Resolve history mode
+        from app.services.compaction import _get_history_mode
+        _channel: Channel | None = None
+        if session.channel_id:
+            _channel = await db.get(Channel, session.channel_id)
+        _history_mode = _get_history_mode(bot, _channel)
+
         watermark_msg = await db.get(Message, session.summary_message_id)
         if watermark_msg is not None:
             recent_result = await db.execute(
@@ -270,7 +277,30 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                        for m in recent_result.scalars().all() if m.role != "system"]
             passive, active = _split_passive_active(recent)
             messages = _base_messages()
-            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+
+            if _history_mode == "file" and session.channel_id:
+                # File mode: inject executive summary + section index
+                from app.db.models import ConversationSection
+                sec_result = await db.execute(
+                    select(ConversationSection)
+                    .where(ConversationSection.channel_id == session.channel_id)
+                    .order_by(ConversationSection.sequence)
+                )
+                sections = sec_result.scalars().all()
+                index_lines = []
+                for s in sections:
+                    date_str = s.period_start.strftime("%Y-%m-%d") if s.period_start else ""
+                    index_lines.append(f"- [{s.id}] {s.title} ({s.message_count} msgs, {date_str}): {s.summary}")
+                index_text = "\n".join(index_lines) if index_lines else "No archived sections yet."
+                summary_block = f"Executive summary: {session.summary}\n\nArchived sections (use read_conversation_history tool to view full content):\n{index_text}"
+                messages.append({"role": "system", "content": summary_block})
+            elif _history_mode == "structured":
+                # Structured mode: inject compact executive summary (section retrieval happens in context_assembly)
+                messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
+            else:
+                # Default summary mode
+                messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+
             _inject_channel_context(messages, passive)
             messages.extend(active)
             return _sanitize_tool_messages(_strip_metadata_keys(messages))

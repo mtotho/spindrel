@@ -51,12 +51,12 @@ def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
             timeout=60.0,
             max_retries=0,
         )
-    elif ptype == "openai":
+    elif ptype in ("openai", "openai-compatible"):
         kw: dict = {"api_key": provider.api_key, "timeout": 60.0, "max_retries": 0}
         if provider.base_url:
             kw["base_url"] = provider.base_url
         return AsyncOpenAI(**kw)
-    elif ptype == "anthropic":
+    elif ptype in ("anthropic", "anthropic-compatible"):
         return AsyncOpenAI(
             base_url=provider.base_url or "https://api.anthropic.com/v1",
             api_key=provider.api_key,
@@ -245,10 +245,14 @@ async def list_models_for_provider(provider_id: str) -> list[str]:
         return []
 
     ptype = provider.provider_type
-    if ptype in ("anthropic", "anthropic-subscription"):
+    if ptype == "anthropic-subscription":
         return list(_ANTHROPIC_MODELS)
 
-    # litellm / openai: use the models API
+    # anthropic (direct) returns hardcoded list; anthropic-compatible tries the API first
+    if ptype == "anthropic":
+        return list(_ANTHROPIC_MODELS)
+
+    # litellm / openai / openai-compatible / anthropic-compatible: use the models API
     try:
         client = get_llm_client(provider_id)
         models = await client.models.list()

@@ -41,6 +41,7 @@ export interface BotConfig {
   compaction_interval?: number | null;
   compaction_keep_turns?: number | null;
   compaction_model?: string | null;
+  history_mode?: string | null;
   audio_input?: string;
   memory?: MemoryConfig;
   memory_max_inject_chars?: number | null;
@@ -168,11 +169,13 @@ export interface ChannelSettings {
   allow_bot_messages: boolean;
   workspace_rag: boolean;
   max_iterations?: number;
+  channel_prompt?: string;
   context_compaction: boolean;
   compaction_interval?: number;
   compaction_keep_turns?: number;
   memory_knowledge_compaction_prompt?: string;
   compaction_prompt_template_id?: string | null;
+  history_mode?: string | null;
   context_compression?: boolean;
   compression_model?: string;
   compression_threshold?: number;

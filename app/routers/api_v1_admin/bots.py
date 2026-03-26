@@ -50,13 +50,21 @@ async def admin_bot_detail(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """Get a single bot's full config."""
-    from app.agent.persona import get_persona
+    from app.agent.persona import get_persona, resolve_workspace_persona
     try:
         bot = get_bot(bot_id)
     except HTTPException:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
     persona_content = await get_persona(bot_id)
-    return _bot_to_out(bot, persona_content=persona_content)
+    ws_persona = None
+    if bot.shared_workspace_id:
+        ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+    return _bot_to_out(
+        bot,
+        persona_content=persona_content,
+        persona_from_workspace=ws_persona is not None,
+        workspace_persona_content=ws_persona,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +120,7 @@ async def admin_bot_editor_data(
     Use bot_id="new" to get a blank default bot for the create form.
     """
     from app.agent.bots import list_bots as _list_bots
-    from app.agent.persona import get_persona
+    from app.agent.persona import get_persona, resolve_workspace_persona
     from app.services.harness import harness_service
     from app.tools.mcp import _servers
     from app.tools.client_tools import _client_tools
@@ -138,7 +146,15 @@ async def admin_bot_editor_data(
             _fetch_tool_rows(db),
             _fetch_sandbox_profiles(db),
         )
-        bot_out = _bot_to_out(bot, persona_content=persona_content)
+        ws_persona = None
+        if bot.shared_workspace_id:
+            ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+        bot_out = _bot_to_out(
+            bot,
+            persona_content=persona_content,
+            persona_from_workspace=ws_persona is not None,
+            workspace_persona_content=ws_persona,
+        )
 
     tool_groups = _build_tool_groups(tool_rows)
     mcp_servers = sorted(_servers.keys())
@@ -301,6 +317,7 @@ class BotUpdateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    history_mode: Optional[str] = None
     audio_input: Optional[str] = None
     memory_config: Optional[dict] = None
     knowledge_config: Optional[dict] = None
@@ -398,6 +415,7 @@ class BotCreateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    history_mode: Optional[str] = "summary"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
     knowledge_config: Optional[dict] = None
