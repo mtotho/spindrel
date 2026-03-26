@@ -373,6 +373,7 @@ export default function TaskDetailScreen() {
               label="Prompt"
               placeholder="Task prompt..."
               rows={isWide ? 12 : 6}
+              generateContext="A prompt for an AI agent task that runs asynchronously. Should describe what the agent should accomplish, any constraints, and expected output format."
             />
 
             {task?.result && (

@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     SYSTEM_PAUSED: bool = False
     SYSTEM_PAUSE_BEHAVIOR: str = "queue"  # "queue" or "drop"
 
+    # Global base prompt — prepended before all other base/system prompts for every bot
+    GLOBAL_BASE_PROMPT: str = ""
+
     TIMEZONE: str = "America/New_York"
     # Auth
     API_KEY: str
@@ -23,6 +26,9 @@ class Settings(BaseSettings):
     LITELLM_API_KEY: str = ""
     # Image generation (OpenAI-compatible `images/generations` via LiteLLM)
     IMAGE_GENERATION_MODEL: str = "gemini/gemini-2.5-flash-image"
+
+    # Prompt generation (AI-assisted prompt authoring in admin UI)
+    PROMPT_GENERATION_MODEL: str = ""  # empty = uses default LiteLLM model
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
@@ -138,6 +144,7 @@ class Settings(BaseSettings):
     RESPONSE_CONDENSING_THRESHOLD: int = 1500    # chars — responses above this get condensed
     RESPONSE_CONDENSING_KEEP_EXACT: int = 6      # N most recent messages shown at full fidelity
     RESPONSE_CONDENSING_MODEL: str = ""          # empty = use compaction model chain
+    RESPONSE_CONDENSING_PROMPT: str = ""          # empty = use built-in default prompt
 
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True

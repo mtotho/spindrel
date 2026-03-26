@@ -43,13 +43,15 @@ const BigTextarea = forwardRef<HTMLTextAreaElement, {
   onChange: (v: string) => void;
   placeholder?: string;
   minRows?: number;
-}>(function BigTextarea({ value, onChange, placeholder, minRows = 24 }, ref) {
+  readOnly?: boolean;
+}>(function BigTextarea({ value, onChange, placeholder, minRows = 24, readOnly }, ref) {
   return (
     <textarea
       ref={ref}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      readOnly={readOnly}
       rows={minRows}
       style={{
         width: "100%", fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
@@ -1546,12 +1548,13 @@ export default function BotEditorScreen() {
                       Open Workspace &rarr;
                     </a>
                   )}
-                  <div style={{ opacity: 0.6, pointerEvents: "none" }}>
+                  <div style={{ opacity: 0.6 }}>
                     <BigTextarea
                       value={editorData.bot.workspace_persona_content || ""}
                       onChange={() => {}}
                       placeholder=""
                       minRows={20}
+                      readOnly
                     />
                   </div>
                 </>
@@ -1654,7 +1657,8 @@ export default function BotEditorScreen() {
               <FormRow label="Memory Prompt" description="Guidance on what the bot should remember">
                 <LlmPrompt value={draft.memory?.prompt || ""}
                   onChange={(v) => update({ memory: { ...draft.memory, prompt: v || undefined } })}
-                  rows={4} placeholder="Specific guidance on what's worth remembering..." />
+                  rows={4} placeholder="Specific guidance on what's worth remembering..."
+                  generateContext="Guidance for an AI on what information to save to long-term memory from conversations. Should describe what to prioritize (facts, preferences, decisions) and what to skip (small talk, transient info)." />
               </FormRow>
 
               {/* Stored memories list */}
