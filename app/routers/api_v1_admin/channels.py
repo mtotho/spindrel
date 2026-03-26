@@ -382,7 +382,7 @@ async def admin_channels_list(
 
     offset = (page - 1) * page_size
     channels = (await db.execute(
-        stmt.offset(offset).limit(page_size)
+        stmt.options(selectinload(Channel.integrations)).offset(offset).limit(page_size)
     )).scalars().all()
 
     return ChannelListOut(

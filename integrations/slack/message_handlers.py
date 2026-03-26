@@ -371,14 +371,16 @@ async def dispatch(
     # Determine if this should be passive (stored but no agent run).
     # require_mention=True (default): only @mentions trigger the agent.
     # require_mention=False: all messages trigger the agent.
-    is_passive = not mentioned and config["require_mention"]
+    # allow_bot_messages=True: bot messages are always active (bypass require_mention).
+    is_bot_sender = user.startswith("bot:")
+    is_passive = not mentioned and config["require_mention"] and not (is_bot_sender and config.get("allow_bot_messages"))
 
     msg_metadata = {
         "passive": is_passive,
         "include_in_memory": config["passive_memory"],
-        "trigger_rag": mentioned or not config["require_mention"],
+        "trigger_rag": mentioned or not config["require_mention"] or (is_bot_sender and config.get("allow_bot_messages")),
         "source": "slack",
-        "sender_type": "human",
+        "sender_type": "bot" if is_bot_sender else "human",
         "sender_id": f"slack:{user}",
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
