@@ -42,6 +42,7 @@ class AssemblyResult:
     tagged_bot_names: list[str] = field(default_factory=list)
     channel_model_override: str | None = None
     channel_provider_id_override: str | None = None
+    channel_max_iterations: int | None = None
 
 
 async def _inject_workspace_skills(
@@ -158,6 +159,8 @@ async def assemble_context(
             if _ch_row.model_override:
                 result.channel_model_override = _ch_row.model_override
                 result.channel_provider_id_override = _ch_row.model_provider_id_override
+            if _ch_row.max_iterations is not None:
+                result.channel_max_iterations = _ch_row.max_iterations
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(

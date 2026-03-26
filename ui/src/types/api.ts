@@ -167,6 +167,7 @@ export interface ChannelSettings {
   passive_memory: boolean;
   allow_bot_messages: boolean;
   workspace_rag: boolean;
+  max_iterations?: number;
   context_compaction: boolean;
   compaction_interval?: number;
   compaction_keep_turns?: number;

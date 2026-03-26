@@ -152,6 +152,7 @@ class ChannelConfigOut(BaseModel):
     passive_memory: bool = True
     allow_bot_messages: bool = False
     workspace_rag: bool = True
+    max_iterations: Optional[int] = None
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -218,6 +219,7 @@ class ChannelConfigUpdate(BaseModel):
     passive_memory: Optional[bool] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
+    max_iterations: Optional[int] = None
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -469,6 +471,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "passive_memory": channel.passive_memory,
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
+        "max_iterations": channel.max_iterations,
         "model_override": channel.model_override,
         "model_provider_id_override": channel.model_provider_id_override,
         "context_compaction": channel.context_compaction,

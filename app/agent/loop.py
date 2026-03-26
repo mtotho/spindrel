@@ -63,10 +63,12 @@ async def run_agent_tool_loop(
     pre_selected_tools: list[dict[str, Any]] | None = None,
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
+    max_iterations: int | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
+    effective_max_iterations = max_iterations or settings.AGENT_MAX_ITERATIONS
     model = model_override or bot.model
     provider_id = provider_id_override or bot.model_provider_id
 
@@ -108,7 +110,7 @@ async def run_agent_tool_loop(
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
 
     try:
-        for iteration in range(settings.AGENT_MAX_ITERATIONS):
+        for iteration in range(effective_max_iterations):
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
@@ -365,10 +367,10 @@ async def run_agent_tool_loop(
                 yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
         _max_iter_msg = (
-            f"Max iterations reached ({settings.AGENT_MAX_ITERATIONS} tool calls). "
+            f"Max iterations reached ({effective_max_iterations} tool calls). "
             "Generating final response without tools."
         )
-        logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
+        logger.warning("Agent loop hit max iterations (%d)", effective_max_iterations)
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
@@ -377,7 +379,7 @@ async def run_agent_tool_loop(
                 client_id=client_id,
                 event_type="warning",
                 event_name="max_iterations",
-                data={"iterations": settings.AGENT_MAX_ITERATIONS, "message": _max_iter_msg},
+                data={"iterations": effective_max_iterations, "message": _max_iter_msg},
             ))
         yield _event_with_compaction_tag({
             "type": "warning",
@@ -427,7 +429,7 @@ async def run_agent_tool_loop(
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens,
-                    "iteration": settings.AGENT_MAX_ITERATIONS + 1,
+                    "iteration": effective_max_iterations + 1,
                     "model": model,
                 },
             ))
@@ -557,6 +559,7 @@ async def run_stream(
         model_override = assembly_result.channel_model_override
         provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
 
+    max_iterations_override = assembly_result.channel_max_iterations
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 
@@ -680,6 +683,7 @@ async def run_stream(
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
             channel_id=channel_id,
+            max_iterations=max_iterations_override,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -711,6 +715,7 @@ async def run_stream(
             pre_selected_tools=pre_selected_tools,
             correlation_id=correlation_id,
             channel_id=channel_id,
+            max_iterations=max_iterations_override,
         ):
             yield event
 

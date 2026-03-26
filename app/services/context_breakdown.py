@@ -471,6 +471,9 @@ async def compute_context_breakdown(
         ),
         "memory_enabled": EffectiveSetting(value=bot.memory.enabled, source="bot"),
         "knowledge_enabled": EffectiveSetting(value=bot.knowledge.enabled, source="bot"),
+        "max_iterations": _resolve_setting(
+            channel.max_iterations, None, settings.AGENT_MAX_ITERATIONS, "max_iterations",
+        ),
         "tool_retrieval": EffectiveSetting(value=bot.tool_retrieval, source="bot"),
         "tool_similarity_threshold": EffectiveSetting(
             value=bot.tool_similarity_threshold or settings.TOOL_RETRIEVAL_THRESHOLD,

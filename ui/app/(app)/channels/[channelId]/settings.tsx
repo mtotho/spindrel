@@ -102,6 +102,7 @@ export default function ChannelSettingsScreen() {
         passive_memory: settings.passive_memory,
         allow_bot_messages: settings.allow_bot_messages,
         workspace_rag: settings.workspace_rag,
+        max_iterations: settings.max_iterations,
         context_compaction: settings.context_compaction,
         compaction_interval: settings.compaction_interval,
         compaction_keep_turns: settings.compaction_keep_turns,
@@ -325,6 +326,14 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           label="Workspace RAG"
           description="Auto-inject relevant workspace files into context each turn."
         />
+        <FormRow label="Max iterations">
+          <TextInput
+            value={form.max_iterations?.toString() ?? ""}
+            onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
+            placeholder="default (15)"
+            type="number"
+          />
+        </FormRow>
       </Section>
 
       <Section title="Compaction" description="Auto-summarizes old turns so the context window never fills up.">
