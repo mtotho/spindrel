@@ -5,7 +5,7 @@ dashboard, returning structured JSON for the Expo client.
 """
 from fastapi import APIRouter
 
-from . import bots, channels, elevation, logs, memories, models, providers, skills, stats, tasks, tools, turns
+from . import bots, channels, elevation, logs, memories, models, providers, settings, skills, stats, tasks, tools, turns
 
 router = APIRouter(prefix="/admin", tags=["Admin API"])
 
@@ -21,3 +21,4 @@ router.include_router(memories.router)
 router.include_router(elevation.router)
 router.include_router(tools.router)
 router.include_router(turns.router)
+router.include_router(settings.router)

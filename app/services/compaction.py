@@ -21,6 +21,20 @@ from app.services.sessions import normalize_stored_content
 logger = logging.getLogger(__name__)
 
 
+def _msg_to_dict(m: Message) -> dict:
+    """Convert a Message ORM instance to a plain dict for compaction."""
+    d: dict = {"role": m.role}
+    if m.content is not None:
+        d["content"] = normalize_stored_content(m.content)
+    if m.tool_calls is not None:
+        d["tool_calls"] = m.tool_calls
+    if m.tool_call_id is not None:
+        d["tool_call_id"] = m.tool_call_id
+    if m.metadata_:
+        d["_metadata"] = m.metadata_
+    return d
+
+
 def _get_history_mode(bot: BotConfig, channel: Channel | None = None) -> str:
     """Resolve the effective history mode: channel override → bot → default 'summary'."""
     if channel and channel.history_mode:
@@ -683,18 +697,6 @@ async def run_compaction_forced(
     )
     all_msgs = result.scalars().all()
 
-    def _msg_to_dict(m: Message) -> dict:
-        d: dict = {"role": m.role}
-        if m.content is not None:
-            d["content"] = normalize_stored_content(m.content)
-        if m.tool_calls is not None:
-            d["tool_calls"] = m.tool_calls
-        if m.tool_call_id is not None:
-            d["tool_call_id"] = m.tool_call_id
-        if m.metadata_:
-            d["_metadata"] = m.metadata_
-        return d
-
     messages = [_msg_to_dict(m) for m in all_msgs]
     messages = [m for m in messages if m.get("role") != "system"]
 
@@ -795,3 +797,170 @@ async def run_compaction_forced(
         data={"forced": True, "title": title, "summary_len": len(summary), "history_mode": history_mode},
     ))
     return (title, summary)
+
+
+async def backfill_sections(
+    channel_id: uuid.UUID,
+    chunk_size: int = 50,
+    model: str | None = None,
+    provider_id: str | None = None,
+    history_mode: str | None = None,
+) -> AsyncGenerator[dict, None]:
+    """Retroactively chunk historical messages into ConversationSection rows.
+
+    Yields progress dicts as JSON-line events. Only processes messages at or
+    before the active session's watermark (summary_message_id).
+    """
+    from app.agent.bots import get_bot
+
+    # 1. Load channel + active session, resolve history_mode
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise ValueError("Channel not found")
+
+        if not channel.active_session_id:
+            raise ValueError("Channel has no active session")
+
+        session = await db.get(Session, channel.active_session_id)
+        if not session:
+            raise ValueError("Active session not found")
+
+        bot = get_bot(channel.bot_id)
+        effective_mode = history_mode or _get_history_mode(bot, channel)
+        if effective_mode not in ("file", "structured"):
+            raise ValueError(f"Channel must be in file or structured mode (got '{effective_mode}')")
+
+        effective_model = model or _get_compaction_model(bot, channel)
+        effective_provider = provider_id or bot.model_provider_id
+
+        # 2. Load ALL messages across all sessions for this channel
+        watermark_filter = True  # type: ignore[assignment]
+        if session.summary_message_id:
+            watermark_msg = await db.get(Message, session.summary_message_id)
+            if watermark_msg:
+                watermark_filter = Message.created_at <= watermark_msg.created_at
+
+        result = await db.execute(
+            select(Message)
+            .join(Session, Message.session_id == Session.id)
+            .where(Session.channel_id == channel_id)
+            .where(watermark_filter)
+            .order_by(Message.created_at)
+        )
+        all_msgs = result.scalars().all()
+
+    if not all_msgs:
+        raise ValueError("No messages to backfill")
+
+    # 3. Convert to dicts, filter, and build conversation for summarization.
+    # Also build a parallel timestamp list from user/assistant messages only
+    # (matching what _messages_for_summary keeps as "active" messages).
+    messages = [_msg_to_dict(m) for m in all_msgs]
+    messages = [m for m in messages if m.get("role") != "system"]
+
+    active_timestamps: list[datetime] = []
+    for orig_msg in all_msgs:
+        if orig_msg.role == "system":
+            continue
+        is_passive = (orig_msg.metadata_ or {}).get("passive", False)
+        if orig_msg.role in ("user", "assistant") and not (orig_msg.role == "user" and is_passive):
+            active_timestamps.append(orig_msg.created_at)
+
+    conversation = _messages_for_summary(messages)
+
+    if not conversation:
+        raise ValueError("No conversation content to backfill")
+
+    # 4. Chunk into groups of chunk_size user+assistant messages
+    chunks: list[list[dict]] = []
+    current_chunk: list[dict] = []
+    msg_count_in_chunk = 0
+    for m in conversation:
+        current_chunk.append(m)
+        if m.get("role") in ("user", "assistant"):
+            msg_count_in_chunk += 1
+        if msg_count_in_chunk >= chunk_size:
+            chunks.append(current_chunk)
+            current_chunk = []
+            msg_count_in_chunk = 0
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    total_chunks = len(chunks)
+
+    # 5. Determine starting sequence number (after any existing sections)
+    async with async_session() as db:
+        max_seq_result = await db.execute(
+            select(func.max(ConversationSection.sequence))
+            .where(ConversationSection.channel_id == channel_id)
+        )
+        start_seq = (max_seq_result.scalar() or 0) + 1
+
+    # 6. Process each chunk
+    sections_created = 0
+    for i, chunk in enumerate(chunks):
+        seq = start_seq + i
+        title, summary, transcript = await _generate_section(
+            chunk, effective_model, provider_id=effective_provider,
+        )
+
+        msg_count = sum(1 for m in chunk if m.get("role") in ("user", "assistant"))
+
+        # Compute period from active_timestamps (aligned with conversation's user/assistant msgs)
+        ua_before = sum(
+            sum(1 for m in chunks[j] if m.get("role") in ("user", "assistant"))
+            for j in range(i)
+        )
+        period_start = active_timestamps[ua_before] if ua_before < len(active_timestamps) else None
+        ts_end_idx = ua_before + msg_count - 1
+        period_end = active_timestamps[ts_end_idx] if 0 <= ts_end_idx < len(active_timestamps) else None
+
+        embedding = None
+        if effective_mode == "structured":
+            from app.agent.embeddings import embed_text
+            embedding = await embed_text(f"{title}\n{summary}")
+
+        async with async_session() as db:
+            section = ConversationSection(
+                channel_id=channel_id,
+                session_id=session.id,
+                sequence=seq,
+                title=title,
+                summary=summary,
+                transcript=transcript,
+                message_count=msg_count,
+                period_start=period_start,
+                period_end=period_end,
+                embedding=embedding,
+            )
+            db.add(section)
+            await db.commit()
+
+        sections_created += 1
+        yield {
+            "type": "backfill_progress",
+            "section": sections_created,
+            "total_chunks": total_chunks,
+            "title": title,
+        }
+
+    # 7. Regenerate executive summary
+    exec_summary = await _regenerate_executive_summary(
+        channel_id, effective_model, provider_id=effective_provider,
+    )
+
+    # Update session summary
+    async with async_session() as db:
+        await db.execute(
+            update(Session)
+            .where(Session.id == session.id)
+            .values(summary=exec_summary)
+        )
+        await db.commit()
+
+    yield {
+        "type": "backfill_done",
+        "sections_created": sections_created,
+        "executive_summary": exec_summary,
+    }

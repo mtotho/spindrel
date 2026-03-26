@@ -947,3 +947,11 @@ class PlanItem(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     plan: Mapped["Plan"] = relationship("Plan", back_populates="items")
+
+
+class ServerSetting(Base):
+    __tablename__ = "server_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
