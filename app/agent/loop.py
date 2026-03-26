@@ -31,6 +31,16 @@ from app.tools.registry import get_local_tool_schemas
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_messages(messages: list[dict]) -> list[dict]:
+    """Ensure no message has null/missing content — some models reject it."""
+    out = []
+    for m in messages:
+        if "content" not in m or m["content"] is None:
+            m = {**m, "content": ""}
+        out.append(m)
+    return out
+
+
 @dataclass
 class RunResult:
     response: str = ""
@@ -167,6 +177,8 @@ async def run_agent_tool_loop(
             else:
                 effective_model = model
                 _elev_log_id = None
+
+            messages = _sanitize_messages(messages)
 
             import time as _time
             _llm_t0 = _time.monotonic()
