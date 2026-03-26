@@ -3,11 +3,13 @@
 Provides admin endpoints that mirror the Jinja2/HTMX admin
 dashboard, returning structured JSON for the Expo client.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.dependencies import verify_admin_auth
 
 from . import bots, channels, elevation, logs, memories, models, prompts, providers, settings, skills, stats, tasks, tools, turns
 
-router = APIRouter(prefix="/admin", tags=["Admin API"])
+router = APIRouter(prefix="/admin", tags=["Admin API"], dependencies=[Depends(verify_admin_auth)])
 
 router.include_router(stats.router)
 router.include_router(bots.router)
