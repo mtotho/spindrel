@@ -123,7 +123,7 @@ export function Sidebar() {
   // -----------------------------------------------------------------------
   if (collapsed) {
     return (
-      <View className="flex-1 bg-surface border-r border-surface-border items-center" style={{ width: 56, flexShrink: 0 }}>
+      <View className="bg-surface border-r border-surface-border items-center" style={{ width: 56, flexShrink: 0, height: '100%' }}>
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: "center", paddingTop: 8, paddingBottom: 8, gap: 2 }}>
           {/* Expand toggle */}
           <Pressable
@@ -197,7 +197,7 @@ export function Sidebar() {
   // Expanded sidebar
   // -----------------------------------------------------------------------
   return (
-    <View className="flex-1 bg-surface border-r border-surface-border" style={{ width: 220, flexShrink: 0 }}>
+    <View className="bg-surface border-r border-surface-border" style={{ width: 220, flexShrink: 0, height: '100%' }}>
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Header — Thoth branding */}
         <View className="flex-row items-center justify-between px-3 py-3">

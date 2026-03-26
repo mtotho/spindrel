@@ -41,6 +41,17 @@ export function useCreateChannel() {
   });
 }
 
+export function useDeleteChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/v1/channels/${channelId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
 export function useChannelSettings(channelId: string | undefined) {
   return useQuery({
     queryKey: ["channel-settings", channelId],

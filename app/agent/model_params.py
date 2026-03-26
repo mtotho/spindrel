@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+# Providers that do NOT support role: "system" in messages.
+# System messages will be converted to user messages before the LLM call.
+NO_SYSTEM_MESSAGE_PROVIDERS: set[str] = {"minimax"}
+
+
 # Which OpenAI-style params each provider family supports.
 MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
     "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},

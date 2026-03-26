@@ -58,6 +58,47 @@ async def _llm_call(
         )
 
 
+def _fold_system_messages(messages: list) -> list:
+    """Fold all system messages into the conversation for providers that reject role:system.
+
+    Strategy:
+    - Collect all system message content and merge into a single user message
+      placed at the start of the conversation.
+    - Preserve non-system messages in order.
+    - Ensure strict role alternation (no consecutive same-role messages) by
+      merging adjacent same-role messages with a newline separator.
+    """
+    system_parts: list[str] = []
+    non_system: list[dict] = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            if isinstance(content, str) and content:
+                system_parts.append(content)
+        else:
+            non_system.append(msg)
+
+    result: list[dict] = []
+    if system_parts:
+        result.append({"role": "user", "content": "\n\n---\n\n".join(system_parts)})
+    result.extend(non_system)
+
+    # Enforce role alternation: merge consecutive same-role messages
+    merged: list[dict] = []
+    for msg in result:
+        if merged and merged[-1]["role"] == msg["role"]:
+            prev_content = merged[-1].get("content", "")
+            cur_content = msg.get("content", "")
+            # Only merge simple string content; skip complex (audio/multipart)
+            if isinstance(prev_content, str) and isinstance(cur_content, str):
+                merged[-1] = {**merged[-1], "content": prev_content + "\n\n" + cur_content}
+            else:
+                merged.append(msg)
+        else:
+            merged.append(msg)
+    return merged
+
+
 async def _llm_call_with_retries(
     model: str,
     messages: list,
@@ -67,11 +108,14 @@ async def _llm_call_with_retries(
     model_params: dict | None = None,
 ):
     """Execute LLM call with exponential backoff on transient errors."""
-    from app.agent.model_params import filter_model_params
+    from app.agent.model_params import filter_model_params, get_provider_family, NO_SYSTEM_MESSAGE_PROVIDERS
     from app.services.providers import get_llm_client, record_usage
 
     client = get_llm_client(provider_id)
     filtered_params = filter_model_params(model, model_params or {})
+
+    if get_provider_family(model) in NO_SYSTEM_MESSAGE_PROVIDERS:
+        messages = _fold_system_messages(messages)
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):
         try:

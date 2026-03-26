@@ -2,10 +2,11 @@ import { useCallback, useState, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X, Trash2, AlertTriangle } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
+  useDeleteChannel,
   useChannel,
   useChannelEffectiveTools,
   useChannelIntegrations,
@@ -210,7 +211,7 @@ export default function ChannelSettingsScreen() {
         key={tab}
       >
         {tab === "general" && (
-          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} workspaceId={currentBot?.shared_workspace_id} />
+          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workspace" && (
@@ -241,14 +242,25 @@ export default function ChannelSettingsScreen() {
 // ===========================================================================
 // General Tab — settings form
 // ===========================================================================
-function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }: {
+function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, channelId }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   bots: any[] | undefined;
   settings: ChannelSettings;
   elevationData: any;
   workspaceId?: string | null;
+  channelId: string;
 }) {
+  const router = useRouter();
+  const deleteMutation = useDeleteChannel();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  const handleDelete = useCallback(async () => {
+    await deleteMutation.mutateAsync(channelId);
+    router.replace("/channels" as any);
+  }, [channelId, deleteMutation, router]);
+
   return (
     <>
       <Section title="General">
@@ -586,6 +598,105 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }:
         <span>ID: {settings.id}</span>
         {settings.client_id && <span>client_id: {settings.client_id}</span>}
         {settings.integration && <span>integration: {settings.integration}</span>}
+      </div>
+
+      {/* Danger Zone */}
+      <div style={{
+        marginTop: 32,
+        border: "1px solid #7f1d1d",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "10px 14px",
+          background: "#7f1d1d33",
+          borderBottom: "1px solid #7f1d1d",
+        }}>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: "#fca5a5" }}>Danger Zone</Text>
+        </div>
+        <div style={{ padding: 16 }}>
+          {!showDeleteConfirm ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <Text style={{ fontSize: 13, color: "#e5e5e5", fontWeight: "600" }}>Delete this channel</Text>
+                <Text style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                  Permanently removes the channel, its integrations, and heartbeat config. Sessions and tasks will be unlinked.
+                </Text>
+              </div>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 16px", fontSize: 12, fontWeight: 600,
+                  border: "1px solid #991b1b", borderRadius: 6,
+                  background: "transparent", color: "#fca5a5", cursor: "pointer",
+                  flexShrink: 0, marginLeft: 16,
+                }}
+              >
+                <Trash2 size={13} color="#fca5a5" />
+                Delete Channel
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "10px 14px", background: "#7f1d1d44", borderRadius: 6,
+              }}>
+                <AlertTriangle size={16} color="#fca5a5" />
+                <Text style={{ fontSize: 12, color: "#fca5a5", fontWeight: "600" }}>
+                  This action cannot be undone.
+                </Text>
+              </div>
+              <Text style={{ fontSize: 12, color: "#999" }}>
+                Type <Text style={{ fontFamily: "monospace", color: "#fca5a5", fontWeight: "600" }}>delete</Text> to confirm:
+              </Text>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e: any) => setDeleteConfirmText(e.target.value)}
+                placeholder="delete"
+                style={{
+                  padding: "8px 12px", fontSize: 13,
+                  background: "#111", border: "1px solid #333", borderRadius: 6,
+                  color: "#e5e5e5", outline: "none",
+                }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 20px", fontSize: 12, fontWeight: 700,
+                    border: "none", borderRadius: 6, cursor: "pointer",
+                    background: deleteConfirmText === "delete" ? "#dc2626" : "#333",
+                    color: deleteConfirmText === "delete" ? "#fff" : "#666",
+                    opacity: deleteMutation.isPending ? 0.6 : 1,
+                  }}
+                >
+                  <Trash2 size={13} />
+                  {deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
+                </button>
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); }}
+                  style={{
+                    padding: "8px 16px", fontSize: 12, fontWeight: 500,
+                    border: "1px solid #333", borderRadius: 6,
+                    background: "transparent", color: "#999", cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {deleteMutation.isError && (
+                <Text style={{ fontSize: 11, color: "#fca5a5" }}>
+                  {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete channel"}
+                </Text>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

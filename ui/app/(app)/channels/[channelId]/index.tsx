@@ -164,10 +164,11 @@ export default function ChatScreen() {
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border bg-surface"
+        className="flex-row items-center gap-2 px-3 border-b border-surface-border bg-surface"
         style={{
           flexShrink: 0,
           zIndex: 10,
+          minHeight: 48,
           ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
         }}
       >
@@ -175,26 +176,26 @@ export default function ChatScreen() {
           <Pressable
             onPress={goBack}
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
+            style={{ width: 40, height: 40 }}
           >
-            <ArrowLeft size={20} color="#9ca3af" />
+            <ArrowLeft size={18} color="#9ca3af" />
           </Pressable>
         )}
         {showHamburger && columns !== "single" && (
           <Pressable
             onPress={toggleSidebar}
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
+            style={{ width: 40, height: 40 }}
           >
-            <Menu size={20} color="#9ca3af" />
+            <Menu size={18} color="#9ca3af" />
           </Pressable>
         )}
-        <View className="flex-1 min-w-0">
-          <Text className="text-text font-semibold" numberOfLines={1}>
+        <View className="flex-1 min-w-0 py-1.5">
+          <Text className="text-text font-semibold text-sm" numberOfLines={1}>
             {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
           </Text>
           {bot && (
-            <View className="flex-row items-center gap-2" style={{ flexWrap: "wrap" }}>
+            <View className="flex-row items-center gap-1.5">
               <Link href={`/admin/bots/${bot.id}` as any}>
                 <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
               </Link>
@@ -208,9 +209,9 @@ export default function ChatScreen() {
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
               className="items-center justify-center rounded-md hover:bg-surface-overlay"
-              style={{ width: 44, height: 44 }}
+              style={{ width: 40, height: 40 }}
             >
-              <Settings size={18} color="#999999" />
+              <Settings size={16} color="#999999" />
             </Pressable>
           </Link>
         )}
