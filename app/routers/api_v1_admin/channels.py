@@ -461,7 +461,7 @@ async def admin_channel_settings(
     return ChannelSettingsOut.model_validate(channel)
 
 
-@router.put("/channels/{channel_id}/settings", response_model=ChannelSettingsOut)
+@router.api_route("/channels/{channel_id}/settings", methods=["PUT", "PATCH"], response_model=ChannelSettingsOut)
 async def admin_channel_settings_update(
     channel_id: uuid.UUID,
     body: ChannelSettingsUpdate,
@@ -652,7 +652,7 @@ async def admin_channel_heartbeat_get(
     )
 
 
-@router.put("/channels/{channel_id}/heartbeat", response_model=HeartbeatConfigOut)
+@router.api_route("/channels/{channel_id}/heartbeat", methods=["PUT", "PATCH"], response_model=HeartbeatConfigOut)
 async def admin_channel_heartbeat_update(
     channel_id: uuid.UUID,
     body: HeartbeatUpdate,
@@ -677,15 +677,29 @@ async def admin_channel_heartbeat_update(
         )
         db.add(heartbeat)
 
-    if body.enabled is not None:
-        heartbeat.enabled = body.enabled
-    heartbeat.interval_minutes = max(1, body.interval_minutes)
-    heartbeat.model = body.model.strip()
-    heartbeat.model_provider_id = body.model_provider_id.strip() if body.model_provider_id else None
-    heartbeat.prompt = body.prompt.strip()
-    heartbeat.prompt_template_id = body.prompt_template_id
-    heartbeat.dispatch_results = body.dispatch_results
-    heartbeat.trigger_response = body.trigger_response
+    updates = body.model_dump(exclude_unset=True)
+    if "enabled" in updates:
+        heartbeat.enabled = updates["enabled"]
+    if "interval_minutes" in updates:
+        heartbeat.interval_minutes = max(1, updates["interval_minutes"])
+    if "model" in updates:
+        heartbeat.model = updates["model"].strip() if updates["model"] else ""
+    if "model_provider_id" in updates:
+        heartbeat.model_provider_id = updates["model_provider_id"].strip() if updates["model_provider_id"] else None
+    if "prompt" in updates:
+        heartbeat.prompt = updates["prompt"].strip() if updates["prompt"] else ""
+    if "prompt_template_id" in updates:
+        heartbeat.prompt_template_id = updates["prompt_template_id"]
+    if "dispatch_results" in updates:
+        heartbeat.dispatch_results = updates["dispatch_results"]
+    if "trigger_response" in updates:
+        heartbeat.trigger_response = updates["trigger_response"]
+    if "quiet_start" in updates:
+        heartbeat.quiet_start = dt_time.fromisoformat(updates["quiet_start"]) if updates["quiet_start"] else None
+    if "quiet_end" in updates:
+        heartbeat.quiet_end = dt_time.fromisoformat(updates["quiet_end"]) if updates["quiet_end"] else None
+    if "timezone" in updates:
+        heartbeat.timezone = updates["timezone"]
     heartbeat.updated_at = now
 
     if heartbeat.enabled and heartbeat.next_run_at is None:

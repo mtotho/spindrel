@@ -321,7 +321,7 @@ class BotUpdateIn(BaseModel):
     user_id: Optional[str] = None
 
 
-@router.put("/bots/{bot_id}", response_model=BotOut)
+@router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
 async def admin_bot_update(
     bot_id: str,
     data: BotUpdateIn = Body(...),
@@ -336,7 +336,7 @@ async def admin_bot_update(
     if not row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
-    updates = data.model_dump(exclude_none=True)
+    updates = data.model_dump(exclude_unset=True)
 
     persona_content_val = updates.pop("persona_content", None)
 

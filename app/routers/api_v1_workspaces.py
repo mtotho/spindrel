@@ -252,7 +252,7 @@ async def get_workspace(
     return _ws_to_out(ws, sw_bots)
 
 
-@router.put("/{workspace_id}", response_model=WorkspaceOut)
+@router.api_route("/{workspace_id}", methods=["PUT", "PATCH"], response_model=WorkspaceOut)
 async def update_workspace(
     workspace_id: str,
     body: WorkspaceUpdate,
@@ -263,21 +263,18 @@ async def update_workspace(
     ws = await db.get(SharedWorkspace, ws_id)
     if not ws:
         raise HTTPException(404, "Workspace not found")
-    for field in ("name", "description", "image", "network", "env", "ports", "mounts",
-                  "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script",
-                  "workspace_skills_enabled", "workspace_base_prompt_enabled", "indexing_config"):
-        val = getattr(body, field, None)
-        if val is not None:
-            if isinstance(val, str):
-                val = val.strip()
-            elif isinstance(val, dict) and field == "env":
-                val = {k: v for k, v in val.items() if k}
-            setattr(ws, field, val)
+    updates = body.model_dump(exclude_unset=True)
+    for field, val in updates.items():
+        if isinstance(val, str):
+            val = val.strip()
+        elif isinstance(val, dict) and field == "env":
+            val = {k: v for k, v in val.items() if k}
+        setattr(ws, field, val)
     ws.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(ws)
     # Refresh cached _ws_indexing_config on all bots when indexing config changes
-    if body.indexing_config is not None:
+    if "indexing_config" in updates:
         await reload_bots()
     sw_bots = (await db.execute(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
@@ -480,7 +477,7 @@ async def get_workspace_bot(
     }
 
 
-@router.put("/{workspace_id}/bots/{bot_id}")
+@router.api_route("/{workspace_id}/bots/{bot_id}", methods=["PUT", "PATCH"])
 async def update_workspace_bot(
     workspace_id: str,
     bot_id: str,
@@ -499,15 +496,16 @@ async def update_workspace_bot(
     if not swb:
         raise HTTPException(404, "Bot not in workspace")
     # Workspace membership fields
-    if body.role is not None:
-        swb.role = body.role
-    if body.cwd_override is not None:
-        swb.cwd_override = body.cwd_override or None
+    updates = body.model_dump(exclude_unset=True)
+    if "role" in updates:
+        swb.role = updates["role"]
+    if "cwd_override" in updates:
+        swb.cwd_override = updates["cwd_override"] or None
     # Bot config fields (written to bots table)
-    bot_fields = body.model_dump(
-        include={"system_prompt", "name", "model", "skills", "local_tools", "persona"},
-        exclude_none=True,
-    )
+    bot_fields = {
+        k: v for k, v in updates.items()
+        if k in {"system_prompt", "name", "model", "skills", "local_tools", "persona"}
+    }
     if bot_fields:
         bot_row = await db.get(BotRow, bot_id)
         if not bot_row:
@@ -932,7 +930,7 @@ async def get_workspace_indexing(
     }
 
 
-@router.put("/{workspace_id}/bots/{bot_id}/indexing")
+@router.api_route("/{workspace_id}/bots/{bot_id}/indexing", methods=["PUT", "PATCH"])
 async def update_bot_indexing(
     workspace_id: str,
     bot_id: str,
