@@ -575,6 +575,40 @@ async def run_stream(
     ):
         yield event
 
+    # --- RAG re-ranking ---
+    from app.services.reranking import rerank_rag_context
+    _rerank_result = await rerank_rag_context(
+        messages, user_message,
+        provider_id=provider_id_override or bot.model_provider_id,
+    )
+    if _rerank_result is not None:
+        logger.info(
+            "RAG re-rank: %d→%d chunks, %d→%d chars",
+            _rerank_result.original_chunks, _rerank_result.kept_chunks,
+            _rerank_result.original_chars, _rerank_result.kept_chars,
+        )
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="rag_rerank",
+                data={
+                    "original_chunks": _rerank_result.original_chunks,
+                    "kept_chunks": _rerank_result.kept_chunks,
+                    "original_chars": _rerank_result.original_chars,
+                    "kept_chars": _rerank_result.kept_chars,
+                },
+            ))
+        yield {
+            "type": "rag_rerank",
+            "original_chunks": _rerank_result.original_chunks,
+            "kept_chunks": _rerank_result.kept_chunks,
+            "original_chars": _rerank_result.original_chars,
+            "kept_chars": _rerank_result.kept_chars,
+        }
+
     # Apply channel-level model override (lower priority than per-turn)
     if model_override is None and assembly_result.channel_model_override:
         model_override = assembly_result.channel_model_override

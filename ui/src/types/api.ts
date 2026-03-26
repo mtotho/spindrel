@@ -179,6 +179,7 @@ export interface ChannelSettings {
   compaction_prompt_template_id?: string | null;
   history_mode?: string | null;
   compaction_model?: string;
+  compaction_skip_memory_phase?: boolean | null;
   context_compression?: boolean;
   compression_model?: string;
   compression_threshold?: number;
@@ -512,6 +513,15 @@ export interface CompressionState {
   would_compress: boolean;
 }
 
+export interface RerankState {
+  enabled: boolean;
+  model: string;
+  threshold_chars: number;
+  max_chunks: number;
+  total_rag_chars: number;
+  would_rerank: boolean;
+}
+
 export interface EffectiveSetting {
   value: any;
   source: "channel" | "bot" | "global";
@@ -526,6 +536,7 @@ export interface ContextBreakdown {
   total_tokens_approx: number;
   compaction: CompactionState;
   compression: CompressionState;
+  reranking: RerankState;
   effective_settings: Record<string, EffectiveSetting>;
   disclaimer: string;
 }

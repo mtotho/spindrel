@@ -120,6 +120,13 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
+    # RAG re-ranking (post-assembly cross-source relevance filtering)
+    RAG_RERANK_ENABLED: bool = False
+    RAG_RERANK_MODEL: str = ""              # empty = use COMPACTION_MODEL
+    RAG_RERANK_THRESHOLD_CHARS: int = 5000  # only rerank when total RAG chars exceed this
+    RAG_RERANK_MAX_CHUNKS: int = 20         # max chunks to keep after reranking
+    RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response
+
     # Context compression (pre-turn summarization via cheap model)
     CONTEXT_COMPRESSION_ENABLED: bool = False
     CONTEXT_COMPRESSION_MODEL: str = ""          # empty = use COMPACTION_MODEL
