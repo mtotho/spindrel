@@ -119,6 +119,8 @@ class ConversationSection(Base):
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     embedding: Mapped[list | None] = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS), nullable=True)
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_viewed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_conversation_sections_channel_seq", "channel_id", "sequence"),
