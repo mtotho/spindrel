@@ -1,8 +1,8 @@
 """Public API v1 — Channel endpoints."""
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, time as dt_time, timedelta, timezone
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, ChannelIntegration, KnowledgeAccess, Message, Session, Task
+from app.db.models import Attachment, Channel, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
@@ -132,6 +132,144 @@ class HistoryMessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChannelListItemOut(ChannelOut):
+    """Extended channel item with optional heartbeat status."""
+    heartbeat_enabled: Optional[bool] = None
+    heartbeat_next_run_at: Optional[datetime] = None
+
+
+class ChannelConfigOut(BaseModel):
+    """Flat composite of channel settings + heartbeat config."""
+    # Identity (read-only)
+    id: uuid.UUID
+    name: str
+    bot_id: str
+    client_id: Optional[str] = None
+    integration: Optional[str] = None
+    active_session_id: Optional[uuid.UUID] = None
+    # Behavior
+    require_mention: bool = True
+    passive_memory: bool = True
+    allow_bot_messages: bool = False
+    workspace_rag: bool = True
+    # Model
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    # Compaction
+    context_compaction: bool = True
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
+    memory_knowledge_compaction_prompt: Optional[str] = None
+    # Compression
+    context_compression: Optional[bool] = None
+    compression_model: Optional[str] = None
+    compression_threshold: Optional[int] = None
+    compression_keep_turns: Optional[int] = None
+    compression_prompt: Optional[str] = None
+    # Summarizer
+    summarizer_enabled: bool = False
+    summarizer_threshold_minutes: Optional[int] = None
+    summarizer_message_count: Optional[int] = None
+    summarizer_target_size: Optional[int] = None
+    summarizer_prompt: Optional[str] = None
+    summarizer_model: Optional[str] = None
+    # Elevation
+    elevation_enabled: Optional[bool] = None
+    elevation_threshold: Optional[float] = None
+    elevated_model: Optional[str] = None
+    # Tool overrides
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
+    # Heartbeat (prefixed)
+    heartbeat_enabled: bool = False
+    heartbeat_interval_minutes: int = 60
+    heartbeat_model: str = ""
+    heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_prompt: str = ""
+    heartbeat_prompt_template_id: Optional[uuid.UUID] = None
+    heartbeat_dispatch_results: bool = True
+    heartbeat_trigger_response: bool = False
+    heartbeat_quiet_start: Optional[str] = None
+    heartbeat_quiet_end: Optional[str] = None
+    heartbeat_timezone: Optional[str] = None
+    heartbeat_last_run_at: Optional[datetime] = None
+    heartbeat_next_run_at: Optional[datetime] = None
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChannelConfigUpdate(BaseModel):
+    """Writable channel + heartbeat fields. All optional, exclude_unset semantics."""
+    # Behavior
+    require_mention: Optional[bool] = None
+    passive_memory: Optional[bool] = None
+    allow_bot_messages: Optional[bool] = None
+    workspace_rag: Optional[bool] = None
+    # Model
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    # Compaction
+    context_compaction: Optional[bool] = None
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
+    memory_knowledge_compaction_prompt: Optional[str] = None
+    # Compression
+    context_compression: Optional[bool] = None
+    compression_model: Optional[str] = None
+    compression_threshold: Optional[int] = None
+    compression_keep_turns: Optional[int] = None
+    compression_prompt: Optional[str] = None
+    # Summarizer
+    summarizer_enabled: Optional[bool] = None
+    summarizer_threshold_minutes: Optional[int] = None
+    summarizer_message_count: Optional[int] = None
+    summarizer_target_size: Optional[int] = None
+    summarizer_prompt: Optional[str] = None
+    summarizer_model: Optional[str] = None
+    # Elevation
+    elevation_enabled: Optional[bool] = None
+    elevation_threshold: Optional[float] = None
+    elevated_model: Optional[str] = None
+    # Tool overrides
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
+    # Heartbeat (prefixed)
+    heartbeat_enabled: Optional[bool] = None
+    heartbeat_interval_minutes: Optional[int] = None
+    heartbeat_model: Optional[str] = None
+    heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_prompt: Optional[str] = None
+    heartbeat_prompt_template_id: Optional[uuid.UUID] = None
+    heartbeat_dispatch_results: Optional[bool] = None
+    heartbeat_trigger_response: Optional[bool] = None
+    heartbeat_quiet_start: Optional[str] = None
+    heartbeat_quiet_end: Optional[str] = None
+    heartbeat_timezone: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -168,10 +306,11 @@ async def create_channel(
     return ChannelOut.model_validate(channel)
 
 
-@router.get("", response_model=list[ChannelOut])
+@router.get("", response_model=Union[list[ChannelListItemOut], list[ChannelOut]])
 async def list_channels(
     integration: Optional[str] = None,
     bot_id: Optional[str] = None,
+    include_heartbeat: bool = Query(False, description="Include heartbeat_enabled and heartbeat_next_run_at"),
     db: AsyncSession = Depends(get_db),
     auth_result=Depends(verify_auth_or_user),
 ):
@@ -183,7 +322,27 @@ async def list_channels(
     if bot_id:
         stmt = stmt.where(Channel.bot_id == bot_id)
     channels = (await db.execute(stmt)).scalars().all()
-    return [ChannelOut.model_validate(ch) for ch in channels]
+
+    if not include_heartbeat:
+        return [ChannelOut.model_validate(ch) for ch in channels]
+
+    # Batch-load heartbeat rows
+    channel_ids = [ch.id for ch in channels]
+    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
+    if channel_ids:
+        hb_rows = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
+        )).scalars().all()
+        hb_map = {hb.channel_id: hb for hb in hb_rows}
+
+    result = []
+    for ch in channels:
+        item = ChannelListItemOut.model_validate(ch)
+        hb = hb_map.get(ch.id)
+        item.heartbeat_enabled = hb.enabled if hb else False
+        item.heartbeat_next_run_at = hb.next_run_at if hb else None
+        result.append(item)
+    return result
 
 
 @router.get("/{channel_id}", response_model=ChannelOut)
@@ -200,6 +359,170 @@ async def get_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     return ChannelOut.model_validate(channel)
+
+
+@router.get("/{channel_id}/config", response_model=ChannelConfigOut)
+async def get_channel_config(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Get all channel settings + heartbeat config in a single flat response."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    heartbeat = (await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+    )).scalar_one_or_none()
+
+    return _build_config_out(channel, heartbeat)
+
+
+@router.api_route("/{channel_id}/config", methods=["PUT", "PATCH"], response_model=ChannelConfigOut)
+async def update_channel_config(
+    channel_id: uuid.UUID,
+    body: ChannelConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Update any subset of channel settings + heartbeat config in one call."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    updates = body.model_dump(exclude_unset=True)
+    now = datetime.now(timezone.utc)
+
+    # Split into channel fields vs heartbeat fields
+    hb_updates: dict = {}
+    ch_updates: dict = {}
+    for key, value in updates.items():
+        if key.startswith("heartbeat_"):
+            hb_updates[key.removeprefix("heartbeat_")] = value
+        else:
+            ch_updates[key] = value
+
+    # Apply channel updates
+    if ch_updates:
+        for field, value in ch_updates.items():
+            setattr(channel, field, value)
+        channel.updated_at = now
+
+    # Apply heartbeat updates
+    heartbeat: ChannelHeartbeat | None = None
+    if hb_updates:
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        if heartbeat is None:
+            heartbeat = ChannelHeartbeat(channel_id=channel_id, enabled=False)
+            db.add(heartbeat)
+
+        for field, value in hb_updates.items():
+            if field == "interval_minutes" and value is not None:
+                value = max(1, value)
+            elif field == "model" and value is not None:
+                value = value.strip()
+            elif field == "model_provider_id" and value is not None:
+                value = value.strip() or None
+            elif field == "prompt" and value is not None:
+                value = value.strip()
+            elif field == "quiet_start":
+                value = dt_time.fromisoformat(value) if value else None
+            elif field == "quiet_end":
+                value = dt_time.fromisoformat(value) if value else None
+            setattr(heartbeat, field, value)
+
+        heartbeat.updated_at = now
+
+        # Auto-schedule / clear next_run_at
+        if heartbeat.enabled and heartbeat.next_run_at is None:
+            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+        elif not heartbeat.enabled:
+            heartbeat.next_run_at = None
+
+    await db.commit()
+    await db.refresh(channel)
+
+    if heartbeat is None:
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+    elif hb_updates:
+        await db.refresh(heartbeat)
+
+    return _build_config_out(channel, heartbeat)
+
+
+def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> ChannelConfigOut:
+    """Build flat ChannelConfigOut from channel + optional heartbeat."""
+    data = {
+        "id": channel.id,
+        "name": channel.name,
+        "bot_id": channel.bot_id,
+        "client_id": channel.client_id,
+        "integration": channel.integration,
+        "active_session_id": channel.active_session_id,
+        "require_mention": channel.require_mention,
+        "passive_memory": channel.passive_memory,
+        "allow_bot_messages": channel.allow_bot_messages,
+        "workspace_rag": channel.workspace_rag,
+        "model_override": channel.model_override,
+        "model_provider_id_override": channel.model_provider_id_override,
+        "context_compaction": channel.context_compaction,
+        "compaction_interval": channel.compaction_interval,
+        "compaction_keep_turns": channel.compaction_keep_turns,
+        "compaction_prompt_template_id": channel.compaction_prompt_template_id,
+        "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
+        "context_compression": channel.context_compression,
+        "compression_model": channel.compression_model,
+        "compression_threshold": channel.compression_threshold,
+        "compression_keep_turns": channel.compression_keep_turns,
+        "compression_prompt": channel.compression_prompt,
+        "summarizer_enabled": channel.summarizer_enabled,
+        "summarizer_threshold_minutes": channel.summarizer_threshold_minutes,
+        "summarizer_message_count": channel.summarizer_message_count,
+        "summarizer_target_size": channel.summarizer_target_size,
+        "summarizer_prompt": channel.summarizer_prompt,
+        "summarizer_model": channel.summarizer_model,
+        "elevation_enabled": channel.elevation_enabled,
+        "elevation_threshold": channel.elevation_threshold,
+        "elevated_model": channel.elevated_model,
+        "local_tools_override": channel.local_tools_override,
+        "local_tools_disabled": channel.local_tools_disabled,
+        "mcp_servers_override": channel.mcp_servers_override,
+        "mcp_servers_disabled": channel.mcp_servers_disabled,
+        "client_tools_override": channel.client_tools_override,
+        "client_tools_disabled": channel.client_tools_disabled,
+        "pinned_tools_override": channel.pinned_tools_override,
+        "skills_override": channel.skills_override,
+        "skills_disabled": channel.skills_disabled,
+        "workspace_skills_enabled": channel.workspace_skills_enabled,
+        "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
+        "created_at": channel.created_at,
+        "updated_at": channel.updated_at,
+    }
+
+    if heartbeat:
+        data.update({
+            "heartbeat_enabled": heartbeat.enabled,
+            "heartbeat_interval_minutes": heartbeat.interval_minutes,
+            "heartbeat_model": heartbeat.model,
+            "heartbeat_model_provider_id": heartbeat.model_provider_id,
+            "heartbeat_prompt": heartbeat.prompt,
+            "heartbeat_prompt_template_id": heartbeat.prompt_template_id,
+            "heartbeat_dispatch_results": heartbeat.dispatch_results,
+            "heartbeat_trigger_response": heartbeat.trigger_response,
+            "heartbeat_quiet_start": heartbeat.quiet_start.strftime("%H:%M") if heartbeat.quiet_start else None,
+            "heartbeat_quiet_end": heartbeat.quiet_end.strftime("%H:%M") if heartbeat.quiet_end else None,
+            "heartbeat_timezone": heartbeat.timezone,
+            "heartbeat_last_run_at": heartbeat.last_run_at,
+            "heartbeat_next_run_at": heartbeat.next_run_at,
+        })
+
+    return ChannelConfigOut(**data)
 
 
 @router.put("/{channel_id}", response_model=ChannelOut)

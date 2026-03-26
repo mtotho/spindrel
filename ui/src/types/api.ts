@@ -165,6 +165,7 @@ export interface ChannelSettings {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  allow_bot_messages: boolean;
   workspace_rag: boolean;
   context_compaction: boolean;
   compaction_interval?: number;

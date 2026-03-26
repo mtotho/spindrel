@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, time, timezone
+from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, text
@@ -90,6 +91,9 @@ class Channel(Base):
     integrations: Mapped[list["ChannelIntegration"]] = relationship(
         back_populates="channel",
         cascade="all, delete-orphan",
+    )
+    heartbeat: Mapped[Optional["ChannelHeartbeat"]] = relationship(
+        "ChannelHeartbeat", uselist=False, viewonly=True,
     )
 
 

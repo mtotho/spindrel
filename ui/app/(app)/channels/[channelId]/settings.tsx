@@ -99,6 +99,7 @@ export default function ChannelSettingsScreen() {
         bot_id: settings.bot_id,
         require_mention: settings.require_mention,
         passive_memory: settings.passive_memory,
+        allow_bot_messages: settings.allow_bot_messages,
         workspace_rag: settings.workspace_rag,
         context_compaction: settings.context_compaction,
         compaction_interval: settings.compaction_interval,
@@ -299,6 +300,12 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }:
           onChange={(v) => patch("passive_memory", v)}
           label="Passive memory"
           description="Include passive messages in memory compaction."
+        />
+        <Toggle
+          value={form.allow_bot_messages ?? false}
+          onChange={(v) => patch("allow_bot_messages", v)}
+          label="Allow bot messages"
+          description="Process messages from other bots (e.g. GitHub) and trigger the agent."
         />
         <Toggle
           value={form.workspace_rag ?? true}
