@@ -310,8 +310,8 @@ async def _generate_section(
     conversation: list[dict],
     model: str,
     provider_id: str | None = None,
-) -> tuple[str, str, str]:
-    """Call the LLM to produce a section title, summary, and formatted transcript."""
+) -> tuple[str, str, str, list[str]]:
+    """Call the LLM to produce a section title, summary, formatted transcript, and tags."""
     prompt_messages: list[dict] = [{"role": "system", "content": settings.SECTION_COMPACTION_PROMPT}]
 
     transcript = "\n".join(
@@ -339,12 +339,15 @@ async def _generate_section(
         data = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("Section LLM returned non-JSON: %s", raw[:200])
-        return ("Conversation", raw[:200], raw)
+        return ("Conversation", raw[:200], raw, [])
 
     title = data.get("title", "Conversation")
     summary = data.get("summary", "")
     section_transcript = data.get("transcript", raw)
-    return (title, summary, section_transcript)
+    tags = data.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    return (title, summary, section_transcript, tags)
 
 
 async def _regenerate_executive_summary(
@@ -525,7 +528,7 @@ async def run_compaction_stream(
 
         if history_mode in ("structured", "file"):
             # --- Section-based compaction ---
-            sec_title, sec_summary, sec_transcript = await _generate_section(
+            sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
                 to_summarize, model, provider_id=bot.model_provider_id,
             )
 
@@ -559,6 +562,7 @@ async def run_compaction_stream(
                     transcript=sec_transcript,
                     message_count=msg_count,
                     embedding=sec_embedding,
+                    tags=sec_tags or None,
                 )
                 db.add(section)
                 await db.commit()
@@ -744,7 +748,7 @@ async def run_compaction_forced(
         raise ValueError("All messages within keep window, nothing to compact")
 
     if history_mode in ("structured", "file"):
-        sec_title, sec_summary, sec_transcript = await _generate_section(
+        sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
             conversation, model, provider_id=bot.model_provider_id,
         )
         msg_count = sum(1 for m in conversation if m.get("role") in ("user", "assistant"))
@@ -773,6 +777,7 @@ async def run_compaction_forced(
             transcript=sec_transcript,
             message_count=msg_count,
             embedding=sec_embedding,
+            tags=sec_tags or None,
         )
         db.add(section)
         await db.flush()
@@ -962,7 +967,7 @@ async def backfill_sections(
     sections_created = 0
     for i, chunk in enumerate(chunks):
         seq = start_seq + i
-        title, summary, transcript = await _generate_section(
+        title, summary, transcript, tags = await _generate_section(
             chunk, effective_model, provider_id=effective_provider,
         )
 
@@ -994,6 +999,7 @@ async def backfill_sections(
                 period_start=period_start,
                 period_end=period_end,
                 embedding=embedding,
+                tags=tags or None,
             )
             db.add(section)
             await db.commit()

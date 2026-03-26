@@ -134,11 +134,10 @@ class Settings(BaseSettings):
     CONTEXT_COMPRESSION_KEEP_TURNS: int = 2      # recent user turns kept verbatim
     CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS: int = 2000
 
-    # Summarizer (auto-resume after idle)
-    SUMMARIZER_THRESHOLD_MINUTES: int = 45
-    SUMMARIZER_MESSAGE_COUNT: int = 100
-    SUMMARIZER_TARGET_SIZE: int = 1000   # ~200 words
-    SUMMARIZER_MODEL: str = ""           # empty = use compression model / bot model
+    # Response condensing (condense verbose assistant replies between compactions)
+    RESPONSE_CONDENSING_THRESHOLD: int = 1500    # chars — responses above this get condensed
+    RESPONSE_CONDENSING_KEEP_EXACT: int = 6      # N most recent messages shown at full fidelity
+    RESPONSE_CONDENSING_MODEL: str = ""          # empty = use compaction model chain
 
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
@@ -224,6 +223,8 @@ class Settings(BaseSettings):
           be on its own line, prefixed with [ROLE TIMESTAMP]: where ROLE is USER or ASSISTANT \
           and TIMESTAMP is the time if available. Include all substantive content — tool calls \
           can be summarized briefly. Omit redundant pleasantries.
+        - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment. \
+          Examples: "database migration", "bug fix", "API design", "deployment", "memory system".
 
         IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
 

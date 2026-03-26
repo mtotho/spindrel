@@ -116,12 +116,11 @@ export default function ChannelSettingsScreen() {
         compression_threshold: settings.compression_threshold,
         compression_keep_turns: settings.compression_keep_turns,
         compression_prompt: settings.compression_prompt,
-        summarizer_enabled: settings.summarizer_enabled,
-        summarizer_threshold_minutes: settings.summarizer_threshold_minutes,
-        summarizer_message_count: settings.summarizer_message_count,
-        summarizer_target_size: settings.summarizer_target_size,
-        summarizer_prompt: settings.summarizer_prompt,
-        summarizer_model: settings.summarizer_model,
+        response_condensing_enabled: settings.response_condensing_enabled,
+        response_condensing_threshold: settings.response_condensing_threshold,
+        response_condensing_keep_exact: settings.response_condensing_keep_exact,
+        response_condensing_model: settings.response_condensing_model,
+        response_condensing_prompt: settings.response_condensing_prompt,
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
@@ -488,7 +487,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
       transcript: string; message_count: number;
       period_start: string | null; period_end: string | null;
       created_at: string | null; view_count: number;
-      last_viewed_at: string | null;
+      last_viewed_at: string | null; tags: string[];
     }>; total: number }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
 
@@ -504,7 +503,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
       <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
         Archived Sections ({data.total})
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 600, minHeight: 0, overflowY: "auto" }}>
         {data.sections.map((s) => {
           const isOpen = expandedId === s.id;
           const dateStr = s.period_start
@@ -520,25 +519,45 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                 style={{
                   display: "flex", alignItems: "center", gap: 8, width: "100%",
                   padding: "8px 12px", background: "none", border: "none",
-                  cursor: "pointer", textAlign: "left",
+                  cursor: "pointer", textAlign: "left", minHeight: 36,
                 }}
               >
                 <span style={{ fontSize: 10, color: "#555", minWidth: 20 }}>#{s.sequence}</span>
                 <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{s.title}</span>
-                <span style={{ fontSize: 10, color: "#666" }}>{s.message_count} msgs</span>
+                {s.tags?.length > 0 && (
+                  <span style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                    {s.tags.slice(0, 3).map((tag, i) => (
+                      <span key={i} style={{
+                        fontSize: 9, color: "#93c5fd", background: "#1e3a5f",
+                        padding: "1px 5px", borderRadius: 8, whiteSpace: "nowrap",
+                      }}>{tag}</span>
+                    ))}
+                  </span>
+                )}
+                <span style={{ fontSize: 10, color: "#666", flexShrink: 0 }}>{s.message_count} msgs</span>
                 {s.view_count > 0 && (
                   <span style={{
                     fontSize: 9, color: "#a78bfa", background: "#2e1065",
-                    padding: "1px 5px", borderRadius: 8, fontWeight: 600,
+                    padding: "1px 5px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
                   }}>{s.view_count}x viewed</span>
                 )}
-                {dateStr && <span style={{ fontSize: 10, color: "#555" }}>{dateStr}</span>}
-                <span style={{ fontSize: 10, color: "#555", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▼</span>
+                {dateStr && <span style={{ fontSize: 10, color: "#555", flexShrink: 0 }}>{dateStr}</span>}
+                <span style={{ fontSize: 10, color: "#555", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }}>▼</span>
               </button>
               {isOpen && (
                 <div style={{ padding: "0 12px 10px", borderTop: "1px solid #222" }}>
                   <div style={{ fontSize: 11, color: "#999", padding: "8px 0 4px", fontWeight: 600 }}>Summary</div>
                   <div style={{ fontSize: 11, color: "#888", lineHeight: "1.5", whiteSpace: "pre-wrap" }}>{s.summary}</div>
+                  {s.tags?.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                      {s.tags.map((tag, i) => (
+                        <span key={i} style={{
+                          fontSize: 10, color: "#93c5fd", background: "#1e3a5f",
+                          padding: "2px 8px", borderRadius: 10,
+                        }}>{tag}</span>
+                      ))}
+                    </div>
+                  )}
                   <details style={{ marginTop: 8 }}>
                     <summary style={{ fontSize: 11, color: "#666", cursor: "pointer", userSelect: "none" }}>
                       View transcript
@@ -561,7 +580,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
 }
 
 // ===========================================================================
-// History Tab — history mode, compaction settings, backfill, summarizer
+// History Tab — history mode, compaction settings, backfill, response condensing
 // ===========================================================================
 function HistoryTab({ form, patch, channelId, workspaceId }: {
   form: Partial<ChannelSettings>;
@@ -791,72 +810,58 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
         </Section>
       )}
 
-      {/* 3. Summarizer — always visible at bottom */}
-      <Section title="Summarizer" description="Auto-inject a summary of prior conversation when the channel resumes after idle.">
-        {isFileOrStructured && (
-          <div style={{
-            padding: "10px 14px", background: "#111", border: "1px solid #333",
-            borderRadius: 8, fontSize: 11, color: "#999", lineHeight: "1.5", marginBottom: 8,
-          }}>
-            File mode automatically injects an executive summary each turn, so the resume summarizer is typically redundant for file-mode channels.
-          </div>
-        )}
+      {/* 3. Response Condensing — always visible at bottom */}
+      <Section title="Response Condensing" description="Automatically condense verbose assistant responses to save context space between compactions.">
         <Toggle
-          value={!!form.summarizer_enabled}
-          onChange={(v) => patch("summarizer_enabled", v)}
-          label="Enable auto-summarize on resume"
+          value={!!form.response_condensing_enabled}
+          onChange={(v) => patch("response_condensing_enabled", v)}
+          label="Enable response condensing"
         />
-        {form.summarizer_enabled && (
+        {form.response_condensing_enabled && (
           <>
+            <div style={{
+              padding: "10px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
+              borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginBottom: 4,
+            }}>
+              Condensing runs in the background after each response.
+              User messages are never modified. The bot sees condensed versions
+              of older assistant messages, but full versions of the most recent ones.
+            </div>
             <Row>
               <Col>
-                <FormRow label="Idle Threshold (minutes)">
+                <FormRow label="Threshold (chars)" description="Responses above this length are condensed.">
                   <TextInput
-                    value={form.summarizer_threshold_minutes?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_threshold_minutes", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (45)"
+                    value={form.response_condensing_threshold?.toString() ?? ""}
+                    onChangeText={(v) => patch("response_condensing_threshold", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (1500)"
                     type="number"
                   />
                 </FormRow>
               </Col>
               <Col>
-                <FormRow label="Message Count">
+                <FormRow label="Keep Exact" description="Recent messages shown at full fidelity.">
                   <TextInput
-                    value={form.summarizer_message_count?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_message_count", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (100)"
+                    value={form.response_condensing_keep_exact?.toString() ?? ""}
+                    onChangeText={(v) => patch("response_condensing_keep_exact", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (6)"
                     type="number"
                   />
                 </FormRow>
               </Col>
             </Row>
-            <Row>
-              <Col>
-                <FormRow label="Target Size (chars)">
-                  <TextInput
-                    value={form.summarizer_target_size?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_target_size", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (1000)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <LlmModelDropdown
-                  label="Summarizer Model"
-                  value={form.summarizer_model ?? ""}
-                  onChange={(v) => patch("summarizer_model", v || undefined)}
-                  placeholder="inherit"
-                />
-              </Col>
-            </Row>
+            <LlmModelDropdown
+              label="Condensing Model"
+              value={form.response_condensing_model ?? ""}
+              onChange={(v) => patch("response_condensing_model", v || undefined)}
+              placeholder="inherit (compaction model chain)"
+            />
             <LlmPrompt
-              value={form.summarizer_prompt ?? ""}
-              onChange={(v) => patch("summarizer_prompt", v || undefined)}
-              label="Summarizer Prompt"
-              placeholder="Leave blank to use the default prompt..."
-              helpText="Custom focus prompt for the summarizer, e.g. 'Focus on technical decisions and action items'"
-              rows={4}
+              value={form.response_condensing_prompt ?? ""}
+              onChange={(v) => patch("response_condensing_prompt", v || undefined)}
+              label="Custom Condensing Prompt"
+              placeholder="Leave blank to use the default..."
+              helpText="Additional instructions for condensing, e.g. 'Always preserve code blocks verbatim'"
+              rows={3}
             />
           </>
         )}

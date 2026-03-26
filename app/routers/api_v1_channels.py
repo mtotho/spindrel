@@ -170,13 +170,12 @@ class ChannelConfigOut(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Summarizer
-    summarizer_enabled: bool = False
-    summarizer_threshold_minutes: Optional[int] = None
-    summarizer_message_count: Optional[int] = None
-    summarizer_target_size: Optional[int] = None
-    summarizer_prompt: Optional[str] = None
-    summarizer_model: Optional[str] = None
+    # Response condensing
+    response_condensing_enabled: bool = False
+    response_condensing_threshold: Optional[int] = None
+    response_condensing_keep_exact: Optional[int] = None
+    response_condensing_model: Optional[str] = None
+    response_condensing_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -239,13 +238,12 @@ class ChannelConfigUpdate(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Summarizer
-    summarizer_enabled: Optional[bool] = None
-    summarizer_threshold_minutes: Optional[int] = None
-    summarizer_message_count: Optional[int] = None
-    summarizer_target_size: Optional[int] = None
-    summarizer_prompt: Optional[str] = None
-    summarizer_model: Optional[str] = None
+    # Response condensing
+    response_condensing_enabled: Optional[bool] = None
+    response_condensing_threshold: Optional[int] = None
+    response_condensing_keep_exact: Optional[int] = None
+    response_condensing_model: Optional[str] = None
+    response_condensing_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -492,12 +490,11 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compression_threshold": channel.compression_threshold,
         "compression_keep_turns": channel.compression_keep_turns,
         "compression_prompt": channel.compression_prompt,
-        "summarizer_enabled": channel.summarizer_enabled,
-        "summarizer_threshold_minutes": channel.summarizer_threshold_minutes,
-        "summarizer_message_count": channel.summarizer_message_count,
-        "summarizer_target_size": channel.summarizer_target_size,
-        "summarizer_prompt": channel.summarizer_prompt,
-        "summarizer_model": channel.summarizer_model,
+        "response_condensing_enabled": channel.response_condensing_enabled,
+        "response_condensing_threshold": channel.response_condensing_threshold,
+        "response_condensing_keep_exact": channel.response_condensing_keep_exact,
+        "response_condensing_model": channel.response_condensing_model,
+        "response_condensing_prompt": channel.response_condensing_prompt,
         "elevation_enabled": channel.elevation_enabled,
         "elevation_threshold": channel.elevation_threshold,
         "elevated_model": channel.elevated_model,

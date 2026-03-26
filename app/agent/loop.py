@@ -618,54 +618,6 @@ async def run_stream(
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 
-    # --- Auto-summarize on resume after idle ---
-    if channel_id:
-        try:
-            from app.services.summarizer import get_last_user_message_time, summarize_messages
-            from app.db.models import Channel as _ChannelModel
-            from app.db.engine import async_session as _async_session
-            from sqlalchemy import select as _sel
-
-            async with _async_session() as _db:
-                _ch = (await _db.execute(
-                    _sel(_ChannelModel).where(_ChannelModel.id == channel_id)
-                )).scalar_one_or_none()
-
-            if _ch and _ch.summarizer_enabled:
-                _threshold = _ch.summarizer_threshold_minutes or settings.SUMMARIZER_THRESHOLD_MINUTES
-                _last_ts = await get_last_user_message_time(channel_id)
-                if _last_ts is not None:
-                    _idle_minutes = (datetime.now(timezone.utc) - _last_ts).total_seconds() / 60
-                    if _idle_minutes > _threshold:
-                        _msg_count = _ch.summarizer_message_count or settings.SUMMARIZER_MESSAGE_COUNT
-                        _summary = await summarize_messages(
-                            channel_id=channel_id,
-                            take=_msg_count,
-                            provider_id=provider_id_override or bot.model_provider_id,
-                        )
-                        if _summary and not _summary.startswith("Error:"):
-                            _auto_msg = (
-                                f"[Auto-summary of prior conversation — last activity "
-                                f"was {int(_idle_minutes)} minutes ago]\n\n{_summary}"
-                            )
-                            messages.insert(turn_start, {"role": "system", "content": _auto_msg})
-                            turn_start += 1
-                            if user_msg_index is not None:
-                                user_msg_index += 1
-
-                            if correlation_id is not None:
-                                asyncio.create_task(_record_trace_event(
-                                    correlation_id=correlation_id,
-                                    session_id=session_id,
-                                    bot_id=bot.id,
-                                    client_id=client_id,
-                                    event_type="auto_summarize",
-                                    data={"idle_minutes": int(_idle_minutes), "summary_len": len(_summary)},
-                                ))
-                            yield {"type": "trace", "event_type": "auto_summarize", "idle_minutes": int(_idle_minutes)}
-        except Exception:
-            logger.warning("Auto-summarize failed, continuing without", exc_info=True)
-
     # --- Context compression (pre-turn) ---
     _compression_active = False
     _full_messages: list[dict] | None = None

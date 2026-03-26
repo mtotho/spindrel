@@ -84,7 +84,7 @@ Only send fields you want to change — `exclude_unset` semantics. Heartbeat fie
 - Model: `model_override`, `model_provider_id_override`
 - Compaction: `context_compaction`, `compaction_interval`, `compaction_keep_turns`, `compaction_prompt_template_id`, `memory_knowledge_compaction_prompt`
 - Compression: `context_compression`, `compression_model`, `compression_threshold`, `compression_keep_turns`, `compression_prompt`
-- Summarizer: `summarizer_enabled`, `summarizer_threshold_minutes`, `summarizer_message_count`, `summarizer_target_size`, `summarizer_prompt`, `summarizer_model`
+- Response condensing: `response_condensing_enabled`, `response_condensing_threshold`, `response_condensing_keep_exact`, `response_condensing_model`, `response_condensing_prompt`
 - Elevation: `elevation_enabled`, `elevation_threshold`, `elevated_model`
 - Tool overrides: `local_tools_override`, `local_tools_disabled`, `mcp_servers_override`, `mcp_servers_disabled`, `client_tools_override`, `client_tools_disabled`, `pinned_tools_override`, `skills_override`, `skills_disabled`, `workspace_skills_enabled`, `workspace_base_prompt_enabled`
 
@@ -100,8 +100,8 @@ agent-api GET /api/v1/channels/$CHID/config
 # Enable heartbeat with model
 agent-api PATCH /api/v1/channels/$CHID/config '{"heartbeat_enabled": true, "heartbeat_interval_minutes": 30, "heartbeat_model": "gemini/gemini-2.5-flash"}'
 
-# Set compaction + summarizer
-agent-api PATCH /api/v1/channels/$CHID/config '{"context_compaction": true, "compaction_interval": 8, "summarizer_enabled": true, "summarizer_threshold_minutes": 45}'
+# Set compaction + response condensing
+agent-api PATCH /api/v1/channels/$CHID/config '{"context_compaction": true, "compaction_interval": 8, "response_condensing_enabled": true, "response_condensing_threshold": 1500}'
 
 # Override tools for a channel
 agent-api PATCH /api/v1/channels/$CHID/config '{"local_tools_override": ["web_search", "save_memory"]}'
@@ -205,7 +205,7 @@ Poll deferred tasks: `GET /api/v1/admin/tasks/{task_id}`
 - All member bots added (`GET /workspaces/{id}`)
 - Shared resources in `/workspace/common/` before delegating
 - Skills created and reindexed (`POST /workspaces/{id}/reindex-skills`)
-- Channel config set (compaction, heartbeat, summarizer, model) via `PATCH /channels/{id}/config`
+- Channel config set (compaction, heartbeat, response condensing, model) via `PATCH /channels/{id}/config`
 - Bot skills/tools assigned, channel overrides applied where needed
 - Models listed before assigning (`GET /admin/models`)
 - Recurring schedules use `prompt_template_id`

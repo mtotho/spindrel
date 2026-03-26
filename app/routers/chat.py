@@ -333,6 +333,7 @@ async def chat(
         db, session_id, bot, messages, from_index,
         correlation_id=correlation_id,
         msg_metadata=req.msg_metadata,
+        channel_id=channel_id,
     )
     maybe_compact(
         session_id, bot, messages,
@@ -586,6 +587,7 @@ async def chat_stream(
                 db, session_id, bot, messages, from_index,
                 correlation_id=correlation_id,
                 msg_metadata=req.msg_metadata,
+                channel_id=channel_id,
             )
 
             # Mirror response to integration (skip if cancelled)

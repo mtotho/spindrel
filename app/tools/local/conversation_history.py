@@ -52,9 +52,10 @@ async def read_conversation_history(section: str) -> str:
         lines = ["Archived conversation sections:\n"]
         for s in sections:
             date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
+            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
             lines.append(
                 f"- [{s.id}] Section {s.sequence}: {s.title} "
-                f"({s.message_count} msgs, {date_str})\n"
+                f"({s.message_count} msgs, {date_str}){tag_str}\n"
                 f"  {s.summary}"
             )
         return "\n".join(lines)
