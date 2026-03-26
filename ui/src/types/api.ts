@@ -178,6 +178,7 @@ export interface ChannelSettings {
   memory_knowledge_compaction_prompt?: string;
   compaction_prompt_template_id?: string | null;
   history_mode?: string | null;
+  compaction_model?: string;
   context_compression?: boolean;
   compression_model?: string;
   compression_threshold?: number;

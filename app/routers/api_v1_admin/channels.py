@@ -279,6 +279,8 @@ class ChannelSettingsOut(BaseModel):
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
+    history_mode: Optional[str] = None
+    compaction_model: Optional[str] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -328,6 +330,7 @@ class ChannelSettingsUpdate(BaseModel):
     memory_knowledge_compaction_prompt: Optional[str] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
+    compaction_model: Optional[str] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -1044,6 +1047,7 @@ class BackfillRequest(BaseModel):
     model: Optional[str] = None
     provider_id: Optional[str] = None
     history_mode: Optional[str] = None  # "file" or "structured"; default: resolve from channel/bot
+    clear_existing: bool = False  # delete all existing sections before backfilling
 
 
 @router.post("/channels/{channel_id}/backfill-sections")
@@ -1064,6 +1068,7 @@ async def admin_channel_backfill_sections(
         model=body.model,
         provider_id=body.provider_id,
         history_mode=body.history_mode,
+        clear_existing=body.clear_existing,
     ))
     return {"task_id": task_id}
 

@@ -812,6 +812,7 @@ async def _drain_backfill(
     model: str | None,
     provider_id: str | None,
     history_mode: str | None,
+    clear_existing: bool = False,
 ) -> None:
     """Run backfill_sections in the background, tracking progress in _BACKFILL_JOBS."""
     state: dict = {"status": "running", "sections_created": 0, "total_chunks": 0, "error": None}
@@ -820,6 +821,7 @@ async def _drain_backfill(
         async for event in backfill_sections(
             channel_id, chunk_size=chunk_size, model=model,
             provider_id=provider_id, history_mode=history_mode,
+            clear_existing=clear_existing,
         ):
             if event["type"] == "backfill_progress":
                 state.update(
@@ -844,11 +846,14 @@ async def backfill_sections(
     model: str | None = None,
     provider_id: str | None = None,
     history_mode: str | None = None,
+    clear_existing: bool = False,
 ) -> AsyncGenerator[dict, None]:
     """Retroactively chunk historical messages into ConversationSection rows.
 
     Yields progress dicts as JSON-line events. Only processes messages at or
     before the active session's watermark (summary_message_id).
+
+    If clear_existing=True, deletes all existing sections for the channel first.
     """
     from app.agent.bots import get_bot
 
@@ -928,13 +933,24 @@ async def backfill_sections(
 
     total_chunks = len(chunks)
 
-    # 5. Determine starting sequence number (after any existing sections)
-    async with async_session() as db:
-        max_seq_result = await db.execute(
-            select(func.max(ConversationSection.sequence))
-            .where(ConversationSection.channel_id == channel_id)
-        )
-        start_seq = (max_seq_result.scalar() or 0) + 1
+    # 5. Clear existing sections if requested, then determine starting sequence
+    if clear_existing:
+        async with async_session() as db:
+            from sqlalchemy import delete as sa_delete
+            deleted = await db.execute(
+                sa_delete(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+            )
+            await db.commit()
+            logger.info("Cleared %d existing sections for channel %s", deleted.rowcount, channel_id)
+        start_seq = 1
+    else:
+        async with async_session() as db:
+            max_seq_result = await db.execute(
+                select(func.max(ConversationSection.sequence))
+                .where(ConversationSection.channel_id == channel_id)
+            )
+            start_seq = (max_seq_result.scalar() or 0) + 1
 
     # 6. Process each chunk
     sections_created = 0

@@ -109,6 +109,7 @@ export default function ChannelSettingsScreen() {
         memory_knowledge_compaction_prompt: settings.memory_knowledge_compaction_prompt,
         compaction_prompt_template_id: settings.compaction_prompt_template_id,
         history_mode: settings.history_mode,
+        compaction_model: settings.compaction_model,
         context_compression: settings.context_compression,
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
@@ -376,8 +377,17 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
   const [progress, setProgress] = useState<{ section: number; total: number; title?: string } | null>(null);
   const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
   const queryClient = useQueryClient();
+  const { data: sectionsData } = useQuery({
+    queryKey: ["channel-sections", channelId],
+    queryFn: () => apiFetch<{ total: number }>(`/api/v1/admin/channels/${channelId}/sections`),
+  });
+  const existingSections = sectionsData?.total ?? 0;
 
   const handleBackfill = useCallback(async () => {
+    if (existingSections > 0 && !window.confirm(
+      `This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} and re-chunk everything from scratch using the compaction model. Continue?`
+    )) return;
+
     setRunning(true);
     setProgress(null);
     setResult(null);
@@ -385,7 +395,10 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
       // Fire-and-forget: POST returns a task_id, then we poll
       const { task_id } = await apiFetch<{ task_id: string }>(
         `/api/v1/admin/channels/${channelId}/backfill-sections`,
-        { method: "POST", body: JSON.stringify({ history_mode: historyMode }) },
+        { method: "POST", body: JSON.stringify({
+          history_mode: historyMode,
+          clear_existing: existingSections > 0,
+        }) },
       );
 
       // Poll every 2s until complete or failed
@@ -415,11 +428,11 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
       setRunning(false);
       queryClient.invalidateQueries({ queryKey: ["channel-sections", channelId] });
     }
-  }, [channelId, historyMode, queryClient]);
+  }, [channelId, historyMode, queryClient, existingSections]);
 
   return (
     <div style={{ padding: "10px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <button
           onClick={handleBackfill}
           disabled={running}
@@ -433,10 +446,13 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
           }}
         >
           <Play size={12} color={running ? "#666" : "#fcd34d"} />
-          {running ? "Backfilling..." : "Backfill Sections"}
+          {running ? "Backfilling..." : existingSections > 0 ? "Re-chunk Sections" : "Backfill Sections"}
         </button>
-        <span style={{ fontSize: 11, color: "#666" }}>
-          Retroactively chunk existing messages into conversation sections
+        <span style={{ fontSize: 11, color: "#777", flex: 1, minWidth: 200 }}>
+          {existingSections > 0
+            ? "Deletes all existing sections and re-chunks everything through the compaction model. Use if you switched modes, changed models, or sections are low quality."
+            : "Run initial backfill to chunk existing messages into navigable sections via the compaction model. Only needed once when switching to file/structured mode."
+          }
         </span>
       </div>
       {progress && (
@@ -487,7 +503,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
       <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
         Archived Sections ({data.total})
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
         {data.sections.map((s) => {
           const isOpen = expandedId === s.id;
           const dateStr = s.period_start
@@ -608,6 +624,16 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             </Col>
           </Row>
 
+          <LlmModelDropdown
+            label="Compaction Model"
+            value={form.compaction_model ?? ""}
+            onChange={(v) => patch("compaction_model", v || undefined)}
+            placeholder="inherit (bot model)"
+          />
+          <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+            Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
+          </div>
+
           {/* Compaction prompt */}
           <PromptTemplateLink
             templateId={form.compaction_prompt_template_id ?? null}
@@ -618,9 +644,9 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
           <LlmPrompt
             value={form.memory_knowledge_compaction_prompt ?? ""}
             onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-            label="Memory/Knowledge Compaction Prompt"
-            placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
-            helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+            label="Memory Phase Prompt"
+            placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+            helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
             rows={5}
           />
 
@@ -632,8 +658,8 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
           }}>
             <AlertTriangle size={12} color="#f59e0b" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
             Backfill makes one LLM call per chunk of messages plus one for the executive summary. For example,
-            500 messages with chunk size 50 = ~11 LLM calls. Uses your compaction model. Set interval and keep
-            turns first. Re-running creates duplicate sections.
+            500 messages at chunk size 50 = ~11 LLM calls using your compaction model. Set your interval and keep
+            turns first. Re-running will delete existing sections and re-chunk from scratch.
           </div>
           <BackfillButton channelId={channelId} historyMode={selected} />
           <SectionsViewer channelId={channelId} />
@@ -706,6 +732,16 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 </div>
               </div>
 
+              <LlmModelDropdown
+                label="Compaction Model"
+                value={form.compaction_model ?? ""}
+                onChange={(v) => patch("compaction_model", v || undefined)}
+                placeholder="inherit (bot model)"
+              />
+              <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+                Used for summarization. A cheap/fast model works well — the prompts are straightforward.
+              </div>
+
               {/* Compaction prompt */}
               <PromptTemplateLink
                 templateId={form.compaction_prompt_template_id ?? null}
@@ -716,9 +752,9 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
               <LlmPrompt
                 value={form.memory_knowledge_compaction_prompt ?? ""}
                 onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                label="Memory/Knowledge Compaction Prompt"
-                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
-                helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+                label="Memory Phase Prompt"
+                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+                helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
                 rows={5}
               />
             </>
