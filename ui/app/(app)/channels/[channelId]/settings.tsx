@@ -242,6 +242,245 @@ export default function ChannelSettingsScreen() {
 }
 
 // ===========================================================================
+// History Mode section — visual mode selector with contextual details
+// ===========================================================================
+
+const HISTORY_MODES = [
+  {
+    value: "",
+    label: "Inherit",
+    icon: "↓",
+    color: "#666",
+    bg: "#222",
+    border: "#333",
+    summary: "Use the bot's default history mode.",
+    detail: null,
+  },
+  {
+    value: "summary",
+    label: "Summary",
+    icon: "📝",
+    color: "#93c5fd",
+    bg: "#0c1929",
+    border: "#1e3a5f",
+    summary: "Flat rolling summary — simple and efficient.",
+    detail:
+      "Each compaction replaces the previous summary with a new one covering the full conversation. " +
+      "The bot sees only a single summary block plus recent messages. Best for straightforward conversations " +
+      "where historical detail isn't important.",
+  },
+  {
+    value: "structured",
+    label: "Structured",
+    icon: "🔍",
+    color: "#c084fc",
+    bg: "#1a0a2e",
+    border: "#3b0764",
+    summary: "Semantic retrieval — automatically surfaces relevant history.",
+    detail:
+      "Conversation is archived into titled sections with embeddings. Each turn, the system automatically " +
+      "retrieves sections most relevant to the current query via cosine similarity and injects them into context. " +
+      "The bot doesn't need to do anything — relevant history appears automatically. Best for long-running " +
+      "channels where past context matters but you don't want the bot spending tool calls to find it.",
+  },
+  {
+    value: "file",
+    label: "File",
+    icon: "📂",
+    color: "#fcd34d",
+    bg: "#1a1400",
+    border: "#92400e",
+    summary: "Tool-based navigation — the bot browses history on demand.",
+    detail:
+      "Conversation is archived into titled sections. The bot gets an executive summary plus a section " +
+      "index, and can use the read_conversation_history tool to open any section and read its full transcript. " +
+      "This gives the bot agency to decide what to look up. Best for knowledge-heavy channels where the bot " +
+      "needs to reference specific past discussions. Recommended for most use cases.",
+  },
+] as const;
+
+function HistoryModeSection({ form, patch, channelId, workspaceId }: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  channelId: string;
+  workspaceId?: string | null;
+}) {
+  const selected = form.history_mode ?? "";
+  const mode = HISTORY_MODES.find((m) => m.value === selected) || HISTORY_MODES[0];
+
+  return (
+    <>
+      {/* Mode selector cards */}
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 8 }}>
+        History Mode
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+        {HISTORY_MODES.map((m) => {
+          const isSelected = selected === m.value;
+          return (
+            <button
+              key={m.value}
+              onClick={() => patch("history_mode", m.value || undefined)}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                padding: "14px 10px", borderRadius: 8, cursor: "pointer",
+                background: isSelected ? m.bg : "#111",
+                border: `2px solid ${isSelected ? m.color : "#2a2a2a"}`,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span style={{ fontSize: 22 }}>{m.icon}</span>
+              <span style={{
+                fontSize: 12, fontWeight: 700,
+                color: isSelected ? m.color : "#888",
+              }}>
+                {m.label}
+              </span>
+              <span style={{
+                fontSize: 10, color: isSelected ? "#999" : "#555",
+                textAlign: "center", lineHeight: "1.3",
+              }}>
+                {m.summary}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Detail panel for selected mode */}
+      {mode.detail && (
+        <div style={{
+          marginTop: 10, padding: "12px 14px",
+          background: mode.bg, border: `1px solid ${mode.border}`,
+          borderRadius: 8, fontSize: 12, lineHeight: "1.5", color: "#bbb",
+        }}>
+          {mode.detail}
+        </div>
+      )}
+
+      {/* Backfill button for section-based modes */}
+      {(selected === "file" || selected === "structured") && (
+        <BackfillButton channelId={channelId} historyMode={selected} />
+      )}
+
+      {/* Compaction prompt controls */}
+      <div style={{ marginTop: 12 }}>
+        <PromptTemplateLink
+          templateId={form.compaction_prompt_template_id ?? null}
+          onLink={(id) => patch("compaction_prompt_template_id", id)}
+          onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+          workspaceId={workspaceId ?? undefined}
+        />
+        <LlmPrompt
+          value={form.memory_knowledge_compaction_prompt ?? ""}
+          onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+          label="Memory/Knowledge Compaction Prompt"
+          placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
+          helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+          rows={5}
+        />
+      </div>
+    </>
+  );
+}
+
+// ===========================================================================
+// Backfill sections button
+// ===========================================================================
+function BackfillButton({ channelId, historyMode }: { channelId: string; historyMode: string }) {
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ section: number; total: number; title: string } | null>(null);
+  const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
+
+  const handleBackfill = useCallback(async () => {
+    setRunning(true);
+    setProgress(null);
+    setResult(null);
+    try {
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL || ""}/api/v1/admin/channels/${channelId}/backfill-sections`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.EXPO_PUBLIC_API_KEY || ""}`,
+          },
+          body: JSON.stringify({ history_mode: historyMode }),
+        },
+      );
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const evt = JSON.parse(line);
+            if (evt.type === "backfill_progress") {
+              setProgress({ section: evt.section, total: evt.total_chunks, title: evt.title });
+            } else if (evt.type === "backfill_done") {
+              setResult({ sections: evt.sections_created });
+            } else if (evt.type === "error") {
+              setResult({ sections: 0, error: evt.detail });
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      setResult({ sections: 0, error: e instanceof Error ? e.message : "Unknown error" });
+    } finally {
+      setRunning(false);
+    }
+  }, [channelId, historyMode]);
+
+  return (
+    <div style={{ padding: "10px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={handleBackfill}
+          disabled={running}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", fontSize: 12, fontWeight: 600,
+            border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
+            background: running ? "#333" : "#92400e",
+            color: running ? "#666" : "#fcd34d",
+            opacity: running ? 0.7 : 1,
+          }}
+        >
+          <Play size={12} color={running ? "#666" : "#fcd34d"} />
+          {running ? "Backfilling..." : "Backfill Sections"}
+        </button>
+        <span style={{ fontSize: 11, color: "#666" }}>
+          Retroactively chunk existing messages into conversation sections
+        </span>
+      </div>
+      {progress && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
+          Section {progress.section}/{progress.total}: {progress.title}
+        </div>
+      )}
+      {result && !result.error && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "#86efac" }}>
+          Done — {result.sections} section{result.sections !== 1 ? "s" : ""} created
+        </div>
+      )}
+      {result?.error && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "#fca5a5" }}>
+          {result.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
 // General Tab — settings form
 // ===========================================================================
 function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, channelId }: {
@@ -348,7 +587,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
         />
       </Section>
 
-      <Section title="Compaction" description="Auto-summarizes old turns so the context window never fills up.">
+      <Section title="Compaction" description="Manages long conversations by periodically archiving old turns, keeping the context window from filling up.">
         <Toggle
           value={form.context_compaction ?? true}
           onChange={(v) => patch("context_compaction", v)}
@@ -356,54 +595,69 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
         />
         {form.context_compaction && (
           <>
+            {/* How it works explainer */}
+            <div style={{
+              padding: "14px 16px", background: "#0d1117", border: "1px solid #1e3a5f",
+              borderRadius: 8, marginBottom: 4,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>How Compaction Works</div>
+              <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6" }}>
+                After every <strong style={{ color: "#e5e5e5" }}>Interval</strong> user turns, the oldest messages
+                are archived and summarized by an LLM. The most recent <strong style={{ color: "#e5e5e5" }}>Keep Turns</strong> are
+                always preserved verbatim. If memory/knowledge/persona is enabled, the bot gets a "last chance" pass
+                to save important information before summarization.
+              </div>
+              <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginTop: 8 }}>
+                <strong style={{ color: "#e5e5e5" }}>Example:</strong> Interval=30, Keep Turns=10 → after 30 user messages,
+                the oldest 20 are summarized. The bot always sees the last 10 turns plus the summary.
+              </div>
+            </div>
+
             <Row>
               <Col>
-                <FormRow label="Interval (user turns)">
+                <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages accumulate. Lower = more frequent, tighter context. Default: 30.">
                   <TextInput
                     value={form.compaction_interval?.toString() ?? ""}
                     onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default"
+                    placeholder="default (30)"
                     type="number"
                   />
                 </FormRow>
               </Col>
               <Col>
-                <FormRow label="Keep Turns">
+                <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never summarized. Higher = more immediate context but less room for RAG/tools. Default: 10.">
                   <TextInput
                     value={form.compaction_keep_turns?.toString() ?? ""}
                     onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default"
+                    placeholder="default (10)"
                     type="number"
                   />
                 </FormRow>
               </Col>
             </Row>
-            <FormRow label="History Mode">
-              <SelectInput
-                value={form.history_mode ?? ""}
-                onChange={(v) => patch("history_mode", v || undefined)}
-                options={[
-                  { label: "Default (inherit from bot)", value: "" },
-                  { label: "Summary — flat rolling summary", value: "summary" },
-                  { label: "Structured — semantic retrieval of sections", value: "structured" },
-                  { label: "File — LLM navigates sections via tool", value: "file" },
-                ]}
-              />
-            </FormRow>
-            <PromptTemplateLink
-              templateId={form.compaction_prompt_template_id ?? null}
-              onLink={(id) => patch("compaction_prompt_template_id", id)}
-              onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-              workspaceId={workspaceId ?? undefined}
-            />
-            <LlmPrompt
-              value={form.memory_knowledge_compaction_prompt ?? ""}
-              onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-              label="Memory/Knowledge Compaction Prompt"
-              placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
-              helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
-              rows={5}
-            />
+
+            {/* Guidance callout */}
+            <div style={{
+              padding: "12px 14px", background: "#111", border: "1px solid #333",
+              borderRadius: 8, display: "flex", flexDirection: "column", gap: 6,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#999" }}>Quick Guide</div>
+              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                <strong style={{ color: "#bbb" }}>Casual chatbot:</strong> Interval 20, Keep 6 — compacts often, keeps things lean.
+              </div>
+              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                <strong style={{ color: "#bbb" }}>Project assistant:</strong> Interval 30, Keep 10 — balanced, good for task tracking.
+              </div>
+              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                <strong style={{ color: "#bbb" }}>Long-running agent:</strong> Interval 40+, Keep 12 — more raw context, fewer compaction LLM calls.
+              </div>
+              <div style={{ fontSize: 11, color: "#f59e0b", lineHeight: "1.5", marginTop: 4 }}>
+                Keep Turns must be less than Interval — otherwise nothing gets summarized.
+                The Summarizer (below) is separate: it auto-generates a "welcome back" summary when the channel resumes after idle.
+              </div>
+            </div>
+
+            <HistoryModeSection form={form} patch={patch} channelId={channelId} workspaceId={workspaceId} />
           </>
         )}
       </Section>

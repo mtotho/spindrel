@@ -147,6 +147,7 @@ async def index_local_tools() -> None:
             await db.commit()
 
     skipped = 0
+    embed_disabled = False
     for tool_name, schema, source_dir, source_integration, source_file in current_tools:
         tkey = tool_key_for(None, tool_name)
         embed_txt = build_embed_text(schema, tool_name, None)
@@ -154,10 +155,17 @@ async def index_local_tools() -> None:
         if existing_hashes.get(tkey) == h:
             skipped += 1
             continue
+        if embed_disabled:
+            continue
         try:
             emb = await _embed_query(embed_txt)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to embed local tool %s", tool_name)
+            # Circuit breaker: if quota exhausted or auth error, skip remaining tools
+            exc_str = str(exc).lower()
+            if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
+                logger.warning("Embedding provider quota/auth error — skipping remaining tool embeddings")
+                embed_disabled = True
             continue
         try:
             await _upsert_tool_row(
@@ -201,6 +209,7 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
     existing_hashes = {row.tool_key: row.content_hash for row in rows}
 
     skipped = 0
+    embed_disabled = False
     for sch in schemas:
         fn = sch.get("function") or {}
         tool_name = fn.get("name")
@@ -212,10 +221,16 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
         if existing_hashes.get(tkey) == h:
             skipped += 1
             continue
+        if embed_disabled:
+            continue
         try:
             emb = await _embed_query(embed_txt)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to embed MCP tool %s/%s", server_name, tool_name)
+            exc_str = str(exc).lower()
+            if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
+                logger.warning("Embedding provider quota/auth error — skipping remaining MCP tool embeddings")
+                embed_disabled = True
             continue
         try:
             await _upsert_tool_row(

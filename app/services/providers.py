@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import ProviderConfig as ProviderConfigRow
+from app.db.models import ProviderConfig as ProviderConfigRow, ProviderModel
 
 logger = logging.getLogger(__name__)
 
@@ -238,8 +238,39 @@ _ANTHROPIC_MODELS = [
 ]
 
 
+async def _get_db_models_for_provider(provider_id: str) -> list[dict]:
+    """Query provider_models table and return enriched dicts."""
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(ProviderModel)
+                .where(ProviderModel.provider_id == provider_id)
+                .order_by(ProviderModel.model_id)
+            )
+        ).scalars().all()
+    result = []
+    for r in rows:
+        parts = []
+        if r.max_tokens:
+            parts.append(f"{r.max_tokens // 1000}k")
+        if r.input_cost_per_1m or r.output_cost_per_1m:
+            parts.append(f"{r.input_cost_per_1m or '?'}/{r.output_cost_per_1m or '?'}")
+        display = f"{r.model_id} ({', '.join(parts)})" if parts else r.model_id
+        if r.display_name:
+            display = r.display_name
+        result.append({
+            "id": r.model_id,
+            "display": display,
+            "max_tokens": r.max_tokens,
+            "input_cost_per_1m": r.input_cost_per_1m,
+            "output_cost_per_1m": r.output_cost_per_1m,
+            "_from_db": True,
+        })
+    return result
+
+
 async def list_models_for_provider(provider_id: str) -> list[str]:
-    """Fetch available models for a specific provider."""
+    """Fetch available models for a specific provider. Falls back to DB models."""
     provider = _registry.get(provider_id)
     if provider is None:
         return []
@@ -256,10 +287,18 @@ async def list_models_for_provider(provider_id: str) -> list[str]:
     try:
         client = get_llm_client(provider_id)
         models = await client.models.list()
-        return sorted(m.id for m in models.data)
+        api_models = sorted(m.id for m in models.data)
+        if api_models:
+            return api_models
     except Exception as exc:
         logger.warning("Failed to list models for provider %s: %s", provider_id, exc)
-        return []
+
+    # Fallback: DB-stored models
+    db_models = await _get_db_models_for_provider(provider_id)
+    if db_models:
+        logger.info("Using %d DB-stored models for provider %s", len(db_models), provider_id)
+        return [m["id"] for m in db_models]
+    return []
 
 
 def _fmt_cost(per_token: float | None) -> str | None:
@@ -374,15 +413,38 @@ async def get_available_models_grouped() -> list[dict]:
         ptype = provider.provider_type
         raw_models = await list_models_for_provider(provider.id)
         model_info_map: dict[str, dict] = {}
-        if ptype == "litellm":
+
+        # Check if models came from DB (API returned empty/failed)
+        db_models = await _get_db_models_for_provider(provider.id)
+        db_model_map = {m["id"]: m for m in db_models}
+        api_succeeded = bool(raw_models) and not all(mid in db_model_map for mid in raw_models)
+
+        if api_succeeded and ptype == "litellm":
             base = provider.base_url or settings.LITELLM_BASE_URL
             key = provider.api_key or settings.LITELLM_API_KEY or "dummy"
             if base:
                 model_info_map = await _fetch_litellm_model_info(base, key)
                 _model_info_cache[provider.id] = model_info_map  # cache for bots list badge
+
         enriched: list[dict] = []
         for mid in raw_models:
-            enriched.append(_enrich(mid, model_info_map.get(mid, {})))
+            if mid in db_model_map:
+                # Use DB enrichment directly (already formatted)
+                entry = db_model_map[mid]
+                enriched.append({
+                    "id": entry["id"], "display": entry["display"],
+                    "max_tokens": entry["max_tokens"],
+                    "input_cost_per_1m": entry["input_cost_per_1m"],
+                    "output_cost_per_1m": entry["output_cost_per_1m"],
+                })
+                # Populate model info cache so context estimate badges work
+                _model_info_cache.setdefault(provider.id, {})[mid] = {
+                    "max_tokens": entry["max_tokens"],
+                    "input_cost_per_1m": entry["input_cost_per_1m"],
+                    "output_cost_per_1m": entry["output_cost_per_1m"],
+                }
+            else:
+                enriched.append(_enrich(mid, model_info_map.get(mid, {})))
         groups.append({
             "provider_id": provider.id,
             "provider_name": provider.display_name,
