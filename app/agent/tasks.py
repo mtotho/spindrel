@@ -689,7 +689,7 @@ async def run_task(task: Task) -> None:
         # Persist turn to session history so future agent turns see it as context
         from app.services.sessions import persist_turn
         async with async_session() as db:
-            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id)
+            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id)
 
         # Mark complete
         async with async_session() as db:

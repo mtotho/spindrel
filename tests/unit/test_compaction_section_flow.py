@@ -98,7 +98,7 @@ class TestCompactionStreamStructuredMode:
             return_value=_mock_llm_response(section_json)
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript = await _generate_section(
+            title, summary, transcript, tags = await _generate_section(
                 [{"role": "user", "content": "hello"}], "gpt-4",
             )
         assert title == "Test Section"

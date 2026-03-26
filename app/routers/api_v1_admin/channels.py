@@ -287,13 +287,12 @@ class ChannelSettingsOut(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Summarizer (auto-resume after idle)
-    summarizer_enabled: bool = False
-    summarizer_threshold_minutes: Optional[int] = None
-    summarizer_message_count: Optional[int] = None
-    summarizer_target_size: Optional[int] = None
-    summarizer_prompt: Optional[str] = None
-    summarizer_model: Optional[str] = None
+    # Response condensing
+    response_condensing_enabled: bool = False
+    response_condensing_threshold: Optional[int] = None
+    response_condensing_keep_exact: Optional[int] = None
+    response_condensing_model: Optional[str] = None
+    response_condensing_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -338,13 +337,12 @@ class ChannelSettingsUpdate(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Summarizer (auto-resume after idle)
-    summarizer_enabled: Optional[bool] = None
-    summarizer_threshold_minutes: Optional[int] = None
-    summarizer_message_count: Optional[int] = None
-    summarizer_target_size: Optional[int] = None
-    summarizer_prompt: Optional[str] = None
-    summarizer_model: Optional[str] = None
+    # Response condensing
+    response_condensing_enabled: Optional[bool] = None
+    response_condensing_threshold: Optional[int] = None
+    response_condensing_keep_exact: Optional[int] = None
+    response_condensing_model: Optional[str] = None
+    response_condensing_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -1125,6 +1123,7 @@ async def admin_channel_sections(
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "view_count": s.view_count,
                 "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
+                "tags": s.tags or [],
             }
             for s in rows
         ],

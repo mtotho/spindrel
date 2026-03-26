@@ -34,7 +34,7 @@ class TestGenerateSection:
             return_value=_mock_llm_response(llm_json)
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript = await _generate_section(
+            title, summary, transcript, tags = await _generate_section(
                 [{"role": "user", "content": "Let's set up Slack"}],
                 "gpt-4",
             )
@@ -51,7 +51,7 @@ class TestGenerateSection:
             return_value=_mock_llm_response(raw)
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags = await _generate_section([], "gpt-4")
         assert title == "Test"
         assert summary == "s"
         assert transcript == "t"
@@ -64,7 +64,7 @@ class TestGenerateSection:
             return_value=_mock_llm_response("Just a plain text summary")
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags = await _generate_section([], "gpt-4")
         assert title == "Conversation"  # fallback title
         assert "plain text" in transcript
 
@@ -96,7 +96,7 @@ class TestGenerateSection:
             )
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags = await _generate_section([], "gpt-4")
         assert title == "Empty"
         assert "Nothing" in summary
 

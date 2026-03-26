@@ -185,13 +185,12 @@ export interface ChannelSettings {
   compression_threshold?: number;
   compression_keep_turns?: number;
   compression_prompt?: string;
-  // Summarizer (auto-resume after idle)
-  summarizer_enabled?: boolean;
-  summarizer_threshold_minutes?: number;
-  summarizer_message_count?: number;
-  summarizer_target_size?: number;
-  summarizer_prompt?: string;
-  summarizer_model?: string;
+  // Response condensing
+  response_condensing_enabled?: boolean;
+  response_condensing_threshold?: number;
+  response_condensing_keep_exact?: number;
+  response_condensing_model?: string;
+  response_condensing_prompt?: string;
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;
