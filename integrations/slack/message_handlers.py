@@ -420,20 +420,32 @@ async def dispatch(
 def register_message_handlers(app):
     @app.event("message")
     async def on_message(event, say, client):
-        # Most subtypes (bot_message, channel_join, …) are noise; file uploads often use file_share.
         st = event.get("subtype")
-        if st and st != "file_share":
-            return
-        if event.get("bot_id"):
-            return
-        if (event.get("text") or "").strip().startswith("<@"):
-            return
-        if (event.get("text") or "").strip().startswith("/"):
-            return
+        is_bot_msg = st == "bot_message" or bool(event.get("bot_id"))
+
+        if is_bot_msg:
+            # Only pass through bot messages if the channel has opted in.
+            config = get_channel_config(event.get("channel", ""))
+            if not config.get("allow_bot_messages", False):
+                return
+            # Identify the sender as bot:<bot_id> or bot:<username>
+            sender = event.get("bot_id") or event.get("username") or "unknown"
+            user = f"bot:{sender}"
+        else:
+            # Most subtypes (channel_join, message_changed, …) are noise;
+            # file uploads often use file_share.
+            if st and st != "file_share":
+                return
+            if (event.get("text") or "").strip().startswith("<@"):
+                return
+            if (event.get("text") or "").strip().startswith("/"):
+                return
+            user = event.get("user", "")
+
         thread_ts = event.get("thread_ts") or event.get("ts")
         await dispatch(
             event["channel"],
-            event["user"],
+            user,
             event.get("text", ""),
             say,
             client,

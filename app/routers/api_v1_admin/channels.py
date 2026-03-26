@@ -269,6 +269,7 @@ class ChannelSettingsOut(BaseModel):
     active_session_id: Optional[uuid.UUID] = None
     require_mention: bool = True
     passive_memory: bool = True
+    allow_bot_messages: bool = False
     workspace_rag: bool = True
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
@@ -315,6 +316,7 @@ class ChannelSettingsUpdate(BaseModel):
     bot_id: Optional[str] = None
     require_mention: Optional[bool] = None
     passive_memory: Optional[bool] = None
+    allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
