@@ -293,6 +293,12 @@ class ChannelSettingsOut(BaseModel):
     response_condensing_keep_exact: Optional[int] = None
     response_condensing_model: Optional[str] = None
     response_condensing_prompt: Optional[str] = None
+    # History RAG
+    history_rag_enabled: bool = False
+    history_rag_turns: Optional[int] = None
+    history_rag_max_tokens: Optional[int] = None
+    history_rag_model: Optional[str] = None
+    history_rag_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -343,6 +349,12 @@ class ChannelSettingsUpdate(BaseModel):
     response_condensing_keep_exact: Optional[int] = None
     response_condensing_model: Optional[str] = None
     response_condensing_prompt: Optional[str] = None
+    # History RAG
+    history_rag_enabled: Optional[bool] = None
+    history_rag_turns: Optional[int] = None
+    history_rag_max_tokens: Optional[int] = None
+    history_rag_model: Optional[str] = None
+    history_rag_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None

@@ -142,7 +142,12 @@ def _effective_system_prompt(
     workspace filesystem and uses that instead of the global base prompt.
     """
     from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
+    from app.config import settings as _settings
     parts = []
+
+    # Global base prompt: org-wide instructions prepended before everything
+    if _settings.GLOBAL_BASE_PROMPT:
+        parts.append(_settings.GLOBAL_BASE_PROMPT.rstrip())
 
     ws_base = None
     if workspace_base_prompt_enabled and bot.shared_workspace_id:

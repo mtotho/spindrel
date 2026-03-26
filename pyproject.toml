@@ -26,6 +26,11 @@ dependencies = [
     "pathspec",
     "pyjwt",
     "bcrypt",
+    "tree-sitter>=0.23",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
 ]
 
 [project.optional-dependencies]

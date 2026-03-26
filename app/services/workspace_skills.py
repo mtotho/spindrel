@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.chunking import CHUNKING_VERSION, chunk_markdown
 from app.agent.embeddings import embed_batch as _embed_batch
-from app.agent.skills import _chunk_markdown
 from app.db.engine import async_session
 from app.db.models import Document, SharedWorkspace, SharedWorkspaceBot
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
@@ -167,13 +167,22 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
             continue
 
         # Chunk and embed
-        chunks = _chunk_markdown(skill.content, skill.display_name)
-        if not chunks:
+        source_label = f"[Skill: {skill.display_name}]"
+        chunk_results = chunk_markdown(skill.content, source_label=source_label)
+        if not chunk_results:
             stats["errors"] += 1
             continue
 
+        # Build embedding texts with hierarchy context
+        embed_texts = []
+        for cr in chunk_results:
+            if cr.context_prefix:
+                embed_texts.append(f"{cr.context_prefix}\n\n{cr.content}")
+            else:
+                embed_texts.append(f"{source_label}\n\n{cr.content}")
+
         try:
-            embeddings = await _embed_batch(chunks)
+            embeddings = await _embed_batch(embed_texts)
         except Exception:
             logger.exception("Failed to embed workspace skill %s", skill.source_path)
             stats["errors"] += 1
@@ -181,13 +190,15 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
 
         async with async_session() as db:
             await db.execute(delete(Document).where(Document.source == source))
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            for i, (cr, embedding) in enumerate(zip(chunk_results, embeddings)):
+                stored_content = f"{source_label}\n\n{cr.content}"
                 doc = Document(
-                    content=chunk,
+                    content=stored_content,
                     embedding=embedding,
                     source=source,
                     metadata_={
                         "content_hash": skill.content_hash,
+                        "chunking_version": CHUNKING_VERSION,
                         "chunk_index": i,
                         "skill_id": skill.skill_id,
                         "skill_name": skill.display_name,
@@ -195,6 +206,7 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
                         "bot_id": skill.bot_id,
                         "mode": skill.mode,
                         "source_path": skill.source_path,
+                        "context_prefix": cr.context_prefix,
                     },
                 )
                 db.add(doc)

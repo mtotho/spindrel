@@ -22,8 +22,8 @@ _client = AsyncOpenAI(
 )
 
 # text-embedding-3-small/large have an 8191-token limit.
-# ~4 chars per token → 30K chars is a safe ceiling.
-_MAX_EMBED_CHARS = 30_000
+# Code-heavy content can be ~2 chars/token, so use a conservative ceiling.
+_MAX_EMBED_CHARS = 16_000
 
 
 def _truncate(text: str) -> str:

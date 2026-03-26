@@ -566,6 +566,20 @@ async def assemble_context(
                     pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["read_conversation_history"])),
                 )
 
+            # --- history RAG (summarize recent messages) ---
+            if _sec_ch.history_rag_enabled and user_message:
+                from app.services.history_rag import summarize_history_context
+                _hrag_summary, _hrag_count = await summarize_history_context(
+                    user_message, _sec_ch, _sec_ch.model_provider_id_override,
+                )
+                if _hrag_summary:
+                    _inject_chars["history_rag"] = len(_hrag_summary)
+                    messages.append({
+                        "role": "system",
+                        "content": f"[Relevant context from recent conversation history]\n{_hrag_summary}",
+                    })
+                    yield {"type": "history_rag_context", "count": _hrag_count, "chars": len(_hrag_summary)}
+
     # --- workspace filesystem context ---
     _do_workspace_rag = False
     if bot.workspace.enabled and bot.workspace.indexing.enabled:

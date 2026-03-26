@@ -122,6 +122,15 @@ async def compute_context_breakdown(
     # 1. Static context
     # -----------------------------------------------------------------------
 
+    # Global base prompt (server-level, prepended before everything)
+    from app.config import settings as _settings
+    if _settings.GLOBAL_BASE_PROMPT:
+        categories.append(ContextCategory(
+            key="global_base_prompt", label="Global Base Prompt", chars=len(_settings.GLOBAL_BASE_PROMPT),
+            tokens_approx=0, percentage=0, category="static",
+            description="Server-wide prompt prepended before all other base/system prompts",
+        ))
+
     # Base prompt
     base = render_base_prompt(bot)
     if base:
