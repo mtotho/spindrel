@@ -2,7 +2,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useRouter } from "expo-router";
 import { Plus, Play, Square, Container, RefreshCw } from "lucide-react";
 import { useWorkspaces, useStartWorkspace, useStopWorkspace } from "@/src/api/hooks/useWorkspaces";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import type { SharedWorkspace } from "@/src/types/api";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -106,30 +106,23 @@ export default function WorkspacesScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
-      }}>
-        <MobileMenuButton />
-        {isWide && (
-          <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700 }}>Workspaces</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => router.push("/admin/workspaces/new" as any)}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "none", borderRadius: 6,
-            background: "#3b82f6", color: "#fff", cursor: "pointer",
-          }}
-        >
-          <Plus size={14} />
-          {isWide && "New Workspace"}
-        </button>
-      </div>
+      <MobileHeader
+        title="Workspaces"
+        right={
+          <button
+            onClick={() => router.push("/admin/workspaces/new" as any)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", borderRadius: 6,
+              background: "#3b82f6", color: "#fff", cursor: "pointer",
+            }}
+          >
+            <Plus size={14} />
+            New Workspace
+          </button>
+        }
+      />
 
       {/* Cards */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{

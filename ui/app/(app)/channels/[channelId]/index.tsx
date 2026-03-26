@@ -172,13 +172,21 @@ export default function ChatScreen() {
         }}
       >
         {columns === "single" && (
-          <Pressable onPress={goBack} className="p-1.5 rounded-md hover:bg-surface-overlay">
-            <ArrowLeft size={18} color="#9ca3af" />
+          <Pressable
+            onPress={goBack}
+            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            style={{ width: 44, height: 44 }}
+          >
+            <ArrowLeft size={20} color="#9ca3af" />
           </Pressable>
         )}
         {showHamburger && columns !== "single" && (
-          <Pressable onPress={toggleSidebar} className="p-1.5 rounded-md hover:bg-surface-overlay">
-            <Menu size={18} color="#9ca3af" />
+          <Pressable
+            onPress={toggleSidebar}
+            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            style={{ width: 44, height: 44 }}
+          >
+            <Menu size={20} color="#9ca3af" />
           </Pressable>
         )}
         <View className="flex-1 min-w-0">
@@ -198,8 +206,11 @@ export default function ChatScreen() {
         </View>
         {channelId && (
           <Link href={`/channels/${channelId}/settings` as any} asChild>
-            <Pressable className="p-2 rounded-md hover:bg-surface-overlay">
-              <Settings size={16} color="#999999" />
+            <Pressable
+              className="items-center justify-center rounded-md hover:bg-surface-overlay"
+              style={{ width: 44, height: 44 }}
+            >
+              <Settings size={18} color="#999999" />
             </Pressable>
           </Link>
         )}

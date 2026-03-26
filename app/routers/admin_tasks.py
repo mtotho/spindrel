@@ -11,6 +11,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.orm import attributes as sa_attributes
 
 from app.agent.bots import list_bots
 from app.db.engine import async_session
@@ -180,6 +181,7 @@ async def admin_task_edit(
             cb.pop("model_override", None)
             cb.pop("model_provider_id_override", None)
         task.callback_config = cb
+        sa_attributes.flag_modified(task, "callback_config")
 
         # Update reply_in_thread in dispatch_config for Slack tasks
         if task.dispatch_type == "slack" and task.dispatch_config is not None:

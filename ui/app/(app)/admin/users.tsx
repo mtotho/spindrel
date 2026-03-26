@@ -19,7 +19,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 interface UserRecord {
   id: string;
@@ -203,22 +203,19 @@ export default function UsersScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      <View className="px-6 py-4 border-b border-surface-border flex-row items-center gap-3">
-        <MobileMenuButton />
-        <View className="flex-1">
-          <Text className="text-text text-xl font-bold">Users</Text>
-          <Text className="text-text-muted text-sm mt-0.5">
-            {data?.length ?? 0} users
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => setShowCreate(!showCreate)}
-          className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg"
-        >
-          <UserPlus size={14} color="#fff" />
-          <Text className="text-white text-sm font-medium">New User</Text>
-        </Pressable>
-      </View>
+      <MobileHeader
+        title="Users"
+        subtitle={`${data?.length ?? 0} users`}
+        right={
+          <Pressable
+            onPress={() => setShowCreate(!showCreate)}
+            className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg"
+          >
+            <UserPlus size={14} color="#fff" />
+            <Text className="text-white text-sm font-medium">New User</Text>
+          </Pressable>
+        }
+      />
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">

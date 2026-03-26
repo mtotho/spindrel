@@ -2,7 +2,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useRouter } from "expo-router";
 import { Wrench, Server, Cpu } from "lucide-react";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 function TypeBadge({ tool }: { tool: ToolItem }) {
   if (tool.server_name) {
@@ -151,21 +151,7 @@ export default function ToolsScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
-      }}>
-        <MobileMenuButton />
-        {isWide && (
-          <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700 }}>Tools</span>
-        )}
-        <span style={{ fontSize: 12, color: "#666" }}>
-          {tools?.length ?? 0} indexed
-        </span>
-        <div style={{ flex: 1 }} />
-      </div>
+      <MobileHeader title="Tools" subtitle={`${tools?.length ?? 0} indexed`} />
 
       {/* Table header (desktop only) */}
       {isWide && tools && tools.length > 0 && (

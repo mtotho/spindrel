@@ -120,7 +120,7 @@ export default function ToolDetailScreen() {
         padding: isWide ? "12px 20px" : "10px 12px",
         borderBottom: "1px solid #333", gap: 8,
       }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
+        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ChevronLeft size={22} color="#999" />
         </button>
         <span style={{

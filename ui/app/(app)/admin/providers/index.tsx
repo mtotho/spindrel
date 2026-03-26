@@ -3,7 +3,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useRouter } from "expo-router";
 import { Plus, ExternalLink, Server } from "lucide-react";
 import { useProviders, useTestProvider, type ProviderItem } from "@/src/api/hooks/useProviders";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   litellm: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
@@ -162,30 +162,23 @@ export default function ProvidersScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
-      }}>
-        <MobileMenuButton />
-        {isWide && (
-          <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700 }}>Providers</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => router.push("/admin/providers/new" as any)}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "none", borderRadius: 6,
-            background: "#3b82f6", color: "#fff", cursor: "pointer",
-          }}
-        >
-          <Plus size={14} />
-          {isWide && "New Provider"}
-        </button>
-      </div>
+      <MobileHeader
+        title="Providers"
+        right={
+          <button
+            onClick={() => router.push("/admin/providers/new" as any)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", borderRadius: 6,
+              background: "#3b82f6", color: "#fff", cursor: "pointer",
+            }}
+          >
+            <Plus size={14} />
+            New Provider
+          </button>
+        }
+      />
 
       {/* Cards */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{

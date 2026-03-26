@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes as sa_attributes
 
 from app.agent.bots import get_bot
 from app.db.models import Channel, Task
@@ -317,6 +318,7 @@ async def admin_update_task(
         if body.model_provider_id_override is not None:
             cb["model_provider_id_override"] = body.model_provider_id_override or None
         task.callback_config = cb
+        sa_attributes.flag_modified(task, "callback_config")
 
     await db.commit()
     await db.refresh(task)

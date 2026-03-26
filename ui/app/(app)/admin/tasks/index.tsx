@@ -9,7 +9,7 @@ import {
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 
 interface TaskItem {
@@ -570,102 +570,84 @@ export default function TasksScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header bar */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: isMobile ? "10px 12px" : "12px 20px", borderBottom: "1px solid #2a2a2a",
-        gap: 8, flexWrap: "wrap",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <MobileMenuButton />
-          <Calendar size={16} color="#3b82f6" />
-          {!isMobile && (
-            <span style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Tasks</span>
-          )}
-          <span style={{ fontSize: 11, color: "#555" }}>
-            {data ? `${data.total}` : ""}
-          </span>
-        </div>
+      <MobileHeader
+        title="Tasks"
+        subtitle={data ? `${data.total} total` : undefined}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setEditorState({ mode: "create" })}
+              title="New Task"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "5px 14px", fontSize: 12, fontWeight: 600,
+                border: "none", cursor: "pointer", borderRadius: 6, background: "#3b82f6", color: "#fff",
+              }}
+            >
+              <Plus size={14} />
+              {!isMobile && "New Task"}
+            </button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {/* New Task */}
-          <button
-            onClick={() => setEditorState({ mode: "create" })}
-            title="New Task"
-            style={{
-              display: "flex", alignItems: "center", gap: isMobile ? 0 : 6,
-              padding: isMobile ? "5px 8px" : "5px 14px", fontSize: 12, fontWeight: 600,
-              border: "none", cursor: "pointer", borderRadius: 6, background: "#3b82f6", color: "#fff",
-            }}
-          >
-            <Plus size={14} />
-            {!isMobile && "New Task"}
-          </button>
+            <select
+              value={botFilter}
+              onChange={(e) => setBotFilter(e.target.value)}
+              style={{
+                padding: "5px 8px", fontSize: 11, borderRadius: 6,
+                background: "#1a1a1a", color: botFilter ? "#e5e5e5" : "#666",
+                border: botFilter ? "1px solid #3b82f6" : "1px solid #333",
+                cursor: "pointer", maxWidth: 140,
+              }}
+            >
+              <option value="">All Bots</option>
+              {bots?.map((b: any) => (
+                <option key={b.id} value={b.id}>{b.name || b.id}</option>
+              ))}
+            </select>
 
-          {/* Bot filter */}
-          <select
-            value={botFilter}
-            onChange={(e) => setBotFilter(e.target.value)}
-            style={{
-              padding: "5px 8px", fontSize: 11, borderRadius: 6,
-              background: "#1a1a1a", color: botFilter ? "#e5e5e5" : "#666",
-              border: botFilter ? "1px solid #3b82f6" : "1px solid #333",
-              cursor: "pointer", maxWidth: 140,
-            }}
-          >
-            <option value="">All Bots</option>
-            {bots?.map((b: any) => (
-              <option key={b.id} value={b.id}>{b.name || b.id}</option>
-            ))}
-          </select>
+            <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
+              {(["day", "week", "list"] as ViewMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setViewMode(m)}
+                  style={{
+                    padding: "5px 14px", fontSize: 11, fontWeight: 500,
+                    border: "none", cursor: "pointer",
+                    background: viewMode === m ? "#3b82f6" : "transparent",
+                    color: viewMode === m ? "#fff" : "#999",
+                    textTransform: "capitalize",
+                    display: "flex", alignItems: "center", gap: 4,
+                  }}
+                >
+                  {m === "list" && <List size={12} />}
+                  {m}
+                </button>
+              ))}
+            </div>
 
-          {/* View mode toggle */}
-          <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
-            {(["day", "week", "list"] as ViewMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setViewMode(m)}
-                style={{
-                  padding: isMobile ? "5px 10px" : "5px 14px", fontSize: 11, fontWeight: 500,
-                  border: "none", cursor: "pointer",
-                  background: viewMode === m ? "#3b82f6" : "transparent",
-                  color: viewMode === m ? "#fff" : "#999",
-                  textTransform: "capitalize",
-                  display: "flex", alignItems: "center", gap: 4,
-                }}
-              >
-                {m === "list" && <List size={12} />}
-                {isMobile ? (m === "list" ? "" : m[0].toUpperCase()) : m}
-              </button>
-            ))}
-          </div>
-
-          {/* Navigation (only for calendar views) */}
-          {isCalendar && (
-            <>
-              <button onClick={goToday} style={{
-                padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
-                background: "transparent", color: "#999", cursor: "pointer",
-              }}>
-                Today
-              </button>
-              <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                <ChevronLeft size={16} color="#999" />
-              </button>
-              <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
-                {viewMode === "day"
-                  ? fmtDate(baseDate)
-                  : isMobile
+            {isCalendar && (
+              <>
+                <button onClick={goToday} style={{
+                  padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
+                  background: "transparent", color: "#999", cursor: "pointer",
+                }}>
+                  Today
+                </button>
+                <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                  <ChevronLeft size={16} color="#999" />
+                </button>
+                <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
+                  {viewMode === "day"
                     ? fmtDate(baseDate)
                     : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
-              </span>
-              <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                <ChevronRight size={16} color="#999" />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+                </span>
+                <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                  <ChevronRight size={16} color="#999" />
+                </button>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {/* Type filter pills */}
       <div style={{

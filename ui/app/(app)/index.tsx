@@ -3,70 +3,40 @@ import { Link } from "expo-router";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
-import { useUIStore } from "@/src/stores/ui";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import {
   MessageSquare,
   Bot,
   Activity,
-  Menu,
   Plus,
 } from "lucide-react";
 
 export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
-  const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
   const columns = useResponsiveColumns();
-  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
-  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-
-  const showHamburger = columns === "single" || sidebarCollapsed;
+  const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Mobile header bar */}
-      {showHamburger && (
-        <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
-          <Pressable
-            onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
-            className="p-1.5 rounded-md hover:bg-surface-overlay"
-          >
-            <Menu size={18} color="#9ca3af" />
-          </Pressable>
-          <Text className="text-text font-semibold">Channels</Text>
-        </View>
-      )}
+      <MobileHeader
+        title="Channels"
+        subtitle="Select a channel to start chatting"
+        right={
+          <Link href={"/channels/new" as any} asChild>
+            <Pressable
+              className="flex-row items-center gap-1.5 bg-accent rounded-lg"
+              style={{ paddingHorizontal: 14, paddingVertical: 8 }}
+            >
+              <Plus size={14} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>New</Text>
+            </Pressable>
+          </Link>
+        }
+      />
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 24 }}>
+      <ScrollView className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 12 : 24 }}>
         <View className="max-w-2xl w-full mx-auto gap-6">
-          {/* Header */}
-          {!showHamburger && (
-            <View className="flex-row items-center justify-between">
-              <View className="gap-1">
-                <Text className="text-text text-xl font-bold">Channels</Text>
-                <Text className="text-text-muted text-sm">
-                  Select a channel to start chatting
-                </Text>
-              </View>
-              <Link href={"/channels/new" as any} asChild>
-                <Pressable
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    backgroundColor: "#3b82f6",
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Plus size={14} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>New Channel</Text>
-                </Pressable>
-              </Link>
-            </View>
-          )}
 
         {/* Channel list */}
         {channelsError ? (

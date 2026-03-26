@@ -2,7 +2,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useRouter } from "expo-router";
 import { Plus } from "lucide-react";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import type { PromptTemplate } from "@/src/types/api";
 
 function SourceBadge({ type }: { type: string }) {
@@ -129,30 +129,23 @@ export default function PromptTemplatesScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
-      }}>
-        <MobileMenuButton />
-        {isWide && (
-          <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700 }}>Prompt Templates</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => router.push("/admin/prompt-templates/new" as any)}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "none", borderRadius: 6,
-            background: "#3b82f6", color: "#fff", cursor: "pointer",
-          }}
-        >
-          <Plus size={14} />
-          {isWide && "New Template"}
-        </button>
-      </div>
+      <MobileHeader
+        title="Prompt Templates"
+        right={
+          <button
+            onClick={() => router.push("/admin/prompt-templates/new" as any)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", borderRadius: 6,
+              background: "#3b82f6", color: "#fff", cursor: "pointer",
+            }}
+          >
+            <Plus size={14} />
+            New Template
+          </button>
+        }
+      />
 
       {/* Table header (desktop only) */}
       {isWide && templates && templates.length > 0 && (

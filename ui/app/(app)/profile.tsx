@@ -12,7 +12,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { User, Link2, Lock, Check, X, Eye, EyeOff } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useAuthStore, AuthUser } from "@/src/stores/auth";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 interface IntegrationField {
   key: string;
@@ -437,12 +437,7 @@ export default function ProfileScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      <View className="px-6 py-4 border-b border-surface-border flex-row items-center gap-3">
-        <MobileMenuButton />
-        <View className="flex-1">
-          <Text className="text-text text-xl font-bold">Profile</Text>
-        </View>
-      </View>
+      <MobileHeader title="Profile" />
 
       <ScrollView className="flex-1 p-6">
         <View className="gap-8 max-w-lg">
