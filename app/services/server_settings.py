@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
+    # --- System ---
+    "SYSTEM_PAUSED": {"group": "System", "label": "System Paused", "description": "Pause all message processing (new requests queued or dropped)", "type": "bool"},
+    "SYSTEM_PAUSE_BEHAVIOR": {"group": "System", "label": "Pause Behavior", "description": "What to do with incoming messages while paused", "type": "string", "options": ["queue", "drop"]},
     # --- General ---
     "API_KEY": {"group": "General", "label": "API Key", "description": "Static API key for server auth", "type": "string", "read_only": True},
     "TIMEZONE": {"group": "General", "label": "Timezone", "description": "Server timezone (e.g. America/New_York)", "type": "string"},
@@ -33,13 +36,13 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "AGENT_TRACE": {"group": "General", "label": "Agent Trace", "description": "Enable one-line trace per tool/response", "type": "bool"},
     # --- Agent ---
     "AGENT_MAX_ITERATIONS": {"group": "Agent", "label": "Max Iterations", "description": "Maximum agent loop iterations per request", "type": "int", "min": 1, "max": 100},
-    "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string"},
+    "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string", "widget": "model"},
     "LLM_MAX_RETRIES": {"group": "Agent", "label": "LLM Max Retries", "description": "Retry attempts for transient errors (5xx, connection)", "type": "int", "min": 0, "max": 10},
     "LLM_RETRY_INITIAL_WAIT": {"group": "Agent", "label": "LLM Retry Initial Wait", "description": "Seconds before first retry (doubles each attempt)", "type": "float", "min": 0.5, "max": 60},
     "LLM_RATE_LIMIT_RETRIES": {"group": "Agent", "label": "Rate Limit Retries", "description": "Additional attempts after rate limit failure", "type": "int", "min": 0, "max": 10},
     "LLM_RATE_LIMIT_INITIAL_WAIT": {"group": "Agent", "label": "Rate Limit Initial Wait", "description": "Seconds before first rate limit retry", "type": "int", "min": 10, "max": 300},
     # --- Compaction ---
-    "COMPACTION_MODEL": {"group": "Compaction", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string"},
+    "COMPACTION_MODEL": {"group": "Compaction", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
     "COMPACTION_INTERVAL": {"group": "Compaction", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
     "COMPACTION_KEEP_TURNS": {"group": "Compaction", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
     # --- Embeddings & RAG ---
@@ -56,13 +59,13 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Tool Summarization ---
     "TOOL_RESULT_SUMMARIZE_ENABLED": {"group": "Tool Summarization", "label": "Enabled", "description": "Auto-summarize long tool results", "type": "bool"},
     "TOOL_RESULT_SUMMARIZE_THRESHOLD": {"group": "Tool Summarization", "label": "Threshold (chars)", "description": "Summarize tool results above this character count", "type": "int", "min": 500, "max": 50000},
-    "TOOL_RESULT_SUMMARIZE_MODEL": {"group": "Tool Summarization", "label": "Model", "description": "Model for tool result summarization", "type": "string"},
+    "TOOL_RESULT_SUMMARIZE_MODEL": {"group": "Tool Summarization", "label": "Model", "description": "Model for tool result summarization", "type": "string", "widget": "model"},
     "TOOL_RESULT_SUMMARIZE_MAX_TOKENS": {"group": "Tool Summarization", "label": "Max Tokens", "description": "Max tokens for summary output", "type": "int", "min": 50, "max": 2000},
     # --- Model Elevation ---
     "MODEL_ELEVATION_ENABLED": {"group": "Model Elevation", "label": "Enabled", "description": "Enable dynamic model elevation for complex queries", "type": "bool"},
     "MODEL_ELEVATION_THRESHOLD": {"group": "Model Elevation", "label": "Threshold", "description": "Complexity threshold to trigger elevation (0-1)", "type": "float", "min": 0.0, "max": 1.0},
-    "MODEL_ELEVATED_MODEL": {"group": "Model Elevation", "label": "Elevated Model", "description": "Model to elevate to", "type": "string"},
-    "MODEL_ELEVATION_DEFAULT_MODEL": {"group": "Model Elevation", "label": "Default Model", "description": "Default model (empty = bot model)", "type": "string"},
+    "MODEL_ELEVATED_MODEL": {"group": "Model Elevation", "label": "Elevated Model", "description": "Model to elevate to", "type": "string", "widget": "model"},
+    "MODEL_ELEVATION_DEFAULT_MODEL": {"group": "Model Elevation", "label": "Default Model", "description": "Default model (empty = bot model)", "type": "string", "widget": "model"},
     # --- Speech-to-Text ---
     "STT_PROVIDER": {"group": "Speech-to-Text", "label": "STT Provider", "description": "Transcription provider", "type": "string", "options": ["local", "groq", "openai"]},
     "WHISPER_MODEL": {"group": "Speech-to-Text", "label": "Whisper Model", "description": "faster-whisper model name", "type": "string"},
@@ -76,18 +79,18 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "HEARTBEAT_ACTIVE_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Active Interval (min)", "description": "Default active heartbeat interval", "type": "int", "min": 1, "max": 1440},
     # --- Attachments ---
     "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
-    "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string"},
+    "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},
     "ATTACHMENT_VISION_CONCURRENCY": {"group": "Attachments", "label": "Vision Concurrency", "description": "Max concurrent vision API calls", "type": "int", "min": 1, "max": 20},
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
     # --- Image Generation ---
-    "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string"},
+    "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
 }
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "General", "Agent", "Compaction", "Embeddings & RAG",
+    "System", "General", "Agent", "Compaction", "Embeddings & RAG",
     "Tool Summarization", "Model Elevation", "Speech-to-Text",
     "Heartbeat", "Attachments", "Image Generation",
 ]
@@ -191,6 +194,8 @@ async def get_all_settings() -> list[dict[str, Any]]:
             entry["max"] = schema["max"]
         if schema.get("nullable"):
             entry["nullable"] = True
+        if "widget" in schema:
+            entry["widget"] = schema["widget"]
 
         groups.setdefault(group, []).append(entry)
 

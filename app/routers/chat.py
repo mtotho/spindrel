@@ -446,6 +446,36 @@ async def chat_stream(
 
         return StreamingResponse(_passive_stream(), media_type="text/event-stream")
 
+    # System pause check: block new processing while paused
+    from app.config import settings as _settings
+    if _settings.SYSTEM_PAUSED:
+        if _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
+            async def _paused_drop():
+                yield f"data: {json.dumps({'type': 'error', 'detail': 'System is paused. Messages are being dropped.'})}\n\n"
+            return StreamingResponse(_paused_drop(), media_type="text/event-stream")
+
+        # Queue mode: create a pending Task
+        queued_task = TaskModel(
+            bot_id=req.bot_id,
+            client_id=req.client_id,
+            session_id=session_id,
+            channel_id=channel_id,
+            prompt=message,
+            status="pending",
+            dispatch_type=req.dispatch_type,
+            dispatch_config=req.dispatch_config,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(queued_task)
+        await db.commit()
+        await db.refresh(queued_task)
+        _paused_task_id = str(queued_task.id)
+        logger.info("System paused — queued message as task %s", _paused_task_id)
+
+        async def _paused_queue():
+            yield f"data: {json.dumps({'type': 'queued', 'session_id': str(session_id), 'task_id': _paused_task_id, 'reason': 'system_paused'})}\n\n"
+        return StreamingResponse(_paused_queue(), media_type="text/event-stream")
+
     # Session locking: if a RAG loop is already running for this session, queue the
     # request as a Task and return a `queued` event.  The Task worker will run the
     # message once the current loop finishes and dispatch the response via the

@@ -8,7 +8,7 @@ from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -327,6 +327,7 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
+    history_mode: Optional[str] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -1051,26 +1052,35 @@ async def admin_channel_backfill_sections(
     body: BackfillRequest = BackfillRequest(),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """Retroactively chunk historical messages into ConversationSection rows.
+    """Fire-and-forget backfill — returns a task_id for polling progress."""
+    import asyncio
+    from app.services.compaction import _drain_backfill
 
-    Streams JSON lines with progress updates.
-    """
-    from app.services.compaction import backfill_sections
+    task_id = str(uuid.uuid4())
+    asyncio.create_task(_drain_backfill(
+        channel_id=channel_id,
+        task_id=task_id,
+        chunk_size=body.chunk_size,
+        model=body.model,
+        provider_id=body.provider_id,
+        history_mode=body.history_mode,
+    ))
+    return {"task_id": task_id}
 
-    async def _stream():
-        try:
-            async for event in backfill_sections(
-                channel_id=channel_id,
-                chunk_size=body.chunk_size,
-                model=body.model,
-                provider_id=body.provider_id,
-                history_mode=body.history_mode,
-            ):
-                yield json.dumps(event) + "\n"
-        except ValueError as e:
-            yield json.dumps({"type": "error", "detail": str(e)}) + "\n"
 
-    return StreamingResponse(_stream(), media_type="application/x-ndjson")
+@router.get("/channels/{channel_id}/backfill-status/{task_id}")
+async def admin_channel_backfill_status(
+    channel_id: uuid.UUID,
+    task_id: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Poll backfill progress by task_id."""
+    from app.services.compaction import _BACKFILL_JOBS
+
+    job = _BACKFILL_JOBS.get(task_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Backfill job not found")
+    return job
 
 
 # ---------------------------------------------------------------------------

@@ -1526,9 +1526,26 @@ export default function BotEditorScreen() {
                   <div style={{ opacity: 0.6, pointerEvents: "none" }}>
                     <Toggle value={true} onChange={() => {}} label="Enable Persona" />
                   </div>
-                  <div style={{ fontSize: 11, color: "#93c5fd", marginBottom: 4 }}>
-                    Managed by workspace file: <code style={{ color: "#fbbf24" }}>bots/{editorData.bot.id}/persona.md</code>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: "#666", background: "rgba(147,197,253,0.12)", padding: "2px 8px", borderRadius: 4 }}>
+                      workspace file
+                    </span>
+                    <span style={{ fontSize: 11, color: "#93c5fd" }}>
+                      <code style={{ color: "#fbbf24" }}>bots/{editorData.bot.id}/persona.md</code>
+                    </span>
                   </div>
+                  {editorData.bot.shared_workspace_id && (
+                    <a
+                      href={`/admin/workspaces/${editorData.bot.shared_workspace_id}`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontSize: 11, fontWeight: 600, color: "#93c5fd",
+                        textDecoration: "none", alignSelf: "flex-start",
+                      }}
+                    >
+                      Open Workspace &rarr;
+                    </a>
+                  )}
                   <div style={{ opacity: 0.6, pointerEvents: "none" }}>
                     <BigTextarea
                       value={editorData.bot.workspace_persona_content || ""}
@@ -1548,6 +1565,11 @@ export default function BotEditorScreen() {
                       placeholder="Describe the bot's personality, tone, and style..."
                       minRows={20}
                     />
+                  )}
+                  {draft.shared_workspace_id && (
+                    <div style={{ padding: "8px 0", fontSize: 11, color: "#555", lineHeight: 1.6 }}>
+                      Tip: Create <code style={{ color: "#fbbf24" }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
+                    </div>
                   )}
                 </>
               )}

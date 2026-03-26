@@ -14,6 +14,7 @@ export interface SettingItem {
   min?: number;
   max?: number;
   nullable?: boolean;
+  widget?: "model";
 }
 
 export interface SettingsGroup {

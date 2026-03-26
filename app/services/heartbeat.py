@@ -214,6 +214,9 @@ async def heartbeat_worker() -> None:
     logger.info("Heartbeat worker started")
     while True:
         try:
+            if settings.SYSTEM_PAUSED:
+                await asyncio.sleep(30)
+                continue
             due = await fetch_due_heartbeats()
             for hb in due:
                 try:

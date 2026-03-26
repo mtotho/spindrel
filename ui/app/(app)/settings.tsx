@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Save, RotateCcw, Check } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useSettings,
   useUpdateSettings,
@@ -121,6 +122,27 @@ function StringField({
   );
 }
 
+function ModelField({
+  item,
+  value,
+  onChange,
+}: {
+  item: SettingItem;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <View style={{ maxWidth: 400 }}>
+      <LlmModelDropdown
+        value={value}
+        onChange={onChange}
+        placeholder="Select model..."
+        allowClear
+      />
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Single setting row
 // ---------------------------------------------------------------------------
@@ -162,6 +184,15 @@ function SettingRow({
         <NumberField
           item={item}
           value={localValue === null || localValue === undefined ? "" : String(localValue)}
+          onChange={(v) => onLocalChange(item.key, v)}
+        />
+      );
+    }
+    if (item.widget === "model") {
+      return (
+        <ModelField
+          item={item}
+          value={String(localValue ?? "")}
           onChange={(v) => onLocalChange(item.key, v)}
         />
       );

@@ -20,6 +20,16 @@ class SettingsUpdateIn(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/status")
+async def system_status(_auth=Depends(verify_auth_or_user)):
+    """Lightweight status endpoint for UI polling (pause banner)."""
+    from app.config import settings
+    return {
+        "paused": settings.SYSTEM_PAUSED,
+        "pause_behavior": settings.SYSTEM_PAUSE_BEHAVIOR,
+    }
+
+
 @router.get("/settings")
 async def admin_get_settings(
     _auth: str = Depends(verify_auth_or_user),

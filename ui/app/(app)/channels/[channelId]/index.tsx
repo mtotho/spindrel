@@ -13,6 +13,7 @@ import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
+import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { apiFetch } from "@/src/api/client";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
@@ -30,6 +31,8 @@ export default function ChatScreen() {
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
+  const { data: systemStatus } = useSystemStatus();
+  const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -274,7 +277,7 @@ export default function ChatScreen() {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={chatState.isStreaming}
+        disabled={chatState.isStreaming || isPaused}
         modelOverride={turnModelOverride}
         onModelOverrideChange={setTurnModelOverride}
         defaultModel={channel?.model_override || bot?.model}

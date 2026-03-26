@@ -7,6 +7,10 @@ from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
+    # System pause
+    SYSTEM_PAUSED: bool = False
+    SYSTEM_PAUSE_BEHAVIOR: str = "queue"  # "queue" or "drop"
+
     TIMEZONE: str = "America/New_York"
     # Auth
     API_KEY: str

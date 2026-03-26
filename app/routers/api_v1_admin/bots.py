@@ -37,11 +37,20 @@ async def admin_bots_list(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """List all bots with full config."""
+    from app.agent.persona import resolve_workspace_persona
+
     bots = list_bots()
-    return BotListOut(
-        bots=[_bot_to_out(b) for b in bots],
-        total=len(bots),
-    )
+    out = []
+    for b in bots:
+        ws_persona = None
+        if b.shared_workspace_id:
+            ws_persona = resolve_workspace_persona(b.shared_workspace_id, b.id)
+        out.append(_bot_to_out(
+            b,
+            persona_from_workspace=ws_persona is not None,
+            workspace_persona_content=ws_persona,
+        ))
+    return BotListOut(bots=out, total=len(bots))
 
 
 @router.get("/bots/{bot_id}", response_model=BotOut)

@@ -799,6 +799,45 @@ async def run_compaction_forced(
     return (title, summary)
 
 
+# ---------------------------------------------------------------------------
+# Fire-and-forget backfill (survives browser refresh)
+# ---------------------------------------------------------------------------
+_BACKFILL_JOBS: dict[str, dict] = {}
+
+
+async def _drain_backfill(
+    channel_id: uuid.UUID,
+    task_id: str,
+    chunk_size: int,
+    model: str | None,
+    provider_id: str | None,
+    history_mode: str | None,
+) -> None:
+    """Run backfill_sections in the background, tracking progress in _BACKFILL_JOBS."""
+    state: dict = {"status": "running", "sections_created": 0, "total_chunks": 0, "error": None}
+    _BACKFILL_JOBS[task_id] = state
+    try:
+        async for event in backfill_sections(
+            channel_id, chunk_size=chunk_size, model=model,
+            provider_id=provider_id, history_mode=history_mode,
+        ):
+            if event["type"] == "backfill_progress":
+                state.update(
+                    sections_created=event["section"],
+                    total_chunks=event["total_chunks"],
+                    current_title=event.get("title"),
+                )
+            elif event["type"] == "backfill_done":
+                state.update(
+                    status="complete",
+                    sections_created=event["sections_created"],
+                    executive_summary=event.get("executive_summary"),
+                )
+    except Exception as e:
+        state.update(status="failed", error=str(e))
+        logger.exception("Backfill failed for channel %s", channel_id)
+
+
 async def backfill_sections(
     channel_id: uuid.UUID,
     chunk_size: int = 50,
