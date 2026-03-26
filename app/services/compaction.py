@@ -473,6 +473,8 @@ async def run_compaction_stream(
     run_memory_phase = (
         bot.memory.enabled or bot.knowledge.enabled or bot.persona
     )
+    if channel and channel.compaction_skip_memory_phase:
+        run_memory_phase = False
 
     if run_memory_phase:
         memory_conversation = _messages_for_memory_phase(messages)
@@ -561,10 +563,11 @@ async def run_compaction_stream(
                 db.add(section)
                 await db.commit()
 
-            # Regenerate executive summary from all sections
-            exec_summary = await _regenerate_executive_summary(
-                channel_id, model, provider_id=bot.model_provider_id,
-            ) if channel_id else sec_summary
+            # Append new section summary to existing executive summary
+            if existing_summary and channel_id:
+                exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+            else:
+                exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
 
             # Update session with executive summary + watermark
             async with async_session() as db:
@@ -705,6 +708,8 @@ async def run_compaction_forced(
         raise ValueError("No conversation content to summarize")
 
     run_memory_phase = bot.memory.enabled or bot.knowledge.enabled or bot.persona
+    if channel and channel.compaction_skip_memory_phase:
+        run_memory_phase = False
     if run_memory_phase:
         memory_phase_messages = _messages_for_memory_phase(messages)
         async for _ in _run_compaction_memory_phase(
@@ -772,9 +777,10 @@ async def run_compaction_forced(
         db.add(section)
         await db.flush()
 
-        exec_summary = await _regenerate_executive_summary(
-            channel_id, model, provider_id=bot.model_provider_id,
-        ) if channel_id else sec_summary
+        if existing_summary and channel_id:
+            exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+        else:
+            exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
 
         title, summary = sec_title, exec_summary
     else:

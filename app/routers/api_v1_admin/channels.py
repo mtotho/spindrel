@@ -281,6 +281,7 @@ class ChannelSettingsOut(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
+    compaction_skip_memory_phase: Optional[bool] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -331,6 +332,7 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
+    compaction_skip_memory_phase: Optional[bool] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -1159,6 +1161,7 @@ async def admin_channel_context_breakdown(
         "total_tokens_approx": result.total_tokens_approx,
         "compaction": asdict(result.compaction),
         "compression": asdict(result.compression),
+        "reranking": asdict(result.reranking),
         "effective_settings": {
             k: {"value": v.value, "source": v.source}
             for k, v in result.effective_settings.items()

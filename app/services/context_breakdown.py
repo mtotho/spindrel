@@ -60,6 +60,16 @@ class CompressionState:
 
 
 @dataclass
+class RerankState:
+    enabled: bool = False
+    model: str = ""
+    threshold_chars: int = 0
+    max_chunks: int = 0
+    total_rag_chars: int = 0
+    would_rerank: bool = False
+
+
+@dataclass
 class EffectiveSetting:
     value: Any
     source: str  # "channel" | "bot" | "global"
@@ -75,6 +85,7 @@ class ContextBreakdownResult:
     total_tokens_approx: int
     compaction: CompactionState
     compression: CompressionState
+    reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
     disclaimer: str
 
@@ -441,6 +452,20 @@ async def compute_context_breakdown(
     )
 
     # -----------------------------------------------------------------------
+    # 5b. RAG re-ranking state
+    # -----------------------------------------------------------------------
+    total_rag_chars = sum(c.chars for c in categories if c.category == "rag")
+    rerank_model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
+    reranking = RerankState(
+        enabled=settings.RAG_RERANK_ENABLED,
+        model=rerank_model,
+        threshold_chars=settings.RAG_RERANK_THRESHOLD_CHARS,
+        max_chunks=settings.RAG_RERANK_MAX_CHUNKS,
+        total_rag_chars=total_rag_chars,
+        would_rerank=settings.RAG_RERANK_ENABLED and total_rag_chars >= settings.RAG_RERANK_THRESHOLD_CHARS,
+    )
+
+    # -----------------------------------------------------------------------
     # 6. Effective settings
     # -----------------------------------------------------------------------
     effective_settings = {
@@ -480,6 +505,7 @@ async def compute_context_breakdown(
             source="bot" if bot.tool_similarity_threshold else "global",
         ),
         "base_prompt": EffectiveSetting(value=bot.base_prompt, source="bot"),
+        "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
     }
 
     # -----------------------------------------------------------------------
@@ -501,6 +527,7 @@ async def compute_context_breakdown(
         total_tokens_approx=total_tokens,
         compaction=compaction,
         compression=compression,
+        reranking=reranking,
         effective_settings=effective_settings,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )

@@ -56,6 +56,12 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "KNOWLEDGE_SIMILARITY_THRESHOLD": {"group": "Embeddings & RAG", "label": "Knowledge Similarity Threshold", "description": "Minimum similarity for knowledge retrieval", "type": "float", "min": 0.0, "max": 1.0},
     "KNOWLEDGE_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Knowledge Max Inject Chars", "description": "Max chars per knowledge doc injected", "type": "int", "min": 500, "max": 50000},
     "MEMORY_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Memory Max Inject Chars", "description": "Max chars per memory item injected", "type": "int", "min": 500, "max": 50000},
+    # --- RAG Re-ranking ---
+    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Re-rank RAG chunks across sources using an LLM", "type": "bool"},
+    "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "Model", "description": "Model for re-ranking (empty = compaction model)", "type": "string", "widget": "model"},
+    "RAG_RERANK_THRESHOLD_CHARS": {"group": "RAG Re-ranking", "label": "Threshold (chars)", "description": "Only re-rank when total RAG chars exceed this", "type": "int", "min": 500, "max": 100000},
+    "RAG_RERANK_MAX_CHUNKS": {"group": "RAG Re-ranking", "label": "Max Chunks", "description": "Max chunks to keep after re-ranking", "type": "int", "min": 1, "max": 100},
+    "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens", "description": "Max output tokens for re-ranker response", "type": "int", "min": 100, "max": 4000},
     # --- Tool Summarization ---
     "TOOL_RESULT_SUMMARIZE_ENABLED": {"group": "Tool Summarization", "label": "Enabled", "description": "Auto-summarize long tool results", "type": "bool"},
     "TOOL_RESULT_SUMMARIZE_THRESHOLD": {"group": "Tool Summarization", "label": "Threshold (chars)", "description": "Summarize tool results above this character count", "type": "int", "min": 500, "max": 50000},
@@ -91,7 +97,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 # Group ordering for consistent display
 GROUP_ORDER = [
     "System", "General", "Agent", "Compaction", "Embeddings & RAG",
-    "Tool Summarization", "Model Elevation", "Speech-to-Text",
+    "RAG Re-ranking", "Tool Summarization", "Model Elevation", "Speech-to-Text",
     "Heartbeat", "Attachments", "Image Generation",
 ]
 

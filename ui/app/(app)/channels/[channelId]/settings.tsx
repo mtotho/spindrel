@@ -110,6 +110,7 @@ export default function ChannelSettingsScreen() {
         compaction_prompt_template_id: settings.compaction_prompt_template_id,
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
+        compaction_skip_memory_phase: settings.compaction_skip_memory_phase,
         context_compression: settings.context_compression,
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
@@ -634,21 +635,35 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
           </div>
 
-          {/* Compaction prompt */}
-          <PromptTemplateLink
-            templateId={form.compaction_prompt_template_id ?? null}
-            onLink={(id) => patch("compaction_prompt_template_id", id)}
-            onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-            workspaceId={workspaceId ?? undefined}
+          {/* Memory phase toggle + prompt */}
+          <Toggle
+            value={!!form.compaction_skip_memory_phase}
+            onChange={(v) => patch("compaction_skip_memory_phase", v || undefined)}
+            label="Skip memory phase"
           />
-          <LlmPrompt
-            value={form.memory_knowledge_compaction_prompt ?? ""}
-            onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-            label="Memory Phase Prompt"
-            placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-            helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-            rows={5}
-          />
+          <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+            Skips the extra LLM call that lets the bot save memories/knowledge before archival.
+            Enable this if you use heartbeat or another mechanism to persist memories — the memory phase becomes redundant.
+          </div>
+
+          {!form.compaction_skip_memory_phase && (
+            <>
+              <PromptTemplateLink
+                templateId={form.compaction_prompt_template_id ?? null}
+                onLink={(id) => patch("compaction_prompt_template_id", id)}
+                onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+                workspaceId={workspaceId ?? undefined}
+              />
+              <LlmPrompt
+                value={form.memory_knowledge_compaction_prompt ?? ""}
+                onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+                label="Memory Phase Prompt"
+                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+                helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
+                rows={5}
+              />
+            </>
+          )}
 
           {/* Backfill subsection */}
           <div style={{
@@ -742,21 +757,35 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 Used for summarization. A cheap/fast model works well — the prompts are straightforward.
               </div>
 
-              {/* Compaction prompt */}
-              <PromptTemplateLink
-                templateId={form.compaction_prompt_template_id ?? null}
-                onLink={(id) => patch("compaction_prompt_template_id", id)}
-                onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-                workspaceId={workspaceId ?? undefined}
+              {/* Memory phase toggle + prompt */}
+              <Toggle
+                value={!!form.compaction_skip_memory_phase}
+                onChange={(v) => patch("compaction_skip_memory_phase", v || undefined)}
+                label="Skip memory phase"
               />
-              <LlmPrompt
-                value={form.memory_knowledge_compaction_prompt ?? ""}
-                onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                label="Memory Phase Prompt"
-                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-                helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-                rows={5}
-              />
+              <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+                Skips the extra LLM call that lets the bot save memories/knowledge before summarization.
+                Enable this if you use heartbeat or another mechanism to persist memories.
+              </div>
+
+              {!form.compaction_skip_memory_phase && (
+                <>
+                  <PromptTemplateLink
+                    templateId={form.compaction_prompt_template_id ?? null}
+                    onLink={(id) => patch("compaction_prompt_template_id", id)}
+                    onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+                    workspaceId={workspaceId ?? undefined}
+                  />
+                  <LlmPrompt
+                    value={form.memory_knowledge_compaction_prompt ?? ""}
+                    onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+                    label="Memory Phase Prompt"
+                    placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+                    helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
+                    rows={5}
+                  />
+                </>
+              )}
             </>
           )}
         </Section>
@@ -1972,6 +2001,35 @@ function ContextTab({ channelId }: { channelId: string }) {
           </div>
           <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginTop: 8 }}>
             Compression is ephemeral — it summarises older conversation via a cheap model each turn without modifying stored messages.
+          </div>
+        </Section>
+      )}
+
+      {/* RAG Re-ranking */}
+      {data.reranking && (
+        <Section title="RAG Re-ranking">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {[
+              ["Enabled", data.reranking.enabled ? "Yes" : "No"],
+              ["Model", data.reranking.model || "—"],
+              ["Threshold", `${data.reranking.threshold_chars.toLocaleString()} chars`],
+              ["Max Chunks", data.reranking.max_chunks],
+              ["RAG Chars", data.reranking.total_rag_chars.toLocaleString()],
+              ["Would Rerank", data.reranking.would_rerank ? "Yes" : "No"],
+            ].map(([label, val]) => (
+              <div key={String(label)} style={{
+                padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+              }}>
+                <div style={{
+                  fontSize: 16, fontWeight: 600,
+                  color: label === "Would Rerank" && data.reranking.would_rerank ? "#4ade80" : "#e5e5e5",
+                }}>{String(val)}</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginTop: 8 }}>
+            Re-ranking uses an LLM to filter RAG chunks across all sources, keeping only the most relevant for the query.
           </div>
         </Section>
       )}
