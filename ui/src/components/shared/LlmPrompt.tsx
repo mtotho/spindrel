@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useCompletions } from "../../api/hooks/useModels";
+import { useGeneratePrompt } from "../../api/hooks/usePrompts";
 import type { CompletionItem } from "../../types/api";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
   placeholder?: string;
   rows?: number;
   helpText?: string;
+  generateContext?: string;
 }
 
 export function scoreMatch(value: string, label: string, query: string): number {
@@ -34,6 +36,72 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   "tool-pack": { bg: "#14532d", fg: "#86efac" },
   knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
 };
+
+// ---------------------------------------------------------------------------
+// Generate button (shared between inline + fullscreen)
+// ---------------------------------------------------------------------------
+function GenerateButton({
+  generateContext,
+  value,
+  onChange,
+  size = "small",
+}: {
+  generateContext: string;
+  value: string;
+  onChange: (text: string) => void;
+  size?: "small" | "normal";
+}) {
+  const gen = useGeneratePrompt();
+  const [flash, setFlash] = useState<"success" | "error" | null>(null);
+
+  const handleGenerate = useCallback(() => {
+    gen.mutate(
+      { context: generateContext, user_input: value },
+      {
+        onSuccess: (data) => {
+          onChange(data.prompt);
+          setFlash("success");
+          setTimeout(() => setFlash(null), 1200);
+        },
+        onError: () => {
+          setFlash("error");
+          setTimeout(() => setFlash(null), 1500);
+        },
+      }
+    );
+  }, [gen, generateContext, value, onChange]);
+
+  const isSmall = size === "small";
+  const baseStyle: React.CSSProperties = isSmall
+    ? {
+        background: "none", border: "1px solid #333", borderRadius: 4,
+        color: "#666", fontSize: 11, padding: "2px 8px", cursor: "pointer",
+        transition: "all 0.15s", whiteSpace: "nowrap",
+      }
+    : {
+        background: "none", border: "1px solid #444", borderRadius: 6,
+        color: "#999", fontSize: 13, padding: "6px 16px", cursor: "pointer",
+        transition: "all 0.15s", fontWeight: 600, whiteSpace: "nowrap",
+      };
+
+  const flashColor = flash === "success" ? "#22c55e" : flash === "error" ? "#ef4444" : undefined;
+
+  return (
+    <button
+      onClick={handleGenerate}
+      disabled={gen.isPending}
+      style={{
+        ...baseStyle,
+        ...(flash ? { borderColor: flashColor, color: flashColor } : {}),
+        ...(gen.isPending ? { opacity: 0.6, cursor: "wait" } : {}),
+      }}
+      onMouseEnter={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = "#555"; e.currentTarget.style.color = "#999"; } }}
+      onMouseLeave={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = isSmall ? "#333" : "#444"; e.currentTarget.style.color = isSmall ? "#666" : "#999"; } }}
+    >
+      {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Autocomplete dropdown (portal-based)
@@ -132,12 +200,14 @@ function FullscreenEditor({
   onChange,
   label,
   placeholder,
+  generateContext,
   onClose,
 }: {
   value: string;
   onChange: (text: string) => void;
   label?: string;
   placeholder?: string;
+  generateContext?: string;
   onClose: () => void;
 }) {
   const { data: completions } = useCompletions();
@@ -220,15 +290,20 @@ function FullscreenEditor({
           {label || "Edit Prompt"}
           <span style={{ color: "#555", fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: "#3b82f6", color: "#fff", border: "none", borderRadius: 6,
-            padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}
-        >
-          Done
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {generateContext && (
+            <GenerateButton generateContext={generateContext} value={value} onChange={onChange} size="normal" />
+          )}
+          <button
+            onClick={onClose}
+            style={{
+              background: "#3b82f6", color: "#fff", border: "none", borderRadius: 6,
+              padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Done
+          </button>
+        </div>
       </div>
 
       {/* Editor */}
@@ -277,6 +352,7 @@ export function LlmPrompt({
   placeholder = "Enter prompt...",
   rows = 5,
   helpText,
+  generateContext,
 }: Props) {
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -350,18 +426,23 @@ export function LlmPrompt({
             {label}{" "}
             <span style={{ color: "#555", fontWeight: 400 }}>(type @ to insert tags)</span>
           </span>
-          <button
-            onClick={() => setExpanded(true)}
-            style={{
-              background: "none", border: "1px solid #333", borderRadius: 4,
-              color: "#666", fontSize: 11, padding: "2px 8px", cursor: "pointer",
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#555"; e.currentTarget.style.color = "#999"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; e.currentTarget.style.color = "#666"; }}
-          >
-            Expand
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {generateContext && (
+              <GenerateButton generateContext={generateContext} value={value} onChange={onChange} />
+            )}
+            <button
+              onClick={() => setExpanded(true)}
+              style={{
+                background: "none", border: "1px solid #333", borderRadius: 4,
+                color: "#666", fontSize: 11, padding: "2px 8px", cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#555"; e.currentTarget.style.color = "#999"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; e.currentTarget.style.color = "#666"; }}
+            >
+              Expand
+            </button>
+          </div>
         </div>
       )}
       <div ref={containerRef}>
@@ -403,6 +484,7 @@ export function LlmPrompt({
           onChange={onChange}
           label={label}
           placeholder={placeholder}
+          generateContext={generateContext}
           onClose={() => setExpanded(false)}
         />
       )}

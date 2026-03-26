@@ -512,7 +512,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
           return (
             <div key={s.id} style={{
               background: "#111", border: "1px solid #2a2a2a", borderRadius: 6,
-              overflow: "hidden",
+              overflow: "hidden", flexShrink: 0,
             }}>
               <button
                 onClick={() => setExpandedId(isOpen ? null : s.id)}
@@ -680,6 +680,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
                 helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
                 rows={5}
+                generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
               />
             </>
           )}
@@ -802,6 +803,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                     placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
                     helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
                     rows={5}
+                    generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
                   />
                 </>
               )}
@@ -810,8 +812,8 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
         </Section>
       )}
 
-      {/* 3. Response Condensing — always visible at bottom */}
-      <Section title="Response Condensing" description="Automatically condense verbose assistant responses to save context space between compactions.">
+      {/* 3. Response Condensing — always visible */}
+      <Section title="Response Condensing" description="Condense verbose assistant responses to save context. Values here override the global defaults in Settings.">
         <Toggle
           value={!!form.response_condensing_enabled}
           onChange={(v) => patch("response_condensing_enabled", v)}
@@ -833,7 +835,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                   <TextInput
                     value={form.response_condensing_threshold?.toString() ?? ""}
                     onChangeText={(v) => patch("response_condensing_threshold", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (1500)"
+                    placeholder="inherit from global settings"
                     type="number"
                   />
                 </FormRow>
@@ -843,7 +845,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                   <TextInput
                     value={form.response_condensing_keep_exact?.toString() ?? ""}
                     onChangeText={(v) => patch("response_condensing_keep_exact", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (6)"
+                    placeholder="inherit from global settings"
                     type="number"
                   />
                 </FormRow>
@@ -853,15 +855,77 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
               label="Condensing Model"
               value={form.response_condensing_model ?? ""}
               onChange={(v) => patch("response_condensing_model", v || undefined)}
-              placeholder="inherit (compaction model chain)"
+              placeholder="inherit from global settings"
             />
             <LlmPrompt
               value={form.response_condensing_prompt ?? ""}
               onChange={(v) => patch("response_condensing_prompt", v || undefined)}
               label="Custom Condensing Prompt"
-              placeholder="Leave blank to use the default..."
-              helpText="Additional instructions for condensing, e.g. 'Always preserve code blocks verbatim'"
+              placeholder="Leave blank to inherit from global settings..."
+              helpText="Overrides the global default prompt. Leave empty to use the prompt set in Settings > Response Condensing."
               rows={3}
+              generateContext="A system prompt for condensing verbose assistant responses. Should preserve specific values, decisions, code, file paths, commands, and action items while removing verbose explanations and filler. Target ~30% of original length."
+            />
+          </>
+        )}
+      </Section>
+
+      {/* 4. History RAG — summarize recent history before each request */}
+      <Section title="History RAG" description="Before each request, summarize recent conversation history and inject relevant context. Adds one LLM call per user message.">
+        <Toggle
+          value={!!form.history_rag_enabled}
+          onChange={(v) => patch("history_rag_enabled", v)}
+          label="Enable history RAG"
+        />
+        {form.history_rag_enabled && (
+          <>
+            <div style={{
+              padding: "10px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
+              borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginBottom: 4,
+            }}>
+              Before the agent processes each message, the last N messages from this channel are sent to a
+              summarizer LLM. The summary of relevant context is injected as a system message, giving the
+              agent awareness of prior conversations without needing structured history or embeddings.
+            </div>
+            <Row>
+              <Col>
+                <FormRow label="Messages to scan" description="How many recent messages to load for summarization.">
+                  <TextInput
+                    value={form.history_rag_turns?.toString() ?? ""}
+                    onChangeText={(v) => patch("history_rag_turns", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (50)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Max tokens" description="Cap on history text sent to summarizer (prevents excessive cost).">
+                  <TextInput
+                    value={form.history_rag_max_tokens?.toString() ?? ""}
+                    onChangeText={(v) => patch("history_rag_max_tokens", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (16000)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+            <LlmModelDropdown
+              label="Summarizer Model"
+              value={form.history_rag_model ?? ""}
+              onChange={(v) => patch("history_rag_model", v || undefined)}
+              placeholder="inherit (compaction model)"
+            />
+            <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+              A cheap/fast model works well — the prompt is straightforward summarization.
+            </div>
+            <LlmPrompt
+              value={form.history_rag_prompt ?? ""}
+              onChange={(v) => patch("history_rag_prompt", v || undefined)}
+              label="Summarizer Prompt"
+              placeholder="Leave blank for the default prompt. Use {query} for the user's message and {history} for the conversation history."
+              helpText="Custom prompt template. Available variables: {query} (current user message), {history} (formatted recent messages). Leave empty for the built-in default that extracts relevant context."
+              rows={5}
+              generateContext="A prompt template for summarizing recent conversation history. Available variables: {query} (user's current message), {history} (formatted recent messages as [user]/[assistant] pairs). Should extract only context relevant to the current query."
             />
           </>
         )}
@@ -974,6 +1038,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           placeholder="Leave blank for no channel-level prompt..."
           helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
           rows={4}
+          generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
         />
       </Section>
 
@@ -1569,6 +1634,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
             placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
             helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
             rows={10}
+            generateContext="A prompt for a scheduled/periodic AI task. Runs on a timer. The AI can check on things, perform maintenance, proactively engage, or run recurring workflows. Supports @-tags for tools and skills."
           />
         </div>
 
@@ -2150,6 +2216,7 @@ function CompressionTab({ channelId, form, patch }: {
           placeholder="Leave blank to use the built-in default prompt..."
           helpText="Custom system prompt for the compression LLM. Overrides the hardcoded default."
           rows={5}
+          generateContext="A system prompt for compressing conversation history into a shorter form. Should preserve important context, decisions, and facts while significantly reducing token count."
         />
       </Section>
 

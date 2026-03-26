@@ -28,6 +28,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- System ---
     "SYSTEM_PAUSED": {"group": "System", "label": "System Paused", "description": "Pause all message processing (new requests queued or dropped)", "type": "bool"},
     "SYSTEM_PAUSE_BEHAVIOR": {"group": "System", "label": "Pause Behavior", "description": "What to do with incoming messages while paused", "type": "string", "options": ["queue", "drop"]},
+    "GLOBAL_BASE_PROMPT": {"group": "System", "label": "Global Base Prompt", "description": "Prepended before all other base/system prompts for every bot. Use for org-wide instructions.", "type": "string", "widget": "textarea"},
     # --- General ---
     "API_KEY": {"group": "General", "label": "API Key", "description": "Static API key for server auth", "type": "string", "read_only": True},
     "TIMEZONE": {"group": "General", "label": "Timezone", "description": "Server timezone (e.g. America/New_York)", "type": "string"},
@@ -90,15 +91,22 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
+    # --- Response Condensing ---
+    "RESPONSE_CONDENSING_THRESHOLD": {"group": "Response Condensing", "label": "Threshold (chars)", "description": "Responses above this length are condensed", "type": "int", "min": 100, "max": 50000},
+    "RESPONSE_CONDENSING_KEEP_EXACT": {"group": "Response Condensing", "label": "Keep Exact", "description": "Recent messages shown at full fidelity (not condensed)", "type": "int", "min": 0, "max": 50},
+    "RESPONSE_CONDENSING_MODEL": {"group": "Response Condensing", "label": "Model", "description": "Model for condensing (empty = compaction model chain)", "type": "string", "widget": "model"},
+    "RESPONSE_CONDENSING_PROMPT": {"group": "Response Condensing", "label": "Default Prompt", "description": "Default condensing prompt. Channels inherit this unless they set their own.", "type": "string", "widget": "textarea"},
     # --- Image Generation ---
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
+    # --- Prompt Generation ---
+    "PROMPT_GENERATION_MODEL": {"group": "Prompt Generation", "label": "Model", "description": "Model used for the Generate Prompt feature in admin UI (empty = default LiteLLM model)", "type": "string", "widget": "model"},
 }
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Agent", "Compaction", "Embeddings & RAG",
-    "RAG Re-ranking", "Tool Summarization", "Model Elevation", "Speech-to-Text",
-    "Heartbeat", "Attachments", "Image Generation",
+    "System", "General", "Agent", "Compaction", "Response Condensing",
+    "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
+    "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]
 
 
