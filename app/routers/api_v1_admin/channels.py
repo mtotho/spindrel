@@ -1074,6 +1074,48 @@ async def admin_channel_backfill_sections(
 
 
 # ---------------------------------------------------------------------------
+# Conversation sections list
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/sections")
+async def admin_channel_sections(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """List all conversation sections for a channel, ordered by sequence."""
+    from app.db.models import ConversationSection
+
+    rows = (
+        await db.execute(
+            select(ConversationSection)
+            .where(ConversationSection.channel_id == channel_id)
+            .order_by(ConversationSection.sequence)
+        )
+    ).scalars().all()
+
+    return {
+        "sections": [
+            {
+                "id": str(s.id),
+                "sequence": s.sequence,
+                "title": s.title,
+                "summary": s.summary,
+                "transcript": s.transcript,
+                "message_count": s.message_count,
+                "period_start": s.period_start.isoformat() if s.period_start else None,
+                "period_end": s.period_end.isoformat() if s.period_end else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "view_count": s.view_count,
+                "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
+            }
+            for s in rows
+        ],
+        "total": len(rows),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Context breakdown
 # ---------------------------------------------------------------------------
 

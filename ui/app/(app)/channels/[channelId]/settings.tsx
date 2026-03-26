@@ -24,6 +24,7 @@ import {
   triStateOptions, triStateValue, triStateParse,
 } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
+import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings, BotEditorData, ToolGroup, ContextBreakdown } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
@@ -358,9 +359,12 @@ function HistoryModeSection({ form, patch, channelId, workspaceId }: {
         </div>
       )}
 
-      {/* Backfill button for section-based modes */}
+      {/* Backfill button + sections viewer for section-based modes */}
       {(selected === "file" || selected === "structured") && (
-        <BackfillButton channelId={channelId} historyMode={selected} />
+        <>
+          <BackfillButton channelId={channelId} historyMode={selected} />
+          <SectionsViewer channelId={channelId} />
+        </>
       )}
 
       {/* Compaction prompt controls */}
@@ -391,19 +395,22 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ section: number; total: number; title: string } | null>(null);
   const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
+  const serverUrl = useAuthStore((s) => s.serverUrl);
+  const queryClient = useQueryClient();
 
   const handleBackfill = useCallback(async () => {
     setRunning(true);
     setProgress(null);
     setResult(null);
     try {
+      const token = getAuthToken();
       const res = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL || ""}/api/v1/admin/channels/${channelId}/backfill-sections`,
+        `${serverUrl}/api/v1/admin/channels/${channelId}/backfill-sections`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.EXPO_PUBLIC_API_KEY || ""}`,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({ history_mode: historyMode }),
         },
@@ -436,8 +443,9 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
       setResult({ sections: 0, error: e instanceof Error ? e.message : "Unknown error" });
     } finally {
       setRunning(false);
+      queryClient.invalidateQueries({ queryKey: ["channel-sections", channelId] });
     }
-  }, [channelId, historyMode]);
+  }, [channelId, historyMode, serverUrl, queryClient]);
 
   return (
     <div style={{ padding: "10px 0" }}>
@@ -476,6 +484,91 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
           {result.error}
         </div>
       )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Sections viewer — shows existing conversation sections
+// ===========================================================================
+function SectionsViewer({ channelId }: { channelId: string }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["channel-sections", channelId],
+    queryFn: () => apiFetch<{ sections: Array<{
+      id: string; sequence: number; title: string; summary: string;
+      transcript: string; message_count: number;
+      period_start: string | null; period_end: string | null;
+      created_at: string | null; view_count: number;
+      last_viewed_at: string | null;
+    }>; total: number }>(`/api/v1/admin/channels/${channelId}/sections`),
+  });
+
+  if (isLoading) return <ActivityIndicator size="small" color="#666" style={{ marginTop: 8 }} />;
+  if (!data?.sections?.length) return (
+    <div style={{ fontSize: 11, color: "#555", padding: "8px 0" }}>
+      No sections yet. Use backfill or let compaction create them automatically.
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
+        Archived Sections ({data.total})
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.sections.map((s) => {
+          const isOpen = expandedId === s.id;
+          const dateStr = s.period_start
+            ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+            : "";
+          return (
+            <div key={s.id} style={{
+              background: "#111", border: "1px solid #2a2a2a", borderRadius: 6,
+              overflow: "hidden",
+            }}>
+              <button
+                onClick={() => setExpandedId(isOpen ? null : s.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, width: "100%",
+                  padding: "8px 12px", background: "none", border: "none",
+                  cursor: "pointer", textAlign: "left",
+                }}
+              >
+                <span style={{ fontSize: 10, color: "#555", minWidth: 20 }}>#{s.sequence}</span>
+                <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{s.title}</span>
+                <span style={{ fontSize: 10, color: "#666" }}>{s.message_count} msgs</span>
+                {s.view_count > 0 && (
+                  <span style={{
+                    fontSize: 9, color: "#a78bfa", background: "#2e1065",
+                    padding: "1px 5px", borderRadius: 8, fontWeight: 600,
+                  }}>{s.view_count}x viewed</span>
+                )}
+                {dateStr && <span style={{ fontSize: 10, color: "#555" }}>{dateStr}</span>}
+                <span style={{ fontSize: 10, color: "#555", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▼</span>
+              </button>
+              {isOpen && (
+                <div style={{ padding: "0 12px 10px", borderTop: "1px solid #222" }}>
+                  <div style={{ fontSize: 11, color: "#999", padding: "8px 0 4px", fontWeight: 600 }}>Summary</div>
+                  <div style={{ fontSize: 11, color: "#888", lineHeight: "1.5", whiteSpace: "pre-wrap" }}>{s.summary}</div>
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ fontSize: 11, color: "#666", cursor: "pointer", userSelect: "none" }}>
+                      View transcript
+                    </summary>
+                    <pre style={{
+                      fontSize: 10, color: "#777", lineHeight: "1.4",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      maxHeight: 300, overflow: "auto",
+                      background: "#0a0a0a", padding: 8, borderRadius: 4, marginTop: 4,
+                    }}>{s.transcript}</pre>
+                  </details>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

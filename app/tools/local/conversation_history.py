@@ -1,7 +1,8 @@
 """Tool for navigating archived conversation history sections (file mode)."""
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.agent.context import current_channel_id
 from app.db.engine import async_session
@@ -66,6 +67,16 @@ async def read_conversation_history(section: str) -> str:
 
     async with async_session() as db:
         sec = await db.get(ConversationSection, section_id)
+        if sec and sec.channel_id == channel_id:
+            await db.execute(
+                update(ConversationSection)
+                .where(ConversationSection.id == section_id)
+                .values(
+                    view_count=ConversationSection.view_count + 1,
+                    last_viewed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
 
     if not sec or sec.channel_id != channel_id:
         return f"Section not found: {section}"
