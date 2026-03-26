@@ -196,7 +196,7 @@ async def _exec_sync(
 
     try:
         # New workspace path
-        if bot.workspace.enabled:
+        if bot.workspace.enabled or bot.shared_workspace_id:
             from app.services.workspace import workspace_service
             exec_res = await workspace_service.exec(
                 bot.id, script, bot.workspace, working_directory or "", bot=bot,

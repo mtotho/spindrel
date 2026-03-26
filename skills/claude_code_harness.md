@@ -156,7 +156,7 @@ For tasks dispatched as deferred (mode=deferred), consider `--output-format stre
 Claude Code has **no built-in status API**. Options:
 - **Process monitoring**: Check if the `claude` PID is still running (`ps aux | grep claude`)
 - **Session file polling**: Watch `~/.claude/projects/<encoded-cwd>/` for JSONL file growth
-- **Our Task system**: The task_worker already tracks status (pending/running/complete/failed) — use `get_task` to check
+- **Our Task system**: The task_worker already tracks status (pending/running/complete/failed) — use `list_tasks` with a task_id to check
 - **Timeout**: The harness timeout (1800s default) is the ultimate backstop
 
 ### 8. Plan Recovery

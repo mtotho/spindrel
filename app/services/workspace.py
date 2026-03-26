@@ -67,12 +67,12 @@ class WorkspaceService:
         bot: BotConfig | None = None,
     ) -> ExecResult:
         """Execute a command in the workspace, routing to Docker, host, or shared."""
-        if not workspace.enabled:
-            raise WorkspaceError("Workspace is not enabled for this bot.")
-
-        # Check if bot is in a shared workspace — route there first
+        # Shared workspace membership takes priority (no workspace.enabled needed)
         if bot and bot.shared_workspace_id:
             return await self._exec_shared(bot, command, working_dir)
+
+        if not workspace.enabled:
+            raise WorkspaceError("Workspace is not enabled for this bot.")
 
         if workspace.type == "docker":
             return await self._exec_docker(bot_id, command, workspace, working_dir)

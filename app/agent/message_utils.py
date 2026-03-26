@@ -110,7 +110,7 @@ async def _all_tool_schemas_by_name(bot: BotConfig) -> dict[str, dict[str, Any]]
     by_name: dict[str, dict[str, Any]] = {}
     # Auto-inject workspace tools when workspace is enabled
     extra_local = list(bot.local_tools)
-    if bot.workspace.enabled:
+    if bot.workspace.enabled or bot.shared_workspace_id:
         for wt in _WORKSPACE_TOOLS:
             if wt not in extra_local:
                 extra_local.append(wt)

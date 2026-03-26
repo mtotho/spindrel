@@ -58,8 +58,8 @@ async def exec_command(command: str, working_dir: str = "") -> str:
 
     bot = get_bot(bot_id)
 
-    # New workspace path
-    if bot.workspace.enabled:
+    # New workspace path (shared workspace membership implies workspace enabled)
+    if bot.workspace.enabled or bot.shared_workspace_id:
         try:
             from app.services.workspace import workspace_service
             result = await workspace_service.exec(bot_id, command, bot.workspace, working_dir, bot=bot)

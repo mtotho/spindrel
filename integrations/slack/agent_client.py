@@ -101,6 +101,18 @@ async def get_channel_session_id(channel_id: str, bot_id: str) -> str | None:
     return None
 
 
+async def cancel_session(client_id: str, bot_id: str) -> dict:
+    """Request cancellation of an in-progress agent loop for the given channel."""
+    r = await http.post(
+        f"{AGENT_BASE_URL}/chat/cancel",
+        json={"client_id": client_id, "bot_id": bot_id},
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        timeout=5.0,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 async def store_passive_message_http(
     client_id: str,
     bot_id: str,
