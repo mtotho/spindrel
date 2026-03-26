@@ -1,0 +1,18 @@
+[Unit]
+Description=Thoth Hub Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__INSTALL_DIR__/hub
+ExecStart=/usr/bin/python3 __INSTALL_DIR__/hub/serve.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=thoth-hub
+
+[Install]
+WantedBy=multi-user.target

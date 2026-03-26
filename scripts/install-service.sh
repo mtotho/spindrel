@@ -112,6 +112,10 @@ UNITS=()
 install_unit "$REPO_DIR/systemd/thoth.service" "thoth.service"
 UNITS+=("thoth.service")
 
+# ── Hub dashboard service ────────────────────────────────────────────────────
+install_unit "$REPO_DIR/systemd/thoth-hub.service" "thoth-hub.service"
+UNITS+=("thoth-hub.service")
+
 # ── Integration services (auto-discover) ─────────────────────────────────────
 for svc_file in "$REPO_DIR"/integrations/*/service; do
     [ -f "$svc_file" ] || continue

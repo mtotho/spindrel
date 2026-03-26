@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-SERVICES = ["thoth", "thoth-slack"]
+SERVICES = ["thoth", "thoth-slack", "thoth-hub"]
 
 
 def get_repo_dir():
@@ -168,7 +168,7 @@ def main():
     sub.add_parser("status", help="Show service/container/disk status")
 
     logs_p = sub.add_parser("logs", help="Tail service logs")
-    logs_p.add_argument("service", nargs="?", default=None, help="Service name (thoth or thoth-slack)")
+    logs_p.add_argument("service", nargs="?", default=None, help="Service name (thoth, thoth-slack, or thoth-hub)")
 
     args = parser.parse_args()
 
