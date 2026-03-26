@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Paperclip, X, Cpu } from "lucide-react";
 import { useCompletions } from "../../api/hooks/useModels";
+import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import type { CompletionItem } from "../../types/api";
 
@@ -20,6 +21,8 @@ interface Props {
 }
 
 export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideChange, defaultModel }: Props) {
+  const columns = useResponsiveColumns();
+  const isMobile = columns === "single";
   const [text, setText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -281,7 +284,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           </div>
         )}
 
-        <View className="flex-row items-end gap-3 p-4">
+        <View className={`flex-row items-end ${isMobile ? "gap-2 p-3" : "gap-3 p-4"}`}>
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}

@@ -413,6 +413,83 @@ class TestRunTask:
             db.commit.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_model_override_from_callback_config(self):
+        """model_override in callback_config should be passed to the agent loop."""
+        from app.agent.tasks import run_task
+        from app.agent.loop import RunResult
+
+        task = self._make_task(
+            callback_config={
+                "model_override": "custom/my-model",
+                "model_provider_id_override": "provider-42",
+            },
+        )
+        cm, db = self._mock_db_session(task)
+
+        mock_run_result = RunResult(response="ok", client_actions=[])
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        )
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks.session_locks") as mock_locks, \
+             patch("app.agent.tasks.get_bot", return_value=bot), \
+             patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result) as mock_run, \
+             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.agent.tasks.dispatchers") as mock_dispatchers:
+            mock_locks.acquire.return_value = True
+            mock_dispatchers.get.return_value = mock_dispatcher
+
+            await run_task(task)
+
+            mock_run.assert_awaited_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["model_override"] == "custom/my-model"
+            assert call_kwargs["provider_id_override"] == "provider-42"
+
+    @pytest.mark.asyncio
+    async def test_model_override_none_when_not_set(self):
+        """Without model_override in callback_config, run() should get None."""
+        from app.agent.tasks import run_task
+        from app.agent.loop import RunResult
+
+        task = self._make_task(callback_config={})
+        cm, db = self._mock_db_session(task)
+
+        mock_run_result = RunResult(response="ok", client_actions=[])
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+        )
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.tasks.session_locks") as mock_locks, \
+             patch("app.agent.tasks.get_bot", return_value=bot), \
+             patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result) as mock_run, \
+             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.agent.tasks.dispatchers") as mock_dispatchers:
+            mock_locks.acquire.return_value = True
+            mock_dispatchers.get.return_value = mock_dispatcher
+
+            await run_task(task)
+
+            mock_run.assert_awaited_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["model_override"] is None
+            assert call_kwargs["provider_id_override"] is None
+
+    @pytest.mark.asyncio
     async def test_harness_dispatch_delegates(self):
         """Tasks with dispatch_type='harness' should call run_harness_task."""
         from app.agent.tasks import run_task

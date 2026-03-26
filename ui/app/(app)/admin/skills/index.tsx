@@ -2,7 +2,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useRouter } from "expo-router";
 import { Plus, RefreshCw, BookOpen, FileText, Plug } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem } from "@/src/api/hooks/useSkills";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
@@ -131,43 +131,38 @@ export default function SkillsScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
-      }}>
-        <MobileMenuButton />
-        {isWide && (
-          <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700 }}>Skills</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => syncMut.mutate()}
-          disabled={syncMut.isPending}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "1px solid #333", borderRadius: 6,
-            background: "transparent", color: "#999", cursor: "pointer",
-          }}
-        >
-          <RefreshCw size={14} style={syncMut.isPending ? { animation: "spin 1s linear infinite" } : undefined} />
-          {isWide && (syncMut.isPending ? "Syncing..." : "Sync Files")}
-        </button>
-        <button
-          onClick={() => router.push("/admin/skills/new" as any)}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "none", borderRadius: 6,
-            background: "#3b82f6", color: "#fff", cursor: "pointer",
-          }}
-        >
-          <Plus size={14} />
-          {isWide && "New Skill"}
-        </button>
-      </div>
+      <MobileHeader
+        title="Skills"
+        right={
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => syncMut.mutate()}
+              disabled={syncMut.isPending}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                border: "1px solid #333", borderRadius: 6,
+                background: "transparent", color: "#999", cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={14} style={syncMut.isPending ? { animation: "spin 1s linear infinite" } : undefined} />
+              {syncMut.isPending ? "Syncing..." : "Sync"}
+            </button>
+            <button
+              onClick={() => router.push("/admin/skills/new" as any)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                border: "none", borderRadius: 6,
+                background: "#3b82f6", color: "#fff", cursor: "pointer",
+              }}
+            >
+              <Plus size={14} />
+              New Skill
+            </button>
+          </div>
+        }
+      />
 
       {/* Table header (desktop only) */}
       {isWide && skills && skills.length > 0 && (

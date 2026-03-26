@@ -153,8 +153,12 @@ export default function ChannelSettingsScreen() {
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
-        <Pressable onPress={goBack} className="p-1 rounded hover:bg-surface-overlay">
-          <ArrowLeft size={18} color="#999" />
+        <Pressable
+          onPress={goBack}
+          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+          style={{ width: 44, height: 44 }}
+        >
+          <ArrowLeft size={20} color="#999" />
         </Pressable>
         <View className="flex-1 min-w-0">
           <Text className="text-text font-semibold text-sm" numberOfLines={1}>
@@ -405,16 +409,11 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId }:
       </Section>
 
       <Section title="Summarizer" description="Auto-inject a summary of prior conversation when the channel resumes after idle. The summary is generated from raw messages, not compaction summaries.">
-        <Row>
-          <Col>
-            <FormRow label="Enable Auto-Summarize">
-              <Toggle
-                value={!!form.summarizer_enabled}
-                onValueChange={(v) => patch("summarizer_enabled", v)}
-              />
-            </FormRow>
-          </Col>
-        </Row>
+        <Toggle
+          value={!!form.summarizer_enabled}
+          onChange={(v) => patch("summarizer_enabled", v)}
+          label="Enable auto-summarize on resume"
+        />
         {form.summarizer_enabled && (
           <>
             <Row>

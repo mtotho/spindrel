@@ -14,7 +14,11 @@ export function MobileMenuButton() {
   if (columns !== "single") return null;
 
   return (
-    <Pressable onPress={openMobile} style={{ padding: 4 }}>
+    <Pressable
+      onPress={openMobile}
+      className="items-center justify-center rounded-md hover:bg-surface-overlay"
+      style={{ width: 44, height: 44 }}
+    >
       <Menu size={20} color="#9ca3af" />
     </Pressable>
   );

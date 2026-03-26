@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useBots } from "@/src/api/hooks/useBots";
 
@@ -120,20 +120,10 @@ export default function LogsScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: isMobile ? "10px 12px" : "12px 20px",
-        borderBottom: "1px solid #2a2a2a",
-      }}>
-        <MobileMenuButton />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#e5e5e5" }}>Logs</div>
-          <div style={{ fontSize: 12, color: "#666" }}>
-            {data ? `${data.total} entries` : "Loading..."}
-          </div>
-        </div>
-      </div>
+      <MobileHeader
+        title="Logs"
+        subtitle={data ? `${data.total} entries` : "Loading..."}
+      />
 
       {/* Filter bar */}
       <div style={{

@@ -216,13 +216,13 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
 // ---------------------------------------------------------------------------
 export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: number }) {
   return (
-    <div style={{ display: "flex", gap }}>{children}</div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap }}>{children}</div>
   );
 }
 
 export function Col({ children, flex = 1 }: { children: React.ReactNode; flex?: number }) {
   return (
-    <div style={{ flex, minWidth: 0 }}>{children}</div>
+    <div style={{ flex, minWidth: 200 }}>{children}</div>
   );
 }
 

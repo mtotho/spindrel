@@ -62,6 +62,8 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
   },
 ];
 
+const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
+
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
@@ -69,17 +71,37 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     <Link href={item.href as any} asChild>
       <Pressable
         onPress={closeMobile}
-        className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
+        className={`flex-row items-center gap-2.5 rounded-lg px-2.5 py-2.5 ${
           active ? "bg-accent text-white" : "hover:bg-surface-overlay"
         }`}
       >
-        <Icon size={13} color={active ? "#ffffff" : "#9ca3af"} />
+        <Icon size={16} color={active ? "#ffffff" : "#9ca3af"} />
         <Text
-          className={`text-xs ${active ? "text-white font-medium" : "text-text-muted"}`}
+          className={`text-sm ${active ? "text-white font-medium" : "text-text-muted"}`}
           numberOfLines={1}
         >
           {item.label}
         </Text>
+      </Pressable>
+    </Link>
+  );
+}
+
+/** Icon-only nav link for collapsed rail */
+function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  return (
+    <Link href={item.href as any} asChild>
+      <Pressable
+        onPress={closeMobile}
+        className={`items-center justify-center rounded-lg ${
+          active ? "bg-accent" : "hover:bg-surface-overlay"
+        }`}
+        style={{ width: 44, height: 44 }}
+        accessibilityLabel={item.label}
+      >
+        <Icon size={18} color={active ? "#ffffff" : "#9ca3af"} />
       </Pressable>
     </Link>
   );
@@ -96,41 +118,117 @@ export function Sidebar() {
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
+  // -----------------------------------------------------------------------
+  // Collapsed: icon rail (56px)
+  // -----------------------------------------------------------------------
   if (collapsed) {
     return (
-      <View className="bg-surface border-r border-surface-border items-center pt-4" style={{ width: 48, flexShrink: 0 }}>
-        <Pressable onPress={toggleSidebar} className="p-2">
-          <ChevronRight size={16} color="#9ca3af" />
-        </Pressable>
+      <View className="bg-surface border-r border-surface-border items-center" style={{ width: 56, flexShrink: 0 }}>
+        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: "center", paddingTop: 8, paddingBottom: 8, gap: 2 }}>
+          {/* Expand toggle */}
+          <Pressable
+            onPress={toggleSidebar}
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+            style={{ width: 44, height: 44 }}
+            accessibilityLabel="Expand sidebar"
+          >
+            <ChevronRight size={16} color="#9ca3af" />
+          </Pressable>
+
+          {/* Channels icon */}
+          <Link href="/" asChild>
+            <Pressable
+              onPress={closeMobile}
+              className={`items-center justify-center rounded-lg ${
+                pathname === "/" ? "bg-accent/15" : "hover:bg-surface-overlay"
+              }`}
+              style={{ width: 44, height: 44 }}
+              accessibilityLabel="Channels"
+            >
+              <MessageSquare size={18} color={pathname === "/" ? "#3b82f6" : "#9ca3af"} />
+            </Pressable>
+          </Link>
+
+          {/* Divider */}
+          <View className="bg-surface-border my-1" style={{ height: 1, width: 32 }} />
+
+          {/* Admin nav icons */}
+          {ALL_NAV_ITEMS.map((item) => (
+            <RailIcon
+              key={item.href}
+              item={item}
+              active={pathname.startsWith(item.href)}
+            />
+          ))}
+        </ScrollView>
+
+        {/* Footer icons */}
+        <View className="border-t border-surface-border items-center py-2 gap-1">
+          <Link href={"/(app)/profile" as any} asChild>
+            <Pressable
+              onPress={closeMobile}
+              className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+              style={{ width: 44, height: 44 }}
+              accessibilityLabel="Profile"
+            >
+              <View className="w-6 h-6 rounded-full bg-accent/20 items-center justify-center">
+                <Text className="text-[10px] text-accent font-bold">
+                  {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
+                </Text>
+              </View>
+            </Pressable>
+          </Link>
+          <Link href={"/(app)/settings" as any} asChild>
+            <Pressable
+              onPress={closeMobile}
+              className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+              style={{ width: 44, height: 44 }}
+              accessibilityLabel="Settings"
+            >
+              <Settings size={18} color="#9ca3af" />
+            </Pressable>
+          </Link>
+        </View>
       </View>
     );
   }
 
+  // -----------------------------------------------------------------------
+  // Expanded sidebar
+  // -----------------------------------------------------------------------
   return (
-    <View className="bg-surface border-r border-surface-border" style={{ width: 200, flexShrink: 0 }}>
+    <View className="bg-surface border-r border-surface-border" style={{ width: 220, flexShrink: 0 }}>
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Header — Thoth branding */}
-        <View className="flex-row items-center justify-between px-2.5 py-3">
+        <View className="flex-row items-center justify-between px-3 py-3">
           <Link href="/" asChild>
             <Pressable className="flex-row items-center gap-1.5">
               <Text style={{ fontSize: 16, lineHeight: 20, color: "#e5e5e5" }}>{"\u{130C5}"}</Text>
               <Text className="text-accent text-sm font-semibold tracking-wide">THOTH</Text>
             </Pressable>
           </Link>
-          <Pressable onPress={toggleSidebar} className="p-1 rounded hover:bg-surface-overlay">
+          <Pressable
+            onPress={toggleSidebar}
+            className="items-center justify-center rounded hover:bg-surface-overlay"
+            style={{ width: 32, height: 32 }}
+          >
             <ChevronLeft size={14} color="#9ca3af" />
           </Pressable>
         </View>
 
         {/* Channels */}
-        <View className="px-2 py-1">
+        <View className="px-2 py-1.5">
           <View className="flex-row items-center justify-between px-2.5 mb-1">
-            <Text className="text-text-dim text-[9px] font-semibold tracking-wider">
+            <Text className="text-text-dim text-[10px] font-semibold tracking-wider py-1.5">
               CHANNELS
             </Text>
             <Link href={"/channels/new" as any} asChild>
-              <Pressable onPress={closeMobile} className="p-0.5 rounded hover:bg-surface-overlay">
-                <Plus size={11} color="#9ca3af" />
+              <Pressable
+                onPress={closeMobile}
+                className="items-center justify-center rounded hover:bg-surface-overlay"
+                style={{ width: 28, height: 28 }}
+              >
+                <Plus size={13} color="#9ca3af" />
               </Pressable>
             </Link>
           </View>
@@ -146,17 +244,17 @@ export function Sidebar() {
               >
                 <Pressable
                   onPress={closeMobile}
-                  className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
+                  className={`flex-row items-center gap-2.5 rounded-lg px-2.5 py-2 ${
                     isActive ? "bg-accent/15" : "hover:bg-surface-overlay"
                   }`}
                 >
                   <MessageSquare
-                    size={12}
+                    size={16}
                     color={isActive ? "#3b82f6" : "#9ca3af"}
                   />
                   <View className="flex-1 min-w-0">
                     <Text
-                      className={`text-xs ${
+                      className={`text-sm ${
                         isActive ? "text-accent font-medium" : "text-text"
                       }`}
                       numberOfLines={1}
@@ -164,7 +262,7 @@ export function Sidebar() {
                       {displayName}
                     </Text>
                     {bot && (
-                      <Text className="text-[9px] text-text-dim" numberOfLines={1}>
+                      <Text className="text-[10px] text-text-dim" numberOfLines={1}>
                         {bot.name}
                       </Text>
                     )}
@@ -177,8 +275,8 @@ export function Sidebar() {
 
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
-          <View key={section.title} className="px-2 py-1">
-            <Text className="text-text-dim text-[9px] font-semibold tracking-wider px-2.5 mb-0.5">
+          <View key={section.title} className="px-2 py-1.5">
+            <Text className="text-text-dim text-[10px] font-semibold tracking-wider px-2.5 py-1.5">
               {section.title}
             </Text>
             {section.items.map((item) => (
@@ -197,17 +295,17 @@ export function Sidebar() {
         <Link href={"/(app)/profile" as any} asChild>
           <Pressable
             onPress={closeMobile}
-            className={`flex-row items-center gap-2 rounded-lg px-2.5 py-1 ${
+            className={`flex-row items-center gap-2.5 rounded-lg px-2.5 py-2.5 ${
               pathname === "/profile" ? "bg-accent/15" : "hover:bg-surface-overlay"
             }`}
           >
-            <View className="w-5 h-5 rounded-full bg-accent/20 items-center justify-center">
-              <Text className="text-[9px] text-accent font-bold">
+            <View className="w-6 h-6 rounded-full bg-accent/20 items-center justify-center">
+              <Text className="text-[10px] text-accent font-bold">
                 {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
               </Text>
             </View>
             <Text
-              className={`text-xs flex-1 ${
+              className={`text-sm flex-1 ${
                 pathname === "/profile" ? "text-accent font-medium" : "text-text-muted"
               }`}
               numberOfLines={1}
@@ -217,9 +315,12 @@ export function Sidebar() {
           </Pressable>
         </Link>
         <Link href={"/(app)/settings" as any} asChild>
-          <Pressable onPress={closeMobile} className="flex-row items-center gap-2 rounded-lg px-2.5 py-1 hover:bg-surface-overlay">
-            <Settings size={13} color="#9ca3af" />
-            <Text className="text-xs text-text-muted">Settings</Text>
+          <Pressable
+            onPress={closeMobile}
+            className="flex-row items-center gap-2.5 rounded-lg px-2.5 py-2.5 hover:bg-surface-overlay"
+          >
+            <Settings size={16} color="#9ca3af" />
+            <Text className="text-sm text-text-muted">Settings</Text>
           </Pressable>
         </Link>
       </View>

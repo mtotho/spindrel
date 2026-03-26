@@ -2,28 +2,25 @@ import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-nati
 import { Link } from "expo-router";
 import { Bot, ChevronRight, Plus } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
-import { MobileMenuButton } from "@/src/components/layout/MobileMenuButton";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 export default function BotsScreen() {
   const { data, isLoading } = useBots();
 
   return (
     <View className="flex-1 bg-surface">
-      <View className="px-6 py-4 border-b border-surface-border flex-row items-center gap-3">
-        <MobileMenuButton />
-        <View className="flex-1">
-          <Text className="text-text text-xl font-bold">Bots</Text>
-          <Text className="text-text-muted text-sm mt-0.5">
-            {data?.length ?? 0} configured
-          </Text>
-        </View>
-        <Link href="/admin/bots/new" asChild>
-          <Pressable className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg">
-            <Plus size={14} color="#fff" />
-            <Text className="text-white text-sm font-medium">New Bot</Text>
-          </Pressable>
-        </Link>
-      </View>
+      <MobileHeader
+        title="Bots"
+        subtitle={`${data?.length ?? 0} configured`}
+        right={
+          <Link href="/admin/bots/new" asChild>
+            <Pressable className="flex-row items-center gap-2 bg-accent px-4 py-2 rounded-lg">
+              <Plus size={14} color="#fff" />
+              <Text className="text-white text-sm font-medium">New Bot</Text>
+            </Pressable>
+          </Link>
+        }
+      />
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">

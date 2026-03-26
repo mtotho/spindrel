@@ -1381,8 +1381,8 @@ export default function BotEditorScreen() {
         padding: isMobile ? "10px 12px" : "10px 16px", borderBottom: "1px solid #1a1a1a",
         flexWrap: isMobile && searchOpen ? "wrap" : "nowrap",
       }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ArrowLeft size={16} color="#888" />
+        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <ArrowLeft size={18} color="#888" />
         </button>
         {(!isMobile || !searchOpen) && (
           <div style={{ flex: 1, minWidth: 0 }}>
