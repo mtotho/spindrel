@@ -385,7 +385,7 @@ export function TaskEditor({
     })),
   ];
 
-  const title = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
+  const editorTitle = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
 
   return ReactDOM.createPortal(
     <div style={{
@@ -406,7 +406,7 @@ export function TaskEditor({
         </button>
 
         <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-          {title}
+          {editorTitle}
         </span>
         {cloneFromId && (
           <span style={{
