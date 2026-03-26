@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thoth Hub</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <nav class="top-nav">
+    <div class="brand"><span>&#129504;</span> Thoth Hub</div>
+    <div class="nav-links">
+      <a href="index.html" class="active">Dashboard</a>
+      <a href="pages/daily-log.html">Daily Logs</a>
+      <a href="pages/bot-overview.html">Bots</a>
+      <a href="pages/memory-browser.html">Memory</a>
+      <a href="pages/nightly-review.html">Nightly</a>
+      <a href="/crumb/">&#127838; Crumb</a>
+      <a href="/garden/">&#127807; Garden</a>
+      <a href="/haos/">&#127968; Home</a>
+      <a href="/sag/">&#11088; Sag</a>
+    </div>
+    <div class="nav-actions">
+      <button class="btn btn-sm" onclick="refreshDashboard()" title="Refresh all panels">&#8635; Refresh</button>
+      <span class="meta" id="last-updated"></span>
+    </div>
+  </nav>
+
+  <div class="dashboard">
+    <!-- Left: Today's Log -->
+    <div class="card">
+      <h2>Today's Log</h2>
+      <div class="log-preview" id="log-preview">Loading...</div>
+      <a class="view-full" href="pages/daily-log.html">View full log &rarr;</a>
+    </div>
+
+    <!-- Center: Bot Fleet -->
+    <div class="card">
+      <h2>Bot Fleet</h2>
+      <div class="bot-grid" id="bot-grid">Loading...</div>
+    </div>
+
+    <!-- Right: Activity Feed -->
+    <div class="card">
+      <h2>Recent Activity</h2>
+      <ul class="activity-feed" id="activity-feed">
+        <li><div class="entry" style="color:var(--text-muted)">Loading...</div></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Todos Panel -->
+  <div class="todos-panel" id="todos-panel">
+    <div class="card todos-card">
+      <h2>&#128221; Dev Todos</h2>
+      <div id="todos-content">
+        <div class="empty-state" style="padding:20px">
+          <div class="icon">&#128221;</div>
+          <p>Loading todos...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nightly Review Panel -->
+  <div class="nightly-panel" id="nightly-panel">
+    <div class="card nightly-card">
+      <h2>&#127769; Nightly Review</h2>
+      <div id="nightly-content">
+        <div class="empty-state" style="padding:40px 20px">
+          <div class="icon">&#127769;</div>
+          <h2 style="font-size:16px">No nightly review yet</h2>
+          <p>The first nightly review will appear here after it runs at 3 AM.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Weekly Review Panel -->
+  <div class="weekly-panel" id="weekly-panel">
+    <div class="card weekly-card">
+      <h2>&#128203; Weekly Review</h2>
+      <div id="weekly-content">
+        <div class="empty-state" style="padding:40px 20px">
+          <div class="icon">&#128203;</div>
+          <h2 style="font-size:16px">No weekly review yet</h2>
+          <p>The first weekly system review will appear here after it runs.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Plans Panel -->
+  <div class="plans-panel" id="plans-panel">
+    <div class="card plans-card">
+      <h2>&#128506; Plans</h2>
+      <div id="plans-content">
+        <div class="empty-state" style="padding:40px 20px">
+          <div class="icon">&#128506;</div>
+          <h2 style="font-size:16px">Loading plans...</h2>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar">
+    <div>Days logged: <span class="stat-value" id="stat-days">-</span></div>
+    <div>Bots monitored: <span class="stat-value" id="stat-bots">-</span></div>
+    <div>Time: <span class="stat-value" id="stat-current-time">-</span></div>
+    <div>Next heartbeat: <span class="stat-value" id="stat-next-heartbeat">-</span></div>
+  </div>
+
+  <script src="assets/app.js"></script>
+  <script>
+    initDashboard();
+    initNightlyPanel();
+    initWeeklyPanel();
+    initTodosPanel();
+    initPlansPanel();
+    // Update clock every minute
+    setInterval(updateFooterTime, 60000);
+  </script>
+</body>
+</html>
