@@ -122,6 +122,30 @@ function StringField({
   );
 }
 
+function TextareaField({
+  item,
+  value,
+  onChange,
+}: {
+  item: SettingItem;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <TextInput
+      className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm flex-1"
+      value={value}
+      onChangeText={onChange}
+      editable={!item.read_only}
+      placeholder="(empty)"
+      placeholderTextColor="#666666"
+      multiline
+      numberOfLines={4}
+      style={{ minHeight: 80, textAlignVertical: "top" }}
+    />
+  );
+}
+
 function ModelField({
   item,
   value,
@@ -184,6 +208,15 @@ function SettingRow({
         <NumberField
           item={item}
           value={localValue === null || localValue === undefined ? "" : String(localValue)}
+          onChange={(v) => onLocalChange(item.key, v)}
+        />
+      );
+    }
+    if (item.widget === "textarea") {
+      return (
+        <TextareaField
+          item={item}
+          value={String(localValue ?? "")}
           onChange={(v) => onLocalChange(item.key, v)}
         />
       );

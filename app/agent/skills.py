@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.agent.chunking import CHUNKING_VERSION, chunk_markdown
 from app.agent.embeddings import embed_batch as _embed_batch
 from app.config import settings
 from app.db.engine import async_session
@@ -39,69 +40,57 @@ def _parse_frontmatter(content: str) -> tuple[dict, str]:
     return meta, body
 
 
-def _chunk_markdown(body: str, skill_name: str, max_chunk: int = 1500) -> list[str]:
-    """Split markdown into chunks by h2 sections, respecting size limits."""
-    sections = re.split(r"(?=^## )", body, flags=re.MULTILINE)
-
-    chunks: list[str] = []
-    for section in sections:
-        section = section.strip()
-        if not section:
-            continue
-
-        if len(section) <= max_chunk:
-            chunks.append(section)
-        else:
-            paragraphs = section.split("\n\n")
-            current = ""
-            for para in paragraphs:
-                if current and len(current) + len(para) + 2 > max_chunk:
-                    chunks.append(current.strip())
-                    current = para
-                else:
-                    current += ("\n\n" if current else "") + para
-            if current.strip():
-                chunks.append(current.strip())
-
-    return [f"[Skill: {skill_name}]\n\n{chunk}" for chunk in chunks if chunk]
-
-
 async def _embed_skill_row(skill_id: str, content: str, content_hash: str) -> None:
     """Re-embed a skill's chunks into the documents table."""
     meta, body = _parse_frontmatter(content)
     display_name = meta.get("name", skill_id.replace("_", " ").title())
-    chunks = _chunk_markdown(body, display_name)
+    source_label = f"[Skill: {display_name}]"
 
-    if not chunks:
+    chunk_results = chunk_markdown(body, source_label=source_label, max_chunk=1500)
+
+    if not chunk_results:
         logger.warning("Skill '%s' produced no chunks, skipping embed", skill_id)
         return
 
-    logger.info("Embedding skill '%s' (%d chunks)...", skill_id, len(chunks))
+    # For embedding: prepend context_prefix for better retrieval
+    # For storage: keep only the content (context_prefix is metadata)
+    embed_texts = []
+    for cr in chunk_results:
+        if cr.context_prefix:
+            embed_texts.append(f"{cr.context_prefix}\n\n{cr.content}")
+        else:
+            embed_texts.append(f"{source_label}\n\n{cr.content}")
+
+    logger.info("Embedding skill '%s' (%d chunks)...", skill_id, len(chunk_results))
     try:
-        embeddings = await _embed_batch(chunks)
+        embeddings = await _embed_batch(embed_texts)
     except Exception:
         logger.exception("Failed to embed skill '%s'", skill_id)
         return
 
     async with async_session() as db:
         await db.execute(delete(Document).where(Document.source == f"skill:{skill_id}"))
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, (cr, embedding) in enumerate(zip(chunk_results, embeddings)):
+            # Store the content with the source label prefix for display
+            stored_content = f"{source_label}\n\n{cr.content}"
             doc = Document(
-                content=chunk,
+                content=stored_content,
                 embedding=embedding,
                 source=f"skill:{skill_id}",
                 metadata_={
                     "content_hash": content_hash,
+                    "chunking_version": CHUNKING_VERSION,
                     "chunk_index": i,
                     "skill_id": skill_id,
                     "skill_name": display_name,
+                    "context_prefix": cr.context_prefix,
                 },
             )
             db.add(doc)
         await db.commit()
 
     _loaded_skills.add(skill_id)
-    logger.info("Embedded skill '%s' (%d chunks)", skill_id, len(chunks))
+    logger.info("Embedded skill '%s' (%d chunks)", skill_id, len(chunk_results))
 
 
 async def seed_skills_from_files(skills_dir: Path = SKILLS_DIR) -> None:
@@ -149,18 +138,26 @@ async def load_skills(skills_dir: Path = SKILLS_DIR) -> None:
         skill_id = row.id
         content_hash = row.content_hash
 
-        # Check if embedding is up to date
+        # Check if embedding is up to date (content hash + chunking version)
         async with async_session() as db:
-            existing_hash = (await db.execute(
-                select(Document.metadata_["content_hash"].as_string())
+            existing_doc = (await db.execute(
+                select(
+                    Document.metadata_["content_hash"].as_string(),
+                    Document.metadata_["chunking_version"].as_string(),
+                )
                 .where(Document.source == f"skill:{skill_id}")
                 .limit(1)
-            )).scalar_one_or_none()
+            )).first()
 
-        if existing_hash == content_hash:
-            logger.debug("Skill '%s' unchanged, skipping", skill_id)
-            _loaded_skills.add(skill_id)
-            continue
+        if existing_doc:
+            existing_hash, existing_version = existing_doc
+            if existing_hash == content_hash and existing_version == CHUNKING_VERSION:
+                logger.debug("Skill '%s' unchanged, skipping", skill_id)
+                _loaded_skills.add(skill_id)
+                continue
+            if existing_version != CHUNKING_VERSION:
+                logger.info("Skill '%s' chunking version stale (%s → %s), re-embedding",
+                            skill_id, existing_version, CHUNKING_VERSION)
 
         await _embed_skill_row(skill_id, row.content, content_hash)
         loaded += 1

@@ -170,6 +170,10 @@ async def estimate_bot_context(
         delegate_bots=delegate_bots,
         base_prompt=bool(draft.get("base_prompt", True)),
     )
+    # Global base prompt (server-level, prepended before everything)
+    if settings.GLOBAL_BASE_PROMPT:
+        lines.append(EstimateLine("sys:global_base_prompt", len(settings.GLOBAL_BASE_PROMPT), "server-wide prompt prepended before all base/system prompts"))
+
     _base = render_base_prompt(_draft_bot)
     if _base:
         lines.append(EstimateLine("sys:base_prompt", len(_base), "universal platform prompt"))

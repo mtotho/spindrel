@@ -7,12 +7,12 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy import delete, func, select
 
+from app.agent.chunking import ChunkResult, chunk_markdown as _shared_chunk_markdown, chunk_sliding_window as _shared_chunk_sliding_window
 from app.agent.embeddings import embed_batch, embed_text
 from app.config import settings
 from app.db.engine import async_session
@@ -67,34 +67,28 @@ def _is_auto_injected(rel_parts: tuple[str, ...]) -> bool:
     return False
 
 
-@dataclass
-class ChunkResult:
-    content: str
-    language: str | None = None
-    symbol: str | None = None
-    start_line: int | None = None
-    end_line: int | None = None
-
-
 # ---------------------------------------------------------------------------
 # Chunkers
 # ---------------------------------------------------------------------------
 
 def _chunk_sliding_window(source: str, rel_path: str, language: str | None) -> list[ChunkResult]:
-    """Generic fallback: split by character window with overlap."""
+    """Generic fallback: boundary-aware sliding window via shared module."""
     header = f"# {rel_path}\n"
     window = settings.FS_INDEX_CHUNK_WINDOW
     overlap = settings.FS_INDEX_CHUNK_OVERLAP
     if len(source) <= window:
         return [ChunkResult(content=header + source, language=language)]
-    chunks: list[ChunkResult] = []
-    i = 0
-    while i < len(source):
-        end = min(i + window, len(source))
-        chunks.append(ChunkResult(content=header + source[i:end], language=language))
-        if end == len(source):
-            break
-        i += window - overlap
+    chunks = _shared_chunk_sliding_window(
+        source,
+        source_label=rel_path,
+        window=window,
+        overlap=overlap,
+        language=language,
+        break_on_boundaries=True,
+    )
+    # Prepend file header to content for display
+    for c in chunks:
+        c.content = header + c.content
     return chunks
 
 
@@ -149,13 +143,18 @@ def _chunk_python(source: str, rel_path: str) -> list[ChunkResult]:
 
 
 def _chunk_markdown(source: str, rel_path: str) -> list[ChunkResult]:
-    """Split by ## headers, same as skills chunker."""
-    from app.agent.skills import _chunk_markdown as _skills_chunk
-    chunks_text = _skills_chunk(source, rel_path, max_chunk=settings.FS_INDEX_CHUNK_WINDOW)
-    return [
-        ChunkResult(content=t, language="markdown")
-        for t in chunks_text
-    ]
+    """Hierarchy-aware markdown chunking via shared module."""
+    chunk_results = _shared_chunk_markdown(
+        source,
+        source_label=rel_path,
+        max_chunk=settings.FS_INDEX_CHUNK_WINDOW,
+    )
+    for cr in chunk_results:
+        cr.language = "markdown"
+        # Prepend file path header for display (like other chunkers)
+        if not cr.content.startswith(f"# {rel_path}"):
+            cr.content = f"# {rel_path}\n{cr.content}"
+    return chunk_results
 
 
 def _chunk_yaml(source: str, rel_path: str) -> list[ChunkResult]:
@@ -244,18 +243,34 @@ def _chunk_code_regex(
     return chunks
 
 
+def _chunk_code_treesitter_or_fallback(
+    source: str, rel_path: str, language: str, regex_pattern: re.Pattern[str],
+) -> list[ChunkResult]:
+    """Try tree-sitter chunking, fall back to regex on import/parse failure."""
+    try:
+        from app.agent.chunking_treesitter import chunk_code_treesitter
+        result = chunk_code_treesitter(source, rel_path, language)
+        if result is not None:
+            return result
+    except ImportError:
+        logger.debug("tree-sitter not available for %s, falling back to regex", language)
+    except Exception:
+        logger.debug("tree-sitter parse failed for %s, falling back to regex", rel_path, exc_info=True)
+    return _chunk_code_regex(source, rel_path, language, regex_pattern)
+
+
 _EXT_DISPATCH: dict[str, Any] = {
     ".py": _chunk_python,
     ".md": _chunk_markdown,
     ".yaml": _chunk_yaml,
     ".yml": _chunk_yaml,
     ".json": _chunk_json,
-    ".ts": lambda s, r: _chunk_code_regex(s, r, "typescript", _TS_SYMBOLS),
-    ".tsx": lambda s, r: _chunk_code_regex(s, r, "typescript", _TS_SYMBOLS),
-    ".js": lambda s, r: _chunk_code_regex(s, r, "javascript", _TS_SYMBOLS),
-    ".jsx": lambda s, r: _chunk_code_regex(s, r, "javascript", _TS_SYMBOLS),
-    ".go": lambda s, r: _chunk_code_regex(s, r, "go", _GO_SYMBOLS),
-    ".rs": lambda s, r: _chunk_code_regex(s, r, "rust", _RUST_SYMBOLS),
+    ".ts": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "typescript", _TS_SYMBOLS),
+    ".tsx": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "typescript", _TS_SYMBOLS),
+    ".js": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "javascript", _TS_SYMBOLS),
+    ".jsx": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "javascript", _TS_SYMBOLS),
+    ".go": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "go", _GO_SYMBOLS),
+    ".rs": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "rust", _RUST_SYMBOLS),
 }
 
 
