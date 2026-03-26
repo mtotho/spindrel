@@ -3,7 +3,7 @@ import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "re
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash } from "lucide-react";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -24,6 +24,14 @@ interface MessagePage {
 
 const PAGE_SIZE = 50;
 
+/** Should this message be grouped (compact, no avatar) with the previous? */
+function shouldGroup(current: Message, prev: Message | undefined): boolean {
+  if (!prev) return false;
+  if (current.role !== prev.role) return false;
+  const dt = new Date(current.created_at).getTime() - new Date(prev.created_at).getTime();
+  return Math.abs(dt) < 5 * 60 * 1000; // 5 minutes
+}
+
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
@@ -37,10 +45,8 @@ export default function ChatScreen() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
-  // Show hamburger when sidebar is not visible (mobile or collapsed)
   const showHamburger = columns === "single" || sidebarCollapsed;
 
-  // Per-turn model override
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
@@ -51,7 +57,6 @@ export default function ChatScreen() {
   const finishStreaming = useChatStore((s) => s.finishStreaming);
   const setError = useChatStore((s) => s.setError);
 
-  // Cursor-based paginated message loading
   const {
     data: pages,
     isLoading,
@@ -76,10 +81,8 @@ export default function ChatScreen() {
     enabled: !!channel?.active_session_id,
   });
 
-  // Sync fetched pages into the chat store (reversed for inverted FlatList)
   useEffect(() => {
     if (channelId && pages) {
-      // Combine oldest pages first, then newer pages → chronological order
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages);
       setMessages(channelId, allMessages);
     }
@@ -111,7 +114,6 @@ export default function ChatScreen() {
 
       startStreaming(channelId);
 
-      // Build attachment payloads
       let attachments: ChatAttachment[] | undefined;
       let file_metadata: ChatFileMetadata[] | undefined;
       if (files && files.length > 0) {
@@ -145,7 +147,6 @@ export default function ChatScreen() {
         ...(file_metadata?.length ? { file_metadata } : {}),
       });
 
-      // Clear per-turn override after sending
       setTurnModelOverride(undefined);
     },
     [channelId, channel, turnModelOverride]
@@ -160,18 +161,33 @@ export default function ChatScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Show hamburger/back on mobile
   const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+
+  // Build a lookup for grouping: for each message index in invertedData,
+  // is it grouped with the message below it (which is the chronological next)?
+  // Note: inverted means index 0 = newest. "previous" in chrono = index + 1.
+  const renderMessage = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      // In inverted list: index+1 is the chronologically previous message
+      const prevMsg = invertedData[index + 1];
+      const grouped = shouldGroup(item, prevMsg);
+      return <MessageBubble message={item} botName={bot?.name} isGrouped={grouped} />;
+    },
+    [invertedData, bot?.name]
+  );
+
+  const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
   return (
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-2 px-3 border-b border-surface-border bg-surface"
+        className="flex-row items-center gap-2 px-3 border-b border-surface-border"
         style={{
           flexShrink: 0,
           zIndex: 10,
           minHeight: 48,
+          backgroundColor: "#111111",
           ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
         }}
       >
@@ -179,7 +195,7 @@ export default function ChatScreen() {
           <Pressable
             onPress={goBack}
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
-            style={{ width: 40, height: 40 }}
+            style={{ width: 36, height: 36 }}
           >
             <ArrowLeft size={18} color="#9ca3af" />
           </Pressable>
@@ -188,14 +204,15 @@ export default function ChatScreen() {
           <Pressable
             onPress={toggleSidebar}
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
-            style={{ width: 40, height: 40 }}
+            style={{ width: 36, height: 36 }}
           >
             <Menu size={18} color="#9ca3af" />
           </Pressable>
         )}
+        <Hash size={16} color="#666666" style={{ marginLeft: 2 }} />
         <View className="flex-1 min-w-0 py-1.5">
           <Text className="text-text font-semibold text-sm" numberOfLines={1}>
-            {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
+            {displayName}
           </Text>
           {bot && (
             <View className="flex-row items-center gap-1.5">
@@ -212,18 +229,18 @@ export default function ChatScreen() {
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
               className="items-center justify-center rounded-md hover:bg-surface-overlay"
-              style={{ width: 40, height: 40 }}
+              style={{ width: 36, height: 36 }}
             >
-              <Settings size={16} color="#999999" />
+              <Settings size={16} color="#666666" />
             </Pressable>
           </Link>
         )}
       </View>
 
-      {/* Messages — inverted FlatList so it naturally starts at the bottom */}
+      {/* Messages */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color="#666666" />
         </View>
       ) : (
         <FlatList
@@ -232,8 +249,8 @@ export default function ChatScreen() {
           style={{ flex: 1 }}
           data={invertedData}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} botName={bot?.name} />}
-          contentContainerStyle={{ padding: 16 }}
+          renderItem={renderMessage}
+          contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
           scrollEventThrottle={100}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
@@ -249,11 +266,11 @@ export default function ChatScreen() {
           ListFooterComponent={
             isFetchingNextPage ? (
               <View className="items-center py-3">
-                <ActivityIndicator size="small" color="#3b82f6" />
+                <ActivityIndicator size="small" color="#666666" />
               </View>
             ) : hasNextPage ? (
               <Pressable onPress={handleLoadMore} className="items-center py-3">
-                <Text className="text-accent text-xs">Load older messages</Text>
+                <Text className="text-text-muted text-xs">Load older messages</Text>
               </Pressable>
             ) : null
           }

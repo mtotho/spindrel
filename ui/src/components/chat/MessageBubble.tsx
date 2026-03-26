@@ -5,6 +5,8 @@ import type { Message, AttachmentBrief } from "../../types/api";
 interface Props {
   message: Message;
   botName?: string;
+  /** Whether this message is "grouped" with the previous (same author, close in time) */
+  isGrouped?: boolean;
 }
 
 // Deterministic color from string hash
@@ -14,8 +16,8 @@ function avatarColor(name: string): string {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
   const colors = [
-    "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b",
-    "#10b981", "#06b6d4", "#ef4444", "#6366f1",
+    "#6366f1", "#8b5cf6", "#ec4899", "#f59e0b",
+    "#10b981", "#06b6d4", "#ef4444", "#e879f9",
   ];
   return colors[Math.abs(hash) % colors.length];
 }
@@ -26,16 +28,16 @@ function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
   return (
     <View
       style={{
-        width: 28,
-        height: 28,
-        borderRadius: 14,
+        width: 32,
+        height: 32,
+        borderRadius: 6,
         backgroundColor: bg,
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
       }}
     >
-      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+      <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
         {letter}
       </Text>
     </View>
@@ -50,7 +52,6 @@ type InlineNode = string | { tag: string; content: string; href?: string };
 
 function parseInline(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
-  // Order matters: bold (**) before Slack bold (*), inline code before others
   const pattern =
     /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\_[^_]+\_)|(~[^~]+~)|(\[([^\]]+)\]\(([^)]+)\))|(<(https?:\/\/[^>]+)>)/g;
   let last = 0;
@@ -70,7 +71,7 @@ function parseInline(text: string): InlineNode[] {
   return nodes;
 }
 
-function renderInlineNodes(nodes: InlineNode[], isUser: boolean) {
+function renderInlineNodes(nodes: InlineNode[]) {
   return nodes.map((n, i) => {
     if (typeof n === "string") {
       const parts = n.split("\n");
@@ -87,11 +88,13 @@ function renderInlineNodes(nodes: InlineNode[], isUser: boolean) {
           <code
             key={i}
             style={{
-              fontFamily: "monospace",
+              fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
               fontSize: "0.85em",
-              background: isUser ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)",
-              padding: "1px 5px",
-              borderRadius: 3,
+              background: "rgba(255,255,255,0.06)",
+              padding: "2px 5px",
+              borderRadius: 4,
+              color: "#e06c75",
+              border: "1px solid rgba(255,255,255,0.06)",
             }}
           >
             {n.content}
@@ -110,7 +113,9 @@ function renderInlineNodes(nodes: InlineNode[], isUser: boolean) {
             href={n.href}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: isUser ? "#bfdbfe" : "#60a5fa", textDecoration: "underline" }}
+            style={{ color: "#5b9bd5", textDecoration: "none" }}
+            onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
+            onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
           >
             {n.content}
           </a>
@@ -121,14 +126,7 @@ function renderInlineNodes(nodes: InlineNode[], isUser: boolean) {
   });
 }
 
-function MarkdownContent({
-  text,
-  isUser,
-}: {
-  text: string;
-  isUser: boolean;
-}) {
-  // Split into code blocks and paragraphs
+function MarkdownContent({ text }: { text: string }) {
   const blocks: { type: "code" | "text"; content: string; lang?: string }[] = [];
   const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
   let last = 0;
@@ -143,22 +141,24 @@ function MarkdownContent({
   if (last < text.length) blocks.push({ type: "text", content: text.slice(last) });
 
   return (
-    <div style={{ fontSize: 14, lineHeight: "1.5", color: isUser ? "#fff" : "#e5e5e5" }}>
+    <div style={{ fontSize: 14, lineHeight: "1.55", color: "#d1d5db" }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
           return (
             <pre
               key={i}
               style={{
-                fontFamily: "monospace",
-                fontSize: 13,
-                background: isUser ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.06)",
-                padding: "10px 12px",
+                fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                fontSize: 12.5,
+                background: "#1a1a1e",
+                padding: "12px 14px",
                 borderRadius: 6,
+                border: "1px solid rgba(255,255,255,0.06)",
                 overflowX: "auto",
                 margin: "6px 0",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
+                lineHeight: "1.5",
               }}
             >
               {block.content}
@@ -167,7 +167,7 @@ function MarkdownContent({
         }
         const nodes = parseInline(block.content);
         return (
-          <span key={i}>{renderInlineNodes(nodes, isUser)}</span>
+          <span key={i}>{renderInlineNodes(nodes)}</span>
         );
       })}
     </div>
@@ -222,7 +222,7 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
             color: "#999",
           }}
         >
-          <span>📎</span>
+          <span style={{ fontSize: 14 }}>📎</span>
           <span>{f.filename}</span>
           <span style={{ color: "#666" }}>
             ({(f.size_bytes / 1024).toFixed(1)} KB)
@@ -234,68 +234,133 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// MessageBubble
+// MessageBubble — Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, botName }: Props) {
+export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isUser = message.role === "user";
   const isWeb = Platform.OS === "web";
+  const displayName = isUser ? "You" : (botName || "Bot");
+  const timestamp = new Date(message.created_at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const messageContent = isWeb ? (
+    <>
+      {(message.content || "").length > 0 && (
+        <MarkdownContent text={message.content || ""} />
+      )}
+      {message.attachments && message.attachments.length > 0 && (
+        <AttachmentImages attachments={message.attachments} />
+      )}
+    </>
+  ) : (
+    <Text
+      className="text-sm leading-relaxed"
+      style={{ color: "#d1d5db" }}
+      selectable
+    >
+      {message.content || ""}
+    </Text>
+  );
+
+  // Grouped message — compact, no avatar or name header
+  if (isGrouped) {
+    if (isWeb) {
+      return (
+        <div
+          className="msg-hover"
+          style={{
+            paddingLeft: 60,
+            paddingRight: 16,
+            paddingTop: 1,
+            paddingBottom: 1,
+            borderRadius: 4,
+          }}
+        >
+          {messageContent}
+        </div>
+      );
+    }
+    return (
+      <View
+        style={{
+          paddingLeft: 60,
+          paddingRight: 16,
+          paddingTop: 1,
+          paddingBottom: 1,
+        }}
+      >
+        {messageContent}
+      </View>
+    );
+  }
+
+  // Full message — avatar + name header + content
+  const inner = (
+    <>
+      {/* Avatar */}
+      <View style={{ paddingTop: 2 }}>
+        <Avatar name={displayName} isUser={isUser} />
+      </View>
+
+      {/* Content */}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {/* Name + timestamp header */}
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <Text
+            style={{
+              fontSize: 14,
+              fontWeight: "700",
+              color: isUser ? "#e5e5e5" : avatarColor(displayName),
+            }}
+          >
+            {displayName}
+          </Text>
+          <Text style={{ fontSize: 11, color: "#555555" }}>
+            {timestamp}
+          </Text>
+        </View>
+
+        {/* Message content */}
+        {messageContent}
+      </View>
+    </>
+  );
+
+  if (isWeb) {
+    return (
+      <div
+        className="msg-hover"
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          gap: 12,
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingTop: 8,
+          paddingBottom: 4,
+          borderRadius: 4,
+        }}
+      >
+        {inner}
+        <style>{`.msg-hover:hover { background: rgba(255,255,255,0.015); }`}</style>
+      </div>
+    );
+  }
 
   return (
     <View
-      className={`mb-3 ${isUser ? "self-end" : "self-start"}`}
       style={{
-        maxWidth: "80%",
         flexDirection: "row",
-        alignItems: "flex-end",
-        gap: 8,
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingTop: 8,
+        paddingBottom: 4,
       }}
     >
-      {/* Bot avatar (left) */}
-      {!isUser && <Avatar name={botName || "Bot"} isUser={false} />}
-
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View
-          className={`rounded-2xl px-4 py-3 ${
-            isUser
-              ? "bg-accent rounded-br-md"
-              : "rounded-bl-md"
-          }`}
-          style={!isUser ? { backgroundColor: "#2a2a2f" } : undefined}
-        >
-          {isWeb ? (
-            <>
-              {(message.content || "").length > 0 && (
-                <MarkdownContent text={message.content || ""} isUser={isUser} />
-              )}
-              {message.attachments && message.attachments.length > 0 && (
-                <AttachmentImages attachments={message.attachments} />
-              )}
-            </>
-          ) : (
-            <Text
-              className="text-sm leading-relaxed"
-              style={{ color: isUser ? "#fff" : "#e5e5e5" }}
-              selectable
-            >
-              {message.content || ""}
-            </Text>
-          )}
-        </View>
-        <Text
-          className={`text-[10px] text-text-dim mt-1 ${
-            isUser ? "text-right" : "text-left"
-          }`}
-        >
-          {new Date(message.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Text>
-      </View>
-
-      {/* User avatar (right) */}
-      {isUser && <Avatar name="User" isUser={true} />}
+      {inner}
     </View>
   );
 }

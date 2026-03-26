@@ -208,7 +208,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
-      <View className="border-t border-surface-border bg-surface" style={{ flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" as any }}>
+      <View style={{ flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" as any, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
@@ -226,7 +226,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                   position: "relative",
                   borderRadius: 8,
                   overflow: "hidden",
-                  border: "1px solid #333",
+                  border: "1px solid rgba(255,255,255,0.08)",
                 }}
               >
                 {pf.preview ? (
@@ -248,7 +248,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: "#222",
+                      background: "#1a1a1a",
                       fontSize: 10,
                       color: "#999",
                       padding: 4,
@@ -284,14 +284,15 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           </div>
         )}
 
-        <View className={`flex-row items-end ${isMobile ? "gap-2 p-3" : "gap-3 p-4"}`}>
+        <View className={`flex-row items-end ${isMobile ? "gap-2 px-3 py-2" : "gap-2 px-4 py-3"}`}>
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className="w-11 h-11 rounded-xl items-center justify-center bg-surface-raised"
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+            style={{ width: 36, height: 36 }}
           >
-            <Paperclip size={18} color="#666666" />
+            <Paperclip size={18} color="#555555" />
           </Pressable>
           <input
             ref={fileInputRef}
@@ -320,24 +321,24 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               style={{
                 flex: 1,
                 fontFamily: "inherit",
-                fontSize: 16,
-                lineHeight: "1.4",
-                padding: "10px 16px",
-                borderRadius: 12,
-                border: "1px solid var(--color-surface-border, #333)",
-                background: "var(--color-surface-raised, #1a1a1a)",
-                color: "var(--color-text, #e5e5e5)",
+                fontSize: 15,
+                lineHeight: "1.45",
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "#1a1a1e",
+                color: "#e5e5e5",
                 resize: "none",
                 outline: "none",
-                minHeight: 44,
+                minHeight: 40,
                 maxHeight: 120,
                 overflow: "auto",
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = "#3b82f6";
+                e.target.style.borderColor = "rgba(255,255,255,0.15)";
               }}
               onBlurCapture={(e) => {
-                e.target.style.borderColor = "";
+                e.target.style.borderColor = "rgba(255,255,255,0.08)";
               }}
             />
           </div>
@@ -350,12 +351,12 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
-                    background: "rgba(59,130,246,0.12)",
-                    border: "1px solid rgba(59,130,246,0.3)",
-                    borderRadius: 8,
+                    background: "rgba(99,102,241,0.1)",
+                    border: "1px solid rgba(99,102,241,0.25)",
+                    borderRadius: 6,
                     padding: "4px 8px",
                     fontSize: 11,
-                    color: "#3b82f6",
+                    color: "#8b5cf6",
                     cursor: "pointer",
                     whiteSpace: "nowrap",
                     maxWidth: 180,
@@ -377,10 +378,10 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               ) : (
                 <Pressable
                   onPress={() => setShowModelPicker(true)}
-                  className="w-11 h-11 rounded-xl items-center justify-center bg-surface-raised"
-                  style={{ opacity: 0.7 }}
+                  className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+                  style={{ width: 36, height: 36, opacity: 0.6 }}
                 >
-                  <Cpu size={16} color="#666666" />
+                  <Cpu size={15} color="#666666" />
                 </Pressable>
               )}
               {showModelPicker && (() => {
@@ -416,11 +417,15 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           <Pressable
             onPress={handleSend}
             disabled={!canSend}
-            className={`w-11 h-11 rounded-xl items-center justify-center ${
-              canSend ? "bg-accent" : "bg-surface-raised"
-            }`}
+            className="items-center justify-center rounded-lg"
+            style={{
+              width: 36,
+              height: 36,
+              backgroundColor: canSend ? "#4f46e5" : "transparent",
+              opacity: canSend ? 1 : 0.4,
+            }}
           >
-            <Send size={18} color={canSend ? "white" : "#666666"} />
+            <Send size={16} color={canSend ? "white" : "#666666"} />
           </Pressable>
           <AutocompleteMenu
             show={showMenu}
@@ -443,12 +448,13 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
 
   // Native: keep RN TextInput
   return (
-    <View className="flex-row items-end gap-3 p-4 border-t border-surface-border bg-surface">
+    <View className="flex-row items-end gap-2 px-3 py-2" style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
       <TextInput
         ref={inputRef}
-        className="flex-1 bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-text text-sm min-h-[44px] max-h-[120px]"
+        className="flex-1 bg-surface-raised rounded-lg px-4 py-2.5 text-text text-sm min-h-[40px] max-h-[120px]"
+        style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         placeholder="Type a message..."
-        placeholderTextColor="#666666"
+        placeholderTextColor="#555555"
         value={text}
         onChangeText={setText}
         onKeyPress={handleKeyPress}
@@ -458,12 +464,16 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
       <Pressable
         onPress={handleSend}
         disabled={!text.trim() || disabled}
-        className={`w-11 h-11 rounded-xl items-center justify-center ${
-          text.trim() && !disabled ? "bg-accent" : "bg-surface-raised"
-        }`}
+        className="items-center justify-center rounded-lg"
+        style={{
+          width: 36,
+          height: 36,
+          backgroundColor: text.trim() && !disabled ? "#4f46e5" : "transparent",
+          opacity: text.trim() && !disabled ? 1 : 0.4,
+        }}
       >
         <Send
-          size={18}
+          size={16}
           color={text.trim() && !disabled ? "white" : "#666666"}
         />
       </Pressable>
