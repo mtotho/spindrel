@@ -31,6 +31,19 @@ def format_last_active(raw: str) -> str:
         return (raw or "")[:16]
 
 
+def format_thinking_for_slack(text: str) -> str:
+    """Format intermediate 'thinking' text so it's visually distinct from final responses.
+
+    Uses Slack blockquote (``>``) with a thought-bubble prefix so the user can
+    immediately tell this is the agent reasoning, not its answer.
+    """
+    if not text or not text.strip():
+        return "> 💭 _thinking…_"
+    lines = text.strip().splitlines()
+    quoted = "\n".join(f"> {line}" for line in lines)
+    return f"> 💭 *Thinking:*\n{quoted}"
+
+
 def format_response_for_slack(response: str) -> str:
     if not response or not response.strip():
         return "_(no response)_"

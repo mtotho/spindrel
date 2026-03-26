@@ -2,8 +2,8 @@
 import base64
 import logging
 
-from agent_client import http, ensure_channel, store_passive_message_http, stream_chat
-from formatting import format_response_for_slack, format_tool_status, split_for_slack
+from agent_client import http, ensure_channel, store_passive_message_http, stream_chat, cancel_session
+from formatting import format_response_for_slack, format_thinking_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_state
@@ -146,11 +146,14 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     async def _ensure_thinking() -> None:
         nonlocal thinking_ts, thinking_channel
         if thinking_ts is None:
-            msg = await client.chat_postMessage(
-                channel=channel,
-                text="⏳ _thinking..._",
+            post_kwargs: dict = {
+                "channel": channel,
+                "text": "⏳ _thinking..._",
                 **identity,
-            )
+            }
+            if thread_ts:
+                post_kwargs["thread_ts"] = thread_ts
+            msg = await client.chat_postMessage(**post_kwargs)
             thinking_ts = msg["ts"]
             thinking_channel = msg["channel"]
 
@@ -185,12 +188,12 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                 )
             elif etype == "assistant_text":
                 # Intermediate text the LLM produced alongside tool calls.
-                # Turn the current thinking placeholder into a real message,
+                # Format distinctly (blockquoted) so it's clearly not the final answer,
                 # then post a fresh thinking placeholder for the next tool cycle.
                 _at_text = (event.get("text") or "").strip()
                 if _at_text:
                     _assistant_texts_posted = True
-                    formatted_at = format_response_for_slack(_at_text)
+                    formatted_at = format_thinking_for_slack(_at_text)
                     chunks_at = split_for_slack(formatted_at)
                     # First chunk replaces the thinking placeholder
                     await client.chat_update(
@@ -208,13 +211,26 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                             **identity,
                         )
                     # Post a fresh thinking placeholder for the next iteration
-                    msg = await client.chat_postMessage(
-                        channel=thinking_channel,
-                        text="⏳ _working..._",
+                    _working_kwargs: dict = {
+                        "channel": thinking_channel,
+                        "text": "⏳ _working..._",
                         **identity,
-                    )
+                    }
+                    if thread_ts:
+                        _working_kwargs["thread_ts"] = thread_ts
+                    msg = await client.chat_postMessage(**_working_kwargs)
                     thinking_ts = msg["ts"]
                     thinking_channel = msg["channel"]
+            elif etype == "cancelled":
+                # Agent loop was cancelled via STOP
+                if thinking_ts and thinking_channel:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text="_Cancelled._",
+                        **identity,
+                    )
+                return
             elif etype == "warning":
                 _warn_code = event.get("code", "unknown")
                 _warn_msg = event.get("message", "")
@@ -358,6 +374,37 @@ async def dispatch(
     # Ensure Channel row exists on the server (idempotent, best-effort)
     await ensure_channel(client_id, bot_id)
 
+    # STOP intercept: cancel in-progress agent loop (works regardless of require_mention)
+    if text.upper() == "STOP":
+        try:
+            result = await cancel_session(client_id, bot_id)
+            if result.get("cancelled") or result.get("queued_tasks_cancelled", 0) > 0:
+                parts = []
+                if result.get("cancelled"):
+                    parts.append("active request cancelled")
+                q = result.get("queued_tasks_cancelled", 0)
+                if q:
+                    parts.append(f"{q} queued message(s) cancelled")
+                await client.chat_postMessage(
+                    channel=channel,
+                    text=f"_Cancellation requested: {', '.join(parts)}._",
+                    thread_ts=thread_ts,
+                )
+            else:
+                await client.chat_postMessage(
+                    channel=channel,
+                    text="_Nothing running to cancel._",
+                    thread_ts=thread_ts,
+                )
+        except Exception:
+            logger.exception("STOP cancel failed for channel %s", channel)
+            await client.chat_postMessage(
+                channel=channel,
+                text="_Failed to cancel — server may be unreachable._",
+                thread_ts=thread_ts,
+            )
+        return
+
     appended, attachments, file_metadata = await _process_slack_files(files or [], user)
 
     if mentioned and not text and not appended and not attachments:
@@ -419,20 +466,45 @@ async def dispatch(
     await _run_dispatch(channel, payload, client, identity)
 
 
+def _handle_bot_message(event):
+    """Check if a bot message should be processed. Returns (user, should_process)."""
+    config = get_channel_config(event.get("channel", ""))
+    if not config.get("allow_bot_messages", False):
+        return None, False
+    sender = event.get("bot_id") or event.get("username") or "unknown"
+    return f"bot:{sender}", True
+
+
 def register_message_handlers(app):
+    # Slack Bolt only matches messages with NO subtype via @app.event("message").
+    # Bot messages have subtype="bot_message" and need a dedicated handler.
+    @app.event({"type": "message", "subtype": "bot_message"})
+    async def on_bot_message(event, say, client):
+        user, ok = _handle_bot_message(event)
+        if not ok:
+            return
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        await dispatch(
+            event["channel"],
+            user,
+            event.get("text", ""),
+            say,
+            client,
+            event.get("files"),
+            thread_ts=thread_ts,
+            mentioned=False,
+        )
+
     @app.event("message")
     async def on_message(event, say, client):
         st = event.get("subtype")
-        is_bot_msg = st == "bot_message" or bool(event.get("bot_id"))
+        is_bot_msg = bool(event.get("bot_id"))
 
         if is_bot_msg:
-            # Only pass through bot messages if the channel has opted in.
-            config = get_channel_config(event.get("channel", ""))
-            if not config.get("allow_bot_messages", False):
+            # Bot messages without subtype="bot_message" (rare but possible).
+            user, ok = _handle_bot_message(event)
+            if not ok:
                 return
-            # Identify the sender as bot:<bot_id> or bot:<username>
-            sender = event.get("bot_id") or event.get("username") or "unknown"
-            user = f"bot:{sender}"
         else:
             # Most subtypes (channel_join, message_changed, …) are noise;
             # file uploads often use file_share.

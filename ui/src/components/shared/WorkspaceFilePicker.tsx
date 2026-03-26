@@ -45,34 +45,39 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {/* Breadcrumb */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 0, fontSize: 12, flexWrap: "wrap" }}>
         <button
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: "#93c5fd", fontSize: 12, padding: 0,
+            color: path === "/" ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+            fontFamily: "monospace",
           }}
         >
           /workspace
         </button>
-        {path !== "/" && (
-          <>
-            <span style={{ color: "#555" }}>/</span>
-            <span style={{ color: "#999", fontFamily: "monospace" }}>
-              {path.replace(/^\//, "")}
-            </span>
-            <button
-              onClick={navigateUp}
-              style={{
-                background: "none", border: "1px solid #333", borderRadius: 4,
-                cursor: "pointer", color: "#999", fontSize: 10, padding: "1px 6px",
-                marginLeft: 4,
-              }}
-            >
-              Up
-            </button>
-          </>
-        )}
+        {path !== "/" && (() => {
+          const segments = path.replace(/^\//, "").split("/").filter(Boolean);
+          return segments.map((seg, i) => {
+            const segPath = "/" + segments.slice(0, i + 1).join("/");
+            const isLast = i === segments.length - 1;
+            return (
+              <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
+                <span style={{ color: "#555", margin: "0 1px" }}>/</span>
+                <button
+                  onClick={() => navigateTo(segPath)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: isLast ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {seg}
+                </button>
+              </span>
+            );
+          });
+        })()}
       </div>
 
       {/* Entries */}

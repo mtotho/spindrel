@@ -425,12 +425,14 @@ async def update_channel_config(
         for field, value in hb_updates.items():
             if field == "interval_minutes" and value is not None:
                 value = max(1, value)
-            elif field == "model" and value is not None:
-                value = value.strip()
+            elif field == "model":
+                # model is nullable=False; coerce None → ""
+                value = value.strip() if value else ""
             elif field == "model_provider_id" and value is not None:
                 value = value.strip() or None
-            elif field == "prompt" and value is not None:
-                value = value.strip()
+            elif field == "prompt":
+                # prompt is nullable=False; coerce None → ""
+                value = value.strip() if value else ""
             elif field == "quiet_start":
                 value = dt_time.fromisoformat(value) if value else None
             elif field == "quiet_end":

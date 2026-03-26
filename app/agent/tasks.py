@@ -434,7 +434,7 @@ async def run_exec_task(task: Task) -> None:
             if instance is None:
                 raise RuntimeError("Sandbox instance not found or not allowed")
             result = await sandbox_service.exec(instance, script)
-        elif bot.workspace.enabled:
+        elif bot.workspace.enabled or bot.shared_workspace_id:
             from app.services.workspace import workspace_service
             ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "", bot=bot)
             # Convert to sandbox-compatible result

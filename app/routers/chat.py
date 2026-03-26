@@ -68,6 +68,16 @@ class ChatRequest(BaseModel):
     msg_metadata: Optional[dict] = None  # Metadata to attach to the user message row
 
 
+class CancelRequest(BaseModel):
+    client_id: str
+    bot_id: str
+
+
+class CancelResponse(BaseModel):
+    cancelled: bool
+    queued_tasks_cancelled: int = 0
+
+
 class ChatResponse(BaseModel):
     session_id: uuid.UUID
     response: str
@@ -346,6 +356,39 @@ async def chat(
     )
 
 
+@router.post("/chat/cancel", response_model=CancelResponse)
+async def chat_cancel(
+    req: CancelRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Cancel an in-progress agent loop and any queued tasks for the session."""
+    from sqlalchemy import select, update
+
+    # Resolve channel → active session
+    channel = await get_or_create_channel(db, client_id=req.client_id, bot_id=req.bot_id)
+    session_id = await ensure_active_session(db, channel)
+    await db.commit()
+
+    # Request cancellation of the in-progress loop
+    cancelled = session_locks.request_cancel(session_id)
+
+    # Cancel pending queued tasks for this session
+    result = await db.execute(
+        update(TaskModel)
+        .where(TaskModel.session_id == session_id, TaskModel.status == "pending")
+        .values(status="failed")
+    )
+    queued_cancelled = result.rowcount  # type: ignore[attr-defined]
+    await db.commit()
+
+    logger.info(
+        "POST /chat/cancel  client=%s  bot=%s  session=%s  active_cancelled=%s  queued=%d",
+        req.client_id, req.bot_id, session_id, cancelled, queued_cancelled,
+    )
+    return CancelResponse(cancelled=cancelled, queued_tasks_cancelled=queued_cancelled)
+
+
 @router.post("/chat/stream")
 async def chat_stream(
     req: ChatRequest,
@@ -475,6 +518,7 @@ async def chat_stream(
 
             response_text = ""
             response_actions = None
+            was_cancelled = False
 
             stream = run_stream(
                 messages, bot, message,
@@ -493,6 +537,14 @@ async def chat_stream(
                 if event is None:
                     yield ": keepalive\n\n"
                     continue
+                if event.get("type") == "cancelled":
+                    was_cancelled = True
+                    # Record cancellation in conversation history
+                    messages.append({"role": "user", "content": "[STOP]"})
+                    messages.append({"role": "assistant", "content": "[Cancelled by user]"})
+                    event_with_session = {**event, "session_id": str(session_id)}
+                    yield f"data: {json.dumps(event_with_session)}\n\n"
+                    break
                 # Capture response for mirroring
                 if event.get("type") == "response":
                     response_text = event.get("text", "")
@@ -506,8 +558,8 @@ async def chat_stream(
                 msg_metadata=req.msg_metadata,
             )
 
-            # Mirror response to integration
-            if not req.dispatch_config and response_text:
+            # Mirror response to integration (skip if cancelled)
+            if not was_cancelled and not req.dispatch_config and response_text:
                 await _mirror_to_integration(
                     channel, response_text,
                     bot_id=req.bot_id, client_actions=response_actions,

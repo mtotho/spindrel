@@ -10,6 +10,7 @@ from typing import Any
 
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
+from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
 from app.agent.message_utils import (
     _event_with_compaction_tag,
@@ -85,7 +86,7 @@ async def run_agent_tool_loop(
     else:
         # Auto-inject workspace tools when workspace is enabled
         _local_tool_names = list(bot.local_tools)
-        if bot.workspace.enabled:
+        if bot.workspace.enabled or bot.shared_workspace_id:
             from app.agent.message_utils import _WORKSPACE_TOOLS
             for wt in _WORKSPACE_TOOLS:
                 if wt not in _local_tool_names:
@@ -111,6 +112,12 @@ async def run_agent_tool_loop(
 
     try:
         for iteration in range(effective_max_iterations):
+            # Cancellation checkpoint: before LLM call
+            if session_id and session_locks.is_cancel_requested(session_id):
+                logger.info("Cancellation requested for session %s (before LLM call, iteration %d)", session_id, iteration + 1)
+                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                return
+
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
@@ -324,7 +331,21 @@ async def run_agent_tool_loop(
 
             logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
 
-            for tc in msg.tool_calls:
+            for tc_idx, tc in enumerate(msg.tool_calls):
+                # Cancellation checkpoint: before each tool dispatch
+                if session_id and session_locks.is_cancel_requested(session_id):
+                    logger.info("Cancellation requested for session %s (before tool %s)", session_id, tc.function.name)
+                    # Append stub tool results for remaining tool calls to keep
+                    # conversation history well-formed (assistant references these IDs).
+                    for remaining_tc in msg.tool_calls[tc_idx:]:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": remaining_tc.id,
+                            "content": "[Cancelled by user]",
+                        })
+                    yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                    return
+
                 name = tc.function.name
                 args = tc.function.arguments
                 logger.info("Tool call: %s", name)
