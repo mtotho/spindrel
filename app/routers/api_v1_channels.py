@@ -618,6 +618,10 @@ async def inject_channel_message(
 
     task_id: uuid.UUID | None = None
     if body.run_agent:
+        from app.config import settings as _settings
+        if _settings.SYSTEM_PAUSED and _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
+            raise HTTPException(status_code=503, detail="System is paused. Messages are being dropped.")
+
         task = Task(
             bot_id=channel.bot_id,
             client_id=channel.client_id,

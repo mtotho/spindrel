@@ -24,7 +24,7 @@ import {
   triStateOptions, triStateValue, triStateParse,
 } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
-import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings, BotEditorData, ToolGroup, ContextBreakdown } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
@@ -52,13 +52,12 @@ const INTERVAL_OPTIONS = [
 // ---------------------------------------------------------------------------
 const BASE_TABS = [
   { key: "general", label: "General" },
+  { key: "history", label: "History" },
   { key: "context", label: "Context" },
   { key: "tools", label: "Tools" },
   { key: "integrations", label: "Integrations" },
   { key: "sessions", label: "Sessions" },
-  { key: "knowledge", label: "Knowledge" },
   { key: "heartbeat", label: "Heartbeat" },
-  { key: "memories", label: "Memories" },
   { key: "tasks", label: "Tasks" },
   { key: "compression", label: "Compression" },
   { key: "logs", label: "Logs" },
@@ -109,6 +108,7 @@ export default function ChannelSettingsScreen() {
         compaction_keep_turns: settings.compaction_keep_turns,
         memory_knowledge_compaction_prompt: settings.memory_knowledge_compaction_prompt,
         compaction_prompt_template_id: settings.compaction_prompt_template_id,
+        history_mode: settings.history_mode,
         context_compression: settings.context_compression,
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
@@ -173,7 +173,7 @@ export default function ChannelSettingsScreen() {
             Channel Settings
           </Text>
         </View>
-        {(tab === "general" || tab === "workspace") && (
+        {(tab === "general" || tab === "history" || tab === "compression" || tab === "workspace") && (
           <Pressable
             onPress={handleSave}
             disabled={updateMutation.isPending}
@@ -216,6 +216,9 @@ export default function ChannelSettingsScreen() {
         {tab === "general" && (
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
         )}
+        {tab === "history" && (
+          <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} />
+        )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workspace" && (
           <WorkspaceOverrideTab
@@ -231,11 +234,9 @@ export default function ChannelSettingsScreen() {
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
-        {tab === "knowledge" && <KnowledgeTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} />}
-        {tab === "memories" && <MemoriesTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "compression" && <CompressionTab channelId={channelId!} />}
+        {tab === "compression" && <CompressionTab channelId={channelId!} form={form} patch={patch} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </ScrollView>
     </View>
@@ -246,7 +247,11 @@ export default function ChannelSettingsScreen() {
 // History Mode section — visual mode selector with contextual details
 // ===========================================================================
 
-const HISTORY_MODES = [
+const HISTORY_MODES: ReadonlyArray<{
+  value: string; label: string; icon: string; color: string;
+  bg: string; border: string; summary: string; detail: string | null;
+  recommended?: boolean;
+}> = [
   {
     value: "",
     label: "Inherit",
@@ -296,32 +301,28 @@ const HISTORY_MODES = [
       "Conversation is archived into titled sections. The bot gets an executive summary plus a section " +
       "index, and can use the read_conversation_history tool to open any section and read its full transcript. " +
       "This gives the bot agency to decide what to look up. Best for knowledge-heavy channels where the bot " +
-      "needs to reference specific past discussions. Recommended for most use cases.",
+      "needs to reference specific past discussions.",
+    recommended: true,
   },
-] as const;
+];
 
-function HistoryModeSection({ form, patch, channelId, workspaceId }: {
+function HistoryModeSection({ form, patch }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
-  channelId: string;
-  workspaceId?: string | null;
 }) {
   const selected = form.history_mode ?? "";
   const mode = HISTORY_MODES.find((m) => m.value === selected) || HISTORY_MODES[0];
 
   return (
-    <>
+    <Section title="History Mode">
       {/* Mode selector cards */}
-      <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 8 }}>
-        History Mode
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
         {HISTORY_MODES.map((m) => {
           const isSelected = selected === m.value;
           return (
             <button
               key={m.value}
-              onClick={() => patch("history_mode", m.value || undefined)}
+              onClick={() => patch("history_mode", m.value || null)}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
                 padding: "14px 10px", borderRadius: 8, cursor: "pointer",
@@ -337,6 +338,11 @@ function HistoryModeSection({ form, patch, channelId, workspaceId }: {
               }}>
                 {m.label}
               </span>
+              {m.recommended && (
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", letterSpacing: "0.03em" }}>
+                  Recommended
+                </span>
+              )}
               <span style={{
                 fontSize: 10, color: isSelected ? "#999" : "#555",
                 textAlign: "center", lineHeight: "1.3",
@@ -358,33 +364,7 @@ function HistoryModeSection({ form, patch, channelId, workspaceId }: {
           {mode.detail}
         </div>
       )}
-
-      {/* Backfill button + sections viewer for section-based modes */}
-      {(selected === "file" || selected === "structured") && (
-        <>
-          <BackfillButton channelId={channelId} historyMode={selected} />
-          <SectionsViewer channelId={channelId} />
-        </>
-      )}
-
-      {/* Compaction prompt controls */}
-      <div style={{ marginTop: 12 }}>
-        <PromptTemplateLink
-          templateId={form.compaction_prompt_template_id ?? null}
-          onLink={(id) => patch("compaction_prompt_template_id", id)}
-          onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-          workspaceId={workspaceId ?? undefined}
-        />
-        <LlmPrompt
-          value={form.memory_knowledge_compaction_prompt ?? ""}
-          onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-          label="Memory/Knowledge Compaction Prompt"
-          placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
-          helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
-          rows={5}
-        />
-      </div>
-    </>
+    </Section>
   );
 }
 
@@ -393,9 +373,8 @@ function HistoryModeSection({ form, patch, channelId, workspaceId }: {
 // ===========================================================================
 function BackfillButton({ channelId, historyMode }: { channelId: string; historyMode: string }) {
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ section: number; total: number; title: string } | null>(null);
+  const [progress, setProgress] = useState<{ section: number; total: number; title?: string } | null>(null);
   const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
-  const serverUrl = useAuthStore((s) => s.serverUrl);
   const queryClient = useQueryClient();
 
   const handleBackfill = useCallback(async () => {
@@ -403,49 +382,40 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
     setProgress(null);
     setResult(null);
     try {
-      const token = getAuthToken();
-      const res = await fetch(
-        `${serverUrl}/api/v1/admin/channels/${channelId}/backfill-sections`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ history_mode: historyMode }),
-        },
+      // Fire-and-forget: POST returns a task_id, then we poll
+      const { task_id } = await apiFetch<{ task_id: string }>(
+        `/api/v1/admin/channels/${channelId}/backfill-sections`,
+        { method: "POST", body: JSON.stringify({ history_mode: historyMode }) },
       );
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response body");
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const evt = JSON.parse(line);
-            if (evt.type === "backfill_progress") {
-              setProgress({ section: evt.section, total: evt.total_chunks, title: evt.title });
-            } else if (evt.type === "backfill_done") {
-              setResult({ sections: evt.sections_created });
-            } else if (evt.type === "error") {
-              setResult({ sections: 0, error: evt.detail });
-            }
-          } catch {}
+
+      // Poll every 2s until complete or failed
+      const poll = async () => {
+        while (true) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const job = await apiFetch<{
+            status: string; sections_created: number; total_chunks: number;
+            current_title?: string; error?: string;
+          }>(`/api/v1/admin/channels/${channelId}/backfill-status/${task_id}`);
+
+          if (job.status === "running") {
+            setProgress({ section: job.sections_created, total: job.total_chunks, title: job.current_title });
+          } else if (job.status === "complete") {
+            setResult({ sections: job.sections_created });
+            break;
+          } else if (job.status === "failed") {
+            setResult({ sections: job.sections_created, error: job.error || "Backfill failed" });
+            break;
+          }
         }
-      }
+      };
+      await poll();
     } catch (e) {
       setResult({ sections: 0, error: e instanceof Error ? e.message : "Unknown error" });
     } finally {
       setRunning(false);
       queryClient.invalidateQueries({ queryKey: ["channel-sections", channelId] });
     }
-  }, [channelId, historyMode, serverUrl, queryClient]);
+  }, [channelId, historyMode, queryClient]);
 
   return (
     <div style={{ padding: "10px 0" }}>
@@ -574,6 +544,263 @@ function SectionsViewer({ channelId }: { channelId: string }) {
 }
 
 // ===========================================================================
+// History Tab — history mode, compaction settings, backfill, summarizer
+// ===========================================================================
+function HistoryTab({ form, patch, channelId, workspaceId }: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  channelId: string;
+  workspaceId?: string | null;
+}) {
+  const selected = form.history_mode ?? "";
+  const isFileOrStructured = selected === "file" || selected === "structured";
+
+  return (
+    <>
+      {/* 1. History Mode cards — always visible at top */}
+      <HistoryModeSection form={form} patch={patch} />
+
+      {/* 2. Compaction settings — conditional on mode */}
+      {isFileOrStructured ? (
+        <Section title="Compaction" description="Manages long conversations by archiving old turns into titled sections.">
+          {/* Locked banner */}
+          <div style={{
+            padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
+            borderRadius: 8, fontSize: 12, color: "#fcd34d", fontWeight: 600,
+          }}>
+            Auto-compaction is always on in {selected} mode — it creates the archived sections the bot navigates.
+          </div>
+
+          {/* File-mode guidance */}
+          <div style={{
+            padding: "12px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
+            borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6",
+          }}>
+            After every <strong style={{ color: "#e5e5e5" }}>Interval</strong> user turns, the oldest messages are
+            archived into a titled, summarized section. The bot keeps the last <strong style={{ color: "#e5e5e5" }}>Keep Turns</strong> verbatim,
+            plus an executive summary and section index. It can open any section with the <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> tool.
+            <div style={{ marginTop: 8, color: "#f59e0b" }}>
+              Recommended: Interval 20, Keep Turns 6 — lower interval = more granular sections.
+              The bot can always read full transcripts, so aggressive archival is safe.
+            </div>
+          </div>
+
+          <Row>
+            <Col>
+              <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages. Lower = more frequent archival.">
+                <TextInput
+                  value={form.compaction_interval?.toString() ?? ""}
+                  onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
+                  placeholder="recommended (20)"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never archived.">
+                <TextInput
+                  value={form.compaction_keep_turns?.toString() ?? ""}
+                  onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                  placeholder="recommended (6)"
+                  type="number"
+                />
+              </FormRow>
+            </Col>
+          </Row>
+
+          {/* Compaction prompt */}
+          <PromptTemplateLink
+            templateId={form.compaction_prompt_template_id ?? null}
+            onLink={(id) => patch("compaction_prompt_template_id", id)}
+            onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+            workspaceId={workspaceId ?? undefined}
+          />
+          <LlmPrompt
+            value={form.memory_knowledge_compaction_prompt ?? ""}
+            onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+            label="Memory/Knowledge Compaction Prompt"
+            placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
+            helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+            rows={5}
+          />
+
+          {/* Backfill subsection */}
+          <div style={{
+            marginTop: 8, padding: "10px 14px", background: "#1a1117",
+            border: "1px solid #5b2333", borderRadius: 8,
+            fontSize: 11, color: "#d4a0a0", lineHeight: "1.5",
+          }}>
+            <AlertTriangle size={12} color="#f59e0b" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+            Backfill makes one LLM call per chunk of messages plus one for the executive summary. For example,
+            500 messages with chunk size 50 = ~11 LLM calls. Uses your compaction model. Set interval and keep
+            turns first. Re-running creates duplicate sections.
+          </div>
+          <BackfillButton channelId={channelId} historyMode={selected} />
+          <SectionsViewer channelId={channelId} />
+        </Section>
+      ) : (
+        <Section title="Compaction" description="Manages long conversations by periodically summarizing old turns.">
+          <Toggle
+            value={form.context_compaction ?? true}
+            onChange={(v) => patch("context_compaction", v)}
+            label="Enable auto-compaction"
+          />
+          {form.context_compaction && (
+            <>
+              <div style={{
+                padding: "14px 16px", background: "#0d1117", border: "1px solid #1e3a5f",
+                borderRadius: 8, marginBottom: 4,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>How Compaction Works</div>
+                <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6" }}>
+                  After every <strong style={{ color: "#e5e5e5" }}>Interval</strong> user turns, the oldest messages
+                  are archived and summarized by an LLM. The most recent <strong style={{ color: "#e5e5e5" }}>Keep Turns</strong> are
+                  always preserved verbatim. If memory/knowledge/persona is enabled, the bot gets a "last chance" pass
+                  to save important information before summarization.
+                </div>
+                <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginTop: 8 }}>
+                  <strong style={{ color: "#e5e5e5" }}>Example:</strong> Interval=30, Keep Turns=10 → after 30 user messages,
+                  the oldest 20 are summarized. The bot always sees the last 10 turns plus the summary.
+                </div>
+              </div>
+
+              <Row>
+                <Col>
+                  <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages accumulate. Lower = more frequent, tighter context. Default: 30.">
+                    <TextInput
+                      value={form.compaction_interval?.toString() ?? ""}
+                      onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
+                      placeholder="default (30)"
+                      type="number"
+                    />
+                  </FormRow>
+                </Col>
+                <Col>
+                  <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never summarized. Higher = more immediate context but less room for RAG/tools. Default: 10.">
+                    <TextInput
+                      value={form.compaction_keep_turns?.toString() ?? ""}
+                      onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                      placeholder="default (10)"
+                      type="number"
+                    />
+                  </FormRow>
+                </Col>
+              </Row>
+
+              <div style={{
+                padding: "12px 14px", background: "#111", border: "1px solid #333",
+                borderRadius: 8, display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#999" }}>Quick Guide</div>
+                <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                  <strong style={{ color: "#bbb" }}>Casual chatbot:</strong> Interval 20, Keep 6 — compacts often, keeps things lean.
+                </div>
+                <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                  <strong style={{ color: "#bbb" }}>Project assistant:</strong> Interval 30, Keep 10 — balanced, good for task tracking.
+                </div>
+                <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
+                  <strong style={{ color: "#bbb" }}>Long-running agent:</strong> Interval 40+, Keep 12 — more raw context, fewer compaction LLM calls.
+                </div>
+                <div style={{ fontSize: 11, color: "#f59e0b", lineHeight: "1.5", marginTop: 4 }}>
+                  Keep Turns must be less than Interval — otherwise nothing gets summarized.
+                </div>
+              </div>
+
+              {/* Compaction prompt */}
+              <PromptTemplateLink
+                templateId={form.compaction_prompt_template_id ?? null}
+                onLink={(id) => patch("compaction_prompt_template_id", id)}
+                onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+                workspaceId={workspaceId ?? undefined}
+              />
+              <LlmPrompt
+                value={form.memory_knowledge_compaction_prompt ?? ""}
+                onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+                label="Memory/Knowledge Compaction Prompt"
+                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default prompt..."}
+                helpText="Given to the bot before summarization. Tags like @tool:save_memory auto-pin those tools during the memory phase."
+                rows={5}
+              />
+            </>
+          )}
+        </Section>
+      )}
+
+      {/* 3. Summarizer — always visible at bottom */}
+      <Section title="Summarizer" description="Auto-inject a summary of prior conversation when the channel resumes after idle.">
+        {isFileOrStructured && (
+          <div style={{
+            padding: "10px 14px", background: "#111", border: "1px solid #333",
+            borderRadius: 8, fontSize: 11, color: "#999", lineHeight: "1.5", marginBottom: 8,
+          }}>
+            File mode automatically injects an executive summary each turn, so the resume summarizer is typically redundant for file-mode channels.
+          </div>
+        )}
+        <Toggle
+          value={!!form.summarizer_enabled}
+          onChange={(v) => patch("summarizer_enabled", v)}
+          label="Enable auto-summarize on resume"
+        />
+        {form.summarizer_enabled && (
+          <>
+            <Row>
+              <Col>
+                <FormRow label="Idle Threshold (minutes)">
+                  <TextInput
+                    value={form.summarizer_threshold_minutes?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_threshold_minutes", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (45)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Message Count">
+                  <TextInput
+                    value={form.summarizer_message_count?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_message_count", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (100)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+            <Row>
+              <Col>
+                <FormRow label="Target Size (chars)">
+                  <TextInput
+                    value={form.summarizer_target_size?.toString() ?? ""}
+                    onChangeText={(v) => patch("summarizer_target_size", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default (1000)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <LlmModelDropdown
+                  label="Summarizer Model"
+                  value={form.summarizer_model ?? ""}
+                  onChange={(v) => patch("summarizer_model", v || undefined)}
+                  placeholder="inherit"
+                />
+              </Col>
+            </Row>
+            <LlmPrompt
+              value={form.summarizer_prompt ?? ""}
+              onChange={(v) => patch("summarizer_prompt", v || undefined)}
+              label="Summarizer Prompt"
+              placeholder="Leave blank to use the default prompt..."
+              helpText="Custom focus prompt for the summarizer, e.g. 'Focus on technical decisions and action items'"
+              rows={4}
+            />
+          </>
+        )}
+      </Section>
+    </>
+  );
+}
+
+// ===========================================================================
 // General Tab — settings form
 // ===========================================================================
 function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, channelId }: {
@@ -663,7 +890,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           <TextInput
             value={form.max_iterations?.toString() ?? ""}
             onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
-            placeholder="default (15)"
+            placeholder="default"
             type="number"
           />
         </FormRow>
@@ -678,195 +905,6 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
           rows={4}
         />
-      </Section>
-
-      <Section title="Compaction" description="Manages long conversations by periodically archiving old turns, keeping the context window from filling up.">
-        <Toggle
-          value={form.context_compaction ?? true}
-          onChange={(v) => patch("context_compaction", v)}
-          label="Enable auto-compaction"
-        />
-        {form.context_compaction && (
-          <>
-            {/* How it works explainer */}
-            <div style={{
-              padding: "14px 16px", background: "#0d1117", border: "1px solid #1e3a5f",
-              borderRadius: 8, marginBottom: 4,
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>How Compaction Works</div>
-              <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6" }}>
-                After every <strong style={{ color: "#e5e5e5" }}>Interval</strong> user turns, the oldest messages
-                are archived and summarized by an LLM. The most recent <strong style={{ color: "#e5e5e5" }}>Keep Turns</strong> are
-                always preserved verbatim. If memory/knowledge/persona is enabled, the bot gets a "last chance" pass
-                to save important information before summarization.
-              </div>
-              <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginTop: 8 }}>
-                <strong style={{ color: "#e5e5e5" }}>Example:</strong> Interval=30, Keep Turns=10 → after 30 user messages,
-                the oldest 20 are summarized. The bot always sees the last 10 turns plus the summary.
-              </div>
-            </div>
-
-            <Row>
-              <Col>
-                <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages accumulate. Lower = more frequent, tighter context. Default: 30.">
-                  <TextInput
-                    value={form.compaction_interval?.toString() ?? ""}
-                    onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (30)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never summarized. Higher = more immediate context but less room for RAG/tools. Default: 10.">
-                  <TextInput
-                    value={form.compaction_keep_turns?.toString() ?? ""}
-                    onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (10)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-
-            {/* Guidance callout */}
-            <div style={{
-              padding: "12px 14px", background: "#111", border: "1px solid #333",
-              borderRadius: 8, display: "flex", flexDirection: "column", gap: 6,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#999" }}>Quick Guide</div>
-              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
-                <strong style={{ color: "#bbb" }}>Casual chatbot:</strong> Interval 20, Keep 6 — compacts often, keeps things lean.
-              </div>
-              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
-                <strong style={{ color: "#bbb" }}>Project assistant:</strong> Interval 30, Keep 10 — balanced, good for task tracking.
-              </div>
-              <div style={{ fontSize: 11, color: "#777", lineHeight: "1.5" }}>
-                <strong style={{ color: "#bbb" }}>Long-running agent:</strong> Interval 40+, Keep 12 — more raw context, fewer compaction LLM calls.
-              </div>
-              <div style={{ fontSize: 11, color: "#f59e0b", lineHeight: "1.5", marginTop: 4 }}>
-                Keep Turns must be less than Interval — otherwise nothing gets summarized.
-                The Summarizer (below) is separate: it auto-generates a "welcome back" summary when the channel resumes after idle.
-              </div>
-            </div>
-
-            <HistoryModeSection form={form} patch={patch} channelId={channelId} workspaceId={workspaceId} />
-          </>
-        )}
-      </Section>
-
-      <Section title="Context Compression" description="Summarises old turns via a cheap model before each LLM call. Leave blank to inherit.">
-        <Row>
-          <Col>
-            <FormRow label="Enable Compression">
-              <SelectInput
-                value={triStateValue(form.context_compression)}
-                onChange={(v) => patch("context_compression", triStateParse(v))}
-                options={triStateOptions}
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <LlmModelDropdown
-              label="Compression Model"
-              value={form.compression_model ?? ""}
-              onChange={(v) => patch("compression_model", v || undefined)}
-              placeholder="inherit"
-            />
-          </Col>
-        </Row>
-        <Row>
-          <Col>
-            <FormRow label="Trigger Threshold (chars)">
-              <TextInput
-                value={form.compression_threshold?.toString() ?? ""}
-                onChangeText={(v) => patch("compression_threshold", v ? parseInt(v) || undefined : undefined)}
-                placeholder="inherit (20000)"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Keep Turns (verbatim)">
-              <TextInput
-                value={form.compression_keep_turns?.toString() ?? ""}
-                onChangeText={(v) => patch("compression_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                placeholder="inherit (2)"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-        </Row>
-        <LlmPrompt
-          value={form.compression_prompt ?? ""}
-          onChange={(v) => patch("compression_prompt", v || undefined)}
-          label="Compression Prompt"
-          placeholder="Leave blank to use the built-in default prompt..."
-          helpText="Custom system prompt for the compression LLM. Overrides the hardcoded default."
-          rows={5}
-        />
-      </Section>
-
-      <Section title="Summarizer" description="Auto-inject a summary of prior conversation when the channel resumes after idle. The summary is generated from raw messages, not compaction summaries.">
-        <Toggle
-          value={!!form.summarizer_enabled}
-          onChange={(v) => patch("summarizer_enabled", v)}
-          label="Enable auto-summarize on resume"
-        />
-        {form.summarizer_enabled && (
-          <>
-            <Row>
-              <Col>
-                <FormRow label="Idle Threshold (minutes)">
-                  <TextInput
-                    value={form.summarizer_threshold_minutes?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_threshold_minutes", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (45)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Message Count">
-                  <TextInput
-                    value={form.summarizer_message_count?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_message_count", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (100)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-            <Row>
-              <Col>
-                <FormRow label="Target Size (chars)">
-                  <TextInput
-                    value={form.summarizer_target_size?.toString() ?? ""}
-                    onChangeText={(v) => patch("summarizer_target_size", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (1000)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <LlmModelDropdown
-                  label="Summarizer Model"
-                  value={form.summarizer_model ?? ""}
-                  onChange={(v) => patch("summarizer_model", v || undefined)}
-                  placeholder="inherit"
-                />
-              </Col>
-            </Row>
-            <LlmPrompt
-              value={form.summarizer_prompt ?? ""}
-              onChange={(v) => patch("summarizer_prompt", v || undefined)}
-              label="Summarizer Prompt"
-              placeholder="Leave blank to use the default prompt..."
-              helpText="Custom focus prompt for the summarizer, e.g. 'Focus on technical decisions and action items'"
-              rows={4}
-            />
-          </>
-        )}
       </Section>
 
       <Section title="Model Elevation" description="Per-channel elevation overrides. Leave blank to inherit.">
@@ -1338,62 +1376,6 @@ function SessionsTab({ channelId }: { channelId: string }) {
 }
 
 // ===========================================================================
-// Knowledge Tab
-// ===========================================================================
-function KnowledgeTab({ channelId }: { channelId: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["channel-knowledge", channelId],
-    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/knowledge`),
-  });
-
-  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data?.length) return <EmptyState message="No knowledge entries scoped to this channel." />;
-
-  const modeColors: Record<string, { bg: string; fg: string }> = {
-    rag: { bg: "#1e3a5f", fg: "#93c5fd" },
-    pinned: { bg: "#166534", fg: "#86efac" },
-    tag_only: { bg: "#333", fg: "#999" },
-  };
-
-  return (
-    <Section title={`Knowledge (${data.length})`}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {data.map((k: any) => {
-          const mc = modeColors[k.mode] || modeColors.rag;
-          return (
-            <div key={k.id} style={{
-              padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5" }}>
-                  {k.title || "Untitled"}
-                </div>
-                <span style={{
-                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                  background: mc.bg, color: mc.fg,
-                }}>
-                  {k.mode}
-                </span>
-              </div>
-              {k.content && (
-                <div style={{ fontSize: 12, color: "#888", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "hidden" }}>
-                  {k.content}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#555", marginTop: 6 }}>
-                <span>{k.content_length?.toLocaleString()} chars</span>
-                {k.bot_id && <span>bot: {k.bot_id}</span>}
-                {k.updated_at && <span>{new Date(k.updated_at).toLocaleString()}</span>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Section>
-  );
-}
-
-// ===========================================================================
 // Heartbeat Tab
 // ===========================================================================
 function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
@@ -1604,41 +1586,6 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         </div>
       )}
     </>
-  );
-}
-
-// ===========================================================================
-// Memories Tab
-// ===========================================================================
-function MemoriesTab({ channelId }: { channelId: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["channel-memories", channelId],
-    queryFn: () => apiFetch<any[]>(`/api/v1/admin/channels/${channelId}/memories`),
-  });
-
-  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data?.length) return <EmptyState message="No memories yet." />;
-
-  return (
-    <Section title={`Memories (${data.length})`}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {data.map((m: any) => (
-          <div key={m.id} style={{
-            padding: "10px 12px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-          }}>
-            {m.title && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", marginBottom: 4 }}>{m.title}</div>
-            )}
-            <div style={{ fontSize: 12, color: "#999", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "hidden" }}>
-              {m.content?.substring(0, 300)}{m.content?.length > 300 ? "..." : ""}
-            </div>
-            <div style={{ fontSize: 10, color: "#555", marginTop: 6 }}>
-              {new Date(m.created_at).toLocaleString()}
-            </div>
-          </div>
-        ))}
-      </div>
-    </Section>
   );
 }
 
@@ -2032,67 +1979,140 @@ function ContextTab({ channelId }: { channelId: string }) {
 // ===========================================================================
 // Compression Tab
 // ===========================================================================
-function CompressionTab({ channelId }: { channelId: string }) {
+function CompressionTab({ channelId, form, patch }: {
+  channelId: string;
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ["channel-compression", channelId],
     queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/compression`),
   });
 
-  if (isLoading) return <ActivityIndicator color="#3b82f6" />;
-  if (!data) return <EmptyState message="No compression data." />;
+  const isFileMode = form.history_mode === "file" || form.history_mode === "structured";
 
   return (
     <>
-      {data.effective_config && (
-        <Section title="Effective Config">
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            {Object.entries(data.effective_config).map(([k, v]) => (
-              <div key={k} style={{ fontSize: 12 }}>
-                <span style={{ color: "#666" }}>{k}: </span>
-                <span style={{ color: "#999" }}>{String(v ?? "—")}</span>
-              </div>
-            ))}
+      {/* Settings (moved from General tab) */}
+      <Section title="Settings" description="Summarises old turns via a cheap model before each LLM call. Separate from compaction.">
+        {isFileMode && (
+          <div style={{
+            padding: "10px 14px", background: "#111", border: "1px solid #333",
+            borderRadius: 8, fontSize: 11, color: "#999", lineHeight: "1.5", marginBottom: 8,
+          }}>
+            With file mode, context compression is usually unnecessary — old turns are archived into sections.
           </div>
-        </Section>
-      )}
+        )}
+        <Row>
+          <Col>
+            <FormRow label="Enable Compression">
+              <SelectInput
+                value={triStateValue(form.context_compression)}
+                onChange={(v) => patch("context_compression", triStateParse(v))}
+                options={triStateOptions}
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <LlmModelDropdown
+              label="Compression Model"
+              value={form.compression_model ?? ""}
+              onChange={(v) => patch("compression_model", v || undefined)}
+              placeholder="inherit"
+            />
+          </Col>
+        </Row>
+        <Row>
+          <Col>
+            <FormRow label="Trigger Threshold (chars)">
+              <TextInput
+                value={form.compression_threshold?.toString() ?? ""}
+                onChangeText={(v) => patch("compression_threshold", v ? parseInt(v) || undefined : undefined)}
+                placeholder="inherit (20000)"
+                type="number"
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Keep Turns (verbatim)">
+              <TextInput
+                value={form.compression_keep_turns?.toString() ?? ""}
+                onChangeText={(v) => patch("compression_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                placeholder="inherit (2)"
+                type="number"
+              />
+            </FormRow>
+          </Col>
+        </Row>
+        <LlmPrompt
+          value={form.compression_prompt ?? ""}
+          onChange={(v) => patch("compression_prompt", v || undefined)}
+          label="Compression Prompt"
+          placeholder="Leave blank to use the built-in default prompt..."
+          helpText="Custom system prompt for the compression LLM. Overrides the hardcoded default."
+          rows={5}
+        />
+      </Section>
 
-      {data.stats && (
-        <Section title="Stats">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-            {[
-              ["Compressions", data.stats.total_compressions],
-              ["Chars Saved", data.stats.total_chars_saved?.toLocaleString()],
-              ["Msgs Saved", data.stats.total_msgs_saved],
-              ["Avg Reduction", data.stats.avg_reduction_pct ? `${data.stats.avg_reduction_pct.toFixed(0)}%` : "—"],
-            ].map(([label, val]) => (
-              <div key={String(label)} style={{
-                padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-              }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "#e5e5e5" }}>{val ?? 0}</div>
-                <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+      {/* Observability sections (from API) */}
+      {isLoading ? (
+        <ActivityIndicator color="#3b82f6" />
+      ) : data ? (
+        <>
+          {data.effective_config && (
+            <Section title="Effective Config">
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                {Object.entries(data.effective_config).map(([k, v]) => (
+                  <div key={k} style={{ fontSize: 12 }}>
+                    <span style={{ color: "#666" }}>{k}: </span>
+                    <span style={{ color: "#999" }}>{String(v ?? "—")}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Section>
-      )}
+            </Section>
+          )}
 
-      {data.events?.length > 0 && (
-        <Section title={`Recent Events (${data.events.length})`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {data.events.map((e: any) => (
-              <div key={e.id} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
-                fontSize: 12,
-              }}>
-                <span style={{ color: "#999" }}>{new Date(e.created_at).toLocaleString()}</span>
-                <span style={{ color: "#666" }}>
-                  {e.data?.original_chars ?? "?"} → {e.data?.compressed_chars ?? "?"} chars
-                </span>
+          {data.stats && (
+            <Section title="Stats">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+                {[
+                  ["Compressions", data.stats.total_compressions],
+                  ["Chars Saved", data.stats.total_chars_saved?.toLocaleString()],
+                  ["Msgs Saved", data.stats.total_msgs_saved],
+                  ["Avg Reduction", data.stats.avg_reduction_pct ? `${data.stats.avg_reduction_pct.toFixed(0)}%` : "—"],
+                ].map(([label, val]) => (
+                  <div key={String(label)} style={{
+                    padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
+                  }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#e5e5e5" }}>{val ?? 0}</div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Section>
+            </Section>
+          )}
+
+          {data.events?.length > 0 && (
+            <Section title={`Recent Events (${data.events.length})`}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {data.events.map((e: any) => (
+                  <div key={e.id} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
+                    fontSize: 12,
+                  }}>
+                    <span style={{ color: "#999" }}>{new Date(e.created_at).toLocaleString()}</span>
+                    <span style={{ color: "#666" }}>
+                      {e.data?.original_chars ?? "?"} → {e.data?.compressed_chars ?? "?"} chars
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+        </>
+      ) : (
+        <EmptyState message="No compression data." />
       )}
     </>
   );

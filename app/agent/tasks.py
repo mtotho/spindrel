@@ -828,6 +828,9 @@ async def task_worker() -> None:
     logger.info("Task worker started")
     while True:
         try:
+            if settings.SYSTEM_PAUSED:
+                await asyncio.sleep(5)
+                continue
             # Spawn concrete tasks from active schedule templates first
             await spawn_due_schedules()
             # Then fetch and run all due concrete tasks

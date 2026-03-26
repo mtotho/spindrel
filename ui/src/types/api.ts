@@ -37,6 +37,8 @@ export interface BotConfig {
   compression_config?: Record<string, any>;
   persona?: boolean;
   persona_content?: string;
+  persona_from_workspace?: boolean;
+  workspace_persona_content?: string | null;
   context_compaction?: boolean;
   compaction_interval?: number | null;
   compaction_keep_turns?: number | null;
