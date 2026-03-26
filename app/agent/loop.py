@@ -15,6 +15,7 @@ from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
     _extract_transcript,
+    _merge_tool_schemas,
 )
 from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
@@ -68,7 +69,7 @@ async def run_agent_tool_loop(
     _eff_summarize_exclude: set[str] = set(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS) | set(_trc.get("exclude_tools") or [])
 
     if pre_selected_tools is not None:
-        all_tools = list(pre_selected_tools)
+        all_tools = _merge_tool_schemas(pre_selected_tools)
     else:
         # Auto-inject workspace tools when workspace is enabled
         _local_tool_names = list(bot.local_tools)
@@ -615,8 +616,10 @@ async def run_stream(
         _compression_active = True
         _full_messages = list(messages)
         set_compression_history(session_id, _drilldown)
-        detail_schema = get_local_tool_schemas(["get_message_detail"])
-        pre_selected_tools = (pre_selected_tools or []) + detail_schema
+        existing_names = {t.get("function", {}).get("name") for t in (pre_selected_tools or [])}
+        if "get_message_detail" not in existing_names:
+            detail_schema = get_local_tool_schemas(["get_message_detail"])
+            pre_selected_tools = (pre_selected_tools or []) + detail_schema
 
         _original_chars = sum(len(str(m.get("content", ""))) for m in messages)
         _compressed_chars = sum(len(str(m.get("content", ""))) for m in _compressed)
