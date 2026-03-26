@@ -8,7 +8,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from ._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize
 
 logger = logging.getLogger(__name__)
 

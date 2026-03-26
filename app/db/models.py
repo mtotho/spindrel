@@ -588,6 +588,30 @@ class ProviderConfig(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
+    models: Mapped[list["ProviderModel"]] = relationship(
+        back_populates="provider", cascade="all, delete-orphan"
+    )
+
+
+class ProviderModel(Base):
+    __tablename__ = "provider_models"
+    __table_args__ = (
+        {"extend_existing": True},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("provider_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    model_id: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    provider: Mapped["ProviderConfig"] = relationship(back_populates="models")
+
 
 class Bot(Base):
     __tablename__ = "bots"

@@ -1,11 +1,13 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Zap } from "lucide-react";
+import { ChevronLeft, Trash2, Zap, Plus, X } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
+  useProviderModels, useAddProviderModel, useDeleteProviderModel,
+  type ProviderModelItem,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
 
@@ -75,6 +77,14 @@ export default function ProviderDetailScreen() {
   const [managementKey, setManagementKey] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [initialized, setInitialized] = useState(isNew);
+
+  // Models
+  const { data: providerModels, isLoading: modelsLoading } = useProviderModels(isNew ? undefined : providerId);
+  const addModelMut = useAddProviderModel(providerId);
+  const deleteModelMut = useDeleteProviderModel(providerId);
+  const [newModelId, setNewModelId] = useState("");
+  const [newModelDisplay, setNewModelDisplay] = useState("");
+  const [newModelMaxTokens, setNewModelMaxTokens] = useState("");
 
   if (provider && !initialized) {
     setDisplayName(provider.display_name || "");
@@ -309,6 +319,122 @@ export default function ProviderDetailScreen() {
               </Col>
             </Row>
           </Section>
+
+          {!isNew && (
+            <Section title="Models" description="Manually defined models for providers without a /models API endpoint">
+              {/* Existing models list */}
+              {modelsLoading ? (
+                <div style={{ color: "#666", fontSize: 12, padding: "8px 0" }}>Loading...</div>
+              ) : providerModels && providerModels.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {providerModels.map((m: ProviderModelItem) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "6px 8px", background: "#1a1a1a", borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: "#e5e5e5", fontFamily: "monospace", flex: 1 }}>
+                        {m.model_id}
+                      </span>
+                      {m.display_name && (
+                        <span style={{ color: "#888", fontSize: 11 }}>{m.display_name}</span>
+                      )}
+                      {m.max_tokens && (
+                        <span style={{ color: "#666", fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
+                      )}
+                      <button
+                        onClick={() => deleteModelMut.mutate(m.id)}
+                        disabled={deleteModelMut.isPending}
+                        style={{
+                          background: "none", border: "none", cursor: "pointer",
+                          padding: 2, color: "#666", flexShrink: 0,
+                        }}
+                        title="Remove model"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: "#555", fontSize: 12, padding: "4px 0" }}>
+                  No models defined. Add models below if this provider doesn't support the /models API.
+                </div>
+              )}
+
+              {/* Add model form */}
+              <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div style={{ flex: 2, minWidth: 160 }}>
+                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Model ID *</div>
+                  <input
+                    value={newModelId}
+                    onChange={(e) => setNewModelId(e.target.value)}
+                    placeholder="e.g. gpt-4o"
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 12,
+                      background: "#111", border: "1px solid #333", borderRadius: 4,
+                      color: "#e5e5e5", fontFamily: "monospace",
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 2, minWidth: 120 }}>
+                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Display Name</div>
+                  <input
+                    value={newModelDisplay}
+                    onChange={(e) => setNewModelDisplay(e.target.value)}
+                    placeholder="Optional"
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 12,
+                      background: "#111", border: "1px solid #333", borderRadius: 4,
+                      color: "#e5e5e5",
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 80 }}>
+                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Max Tokens</div>
+                  <input
+                    value={newModelMaxTokens}
+                    onChange={(e) => setNewModelMaxTokens(e.target.value)}
+                    placeholder="e.g. 128000"
+                    type="number"
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 12,
+                      background: "#111", border: "1px solid #333", borderRadius: 4,
+                      color: "#e5e5e5",
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!newModelId.trim()) return;
+                    await addModelMut.mutateAsync({
+                      model_id: newModelId.trim(),
+                      display_name: newModelDisplay.trim() || undefined,
+                      max_tokens: newModelMaxTokens ? parseInt(newModelMaxTokens) : undefined,
+                    });
+                    setNewModelId("");
+                    setNewModelDisplay("");
+                    setNewModelMaxTokens("");
+                  }}
+                  disabled={!newModelId.trim() || addModelMut.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "6px 12px", fontSize: 12, fontWeight: 600,
+                    border: "none", borderRadius: 4, flexShrink: 0,
+                    background: !newModelId.trim() ? "#222" : "#3b82f6",
+                    color: !newModelId.trim() ? "#555" : "#fff",
+                    cursor: !newModelId.trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <Plus size={13} />
+                  Add
+                </button>
+              </div>
+            </Section>
+          )}
 
           {!isNew && provider && (
             <Section title="Info">

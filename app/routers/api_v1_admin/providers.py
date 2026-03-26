@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot as BotRow, ProviderConfig as ProviderConfigRow
+from app.db.models import Bot as BotRow, ProviderConfig as ProviderConfigRow, ProviderModel
 from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
@@ -64,6 +64,27 @@ class ProviderUpdateIn(BaseModel):
     clear_rpm_limit: bool = False
 
 
+class ProviderModelOut(BaseModel):
+    id: int
+    provider_id: str
+    model_id: str
+    display_name: str | None = None
+    max_tokens: int | None = None
+    input_cost_per_1m: str | None = None
+    output_cost_per_1m: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProviderModelCreateIn(BaseModel):
+    model_id: str
+    display_name: str | None = None
+    max_tokens: int | None = None
+    input_cost_per_1m: str | None = None
+    output_cost_per_1m: str | None = None
+
+
 class ProviderTestResult(BaseModel):
     ok: bool
     message: str
@@ -109,6 +130,72 @@ async def admin_list_providers(
         env_fallback_base_url=_settings.LITELLM_BASE_URL or None,
         env_fallback_has_key=bool(_settings.LITELLM_API_KEY),
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider Models CRUD (must be before {provider_id} catch-all)
+# ---------------------------------------------------------------------------
+
+@router.get("/providers/{provider_id}/models", response_model=list[ProviderModelOut])
+async def admin_list_provider_models(
+    provider_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    provider = await db.get(ProviderConfigRow, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    rows = (await db.execute(
+        select(ProviderModel)
+        .where(ProviderModel.provider_id == provider_id)
+        .order_by(ProviderModel.model_id)
+    )).scalars().all()
+    return [ProviderModelOut.model_validate(r) for r in rows]
+
+
+@router.post("/providers/{provider_id}/models", response_model=ProviderModelOut, status_code=201)
+async def admin_add_provider_model(
+    provider_id: str,
+    body: ProviderModelCreateIn,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    provider = await db.get(ProviderConfigRow, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if not body.model_id.strip():
+        raise HTTPException(status_code=422, detail="model_id is required")
+
+    row = ProviderModel(
+        provider_id=provider_id,
+        model_id=body.model_id.strip(),
+        display_name=body.display_name.strip() if body.display_name else None,
+        max_tokens=body.max_tokens,
+        input_cost_per_1m=body.input_cost_per_1m.strip() if body.input_cost_per_1m else None,
+        output_cost_per_1m=body.output_cost_per_1m.strip() if body.output_cost_per_1m else None,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+        await db.refresh(row)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=f"Model already exists or DB error: {exc}")
+    return ProviderModelOut.model_validate(row)
+
+
+@router.delete("/providers/{provider_id}/models/{model_pk}")
+async def admin_delete_provider_model(
+    provider_id: str,
+    model_pk: int,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    row = await db.get(ProviderModel, model_pk)
+    if not row or row.provider_id != provider_id:
+        raise HTTPException(status_code=404, detail="Model not found")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/providers/{provider_id}", response_model=ProviderOut)
@@ -271,7 +358,31 @@ async def _test_provider_connection(
         except Exception as exc:
             return ProviderTestResult(ok=False, message=str(exc)[:200])
 
-    # Build a temporary client for testing
+    # Anthropic-compatible: /models often not implemented, so test with a
+    # minimal messages POST that will return an auth or validation error (not a
+    # connection error) if the endpoint is reachable.
+    if ptype == "anthropic-compatible":
+        import httpx
+        url = (base_url or "https://api.anthropic.com/v1").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as hc:
+                resp = await hc.post(
+                    f"{url}/messages",
+                    headers={
+                        "x-api-key": api_key or "",
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={"model": "test", "max_tokens": 1, "messages": []},
+                )
+                # Any response (even 400/401) means the endpoint is reachable
+                if resp.status_code == 401:
+                    return ProviderTestResult(ok=False, message="Authentication failed (401)")
+                return ProviderTestResult(ok=True, message=f"Connected (HTTP {resp.status_code})")
+        except Exception as exc:
+            return ProviderTestResult(ok=False, message=str(exc)[:200])
+
+    # litellm / openai / openai-compatible: test via models.list()
     try:
         kw: dict = {"api_key": api_key or "dummy", "timeout": 15.0, "max_retries": 0}
         if ptype == "litellm":
@@ -280,9 +391,6 @@ async def _test_provider_connection(
         elif ptype in ("openai", "openai-compatible"):
             if base_url:
                 kw["base_url"] = base_url
-        elif ptype in ("anthropic-compatible",):
-            kw["base_url"] = base_url or "https://api.anthropic.com/v1"
-            kw["default_headers"] = {"anthropic-version": "2023-06-01"}
         else:
             return ProviderTestResult(ok=False, message=f"Unknown provider type: {ptype}")
 

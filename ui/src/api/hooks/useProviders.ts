@@ -136,3 +136,71 @@ export function useTestProviderInline() {
       }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Provider Models (DB-backed model lists)
+// ---------------------------------------------------------------------------
+
+export interface ProviderModelItem {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  display_name?: string | null;
+  max_tokens?: number | null;
+  input_cost_per_1m?: string | null;
+  output_cost_per_1m?: string | null;
+  created_at: string;
+}
+
+export interface ProviderModelCreatePayload {
+  model_id: string;
+  display_name?: string;
+  max_tokens?: number | null;
+  input_cost_per_1m?: string;
+  output_cost_per_1m?: string;
+}
+
+export function useProviderModels(providerId: string | undefined) {
+  return useQuery({
+    queryKey: ["admin-provider-models", providerId],
+    queryFn: () =>
+      apiFetch<ProviderModelItem[]>(
+        `/api/v1/admin/providers/${providerId}/models`
+      ),
+    enabled: !!providerId && providerId !== "new",
+  });
+}
+
+export function useAddProviderModel(providerId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProviderModelCreatePayload) =>
+      apiFetch<ProviderModelItem>(
+        `/api/v1/admin/providers/${providerId}/models`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeleteProviderModel(providerId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (modelPk: number) =>
+      apiFetch(
+        `/api/v1/admin/providers/${providerId}/models/${modelPk}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
