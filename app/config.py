@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     TIMEZONE: str = "America/New_York"
     # Auth
     API_KEY: str
+    ADMIN_API_KEY: str = ""  # empty = fall back to API_KEY for backward compat
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://agent:agent@postgres:5432/agentdb"

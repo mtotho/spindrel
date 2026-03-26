@@ -24,6 +24,10 @@ _HARDCODED_BLOCKED: list[re.Pattern] = [
         r"\bmkfs\b",                             # filesystem formatting
         r"\bdd\b.*of=/dev/",                     # dd to device
         r":\(\)\s*\{.*\|.*:.*&.*\}",            # fork bomb
+        r"\bcurl\b.*\blocalhost\b",              # curl to localhost
+        r"\bcurl\b.*\b127\.0\.0\.\d",           # curl to 127.x
+        r"\bwget\b.*\blocalhost\b",              # wget to localhost
+        r"\bwget\b.*\b127\.0\.0\.\d",           # wget to 127.x
     ]
 ]
 

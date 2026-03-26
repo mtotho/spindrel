@@ -13,7 +13,7 @@ from app.routers.api_v1_prompt_templates import router as prompt_templates_route
 from app.routers.api_v1_workspaces import router as workspaces_router
 
 router = APIRouter(prefix="/api/v1")
-router.include_router(admin_router)
+router.include_router(admin_router, include_in_schema=False)
 router.include_router(attachments_router)
 router.include_router(channels_router)
 router.include_router(documents_router)

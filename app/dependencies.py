@@ -81,6 +81,42 @@ async def verify_auth_or_user(
     return user
 
 
+async def verify_admin_auth(
+    authorization: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate admin access. When ADMIN_API_KEY is set, only that key (or valid JWT) is accepted.
+    When empty, falls back to accepting API_KEY or JWT (backward compat)."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    token = authorization.removeprefix("Bearer ")
+
+    # If ADMIN_API_KEY is configured, check it first
+    if settings.ADMIN_API_KEY:
+        if token == settings.ADMIN_API_KEY:
+            return token
+        # Regular API_KEY is NOT accepted for admin routes when ADMIN_API_KEY is set
+    else:
+        # Backward compat: accept regular API_KEY
+        if token == settings.API_KEY:
+            return token
+
+    # Try JWT
+    from app.services.auth import decode_access_token, get_user_by_id
+    import jwt as _jwt
+
+    try:
+        payload = decode_access_token(token)
+    except _jwt.InvalidTokenError:
+        raise HTTPException(status_code=403, detail="Admin access denied")
+
+    user_id = UUID(payload["sub"])
+    user = await get_user_by_id(db, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=403, detail="Admin access denied")
+    return user
+
+
 async def optional_user(
     authorization: str = Header(None),
     db: AsyncSession = Depends(get_db),
