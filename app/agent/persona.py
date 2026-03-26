@@ -6,7 +6,22 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
-async def get_persona(bot_id: str) -> str | None:
+def resolve_workspace_persona(workspace_id: str, bot_id: str) -> str | None:
+    """Read bots/{bot_id}/persona.md from workspace. Returns content or None."""
+    from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
+
+    try:
+        result = shared_workspace_service.read_file(workspace_id, f"bots/{bot_id}/persona.md")
+        return result["content"]
+    except (SharedWorkspaceError, OSError):
+        return None
+
+
+async def get_persona(bot_id: str, workspace_id: str | None = None) -> str | None:
+    if workspace_id:
+        ws_persona = resolve_workspace_persona(workspace_id, bot_id)
+        if ws_persona is not None:
+            return ws_persona
     async with async_session() as db:
         result = await db.execute(select(BotPersona).where(BotPersona.bot_id == bot_id))
         row = result.scalar_one_or_none()

@@ -5,14 +5,16 @@ import { ChevronLeft, Trash2, Zap } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider,
+  useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
 
 const PROVIDER_TYPE_OPTIONS = [
   { label: "LiteLLM", value: "litellm" },
   { label: "OpenAI", value: "openai" },
+  { label: "OpenAI Compatible", value: "openai-compatible" },
   { label: "Anthropic", value: "anthropic" },
+  { label: "Anthropic Compatible", value: "anthropic-compatible" },
   { label: "Anthropic Subscription", value: "anthropic-subscription" },
 ];
 
@@ -56,6 +58,7 @@ export default function ProviderDetailScreen() {
   const updateMut = useUpdateProvider(providerId);
   const deleteMut = useDeleteProvider();
   const testMut = useTestProvider();
+  const testInlineMut = useTestProviderInline();
 
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -119,13 +122,20 @@ export default function ProviderDetailScreen() {
   }, [providerId, deleteMut, goBack]);
 
   const handleTest = useCallback(() => {
-    if (!providerId || isNew) return;
     setTestResult(null);
-    testMut.mutate(providerId, {
-      onSuccess: (r) => setTestResult(r),
-      onError: (err) => setTestResult({ ok: false, message: (err as any)?.message || "Failed" }),
-    });
-  }, [providerId, isNew, testMut]);
+    const onSuccess = (r: { ok: boolean; message: string }) => setTestResult(r);
+    const onError = (err: any) => setTestResult({ ok: false, message: err?.message || "Failed" });
+    if (isNew) {
+      testInlineMut.mutate({
+        provider_type: providerType,
+        api_key: apiKey || undefined,
+        base_url: baseUrl || undefined,
+        credentials_path: credentialsPath || undefined,
+      }, { onSuccess, onError });
+    } else {
+      testMut.mutate(providerId, { onSuccess, onError });
+    }
+  }, [providerId, isNew, providerType, apiKey, baseUrl, credentialsPath, testMut, testInlineMut]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew ? (id.trim() && displayName.trim()) : displayName.trim();
@@ -133,7 +143,7 @@ export default function ProviderDetailScreen() {
 
   // Fields visible per provider type
   const showApiKey = providerType !== "anthropic-subscription";
-  const showBaseUrl = providerType === "litellm" || providerType === "openai";
+  const showBaseUrl = ["litellm", "openai", "openai-compatible", "anthropic-compatible"].includes(providerType);
   const showCredentialsPath = providerType === "anthropic-subscription";
   const showManagementKey = providerType === "litellm";
 
@@ -163,36 +173,34 @@ export default function ProviderDetailScreen() {
           <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>{providerId}</span>
         )}
         <div style={{ flex: 1 }} />
+        <button
+          onClick={handleTest}
+          disabled={testMut.isPending || testInlineMut.isPending}
+          style={{
+            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
+            border: "1px solid #333", borderRadius: 6,
+            background: "transparent", color: "#999", cursor: "pointer", flexShrink: 0,
+          }}
+        >
+          <Zap size={13} />
+          {isWide && ((testMut.isPending || testInlineMut.isPending) ? "Testing..." : "Test")}
+        </button>
         {!isNew && (
-          <>
-            <button
-              onClick={handleTest}
-              disabled={testMut.isPending}
-              style={{
-                display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-                padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-                border: "1px solid #333", borderRadius: 6,
-                background: "transparent", color: "#999", cursor: "pointer", flexShrink: 0,
-              }}
-            >
-              <Zap size={13} />
-              {isWide && (testMut.isPending ? "Testing..." : "Test")}
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deleteMut.isPending}
-              title="Delete"
-              style={{
-                display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-                padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-                border: "1px solid #7f1d1d", borderRadius: 6,
-                background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
-              }}
-            >
-              <Trash2 size={14} />
-              {isWide && "Delete"}
-            </button>
-          </>
+          <button
+            onClick={handleDelete}
+            disabled={deleteMut.isPending}
+            title="Delete"
+            style={{
+              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+              border: "1px solid #7f1d1d", borderRadius: 6,
+              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <Trash2 size={14} />
+            {isWide && "Delete"}
+          </button>
         )}
         <EnableToggle enabled={isEnabled} onChange={setIsEnabled} compact={!isWide} />
         <button
@@ -262,8 +270,17 @@ export default function ProviderDetailScreen() {
               </FormRow>
             )}
             {showBaseUrl && (
-              <FormRow label="Base URL" description={providerType === "litellm" ? "URL of your LiteLLM proxy" : "Optional, uses default if blank"}>
-                <TextInput value={baseUrl} onChangeText={setBaseUrl} placeholder="https://litellm.example.com" />
+              <FormRow label="Base URL" description={
+                providerType === "litellm" ? "URL of your LiteLLM proxy" :
+                providerType === "openai-compatible" ? "Base URL of the OpenAI-compatible API (required)" :
+                providerType === "anthropic-compatible" ? "Base URL of the Anthropic-compatible API (required)" :
+                "Optional, uses default if blank"
+              }>
+                <TextInput value={baseUrl} onChangeText={setBaseUrl} placeholder={
+                  providerType === "openai-compatible" ? "https://api.minimax.chat/v1" :
+                  providerType === "anthropic-compatible" ? "https://api.minimax.chat/v1" :
+                  "https://litellm.example.com"
+                } />
               </FormRow>
             )}
             {showCredentialsPath && (

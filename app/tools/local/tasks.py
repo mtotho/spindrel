@@ -83,6 +83,10 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
         "parameters": {
             "type": "object",
             "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short human-readable title for the task (shown in UI). Keep under ~60 chars.",
+                },
                 "prompt": {
                     "type": "string",
                     "description": "The full prompt/instruction to run when the task executes.",
@@ -133,6 +137,7 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
 })
 async def create_task(
     prompt: str,
+    title: str | None = None,
     prompt_template: str | None = None,
     scheduled_at: str | None = None,
     bot_id: str | None = None,
@@ -204,6 +209,7 @@ async def create_task(
             session_id=effective_session_id,
             channel_id=effective_channel_id,
             prompt=prompt,
+            title=title or None,
             scheduled_at=scheduled,
             status=initial_status,
             task_type="scheduled",
@@ -283,6 +289,7 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
             "id": str(task.id),
             "status": task.status,
             "bot_id": task.bot_id,
+            "title": task.title,
             "prompt": task.prompt,
             "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
             "run_at": task.run_at.isoformat() if task.run_at else None,
@@ -354,19 +361,21 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
         elif t.status == "active" and t.recurrence:
             tpl_badge = " [no template]"
 
-        # Prompt preview
-        prompt_preview = ""
-        if t.prompt:
+        # Title / prompt preview
+        title_label = ""
+        if t.title:
+            title_label = f" \"{t.title}\""
+        elif t.prompt:
             preview = t.prompt[:60].replace("\n", " ")
             if len(t.prompt) > 60:
                 preview += "..."
-            prompt_preview = f" \"{preview}\""
+            title_label = f" \"{preview}\""
 
         result_preview = ""
         if t.result:
             result_preview = " | result: " + (t.result[:80] + "..." if len(t.result) > 80 else t.result)
         lines.append(
-            f"- {t.id} [{status_label}] bot={t.bot_id} scheduled={scheduled}{recur}{tpl_badge}{prompt_preview}{result_preview}"
+            f"- {t.id} [{status_label}] bot={t.bot_id} scheduled={scheduled}{recur}{tpl_badge}{title_label}{result_preview}"
         )
     return "Tasks:\n" + "\n".join(lines)
 
@@ -428,6 +437,10 @@ async def cancel_task(task_id: str) -> str:
                     "type": "string",
                     "description": "The task UUID to update.",
                 },
+                "title": {
+                    "type": "string",
+                    "description": "New short title for the task. Omit to leave unchanged.",
+                },
                 "scheduled_at": {
                     "type": "string",
                     "description": (
@@ -465,6 +478,7 @@ async def cancel_task(task_id: str) -> str:
 })
 async def update_task(
     task_id: str,
+    title: str | None | object = _UNSET,
     scheduled_at: str | None | object = _UNSET,
     prompt: str | object = _UNSET,
     prompt_template: str | None | object = _UNSET,
@@ -486,6 +500,10 @@ async def update_task(
             return json.dumps({"error": f"Task is {task.status}, can only update pending or active tasks."})
 
         changes: list[str] = []
+
+        if title is not _UNSET:
+            task.title = title or None
+            changes.append("title updated")
 
         if scheduled_at is not _UNSET:
             scheduled = _parse_scheduled_at(scheduled_at)

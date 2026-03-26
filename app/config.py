@@ -202,6 +202,29 @@ class Settings(BaseSettings):
         Respond ONLY with the JSON object, no markdown fences or extra text."""
 
 
+    SECTION_COMPACTION_PROMPT: str = """\
+        You are a conversation archiver. You will receive a segment of conversation between \
+        a user and an AI assistant that is being archived.
+
+        Produce a JSON object with the following fields:
+        - "title": A concise heading for this conversation segment (5-12 words).
+        - "summary": A 2-3 sentence summary capturing the key topics, decisions, and outcomes.
+        - "transcript": The conversation formatted as a readable transcript. Each message should \
+          be on its own line, prefixed with [ROLE TIMESTAMP]: where ROLE is USER or ASSISTANT \
+          and TIMESTAMP is the time if available. Include all substantive content — tool calls \
+          can be summarized briefly. Omit redundant pleasantries.
+
+        IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
+
+        Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+    SECTION_EXECUTIVE_SUMMARY_PROMPT: str = """\
+        You are a conversation historian. Below are section summaries from a long-running conversation. \
+        Write a concise executive summary (3-5 sentences) covering the overall arc: \
+        what the conversation has been about, key decisions made, and current state. \
+        This summary will be injected as context for future messages, so focus on what \
+        the assistant needs to know to continue effectively."""
+
     # Memory knowledge compaction prompt
     MEMORY_KNOWLEDGE_COMPACTION_PROMPT: str = """\
         This conversation is about to be summarized. You will keep the last N turns in context, and the rest will be summarized. So please decide now if there is 

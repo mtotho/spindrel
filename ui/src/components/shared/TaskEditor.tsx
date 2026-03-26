@@ -266,6 +266,7 @@ export function TaskEditor({
   const qc = useQueryClient();
 
   // Form state
+  const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
@@ -280,6 +281,7 @@ export function TaskEditor({
 
   // Populate form when existing task loads (edit mode)
   if (!isCreate && !cloneFromId && existingTask && !initialized) {
+    setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
     setBotId(existingTask.bot_id || "");
@@ -295,6 +297,7 @@ export function TaskEditor({
 
   // Populate form when cloning
   if (isCreate && cloneFromId && existingTask && !initialized) {
+    setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
     setBotId(existingTask.bot_id || "");
@@ -330,6 +333,7 @@ export function TaskEditor({
       if (isCreate) {
         await createMut.mutateAsync({
           prompt,
+          title: title || null,
           prompt_template_id: promptTemplateId,
           bot_id: botId,
           channel_id: channelId || null,
@@ -342,6 +346,7 @@ export function TaskEditor({
       } else {
         await updateMut.mutateAsync({
           prompt,
+          title: title || null,
           prompt_template_id: promptTemplateId,
           bot_id: botId,
           status,
@@ -357,7 +362,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -520,6 +525,19 @@ export function TaskEditor({
             display: "flex", flexDirection: "column",
           }}>
             <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              <FormRow label="Title">
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short task title (optional)"
+                  style={{
+                    background: "#111", border: "1px solid #333", borderRadius: 8,
+                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
+                    outline: "none", width: "100%",
+                  }}
+                />
+              </FormRow>
               <PromptTemplateLink
                 templateId={promptTemplateId}
                 onLink={(id) => setPromptTemplateId(id)}

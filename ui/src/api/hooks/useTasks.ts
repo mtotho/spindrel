@@ -6,6 +6,7 @@ export interface TaskDetail {
   status: string;
   bot_id: string;
   prompt: string;
+  title?: string | null;
   prompt_template_id?: string | null;
   result?: string | null;
   error?: string | null;
@@ -31,6 +32,7 @@ export interface TaskDetail {
 export interface TaskCreatePayload {
   prompt: string;
   bot_id: string;
+  title?: string | null;
   channel_id?: string | null;
   prompt_template_id?: string | null;
   scheduled_at?: string | null;
@@ -44,6 +46,7 @@ export interface TaskCreatePayload {
 export interface TaskUpdatePayload {
   prompt?: string;
   bot_id?: string;
+  title?: string | null;
   prompt_template_id?: string | null;
   status?: string;
   scheduled_at?: string | null;

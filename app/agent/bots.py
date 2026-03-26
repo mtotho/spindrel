@@ -206,6 +206,8 @@ class BotConfig:
     shared_workspace_id: str | None = None  # UUID string
     shared_workspace_role: str | None = None  # 'member' | 'orchestrator'
     shared_workspace_cwd: str | None = None  # resolved cwd override
+    # History mode: "summary" (default) | "structured" | "file"
+    history_mode: str = "summary"
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -412,6 +414,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         user_id=_user_id,
         shared_workspace_id=str(_sw_id) if _sw_id else None,
         shared_workspace_role=_sw_role,
+        history_mode=row.history_mode or "summary",
         shared_workspace_cwd=_sw_cwd,
         _workspace_raw=ws_raw,
     )
@@ -491,6 +494,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
             "harness_access": data.get("harness_access", []),
         },
         "workspace": data.get("workspace", {"enabled": False}),
+        "history_mode": data.get("history_mode", "summary"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

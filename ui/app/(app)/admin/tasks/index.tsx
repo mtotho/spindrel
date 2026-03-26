@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { View, ScrollView, ActivityIndicator } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus,
   Clock, AlertCircle, CheckCircle2, Loader2, RefreshCw, Calendar,
   List,
 } from "lucide-react";
@@ -17,6 +17,7 @@ interface TaskItem {
   status: string;
   bot_id: string;
   prompt: string;
+  title?: string;
   result?: string;
   error?: string;
   dispatch_type: string;
@@ -42,7 +43,7 @@ interface TasksResponse {
   total: number;
 }
 
-type ViewMode = "day" | "week" | "list";
+type ViewMode = "schedule" | "day" | "week" | "list";
 type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api";
 
 type EditorState =
@@ -83,7 +84,42 @@ const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any }> = {
   cancelled: { bg: "#333", fg: "#666", icon: Clock },
 };
 
-// Parse recurrence interval like "+1d", "+2h" into milliseconds
+// ---------------------------------------------------------------------------
+// Bot color palette — deterministic hash to 12 distinct hues
+// ---------------------------------------------------------------------------
+const BOT_COLORS = [
+  { bg: "rgba(59,130,246,0.12)", border: "#3b82f6", dot: "#3b82f6", fg: "#93c5fd" },  // blue
+  { bg: "rgba(168,85,247,0.12)", border: "#a855f7", dot: "#a855f7", fg: "#c084fc" },  // purple
+  { bg: "rgba(236,72,153,0.12)", border: "#ec4899", dot: "#ec4899", fg: "#f472b6" },  // pink
+  { bg: "rgba(239,68,68,0.12)",  border: "#ef4444", dot: "#ef4444", fg: "#fca5a5" },  // red
+  { bg: "rgba(249,115,22,0.12)", border: "#f97316", dot: "#f97316", fg: "#fdba74" },  // orange
+  { bg: "rgba(234,179,8,0.12)",  border: "#eab308", dot: "#eab308", fg: "#fde047" },  // yellow
+  { bg: "rgba(34,197,94,0.12)",  border: "#22c55e", dot: "#22c55e", fg: "#86efac" },  // green
+  { bg: "rgba(20,184,166,0.12)", border: "#14b8a6", dot: "#14b8a6", fg: "#5eead4" },  // teal
+  { bg: "rgba(6,182,212,0.12)",  border: "#06b6d4", dot: "#06b6d4", fg: "#67e8f9" },  // cyan
+  { bg: "rgba(99,102,241,0.12)", border: "#6366f1", dot: "#6366f1", fg: "#a5b4fc" },  // indigo
+  { bg: "rgba(244,63,94,0.12)",  border: "#f43f5e", dot: "#f43f5e", fg: "#fb7185" },  // rose
+  { bg: "rgba(132,204,22,0.12)", border: "#84cc16", dot: "#84cc16", fg: "#bef264" },  // lime
+];
+
+function botColor(botId: string) {
+  let hash = 0;
+  for (let i = 0; i < botId.length; i++) {
+    hash = ((hash << 5) - hash + botId.charCodeAt(i)) | 0;
+  }
+  return BOT_COLORS[Math.abs(hash) % BOT_COLORS.length];
+}
+
+function displayTitle(task: TaskItem): string {
+  if (task.title) return task.title;
+  if (!task.prompt) return "(no title)";
+  const clean = task.prompt.replace(/\n/g, " ").trim();
+  return clean.length > 60 ? clean.substring(0, 57) + "..." : clean;
+}
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
 const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 function parseRecurrenceMs(recurrence: string): number | null {
   const m = recurrence.match(/^\+(\d+)([smhd])$/);
@@ -120,6 +156,17 @@ function isToday(d: Date) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
+function isTomorrow(d: Date) {
+  const tom = addDays(new Date(), 1);
+  return d.getFullYear() === tom.getFullYear() && d.getMonth() === tom.getMonth() && d.getDate() === tom.getDate();
+}
+
+function dateSectionLabel(d: Date): string {
+  if (isToday(d)) return "Today";
+  if (isTomorrow(d)) return "Tomorrow";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 // ---------------------------------------------------------------------------
 // Current time indicator line
 // ---------------------------------------------------------------------------
@@ -139,7 +186,7 @@ function NowLine() {
 }
 
 // ---------------------------------------------------------------------------
-// Hour labels
+// Hour labels / grid
 // ---------------------------------------------------------------------------
 function HourLabels() {
   const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -161,9 +208,6 @@ function HourLabels() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Hour grid lines
-// ---------------------------------------------------------------------------
 function HourGrid() {
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
@@ -198,7 +242,20 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Task card on timeline
+// Bot color dot
+// ---------------------------------------------------------------------------
+function BotDot({ botId, size = 8 }: { botId: string; size?: number }) {
+  const c = botColor(botId);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size / 2,
+      background: c.dot, flexShrink: 0,
+    }} />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Task card on timeline (Day/Week views) — simplified
 // ---------------------------------------------------------------------------
 function TaskCard({
   task, isPast, onPress, style: extraStyle,
@@ -234,45 +291,35 @@ function TaskCard({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon size={13} color={s.fg} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: s.fg }}>
-          {isVirtual ? "upcoming" : task.status}
+        <span style={{
+          fontSize: 13, fontWeight: 600, color: "#e5e5e5",
+          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {displayTitle(task)}
         </span>
-
-        {task.task_type && <TypeBadge type={task.task_type} />}
 
         {isRecurring && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,
             background: "#92400e", color: "#fcd34d",
             padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+            flexShrink: 0,
           }}>
             <RefreshCw size={9} color="#fcd34d" />
             {task.recurrence}
           </span>
         )}
 
-        {task.run_count != null && task.run_count > 0 && task.status === "active" && (
-          <span style={{ fontSize: 10, color: "#666" }}>
-            {task.run_count} runs
-          </span>
-        )}
-
-        <span style={{ fontSize: 11, color: "#555", marginLeft: "auto" }}>
+        <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
           {time ? fmtTime(time) : "\u2014"}
         </span>
       </div>
 
-      <div style={{ fontSize: 11, color: "#999", marginTop: 4, fontFamily: "monospace" }}>
-        {task.bot_id}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+        <BotDot botId={task.bot_id} />
+        <span style={{ fontSize: 10, color: "#666" }}>{task.bot_id}</span>
+        {task.task_type && <TypeBadge type={task.task_type} />}
       </div>
-      {task.prompt && (
-        <div style={{
-          fontSize: 11, color: isVirtual ? "#444" : isPast ? "#555" : "#888", marginTop: 4,
-          whiteSpace: "pre-wrap", maxHeight: 40, overflow: "hidden",
-        }}>
-          {task.prompt.substring(0, 150)}{task.prompt.length > 150 ? "..." : ""}
-        </div>
-      )}
       {task.error && (
         <div style={{ fontSize: 10, color: "#fca5a5", marginTop: 4 }}>
           {task.error.substring(0, 100)}
@@ -285,7 +332,7 @@ function TaskCard({
 // ---------------------------------------------------------------------------
 // Day column
 // ---------------------------------------------------------------------------
-const CARD_HEIGHT_PX = 80;
+const CARD_HEIGHT_PX = 70;
 const CARD_MIN_GAP = 4;
 
 function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
@@ -352,7 +399,247 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 }
 
 // ---------------------------------------------------------------------------
-// List view
+// Schedule view — grouped by bot, with date sub-headers
+// ---------------------------------------------------------------------------
+function ScheduleView({ tasks, schedules, onTaskPress, bots }: {
+  tasks: TaskItem[];
+  schedules: TaskItem[];
+  onTaskPress: (t: TaskItem) => void;
+  bots: any[] | undefined;
+}) {
+  const [collapsedBots, setCollapsedBots] = useState<Set<string>>(new Set());
+  const now = new Date();
+
+  // Merge schedules + concrete tasks, generate virtual occurrences for next 14 days
+  const allItems = useMemo(() => {
+    const items: TaskItem[] = [...tasks];
+
+    // Build set of (schedule_id, day) for concrete tasks
+    const concreteByScheduleDay = new Set<string>();
+    for (const t of tasks) {
+      if (t.parent_task_id) {
+        const d = startOfDay(getTaskTime(t)).toDateString();
+        concreteByScheduleDay.add(`${t.parent_task_id}:${d}`);
+      }
+    }
+
+    // Expand schedules into virtual entries for the next 14 days
+    const rangeEnd = addDays(now, 14).getTime();
+    const rangeStart = startOfDay(now).getTime();
+
+    for (const sched of schedules) {
+      // Add the schedule itself as a reference item
+      items.push({ ...sched, is_schedule: true });
+
+      if (!sched.recurrence || !sched.scheduled_at) continue;
+      const intervalMs = parseRecurrenceMs(sched.recurrence);
+      if (!intervalMs) continue;
+
+      const schedStart = new Date(sched.scheduled_at).getTime();
+      let t = schedStart;
+      if (t < rangeStart) {
+        const steps = Math.floor((rangeStart - t) / intervalMs);
+        t += steps * intervalMs;
+      }
+      if (t > rangeStart) {
+        const prevT = t - intervalMs;
+        if (prevT >= rangeStart) t = prevT;
+      }
+
+      let count = 0;
+      while (t < rangeEnd && count < 100) {
+        if (t >= rangeStart) {
+          const occDate = new Date(t);
+          const dayStr = startOfDay(occDate).toDateString();
+          const key = `${sched.id}:${dayStr}`;
+          if (!concreteByScheduleDay.has(key)) {
+            items.push({
+              ...sched,
+              id: `virtual-${sched.id}-${t}`,
+              status: "upcoming",
+              scheduled_at: occDate.toISOString(),
+              is_schedule: true,
+              is_virtual: true,
+              _schedule_id: sched.id,
+              result: undefined,
+              error: undefined,
+            });
+          }
+        }
+        t += intervalMs;
+        count++;
+      }
+    }
+
+    return items;
+  }, [tasks, schedules, now]);
+
+  // Group by bot_id
+  const grouped = useMemo(() => {
+    const map: Record<string, TaskItem[]> = {};
+    for (const t of allItems) {
+      (map[t.bot_id] ??= []).push(t);
+    }
+    // Sort each bot's tasks chronologically
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
+    }
+    // Sort bots by earliest upcoming task
+    return Object.entries(map).sort(([, a], [, b]) => {
+      const aNext = a.find(t => t.status !== "complete" && t.status !== "failed");
+      const bNext = b.find(t => t.status !== "complete" && t.status !== "failed");
+      if (!aNext && !bNext) return 0;
+      if (!aNext) return 1;
+      if (!bNext) return -1;
+      return getTaskTime(aNext).getTime() - getTaskTime(bNext).getTime();
+    });
+  }, [allItems]);
+
+  if (!grouped.length) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+        No tasks found.
+      </div>
+    );
+  }
+
+  const toggleBot = (botId: string) => {
+    setCollapsedBots(prev => {
+      const next = new Set(prev);
+      if (next.has(botId)) next.delete(botId); else next.add(botId);
+      return next;
+    });
+  };
+
+  const botName = (botId: string) => {
+    const b = bots?.find((x: any) => x.id === botId);
+    return b?.name || botId;
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 0 24px" }}>
+      {grouped.map(([botId, botTasks]) => {
+        const c = botColor(botId);
+        const isCollapsed = collapsedBots.has(botId);
+        // Filter out schedule reference items (is_schedule && !is_virtual && status === "active") — they're shown as headers
+        const displayTasks = botTasks.filter(t => !(t.is_schedule && !t.is_virtual && t.status === "active"));
+        const scheduleCount = botTasks.filter(t => t.is_schedule && !t.is_virtual && t.status === "active").length;
+
+        // Group tasks by date
+        const byDate: Record<string, TaskItem[]> = {};
+        for (const t of displayTasks) {
+          const d = startOfDay(getTaskTime(t)).toDateString();
+          (byDate[d] ??= []).push(t);
+        }
+
+        return (
+          <div key={botId}>
+            {/* Bot section header */}
+            <div
+              onClick={() => toggleBot(botId)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "12px 20px",
+                borderLeft: `3px solid ${c.border}`,
+                background: c.bg,
+                cursor: "pointer",
+                userSelect: "none",
+                position: "sticky", top: 0, zIndex: 2,
+              }}
+            >
+              {isCollapsed ? <ChevronRight size={14} color="#666" /> : <ChevronDown size={14} color="#666" />}
+              <BotDot botId={botId} size={10} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#e5e5e5" }}>
+                {botName(botId)}
+              </span>
+              <span style={{ fontSize: 11, color: "#666" }}>
+                {displayTasks.length} task{displayTasks.length !== 1 ? "s" : ""}
+                {scheduleCount > 0 && ` \u00b7 ${scheduleCount} schedule${scheduleCount !== 1 ? "s" : ""}`}
+              </span>
+            </div>
+
+            {/* Tasks grouped by date */}
+            {!isCollapsed && Object.entries(byDate).map(([dayStr, dayTasks]) => (
+              <div key={dayStr}>
+                {/* Date sub-header */}
+                <div style={{
+                  padding: "6px 20px 6px 36px",
+                  borderLeft: `3px solid ${c.border}`,
+                  borderBottom: "1px solid #1a1a1a",
+                }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600,
+                    color: isToday(new Date(dayStr)) ? "#3b82f6" : "#666",
+                  }}>
+                    {dateSectionLabel(new Date(dayStr))}
+                  </span>
+                </div>
+
+                {/* Task cards */}
+                {dayTasks.map((t) => {
+                  const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+                  const Icon = s.icon;
+                  const time = t.scheduled_at || t.created_at;
+                  const isPast = getTaskTime(t) < now && t.status !== "running" && t.status !== "active";
+                  const isVirtual = t.is_virtual;
+
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => onTaskPress(t)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 20px 10px 36px",
+                        borderLeft: `3px solid ${c.border}`,
+                        borderBottom: "1px solid #0f0f0f",
+                        cursor: "pointer",
+                        opacity: isVirtual ? 0.5 : isPast ? 0.5 : 1,
+                        background: "transparent",
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#151515"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                    >
+                      <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 13, fontWeight: 600, color: "#e5e5e5",
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                          {displayTitle(t)}
+                        </div>
+                      </div>
+
+                      {t.recurrence && (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                          background: "#92400e", color: "#fcd34d",
+                          padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                          flexShrink: 0,
+                        }}>
+                          <RefreshCw size={9} color="#fcd34d" />
+                          {t.recurrence}
+                        </span>
+                      )}
+
+                      <span style={{ fontSize: 11, color: "#555", flexShrink: 0, minWidth: 55, textAlign: "right" }}>
+                        {time ? fmtTime(time) : "\u2014"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// List view — simplified with title + bot dot
 // ---------------------------------------------------------------------------
 function TaskListView({ tasks, schedules, onTaskPress }: {
   tasks: TaskItem[];
@@ -360,7 +647,6 @@ function TaskListView({ tasks, schedules, onTaskPress }: {
   onTaskPress: (t: TaskItem) => void;
 }) {
   const now = new Date();
-  // Combine active schedules (at the top) + concrete tasks (sorted by time desc)
   const allItems = useMemo(() => {
     const schedulesWithFlag = schedules.map(s => ({ ...s, is_schedule: true }));
     const sortedTasks = [...tasks].sort((a, b) => {
@@ -379,64 +665,102 @@ function TaskListView({ tasks, schedules, onTaskPress }: {
     );
   }
 
+  // Group by date
+  const byDate: Record<string, TaskItem[]> = {};
+  // Schedules go in a special section
+  const activeSchedules: TaskItem[] = [];
+  for (const t of allItems) {
+    if (t.is_schedule && t.status === "active") {
+      activeSchedules.push(t);
+    } else {
+      const d = startOfDay(getTaskTime(t)).toDateString();
+      (byDate[d] ??= []).push(t);
+    }
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 16px" }}>
-      {allItems.map((t) => {
-        const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
-        const Icon = s.icon;
-        const time = t.scheduled_at || t.created_at;
-        const isPast = getTaskTime(t) < now && t.status !== "running";
-        return (
-          <div
-            key={t.id}
-            onClick={() => onTaskPress(t)}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "10px 14px", background: "#111", borderRadius: 8,
-              border: "1px solid #1a1a1a", cursor: "pointer",
-              opacity: isPast && t.status !== "active" ? 0.6 : 1,
-            }}
-          >
-            <Icon size={14} color={s.fg} />
-            <span style={{
-              fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-              background: s.bg, color: s.fg, minWidth: 55, textAlign: "center",
-            }}>
-              {t.status}
-            </span>
-            {t.task_type && <TypeBadge type={t.task_type} />}
-            {t.recurrence && (
-              <span style={{
-                display: "inline-flex", alignItems: "center", gap: 3,
-                background: "#92400e", color: "#fcd34d",
-                padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-              }}>
-                <RefreshCw size={9} color="#fcd34d" />
-                {t.recurrence}
-              </span>
-            )}
-            {t.run_count != null && t.run_count > 0 && (
-              <span style={{ fontSize: 10, color: "#666" }}>{t.run_count} runs</span>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "#999", fontFamily: "monospace" }}>
-                {t.bot_id}
-              </div>
-              {t.prompt && (
-                <div style={{
-                  fontSize: 11, color: "#666", marginTop: 2,
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}>
-                  {t.prompt.substring(0, 200)}
-                </div>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: "#555", whiteSpace: "nowrap" }}>
-              {time ? new Date(time).toLocaleString() : "\u2014"}
-            </span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 16px 24px" }}>
+      {/* Active schedules section */}
+      {activeSchedules.length > 0 && (
+        <>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: "#fcd34d", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Active Schedules
           </div>
-        );
-      })}
+          {activeSchedules.map((t) => {
+            const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+            const Icon = s.icon;
+            return (
+              <div
+                key={t.id}
+                onClick={() => onTaskPress(t)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "10px 14px", background: "#111", borderRadius: 8,
+                  border: "1px solid #1a1a1a", cursor: "pointer", marginBottom: 2,
+                }}
+              >
+                <Icon size={14} color={s.fg} />
+                <BotDot botId={t.bot_id} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {displayTitle(t)}
+                </span>
+                <span style={{ fontSize: 10, color: "#666" }}>{t.bot_id}</span>
+                {t.recurrence && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    background: "#92400e", color: "#fcd34d",
+                    padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                  }}>
+                    <RefreshCw size={9} color="#fcd34d" />
+                    {t.recurrence}
+                  </span>
+                )}
+                {t.run_count != null && t.run_count > 0 && (
+                  <span style={{ fontSize: 10, color: "#666" }}>{t.run_count} runs</span>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* Date sections */}
+      {Object.entries(byDate).map(([dayStr, dayTasks]) => (
+        <div key={dayStr}>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: isToday(new Date(dayStr)) ? "#3b82f6" : "#666", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {dateSectionLabel(new Date(dayStr))}
+          </div>
+          {dayTasks.map((t) => {
+            const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+            const Icon = s.icon;
+            const time = t.scheduled_at || t.created_at;
+            const isPast = getTaskTime(t) < now && t.status !== "running";
+            return (
+              <div
+                key={t.id}
+                onClick={() => onTaskPress(t)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "10px 14px", background: "#111", borderRadius: 8,
+                  border: "1px solid #1a1a1a", cursor: "pointer", marginBottom: 2,
+                  opacity: isPast ? 0.6 : 1,
+                }}
+              >
+                <Icon size={14} color={s.fg} />
+                <BotDot botId={t.bot_id} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {displayTitle(t)}
+                </span>
+                <span style={{ fontSize: 10, color: "#666" }}>{t.bot_id}</span>
+                {t.task_type && <TypeBadge type={t.task_type} />}
+                <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
+                  {time ? fmtTime(time) : "\u2014"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -445,7 +769,7 @@ function TaskListView({ tasks, schedules, onTaskPress }: {
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
-  const [viewMode, setViewMode] = useState<ViewMode>("day");
+  const [viewMode, setViewMode] = useState<ViewMode>("schedule");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
   const [botFilter, setBotFilter] = useState<string>("");
@@ -455,8 +779,8 @@ export default function TasksScreen() {
   const isMobile = columns === "single";
   const { data: bots } = useBots();
 
-  const isCalendar = viewMode !== "list";
-  const rangeDays = viewMode === "day" ? 1 : 7;
+  const isCalendar = viewMode === "day" || viewMode === "week";
+  const rangeDays = viewMode === "day" ? 1 : viewMode === "week" ? 7 : 1;
   const rangeStart = baseDate;
   const rangeEnd = addDays(baseDate, rangeDays);
 
@@ -480,13 +804,11 @@ export default function TasksScreen() {
       const d = addDays(baseDate, i);
       map[d.toDateString()] = [];
     }
-    // Add concrete tasks
     for (const t of data?.tasks ?? []) {
       const d = startOfDay(getTaskTime(t)).toDateString();
       (map[d] ??= []).push(t);
     }
 
-    // Build a set of (schedule_id, day) pairs that already have concrete tasks
     const concreteByScheduleDay = new Set<string>();
     for (const t of data?.tasks ?? []) {
       if (t.parent_task_id) {
@@ -495,7 +817,6 @@ export default function TasksScreen() {
       }
     }
 
-    // Expand schedule templates into virtual entries
     for (const sched of data?.schedules ?? []) {
       if (!sched.recurrence || !sched.scheduled_at) continue;
       const intervalMs = parseRecurrenceMs(sched.recurrence);
@@ -506,13 +827,10 @@ export default function TasksScreen() {
       const schedStart = new Date(sched.scheduled_at).getTime();
 
       let t = schedStart;
-
-      // If the schedule starts before the range, skip forward
       if (t < rangeStartMs) {
         const steps = Math.floor((rangeStartMs - t) / intervalMs);
         t += steps * intervalMs;
       }
-      // If we overshot, go back one
       if (t > rangeStartMs) {
         const prevT = t - intervalMs;
         if (prevT >= rangeStartMs) t = prevT;
@@ -524,8 +842,6 @@ export default function TasksScreen() {
           const occDate = new Date(t);
           const dayStr = startOfDay(occDate).toDateString();
           const key = `${sched.id}:${dayStr}`;
-
-          // Only inject virtual if no concrete task exists for this schedule+day
           if (!concreteByScheduleDay.has(key)) {
             (map[dayStr] ??= []).push({
               ...sched,
@@ -558,12 +874,10 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (t: TaskItem) => {
-    // Virtual entries open the parent schedule template
     const taskId = t.is_virtual && t._schedule_id ? t._schedule_id : t.id;
     setEditorState({ mode: "edit", taskId });
   };
 
-  // Derive TaskEditor props from editor state
   const editorOpen = editorState.mode !== "closed";
   const editorTaskId = editorState.mode === "edit" ? editorState.taskId : null;
   const editorCloneFromId = editorState.mode === "clone" ? editorState.cloneFromId : undefined;
@@ -605,12 +919,12 @@ export default function TasksScreen() {
             </select>
 
             <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
-              {(["day", "week", "list"] as ViewMode[]).map((m) => (
+              {(["schedule", "day", "week", "list"] as ViewMode[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => setViewMode(m)}
                   style={{
-                    padding: "5px 14px", fontSize: 11, fontWeight: 500,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 500,
                     border: "none", cursor: "pointer",
                     background: viewMode === m ? "#3b82f6" : "transparent",
                     color: viewMode === m ? "#fff" : "#999",
@@ -618,8 +932,9 @@ export default function TasksScreen() {
                     display: "flex", alignItems: "center", gap: 4,
                   }}
                 >
+                  {m === "schedule" && <Calendar size={12} />}
                   {m === "list" && <List size={12} />}
-                  {m}
+                  {m === "schedule" ? "Schedule" : m}
                 </button>
               ))}
             </div>
@@ -677,6 +992,15 @@ export default function TasksScreen() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#3b82f6" />
         </View>
+      ) : viewMode === "schedule" ? (
+        <ScrollView className="flex-1">
+          <ScheduleView
+            tasks={data?.tasks ?? []}
+            schedules={data?.schedules ?? []}
+            onTaskPress={handleTaskPress}
+            bots={bots}
+          />
+        </ScrollView>
       ) : viewMode === "list" ? (
         <ScrollView className="flex-1">
           <TaskListView

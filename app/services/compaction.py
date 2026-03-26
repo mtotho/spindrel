@@ -15,10 +15,17 @@ from app.agent.loop import run_agent_tool_loop
 from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, Message, Session
+from app.db.models import Channel, ConversationSection, Message, Session
 from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
+
+
+def _get_history_mode(bot: BotConfig, channel: Channel | None = None) -> str:
+    """Resolve the effective history mode: channel override → bot → default 'summary'."""
+    if channel and channel.history_mode:
+        return channel.history_mode
+    return bot.history_mode or "summary"
 
 
 def _stringify_message_content(content: Any) -> str:
@@ -285,6 +292,83 @@ async def _generate_summary(
     return (title, summary)
 
 
+async def _generate_section(
+    conversation: list[dict],
+    model: str,
+    provider_id: str | None = None,
+) -> tuple[str, str, str]:
+    """Call the LLM to produce a section title, summary, and formatted transcript."""
+    prompt_messages: list[dict] = [{"role": "system", "content": settings.SECTION_COMPACTION_PROMPT}]
+
+    transcript = "\n".join(
+        f"[{m['role'].upper()}]: {m['content']}" for m in conversation
+    )
+    prompt_messages.append({
+        "role": "user",
+        "content": f"Conversation segment to archive:\n\n{transcript}",
+    })
+
+    from app.services.providers import get_llm_client
+    response = await get_llm_client(provider_id).chat.completions.create(
+        model=model,
+        messages=prompt_messages,
+        temperature=0.3,
+    )
+
+    raw = response.choices[0].message.content or "{}"
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        raw = raw.rsplit("```", 1)[0]
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Section LLM returned non-JSON: %s", raw[:200])
+        return ("Conversation", raw[:200], raw)
+
+    title = data.get("title", "Conversation")
+    summary = data.get("summary", "")
+    section_transcript = data.get("transcript", raw)
+    return (title, summary, section_transcript)
+
+
+async def _regenerate_executive_summary(
+    channel_id: uuid.UUID,
+    model: str,
+    provider_id: str | None = None,
+) -> str:
+    """Query all sections for a channel and produce a compact executive summary."""
+    async with async_session() as db:
+        result = await db.execute(
+            select(ConversationSection)
+            .where(ConversationSection.channel_id == channel_id)
+            .order_by(ConversationSection.sequence)
+        )
+        sections = result.scalars().all()
+
+    if not sections:
+        return ""
+
+    section_lines = []
+    for s in sections:
+        section_lines.append(f"Section {s.sequence}: {s.title}\n  {s.summary}")
+
+    prompt_messages = [
+        {"role": "system", "content": settings.SECTION_EXECUTIVE_SUMMARY_PROMPT},
+        {"role": "user", "content": "Section summaries:\n\n" + "\n\n".join(section_lines)},
+    ]
+
+    from app.services.providers import get_llm_client
+    response = await get_llm_client(provider_id).chat.completions.create(
+        model=model,
+        messages=prompt_messages,
+        temperature=0.3,
+    )
+
+    return (response.choices[0].message.content or "").strip()
+
+
 async def run_compaction_stream(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     *,
@@ -392,8 +476,9 @@ async def run_compaction_stream(
 
     try:
         model = _get_compaction_model(bot, channel)
-        title, summary = await _generate_summary(to_summarize, model, existing_summary, provider_id=bot.model_provider_id)
+        history_mode = _get_history_mode(bot, channel)
 
+        # --- Compute watermark (shared across all modes) ---
         async with async_session() as db:
             recent_user_msgs = await db.execute(
                 select(Message.id)
@@ -422,20 +507,87 @@ async def run_compaction_stream(
                 logger.debug("All messages within keep window for %s, skipping", session_id)
                 return
 
-            await db.execute(
-                update(Session)
-                .where(Session.id == session_id)
-                .values(
-                    title=title,
-                    summary=summary,
-                    summary_message_id=watermark_id,
-                )
+        if history_mode in ("structured", "file"):
+            # --- Section-based compaction ---
+            sec_title, sec_summary, sec_transcript = await _generate_section(
+                to_summarize, model, provider_id=bot.model_provider_id,
             )
-            await db.commit()
+
+            # Compute message count and period
+            msg_count = sum(1 for m in to_summarize if m.get("role") in ("user", "assistant"))
+
+            # Embed for structured mode only
+            sec_embedding = None
+            if history_mode == "structured":
+                from app.agent.embeddings import embed_text
+                sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
+
+            # Get next sequence number and insert section
+            channel_id = channel.id if channel else None
+            async with async_session() as db:
+                if channel_id:
+                    max_seq_result = await db.execute(
+                        select(func.max(ConversationSection.sequence))
+                        .where(ConversationSection.channel_id == channel_id)
+                    )
+                    max_seq = max_seq_result.scalar() or 0
+                else:
+                    max_seq = 0
+
+                section = ConversationSection(
+                    channel_id=channel_id,
+                    session_id=session_id,
+                    sequence=max_seq + 1,
+                    title=sec_title,
+                    summary=sec_summary,
+                    transcript=sec_transcript,
+                    message_count=msg_count,
+                    embedding=sec_embedding,
+                )
+                db.add(section)
+                await db.commit()
+
+            # Regenerate executive summary from all sections
+            exec_summary = await _regenerate_executive_summary(
+                channel_id, model, provider_id=bot.model_provider_id,
+            ) if channel_id else sec_summary
+
+            # Update session with executive summary + watermark
+            async with async_session() as db:
+                await db.execute(
+                    update(Session)
+                    .where(Session.id == session_id)
+                    .values(
+                        title=sec_title,
+                        summary=exec_summary,
+                        summary_message_id=watermark_id,
+                    )
+                )
+                await db.commit()
+
+            title = sec_title
+            summary = exec_summary
+        else:
+            # --- Default summary mode ---
+            title, summary = await _generate_summary(
+                to_summarize, model, existing_summary, provider_id=bot.model_provider_id,
+            )
+
+            async with async_session() as db:
+                await db.execute(
+                    update(Session)
+                    .where(Session.id == session_id)
+                    .values(
+                        title=title,
+                        summary=summary,
+                        summary_message_id=watermark_id,
+                    )
+                )
+                await db.commit()
 
         logger.info(
-            "Compaction complete for %s: title=%r, summary_len=%d",
-            session_id, title, len(summary),
+            "Compaction complete for %s: mode=%s, title=%r, summary_len=%d",
+            session_id, history_mode, title, len(summary),
         )
         asyncio.create_task(_record_trace_event(
             correlation_id=correlation_id,
@@ -443,7 +595,7 @@ async def run_compaction_stream(
             bot_id=bot.id,
             client_id=client_id,
             event_type="compaction_done",
-            data={"title": title, "summary_len": len(summary)},
+            data={"title": title, "summary_len": len(summary), "history_mode": history_mode},
         ))
         yield {"type": "compaction_done", "title": title}
     except Exception:
@@ -559,7 +711,7 @@ async def run_compaction_forced(
             pass
 
     model = _get_compaction_model(bot, channel)
-    title, summary = await _generate_summary(conversation, model, existing_summary, provider_id=bot.model_provider_id)
+    history_mode = _get_history_mode(bot, channel)
 
     keep_turns = _get_compaction_keep_turns(bot, channel)
     recent_user_msgs = await db.execute(
@@ -584,6 +736,50 @@ async def run_compaction_forced(
     if last_msg_id is None:
         raise ValueError("All messages within keep window, nothing to compact")
 
+    if history_mode in ("structured", "file"):
+        sec_title, sec_summary, sec_transcript = await _generate_section(
+            conversation, model, provider_id=bot.model_provider_id,
+        )
+        msg_count = sum(1 for m in conversation if m.get("role") in ("user", "assistant"))
+
+        sec_embedding = None
+        if history_mode == "structured":
+            from app.agent.embeddings import embed_text
+            sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
+
+        channel_id = session.channel_id
+        if channel_id:
+            max_seq_result = await db.execute(
+                select(func.max(ConversationSection.sequence))
+                .where(ConversationSection.channel_id == channel_id)
+            )
+            max_seq = max_seq_result.scalar() or 0
+        else:
+            max_seq = 0
+
+        section = ConversationSection(
+            channel_id=channel_id,
+            session_id=session_id,
+            sequence=max_seq + 1,
+            title=sec_title,
+            summary=sec_summary,
+            transcript=sec_transcript,
+            message_count=msg_count,
+            embedding=sec_embedding,
+        )
+        db.add(section)
+        await db.flush()
+
+        exec_summary = await _regenerate_executive_summary(
+            channel_id, model, provider_id=bot.model_provider_id,
+        ) if channel_id else sec_summary
+
+        title, summary = sec_title, exec_summary
+    else:
+        title, summary = await _generate_summary(
+            conversation, model, existing_summary, provider_id=bot.model_provider_id,
+        )
+
     await db.execute(
         update(Session)
         .where(Session.id == session_id)
@@ -596,6 +792,6 @@ async def run_compaction_forced(
         bot_id=bot.id,
         client_id=client_id,
         event_type="compaction_done",
-        data={"forced": True, "title": title, "summary_len": len(summary)},
+        data={"forced": True, "title": title, "summary_len": len(summary), "history_mode": history_mode},
     ))
     return (title, summary)

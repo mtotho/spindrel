@@ -78,6 +78,8 @@ class Channel(Base):
     skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     workspace_skills_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -95,6 +97,32 @@ class Channel(Base):
     )
     heartbeat: Mapped[Optional["ChannelHeartbeat"]] = relationship(
         "ChannelHeartbeat", uselist=False, viewonly=True,
+    )
+
+
+class ConversationSection(Base):
+    __tablename__ = "conversation_sections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    period_start: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    transcript: Mapped[str] = mapped_column(Text, nullable=False)
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    embedding: Mapped[list | None] = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS), nullable=True)
+
+    __table_args__ = (
+        Index("ix_conversation_sections_channel_seq", "channel_id", "sequence"),
+        Index("ix_conversation_sections_session_id", "session_id"),
     )
 
 
@@ -622,6 +650,7 @@ class Bot(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'summary'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
@@ -786,6 +815,7 @@ class Task(Base):
         nullable=True,
     )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

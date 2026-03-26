@@ -27,7 +27,13 @@ def _to_dict(obj: Any) -> dict:
     return {"enabled": False}
 
 
-def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
+def _bot_to_out(
+    bot,
+    *,
+    persona_content: str | None = None,
+    persona_from_workspace: bool = False,
+    workspace_persona_content: str | None = None,
+) -> BotOut:
     """Convert a BotConfig dataclass to a BotOut Pydantic model."""
     return BotOut(
         id=bot.id,
@@ -50,6 +56,8 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         compression_config=getattr(bot, "compression_config", {}),
         persona=bot.persona,
         persona_content=persona_content,
+        persona_from_workspace=persona_from_workspace,
+        workspace_persona_content=workspace_persona_content,
         context_compaction=bot.context_compaction,
         compaction_interval=bot.compaction_interval,
         compaction_keep_turns=bot.compaction_keep_turns,
@@ -79,6 +87,7 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         attachment_summary_model=getattr(bot, "attachment_summary_model", None),
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
+        history_mode=getattr(bot, "history_mode", "summary"),
         model_params=getattr(bot, "model_params", {}),
         delegation_config={
             "delegate_bots": bot.delegate_bots or [],

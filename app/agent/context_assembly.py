@@ -523,6 +523,49 @@ async def assemble_context(
             })
             yield {"type": "plans_context", "count": len(_plan_rows)}
 
+    # --- conversation section retrieval (structured mode) + tool injection (file mode) ---
+    if channel_id is not None:
+        from app.db.engine import async_session as _sec_async_session
+        from app.db.models import Channel as _SecChannel
+        async with _sec_async_session() as _sec_db:
+            _sec_ch = await _sec_db.get(_SecChannel, channel_id)
+        if _sec_ch is not None:
+            from app.services.compaction import _get_history_mode
+            _hist_mode = _get_history_mode(bot, _sec_ch)
+
+            if _hist_mode == "structured" and user_message:
+                # Semantic retrieval of relevant conversation sections
+                from app.agent.embeddings import embed_text as _sec_embed
+                from app.db.models import ConversationSection as _CS
+                from sqlalchemy import select as _sec_select
+                _query_vec = await _sec_embed(user_message)
+                async with _sec_async_session() as _sec_db2:
+                    _sec_rows = (await _sec_db2.execute(
+                        _sec_select(_CS)
+                        .where(_CS.channel_id == channel_id, _CS.embedding.is_not(None))
+                        .order_by(_CS.embedding.cosine_distance(_query_vec))
+                        .limit(3)
+                    )).scalars().all()
+                if _sec_rows:
+                    _sec_texts = []
+                    for _sr in _sec_rows:
+                        _sec_texts.append(f"## {_sr.title}\n{_sr.transcript}")
+                    _sec_chars = sum(len(t) for t in _sec_texts)
+                    _inject_chars["conversation_sections"] = _sec_chars
+                    messages.append({
+                        "role": "system",
+                        "content": "Relevant conversation history sections:\n\n" + "\n\n---\n\n".join(_sec_texts),
+                    })
+                    yield {"type": "section_context", "count": len(_sec_rows), "chars": _sec_chars}
+
+            elif _hist_mode == "file":
+                # Inject read_conversation_history tool into bot's tools
+                bot = _dc_replace(
+                    bot,
+                    local_tools=list(dict.fromkeys((bot.local_tools or []) + ["read_conversation_history"])),
+                    pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["read_conversation_history"])),
+                )
+
     # --- workspace filesystem context ---
     _do_workspace_rag = False
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
@@ -659,6 +702,13 @@ async def assemble_context(
                 })
                 yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
     result.pre_selected_tools = pre_selected_tools
+
+    # --- channel prompt (injected just before user message) ---
+    if channel_id is not None and _ch_row is not None:  # type: ignore[possibly-undefined]
+        _ch_prompt = getattr(_ch_row, "channel_prompt", None)
+        if _ch_prompt:
+            messages.append({"role": "system", "content": _ch_prompt})
+            _inject_chars["channel_prompt"] = len(_ch_prompt)
 
     # --- user message (audio or text) ---
     if native_audio:

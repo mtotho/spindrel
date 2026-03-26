@@ -32,6 +32,40 @@ _SKIP_EXTENSIONS = {
 }
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next"}
 
+# Workspace convention files that are auto-injected via dedicated mechanisms
+# (persona, skills, base prompt).  Indexing them would cause double-injection.
+_AUTO_INJECTED_PATTERNS: list[tuple[str, ...]] = [
+    # persona.md at bot root or bots/*/persona.md for orchestrators
+    ("persona.md",),
+    # skills/ subtree (pinned, rag, on-demand, top-level) — bot or common
+    ("skills",),
+    ("common", "skills"),
+    # prompts/base.md — bot or common
+    ("prompts", "base.md"),
+    ("common", "prompts", "base.md"),
+]
+
+
+def _is_auto_injected(rel_parts: tuple[str, ...]) -> bool:
+    """Return True if the file matches a workspace convention path that is auto-injected."""
+    for pattern in _AUTO_INJECTED_PATTERNS:
+        if len(pattern) == 1:
+            if pattern[0] == rel_parts[-1] and len(rel_parts) == 1:
+                # Exact filename at root (e.g. persona.md)
+                return True
+            if rel_parts[0] == pattern[0]:
+                # Entire subtree (e.g. skills/...)
+                return True
+        else:
+            if rel_parts[:len(pattern)] == pattern:
+                return True
+    # Also match bots/*/skills/... and bots/*/prompts/base.md and bots/*/persona.md
+    # for orchestrator roots that index the full workspace
+    if len(rel_parts) >= 3 and rel_parts[0] == "bots":
+        sub_parts = rel_parts[2:]  # strip bots/<id>/
+        return _is_auto_injected(sub_parts)
+    return False
+
 
 @dataclass
 class ChunkResult:
@@ -310,7 +344,10 @@ async def index_directory(
 
     # Discover candidate files
     if file_paths is not None:
-        candidates = [p.resolve() for p in file_paths if p.is_file()]
+        candidates = [
+            p.resolve() for p in file_paths
+            if p.is_file() and not _is_auto_injected(p.resolve().relative_to(root_path).parts)
+        ]
     else:
         seen: set[Path] = set()
         for pattern in patterns:
@@ -324,6 +361,8 @@ async def index_directory(
                 if any(part in _SKIP_DIRS for part in parts):
                     continue
                 if p.suffix.lower() in _SKIP_EXTENSIONS:
+                    continue
+                if _is_auto_injected(parts):
                     continue
                 if spec:
                     try:

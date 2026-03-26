@@ -222,6 +222,7 @@ export default function TaskDetailScreen() {
   const { width: winWidth } = useWindowDimensions();
   const isWide = winWidth >= 768;
 
+  const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [botId, setBotId] = useState("");
   const [status, setStatus] = useState("pending");
@@ -233,6 +234,7 @@ export default function TaskDetailScreen() {
   const [initialized, setInitialized] = useState(false);
 
   if (task && !initialized) {
+    setTitle(task.title || "");
     setPrompt(task.prompt || "");
     setBotId(task.bot_id || "");
     setStatus(task.status || "pending");
@@ -248,6 +250,7 @@ export default function TaskDetailScreen() {
     if (!prompt.trim() || !botId) return;
     await updateMut.mutateAsync({
       prompt,
+      title: title || null,
       bot_id: botId,
       status,
       scheduled_at: scheduledAt || null,
@@ -257,7 +260,7 @@ export default function TaskDetailScreen() {
       model_override: modelOverride || null,
     });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-  }, [prompt, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, updateMut, qc]);
+  }, [prompt, title, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, updateMut, qc]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -357,6 +360,13 @@ export default function TaskDetailScreen() {
           display: "flex", flexDirection: "column",
         }}>
           <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <FormRow label="Title">
+              <TextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Short task title (optional)"
+              />
+            </FormRow>
             <LlmPrompt
               value={prompt}
               onChange={setPrompt}

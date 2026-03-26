@@ -66,6 +66,7 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             session_id=schedule.session_id,
             channel_id=schedule.channel_id,
             prompt=prompt,
+            title=schedule.title,
             prompt_template_id=schedule.prompt_template_id,
             scheduled_at=schedule.scheduled_at,
             status="pending",
@@ -641,7 +642,7 @@ async def run_task(task: Task) -> None:
                 await db.commit()
                 messages = [{"role": "system", "content": _effective_system_prompt(bot)}]
                 if bot.persona:
-                    persona_layer = await get_persona(bot.id)
+                    persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
                     if persona_layer:
                         messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
                 session_id = child_session_id

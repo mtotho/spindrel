@@ -124,6 +124,7 @@ export default function ChannelSettingsScreen() {
         elevated_model: settings.elevated_model,
         model_override: settings.model_override,
         model_provider_id_override: settings.model_provider_id_override,
+        channel_prompt: settings.channel_prompt,
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
       });
@@ -336,6 +337,17 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
         </FormRow>
       </Section>
 
+      <Section title="Channel Prompt" description="A short prompt injected as a system message right before each user message. Useful for per-channel instructions or reminders.">
+        <LlmPrompt
+          value={form.channel_prompt ?? ""}
+          onChange={(v) => patch("channel_prompt", v || undefined)}
+          label="Channel Prompt"
+          placeholder="Leave blank for no channel-level prompt..."
+          helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
+          rows={4}
+        />
+      </Section>
+
       <Section title="Compaction" description="Auto-summarizes old turns so the context window never fills up.">
         <Toggle
           value={form.context_compaction ?? true}
@@ -366,6 +378,18 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
                 </FormRow>
               </Col>
             </Row>
+            <FormRow label="History Mode">
+              <SelectInput
+                value={form.history_mode ?? ""}
+                onChange={(v) => patch("history_mode", v || undefined)}
+                options={[
+                  { label: "Default (inherit from bot)", value: "" },
+                  { label: "Summary — flat rolling summary", value: "summary" },
+                  { label: "Structured — semantic retrieval of sections", value: "structured" },
+                  { label: "File — LLM navigates sections via tool", value: "file" },
+                ]}
+              />
+            </FormRow>
             <PromptTemplateLink
               templateId={form.compaction_prompt_template_id ?? null}
               onLink={(id) => patch("compaction_prompt_template_id", id)}

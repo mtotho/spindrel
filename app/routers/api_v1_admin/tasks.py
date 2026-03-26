@@ -28,6 +28,7 @@ class TaskDetailOut(BaseModel):
     status: str
     bot_id: str
     prompt: str
+    title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
     result: Optional[str] = None
     error: Optional[str] = None
@@ -69,6 +70,7 @@ class TaskDetailOut(BaseModel):
 class TaskCreateIn(BaseModel):
     prompt: str
     bot_id: str
+    title: Optional[str] = None
     channel_id: Optional[uuid.UUID] = None
     prompt_template_id: Optional[uuid.UUID] = None
     scheduled_at: Optional[str] = None
@@ -82,6 +84,7 @@ class TaskCreateIn(BaseModel):
 class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
     bot_id: Optional[str] = None
+    title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
@@ -164,6 +167,7 @@ async def admin_list_tasks(
             "status": t.status,
             "bot_id": t.bot_id,
             "prompt": t.prompt,
+            "title": t.title,
             "prompt_template_id": str(t.prompt_template_id) if t.prompt_template_id else None,
             "result": t.result[:500] if t.result else None,
             "error": t.error,
@@ -258,6 +262,7 @@ async def admin_create_task(
     task = Task(
         bot_id=body.bot_id,
         prompt=body.prompt,
+        title=body.title,
         prompt_template_id=body.prompt_template_id,
         status=initial_status,
         task_type=body.task_type,
@@ -292,7 +297,7 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
-    for field in ("prompt", "prompt_template_id", "bot_id", "status", "task_type"):
+    for field in ("prompt", "prompt_template_id", "bot_id", "status", "task_type", "title"):
         if field in updates:
             setattr(task, field, updates[field])
     if "recurrence" in updates:

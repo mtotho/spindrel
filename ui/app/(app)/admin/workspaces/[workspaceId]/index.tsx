@@ -1215,6 +1215,16 @@ export default function WorkspaceDetailScreen() {
             </div>
           </Section>
 
+          {/* Workspace Persona */}
+          <Section title="Workspace Persona" description="Override the DB persona with a workspace file. No toggle needed — file presence opts in.">
+            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File convention:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
+              </div>
+            </div>
+          </Section>
+
           {/* Container controls (only for existing workspaces) */}
           {!isNew && (
             <Section title="Container Controls">

@@ -58,6 +58,7 @@ def _make_channel(**overrides):
     ch.memory_knowledge_compaction_prompt = overrides.get(
         "memory_knowledge_compaction_prompt", None
     )
+    ch.history_mode = overrides.get("history_mode", None)
     ch.id = overrides.get("id", uuid.uuid4())
     return ch
 

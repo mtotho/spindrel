@@ -1521,14 +1521,35 @@ export default function BotEditorScreen() {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Persona</div>
               <div style={{ fontSize: 11, color: "#555" }}>Injects a persistent personality/tone as a separate system message (distinct from the system prompt).</div>
-              <Toggle value={draft.persona ?? false} onChange={(v) => update({ persona: v })} label="Enable Persona" />
-              {draft.persona && (
-                <BigTextarea
-                  value={draft.persona_content || ""}
-                  onChange={(v) => update({ persona_content: v })}
-                  placeholder="Describe the bot's personality, tone, and style..."
-                  minRows={20}
-                />
+              {editorData.bot.persona_from_workspace ? (
+                <>
+                  <div style={{ opacity: 0.6, pointerEvents: "none" }}>
+                    <Toggle value={true} onChange={() => {}} label="Enable Persona" />
+                  </div>
+                  <div style={{ fontSize: 11, color: "#93c5fd", marginBottom: 4 }}>
+                    Managed by workspace file: <code style={{ color: "#fbbf24" }}>bots/{editorData.bot.id}/persona.md</code>
+                  </div>
+                  <div style={{ opacity: 0.6, pointerEvents: "none" }}>
+                    <BigTextarea
+                      value={editorData.bot.workspace_persona_content || ""}
+                      onChange={() => {}}
+                      placeholder=""
+                      minRows={20}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Toggle value={draft.persona ?? false} onChange={(v) => update({ persona: v })} label="Enable Persona" />
+                  {draft.persona && (
+                    <BigTextarea
+                      value={draft.persona_content || ""}
+                      onChange={(v) => update({ persona_content: v })}
+                      placeholder="Describe the bot's personality, tone, and style..."
+                      minRows={20}
+                    />
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1931,6 +1952,15 @@ export default function BotEditorScreen() {
                 <SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })}
                   options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}
                   style={{ maxWidth: 300 }} />
+              </FormRow>
+              <FormRow label="History Mode">
+                <SelectInput value={draft.history_mode || "summary"} onChange={(v) => update({ history_mode: v })}
+                  options={[
+                    { label: "Summary — flat rolling summary (default)", value: "summary" },
+                    { label: "Structured — semantic retrieval of sections", value: "structured" },
+                    { label: "File — LLM navigates sections via tool", value: "file" },
+                  ]}
+                  style={{ maxWidth: 400 }} />
               </FormRow>
             </div>
           )}

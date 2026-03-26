@@ -196,6 +196,7 @@ class TestListTasks:
         task.status = "pending"
         task.bot_id = "test_bot"
         task.prompt = "test prompt"
+        task.title = None
         task.scheduled_at = None
         task.run_at = None
         task.completed_at = None
@@ -230,6 +231,7 @@ class TestListTasks:
         task.status = "active"
         task.bot_id = "test_bot"
         task.prompt = "test prompt"
+        task.title = None
         task.scheduled_at = None
         task.run_at = None
         task.completed_at = None

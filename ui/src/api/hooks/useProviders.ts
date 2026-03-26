@@ -118,3 +118,21 @@ export function useTestProvider() {
       }),
   });
 }
+
+export interface TestInlinePayload {
+  provider_type: string;
+  api_key?: string;
+  base_url?: string;
+  credentials_path?: string;
+}
+
+export function useTestProviderInline() {
+  return useMutation({
+    mutationFn: (data: TestInlinePayload) =>
+      apiFetch<TestResult>("/api/v1/admin/providers/test-inline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+  });
+}
