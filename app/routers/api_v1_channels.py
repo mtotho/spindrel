@@ -525,6 +525,21 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
     return ChannelConfigOut(**data)
 
 
+@router.delete("/{channel_id}", status_code=204)
+async def delete_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Delete a channel and all associated data (integrations, heartbeat cascade; sessions/tasks/etc set null)."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    await db.delete(channel)
+    await db.commit()
+
+
 @router.put("/{channel_id}", response_model=ChannelOut)
 async def update_channel(
     channel_id: uuid.UUID,

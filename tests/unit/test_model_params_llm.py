@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.llm import _fold_system_messages
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -421,3 +422,216 @@ class TestAgentLoopModelParams:
         assert "top_p" not in call_kwargs
         assert "top_k" not in call_kwargs
         assert "bogus_setting" not in call_kwargs
+
+
+# ---------------------------------------------------------------------------
+# _fold_system_messages — unit tests for the message transformation
+# ---------------------------------------------------------------------------
+
+class TestFoldSystemMessages:
+    def test_no_system_messages_unchanged(self):
+        """Messages without system role should pass through unchanged."""
+        msgs = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ]
+        result = _fold_system_messages(msgs)
+        assert result == msgs
+
+    def test_single_system_message_becomes_user(self):
+        """A single system message should be converted to a user message at position 0."""
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hello"},
+        ]
+        result = _fold_system_messages(msgs)
+        assert result[0]["role"] == "user"
+        assert result[0]["content"] == "You are helpful."
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "hello"
+
+    def test_multiple_system_messages_merged(self):
+        """Multiple system messages should be merged into a single user message."""
+        msgs = [
+            {"role": "system", "content": "System prompt."},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+            {"role": "system", "content": "Memory context."},
+            {"role": "system", "content": "Skill context."},
+            {"role": "user", "content": "do something"},
+        ]
+        result = _fold_system_messages(msgs)
+        # All system content merged into first message
+        assert result[0]["role"] == "user"
+        assert "System prompt." in result[0]["content"]
+        assert "Memory context." in result[0]["content"]
+        assert "Skill context." in result[0]["content"]
+        # No system roles remain
+        assert all(m["role"] != "system" for m in result)
+
+    def test_role_alternation_enforced(self):
+        """Consecutive same-role messages should be merged to enforce alternation."""
+        msgs = [
+            {"role": "system", "content": "Instructions"},
+            {"role": "user", "content": "hello"},
+        ]
+        result = _fold_system_messages(msgs)
+        # system→user merged with user→"hello" = single user message
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "Instructions" in result[0]["content"]
+        assert "hello" in result[0]["content"]
+
+    def test_complex_conversation_alternation(self):
+        """Realistic conversation with many system injections should produce valid alternation."""
+        msgs = [
+            {"role": "system", "content": "You are a bot."},
+            {"role": "system", "content": "Current time: 2026-03-26"},
+            {"role": "system", "content": "Memory: user likes cats"},
+            {"role": "user", "content": "What do you know about me?"},
+            {"role": "assistant", "content": "You like cats!"},
+            {"role": "system", "content": "Skill context injected here."},
+            {"role": "user", "content": "Tell me more."},
+        ]
+        result = _fold_system_messages(msgs)
+        # No system messages remain
+        assert all(m["role"] != "system" for m in result)
+        # No consecutive same-role messages
+        for i in range(1, len(result)):
+            assert result[i]["role"] != result[i - 1]["role"], (
+                f"Consecutive {result[i]['role']} at positions {i-1} and {i}"
+            )
+
+    def test_empty_system_content_skipped(self):
+        """System messages with empty content should not add empty strings."""
+        msgs = [
+            {"role": "system", "content": ""},
+            {"role": "system", "content": "Real content"},
+            {"role": "user", "content": "hello"},
+        ]
+        result = _fold_system_messages(msgs)
+        assert result[0]["role"] == "user"
+        assert result[0]["content"] == "Real content"
+
+    def test_non_string_content_not_merged(self):
+        """Multipart/audio content should not be merged with adjacent same-role messages."""
+        msgs = [
+            {"role": "system", "content": "Instructions"},
+            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+            {"role": "user", "content": "follow up"},
+        ]
+        result = _fold_system_messages(msgs)
+        # system becomes user, but list content can't merge with string
+        assert result[0]["role"] == "user"
+        assert result[0]["content"] == "Instructions"
+        # List content stays separate
+        user_with_list = [m for m in result if isinstance(m.get("content"), list)]
+        assert len(user_with_list) == 1
+
+    def test_empty_messages_list(self):
+        """Empty input should return empty output."""
+        assert _fold_system_messages([]) == []
+
+    def test_only_system_messages(self):
+        """All-system input should produce a single user message."""
+        msgs = [
+            {"role": "system", "content": "A"},
+            {"role": "system", "content": "B"},
+        ]
+        result = _fold_system_messages(msgs)
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "A" in result[0]["content"]
+        assert "B" in result[0]["content"]
+
+    def test_original_messages_not_mutated(self):
+        """_fold_system_messages should not mutate the input list."""
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+        ]
+        original = [dict(m) for m in msgs]
+        _fold_system_messages(msgs)
+        assert msgs[0] == original[0]
+        assert msgs[1] == original[1]
+
+
+# ---------------------------------------------------------------------------
+# _llm_call applies _fold_system_messages for NO_SYSTEM_MESSAGE_PROVIDERS
+# ---------------------------------------------------------------------------
+
+class TestLlmCallSystemMessageFolding:
+    @pytest.mark.asyncio
+    async def test_minimax_messages_folded(self):
+        """System messages should be folded to user for minimax/ models."""
+        from app.agent.llm import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "system", "content": "Current time: now"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings()):
+            await _llm_call("minimax/MiniMax-M2.5", messages, None, None)
+
+        sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        # No system messages should reach the API
+        assert all(m["role"] != "system" for m in sent_messages)
+        # Should have proper alternation
+        for i in range(1, len(sent_messages)):
+            assert sent_messages[i]["role"] != sent_messages[i - 1]["role"]
+
+    @pytest.mark.asyncio
+    async def test_openai_messages_not_folded(self):
+        """System messages should be preserved for standard providers like openai."""
+        from app.agent.llm import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hello"},
+        ]
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings()):
+            await _llm_call("gpt-4", messages, None, None)
+
+        sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert sent_messages[0]["role"] == "system"
+
+    @pytest.mark.asyncio
+    async def test_minimax_system_content_preserved(self):
+        """All system content should be present in the folded output, just not as system role."""
+        from app.agent.llm import _llm_call
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        messages = [
+            {"role": "system", "content": "Bot instructions here."},
+            {"role": "system", "content": "Memory: user likes cats"},
+            {"role": "user", "content": "What do I like?"},
+        ]
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.record_usage"), \
+             patch("app.agent.llm.settings", _default_mock_settings()):
+            await _llm_call("minimax/MiniMax-M2.5", messages, None, None)
+
+        sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        all_content = " ".join(m.get("content", "") for m in sent_messages if isinstance(m.get("content"), str))
+        assert "Bot instructions here." in all_content
+        assert "Memory: user likes cats" in all_content
+        assert "What do I like?" in all_content

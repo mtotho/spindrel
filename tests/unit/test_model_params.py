@@ -3,6 +3,7 @@ import pytest
 
 from app.agent.model_params import (
     MODEL_PARAM_SUPPORT,
+    NO_SYSTEM_MESSAGE_PROVIDERS,
     PARAM_DEFINITIONS,
     filter_model_params,
     get_provider_family,
@@ -209,3 +210,16 @@ class TestParamDefinitions:
         assert "frequency_penalty" in names
         assert "presence_penalty" in names
         assert "reasoning_effort" in names
+
+
+# ---------------------------------------------------------------------------
+# NO_SYSTEM_MESSAGE_PROVIDERS
+# ---------------------------------------------------------------------------
+
+class TestNoSystemMessageProviders:
+    def test_minimax_in_set(self):
+        assert "minimax" in NO_SYSTEM_MESSAGE_PROVIDERS
+
+    def test_standard_providers_not_in_set(self):
+        for provider in ("openai", "anthropic", "gemini", "google", "mistral", "deepseek", "groq"):
+            assert provider not in NO_SYSTEM_MESSAGE_PROVIDERS
