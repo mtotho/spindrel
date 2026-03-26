@@ -94,6 +94,9 @@ async def lifespan(app: FastAPI):
     _install_log_buffer(capacity=10_000)
     logger.info("Running database migrations...")
     await run_migrations()
+    logger.info("Loading server settings from DB...")
+    from app.services.server_settings import load_settings_from_db
+    await load_settings_from_db()
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()

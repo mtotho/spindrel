@@ -120,6 +120,10 @@ for svc_file in "$REPO_DIR"/integrations/*/service; do
     UNITS+=("thoth-$integration_id.service")
 done
 
+# ── Build Docker images (before starting services) ──────────────────────────
+echo "Building Docker images..."
+sudo -u "$SVC_USER" /usr/bin/docker compose -f "$REPO_DIR/docker-compose.yml" build
+
 # ── Reload + enable + start ──────────────────────────────────────────────────
 systemctl daemon-reload
 

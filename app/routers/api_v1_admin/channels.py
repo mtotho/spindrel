@@ -2,11 +2,13 @@
 compression, knowledge, enriched."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1030,6 +1032,45 @@ async def get_channel_knowledge(
         }
         for k, mode in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Backfill sections
+# ---------------------------------------------------------------------------
+
+class BackfillRequest(BaseModel):
+    chunk_size: int = Field(50, ge=1, le=500, description="Messages per section (user+assistant only)")
+    model: Optional[str] = None
+    provider_id: Optional[str] = None
+    history_mode: Optional[str] = None  # "file" or "structured"; default: resolve from channel/bot
+
+
+@router.post("/channels/{channel_id}/backfill-sections")
+async def admin_channel_backfill_sections(
+    channel_id: uuid.UUID,
+    body: BackfillRequest = BackfillRequest(),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Retroactively chunk historical messages into ConversationSection rows.
+
+    Streams JSON lines with progress updates.
+    """
+    from app.services.compaction import backfill_sections
+
+    async def _stream():
+        try:
+            async for event in backfill_sections(
+                channel_id=channel_id,
+                chunk_size=body.chunk_size,
+                model=body.model,
+                provider_id=body.provider_id,
+                history_mode=body.history_mode,
+            ):
+                yield json.dumps(event) + "\n"
+        except ValueError as e:
+            yield json.dumps({"type": "error", "detail": str(e)}) + "\n"
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
 
 
 # ---------------------------------------------------------------------------
