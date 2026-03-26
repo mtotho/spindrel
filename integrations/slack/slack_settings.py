@@ -98,6 +98,7 @@ def get_channel_config(channel_id: str) -> dict:
             "bot_id": ch.get("bot_id") or default_bot,
             "require_mention": ch.get("require_mention", True),
             "passive_memory": ch.get("passive_memory", True),
+            "allow_bot_messages": ch.get("allow_bot_messages", False),
         }
     # Legacy: ch is a bot_id string
     bot_id = ch if ch else default_bot
@@ -105,6 +106,7 @@ def get_channel_config(channel_id: str) -> dict:
         "bot_id": bot_id,
         "require_mention": True,
         "passive_memory": True,
+        "allow_bot_messages": False,
     }
 
 
