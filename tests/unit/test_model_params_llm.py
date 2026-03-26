@@ -439,16 +439,17 @@ class TestFoldSystemMessages:
         assert result == msgs
 
     def test_single_system_message_becomes_user(self):
-        """A single system message should be converted to a user message at position 0."""
+        """A single system message should be merged with the next user message."""
         msgs = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "hello"},
         ]
         result = _fold_system_messages(msgs)
+        # System-as-user merges with adjacent user → single message
+        assert len(result) == 1
         assert result[0]["role"] == "user"
-        assert result[0]["content"] == "You are helpful."
-        assert result[1]["role"] == "user"
-        assert result[1]["content"] == "hello"
+        assert "You are helpful." in result[0]["content"]
+        assert "hello" in result[0]["content"]
 
     def test_multiple_system_messages_merged(self):
         """Multiple system messages should be merged into a single user message."""
@@ -511,7 +512,9 @@ class TestFoldSystemMessages:
         ]
         result = _fold_system_messages(msgs)
         assert result[0]["role"] == "user"
-        assert result[0]["content"] == "Real content"
+        # System content merged with user due to alternation
+        assert "Real content" in result[0]["content"]
+        assert "hello" in result[0]["content"]
 
     def test_non_string_content_not_merged(self):
         """Multipart/audio content should not be merged with adjacent same-role messages."""

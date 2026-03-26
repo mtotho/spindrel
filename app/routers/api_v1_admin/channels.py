@@ -271,6 +271,7 @@ class ChannelSettingsOut(BaseModel):
     passive_memory: bool = True
     allow_bot_messages: bool = False
     workspace_rag: bool = True
+    max_iterations: Optional[int] = None
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
@@ -318,6 +319,7 @@ class ChannelSettingsUpdate(BaseModel):
     passive_memory: Optional[bool] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
+    max_iterations: Optional[int] = None
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None

@@ -80,7 +80,7 @@ Read and update ALL channel settings + heartbeat config in a single call:
 Only send fields you want to change — `exclude_unset` semantics. Heartbeat fields are prefixed with `heartbeat_`.
 
 **Channel settings fields:**
-- Behavior: `require_mention`, `passive_memory`, `allow_bot_messages`, `workspace_rag`
+- Behavior: `require_mention`, `passive_memory`, `allow_bot_messages`, `workspace_rag`, `max_iterations`
 - Model: `model_override`, `model_provider_id_override`
 - Compaction: `context_compaction`, `compaction_interval`, `compaction_keep_turns`, `compaction_prompt_template_id`, `memory_knowledge_compaction_prompt`
 - Compression: `context_compression`, `compression_model`, `compression_threshold`, `compression_keep_turns`, `compression_prompt`
