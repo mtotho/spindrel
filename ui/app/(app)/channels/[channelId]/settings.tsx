@@ -150,7 +150,7 @@ export default function ChannelSettingsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
+    <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
         <Pressable
@@ -173,12 +173,12 @@ export default function ChannelSettingsScreen() {
             onPress={handleSave}
             disabled={updateMutation.isPending}
             style={{
-              display: "flex",
               flexDirection: "row",
               alignItems: "center",
+              justifyContent: "center",
               gap: 6,
               paddingHorizontal: 14,
-              paddingVertical: 7,
+              minHeight: 44,
               borderRadius: 8,
               backgroundColor: saved ? "rgba(34,197,94,0.15)" : "#3b82f6",
             }}

@@ -37,8 +37,12 @@ export default function NewChannelScreen() {
     <View className="flex-1 bg-surface">
       {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
-        <Pressable onPress={goBack} className="p-1 rounded hover:bg-surface-overlay">
-          <ArrowLeft size={18} color="#999" />
+        <Pressable
+          onPress={goBack}
+          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+          style={{ width: 44, height: 44 }}
+        >
+          <ArrowLeft size={20} color="#999" />
         </Pressable>
         <Text className="text-text font-semibold text-sm">New Channel</Text>
       </View>

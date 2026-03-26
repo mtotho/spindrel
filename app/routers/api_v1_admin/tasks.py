@@ -276,7 +276,7 @@ async def admin_create_task(
     return TaskDetailOut.model_validate(task)
 
 
-@router.put("/tasks/{task_id}", response_model=TaskDetailOut)
+@router.api_route("/tasks/{task_id}", methods=["PUT", "PATCH"], response_model=TaskDetailOut)
 async def admin_update_task(
     task_id: uuid.UUID,
     body: TaskUpdateIn,
@@ -290,33 +290,29 @@ async def admin_update_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if body.prompt is not None:
-        task.prompt = body.prompt
-    if body.prompt_template_id is not None:
-        task.prompt_template_id = body.prompt_template_id
-    if body.bot_id is not None:
-        task.bot_id = body.bot_id
-    if body.status is not None:
-        task.status = body.status
-    if body.task_type is not None:
-        task.task_type = body.task_type
-    if body.recurrence is not None:
-        task.recurrence = body.recurrence or None
+    updates = body.model_dump(exclude_unset=True)
 
-    if body.scheduled_at is not None:
+    for field in ("prompt", "prompt_template_id", "bot_id", "status", "task_type"):
+        if field in updates:
+            setattr(task, field, updates[field])
+    if "recurrence" in updates:
+        task.recurrence = updates["recurrence"] or None
+
+    if "scheduled_at" in updates:
         try:
-            task.scheduled_at = _parse_scheduled_at(body.scheduled_at)
+            task.scheduled_at = _parse_scheduled_at(updates["scheduled_at"])
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    if body.trigger_rag_loop is not None or body.model_override is not None or body.model_provider_id_override is not None:
+    cb_fields = {"trigger_rag_loop", "model_override", "model_provider_id_override"}
+    if cb_fields & updates.keys():
         cb = dict(task.callback_config or {})
-        if body.trigger_rag_loop is not None:
-            cb["trigger_rag_loop"] = body.trigger_rag_loop
-        if body.model_override is not None:
-            cb["model_override"] = body.model_override or None
-        if body.model_provider_id_override is not None:
-            cb["model_provider_id_override"] = body.model_provider_id_override or None
+        if "trigger_rag_loop" in updates:
+            cb["trigger_rag_loop"] = updates["trigger_rag_loop"]
+        if "model_override" in updates:
+            cb["model_override"] = updates["model_override"] or None
+        if "model_provider_id_override" in updates:
+            cb["model_provider_id_override"] = updates["model_provider_id_override"] or None
         task.callback_config = cb
         sa_attributes.flag_modified(task, "callback_config")
 
