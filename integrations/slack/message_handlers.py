@@ -483,7 +483,7 @@ def register_message_handlers(app):
         user, ok = _handle_bot_message(event)
         if not ok:
             return
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        thread_ts = event.get("thread_ts")
         await dispatch(
             event["channel"],
             user,
@@ -516,7 +516,7 @@ def register_message_handlers(app):
                 return
             user = event.get("user", "")
 
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        thread_ts = event.get("thread_ts")
         await dispatch(
             event["channel"],
             user,
@@ -533,7 +533,7 @@ def register_message_handlers(app):
         if event.get("bot_id"):
             return
         text = (event.get("text") or "").split(">", 1)[-1].strip()
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        thread_ts = event.get("thread_ts")
         await dispatch(
             event["channel"],
             event["user"],
