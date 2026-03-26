@@ -1120,6 +1120,7 @@ async def api_slack_config(request: Request):
             "bot_id": row.bot_id,
             "require_mention": row.require_mention,
             "passive_memory": row.passive_memory,
+            "allow_bot_messages": row.allow_bot_messages,
         }
 
     bots = {

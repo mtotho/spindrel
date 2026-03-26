@@ -55,6 +55,7 @@ class Channel(Base):
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allow_bot_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_max_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
