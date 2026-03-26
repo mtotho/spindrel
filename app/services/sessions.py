@@ -588,6 +588,9 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
         # Some models (e.g. gpt-5.3-chat-latest) reject null/absent content
         # on assistant tool-call messages. Use empty string as safe default.
         d["content"] = ""
+    else:
+        # Catch-all: never let a message leave without a content field.
+        d["content"] = ""
     if msg.tool_calls is not None:
         d["tool_calls"] = msg.tool_calls
     if msg.tool_call_id is not None:
