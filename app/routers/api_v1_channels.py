@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     reset_channel_session, switch_channel_session,
@@ -268,7 +268,7 @@ class ChannelConfigUpdate(BaseModel):
 async def create_channel(
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:write")),
 ):
     """Create or retrieve a channel."""
     from app.agent.bots import get_bot
@@ -302,7 +302,7 @@ async def list_channels(
     bot_id: Optional[str] = None,
     include_heartbeat: bool = Query(False, description="Include heartbeat_enabled and heartbeat_next_run_at"),
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with optional filters."""
     stmt = select(Channel).options(selectinload(Channel.integrations)).order_by(Channel.created_at.desc())
@@ -339,7 +339,7 @@ async def list_channels(
 async def get_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Get channel info."""
     result = await db.execute(
@@ -355,7 +355,7 @@ async def get_channel(
 async def get_channel_config(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Get all channel settings + heartbeat config in a single flat response."""
     channel = await db.get(Channel, channel_id)
@@ -374,7 +374,7 @@ async def update_channel_config(
     channel_id: uuid.UUID,
     body: ChannelConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Update any subset of channel settings + heartbeat config in one call."""
     channel = await db.get(Channel, channel_id)
@@ -517,7 +517,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
 async def delete_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Delete a channel and all associated data (integrations, heartbeat cascade; sessions/tasks/etc set null)."""
     channel = await db.get(Channel, channel_id)
@@ -533,7 +533,7 @@ async def update_channel(
     channel_id: uuid.UUID,
     body: ChannelUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -571,7 +571,7 @@ async def inject_channel_message(
     channel_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Inject a message into a channel's active session."""
     channel = await db.get(Channel, channel_id)
@@ -623,7 +623,7 @@ async def inject_channel_message(
 async def reset_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Reset a channel's session. Old session preserved, new one becomes active."""
     channel = await db.get(Channel, channel_id)
@@ -649,7 +649,7 @@ async def switch_session(
     channel_id: uuid.UUID,
     body: SwitchSessionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Switch a channel's active session to an existing session."""
     channel = await db.get(Channel, channel_id)
@@ -673,7 +673,7 @@ async def switch_session(
 async def list_channel_knowledge(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """List knowledge entries accessible to this channel."""
     from app.db.models import BotKnowledge
@@ -715,7 +715,7 @@ async def search_channel_messages(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Search messages across all sessions in a channel."""
     channel = await db.get(Channel, channel_id)
@@ -752,7 +752,7 @@ class AttachmentStatsOut(BaseModel):
 async def get_attachment_stats(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Get attachment storage stats and effective retention config for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -789,7 +789,7 @@ async def get_attachment_stats(
 async def list_channel_integrations(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """List integration bindings for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -809,7 +809,7 @@ async def bind_channel_integration(
     channel_id: uuid.UUID,
     body: IntegrationBindRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Bind an integration to a channel."""
     channel = await db.get(Channel, channel_id)
@@ -844,7 +844,7 @@ async def unbind_channel_integration(
     channel_id: uuid.UUID,
     binding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Remove an integration binding from a channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -861,7 +861,7 @@ async def adopt_channel_integration(
     binding_id: uuid.UUID,
     body: IntegrationAdoptRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Move an integration binding to another channel."""
     binding = await db.get(ChannelIntegration, binding_id)

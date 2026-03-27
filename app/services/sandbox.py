@@ -337,10 +337,21 @@ class SandboxService:
 
         start_ts = datetime.now(timezone.utc).timestamp()
 
+        # Build exec args, optionally injecting per-bot API key
+        _exec_args = ["docker", "exec", "-i"]
+        try:
+            from app.services.api_keys import get_bot_api_key_value
+            async with async_session() as _db:
+                _bot_key = await get_bot_api_key_value(_db, instance.created_by_bot)
+            if _bot_key:
+                _exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+        except Exception:
+            pass
+        _exec_args += [instance.container_id, "sh", "-c", command]
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", "-i", instance.container_id,
-                "sh", "-c", command,
+                *_exec_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -740,6 +751,15 @@ class SandboxService:
             exec_args = ["docker", "exec", "-i"]
             if config.user:
                 exec_args += ["--user", config.user]
+            # Inject per-bot API key if available
+            try:
+                from app.services.api_keys import get_bot_api_key_value
+                async with async_session() as _db:
+                    _bot_key = await get_bot_api_key_value(_db, bot_id)
+                if _bot_key:
+                    exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+            except Exception:
+                pass
             exec_args += [instance.container_id, "sh", "-c", command]
             proc = await asyncio.create_subprocess_exec(
                 *exec_args,

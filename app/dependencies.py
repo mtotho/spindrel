@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Header
@@ -11,6 +12,14 @@ from app.config import settings
 from app.db.engine import async_session
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ApiKeyAuth:
+    """Represents an authenticated scoped API key."""
+    key_id: UUID
+    scopes: list[str]
+    name: str
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:
@@ -56,14 +65,28 @@ async def verify_auth_or_user(
     authorization: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Accept either API key or JWT. Returns token string (API key) or User object (JWT)."""
+    """Accept API key (static or scoped), or JWT.
+
+    Returns:
+    - str: static API key (full access)
+    - ApiKeyAuth: scoped API key
+    - User: JWT-authenticated user
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
 
-    # Try API key first (fast path)
+    # Try static API key first (fast path)
     if token == settings.API_KEY:
         return token
+
+    # Try scoped API key (ask_ prefix)
+    if token.startswith("ask_"):
+        from app.services.api_keys import validate_api_key
+        api_key = await validate_api_key(db, token)
+        if api_key is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired API key")
+        return ApiKeyAuth(key_id=api_key.id, scopes=api_key.scopes or [], name=api_key.name)
 
     # Try JWT
     from app.services.auth import decode_access_token, get_user_by_id
@@ -86,7 +109,8 @@ async def verify_admin_auth(
     db: AsyncSession = Depends(get_db),
 ):
     """Validate admin access. When ADMIN_API_KEY is set, only that key (or valid JWT) is accepted.
-    When empty, falls back to accepting API_KEY or JWT (backward compat)."""
+    When empty, falls back to accepting API_KEY or JWT (backward compat).
+    Scoped keys with 'admin' scope are also accepted."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
@@ -100,6 +124,14 @@ async def verify_admin_auth(
         # Backward compat: accept regular API_KEY
         if token == settings.API_KEY:
             return token
+
+    # Try scoped API key with admin scope
+    if token.startswith("ask_"):
+        from app.services.api_keys import validate_api_key, has_scope
+        api_key = await validate_api_key(db, token)
+        if api_key and has_scope(api_key.scopes or [], "admin"):
+            return ApiKeyAuth(key_id=api_key.id, scopes=api_key.scopes or [], name=api_key.name)
+        raise HTTPException(status_code=403, detail="Admin access denied")
 
     # Try JWT
     from app.services.auth import decode_access_token, get_user_by_id
@@ -127,6 +159,9 @@ async def optional_user(
     token = authorization.removeprefix("Bearer ")
     if token == settings.API_KEY:
         return None
+    # Scoped API keys are not users
+    if token.startswith("ask_"):
+        return None
 
     from app.services.auth import decode_access_token, get_user_by_id
     import jwt as _jwt
@@ -137,3 +172,30 @@ async def optional_user(
         return await get_user_by_id(db, user_id)
     except Exception:
         return None
+
+
+def require_scopes(*scopes: str):
+    """Dependency factory that enforces scope requirements on scoped API keys.
+
+    Static API keys (str) and JWT users always pass through (full access).
+    ApiKeyAuth is checked against the required scopes.
+    """
+    async def _check(
+        auth=Depends(verify_auth_or_user),
+    ):
+        # Static API key or JWT user → full access
+        if isinstance(auth, str):
+            return auth
+        if not isinstance(auth, ApiKeyAuth):
+            # User object from JWT
+            return auth
+        # Scoped API key → check scopes
+        from app.services.api_keys import has_scope
+        for scope in scopes:
+            if not has_scope(auth.scopes, scope):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Missing required scope: {scope}",
+                )
+        return auth
+    return _check

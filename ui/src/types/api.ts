@@ -185,6 +185,14 @@ export interface ChannelSettings {
   history_mode?: string | null;
   compaction_model?: string;
   trigger_heartbeat_before_compaction?: boolean | null;
+  // Memory flush (dedicated pre-compaction memory save)
+  memory_flush_enabled?: boolean | null;
+  memory_flush_model?: string | null;
+  memory_flush_model_provider_id?: string | null;
+  memory_flush_prompt?: string | null;
+  memory_flush_prompt_template_id?: string | null;
+  memory_flush_workspace_file_path?: string | null;
+  memory_flush_workspace_id?: string | null;
   section_index_count?: number | null;
   section_index_verbosity?: string | null;
   elevation_enabled?: boolean;

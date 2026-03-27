@@ -47,9 +47,16 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
     "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
     "COMPACTION_KEEP_TURNS": {"group": "Chat History", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
-    "TRIGGER_HEARTBEAT_BEFORE_COMPACTION": {"group": "Chat History", "label": "Trigger Heartbeat Before Compaction", "description": "Fire channel heartbeats before compaction instead of the dedicated memory phase LLM call", "type": "bool"},
+    "TRIGGER_HEARTBEAT_BEFORE_COMPACTION": {"group": "Chat History", "label": "Trigger Heartbeat Before Compaction (Legacy)", "description": "Deprecated — use Memory Flush instead. Falls back to firing channel heartbeats before compaction.", "type": "bool"},
+    "MEMORY_FLUSH_ENABLED": {"group": "Chat History", "label": "Memory Flush Before Compaction", "description": "Run a dedicated memory flush before compaction — bot saves memories/knowledge/persona while it still sees full context", "type": "bool"},
+    "MEMORY_FLUSH_MODEL": {"group": "Chat History", "label": "Memory Flush Model", "description": "Model for memory flush (empty = use bot's model)", "type": "string", "widget": "model"},
+    "MEMORY_FLUSH_DEFAULT_PROMPT": {"group": "Chat History", "label": "Memory Flush Default Prompt", "description": "Default prompt for the memory flush pass. Tells the bot what to save before context is archived.", "type": "string", "widget": "textarea"},
     "SECTION_INDEX_COUNT": {"group": "Chat History", "label": "Section Index Count", "description": "Number of recent sections shown in the index (file mode)", "type": "int", "min": 0, "max": 100},
     "SECTION_INDEX_VERBOSITY": {"group": "Chat History", "label": "Section Index Verbosity", "description": "Detail level for section index entries", "type": "string", "options": ["compact", "standard", "detailed"]},
+    # --- Context Pruning ---
+    "CONTEXT_PRUNING_ENABLED": {"group": "Chat History", "label": "Context Pruning", "description": "Trim old tool results from context at assembly time", "type": "bool"},
+    "CONTEXT_PRUNING_KEEP_TURNS": {"group": "Chat History", "label": "Pruning Keep Turns", "description": "Recent turns whose tool results are kept intact", "type": "int", "min": 0, "max": 50},
+    "CONTEXT_PRUNING_MIN_LENGTH": {"group": "Chat History", "label": "Pruning Min Length", "description": "Tool results shorter than this are never pruned", "type": "int", "min": 0, "max": 10000},
     # --- Embeddings & RAG ---
     "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings", "type": "string"},
     "RAG_TOP_K": {"group": "Embeddings & RAG", "label": "RAG Top-K", "description": "Number of RAG results to return", "type": "int", "min": 1, "max": 50},
@@ -88,6 +95,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "HEARTBEAT_QUIET_HOURS": {"group": "Heartbeat", "label": "Quiet Hours", "description": "Time window where heartbeats slow (e.g. 23:00-07:00)", "type": "string"},
     "HEARTBEAT_QUIET_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Quiet Interval (min)", "description": "Interval during quiet hours (0 = disabled)", "type": "int", "min": 0, "max": 1440},
     "HEARTBEAT_ACTIVE_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Active Interval (min)", "description": "Default active heartbeat interval", "type": "int", "min": 1, "max": 1440},
+    "HEARTBEAT_DEFAULT_PROMPT": {"group": "Heartbeat", "label": "Default Prompt", "description": "Fallback prompt used when a channel heartbeat has no prompt, template, or workspace file configured.", "type": "string", "widget": "textarea"},
     # --- Attachments ---
     "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
     "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},

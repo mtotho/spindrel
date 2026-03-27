@@ -110,4 +110,96 @@ class SlackDispatcher:
         return ok
 
 
+    async def request_approval(
+        self,
+        *,
+        dispatch_config: dict,
+        approval_id: str,
+        bot_id: str,
+        tool_name: str,
+        arguments: dict,
+        reason: str | None,
+    ) -> None:
+        """Send a Block Kit message with Approve/Deny buttons for a tool approval."""
+        import json as _json
+        channel_id = dispatch_config.get("channel_id")
+        thread_ts = dispatch_config.get("thread_ts")
+        token = dispatch_config.get("token")
+        if not channel_id or not token:
+            logger.warning("SlackDispatcher.request_approval: missing channel_id or token")
+            return
+
+        args_preview = _json.dumps(arguments, indent=2)[:500]
+        attrs = bot_attribution(bot_id)
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":lock: *Tool approval required*\n"
+                        f"*Bot:* `{bot_id}` | *Tool:* `{tool_name}`\n"
+                        f"*Reason:* {reason or 'Policy requires approval'}"
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"```\n{args_preview}\n```",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Approve"},
+                        "style": "primary",
+                        "action_id": "approve_tool_call",
+                        "value": approval_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Deny"},
+                        "style": "danger",
+                        "action_id": "deny_tool_call",
+                        "value": approval_id,
+                    },
+                ],
+            },
+        ]
+
+        import httpx
+        payload: dict = {
+            "channel": channel_id,
+            "text": f"Tool approval required: {tool_name} (approval {approval_id})",
+            "blocks": blocks,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        if attrs.get("username"):
+            payload["username"] = attrs["username"]
+        if attrs.get("icon_emoji"):
+            payload["icon_emoji"] = attrs["icon_emoji"]
+        elif attrs.get("icon_url"):
+            payload["icon_url"] = attrs["icon_url"]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://slack.com/api/chat.postMessage",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                if not data.get("ok"):
+                    logger.error("Slack approval message error: %s", data.get("error"))
+        except Exception:
+            logger.exception("Failed to send approval message for %s", approval_id)
+
+
 register("slack", SlackDispatcher())

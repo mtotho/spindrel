@@ -204,6 +204,9 @@ class BotConfig:
     shared_workspace_id: str | None = None  # UUID string
     shared_workspace_role: str | None = None  # 'member' | 'orchestrator'
     shared_workspace_cwd: str | None = None  # resolved cwd override
+    # Context pruning (trim old tool results at assembly time)
+    context_pruning: bool | None = None
+    context_pruning_keep_turns: int | None = None
     # History mode: "file" (default) | "summary" | "structured"
     history_mode: str = "file"
     # Cached for three-tier indexing resolution (populated by load_bots)
@@ -412,6 +415,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         user_id=_user_id,
         shared_workspace_id=str(_sw_id) if _sw_id else None,
         shared_workspace_role=_sw_role,
+        context_pruning=getattr(row, "context_pruning", None),
+        context_pruning_keep_turns=getattr(row, "context_pruning_keep_turns", None),
         history_mode=row.history_mode or "file",
         shared_workspace_cwd=_sw_cwd,
         _workspace_raw=ws_raw,
@@ -492,6 +497,8 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         },
         "fallback_models": data.get("fallback_models", []),
         "workspace": data.get("workspace", {"enabled": False}),
+        "context_pruning": data.get("context_pruning"),
+        "context_pruning_keep_turns": data.get("context_pruning_keep_turns"),
         "history_mode": data.get("history_mode", "file"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),

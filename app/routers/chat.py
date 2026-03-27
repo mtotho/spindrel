@@ -16,7 +16,7 @@ from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.db.models import Task as TaskModel
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services import session_locks
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
 from app.services.compaction import maybe_compact
@@ -246,7 +246,7 @@ def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> str:
 async def chat(
     req: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("chat")),
 ):
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
@@ -372,7 +372,7 @@ async def chat(
 async def chat_cancel(
     req: CancelRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("chat")),
 ):
     """Cancel an in-progress agent loop and any queued tasks for the session."""
     from sqlalchemy import select, update
@@ -406,7 +406,7 @@ async def chat_stream(
     req: ChatRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("chat")),
 ):
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
@@ -665,7 +665,7 @@ class ToolResultRequest(BaseModel):
 @router.post("/chat/tool_result")
 async def submit_tool_result(
     req: ToolResultRequest,
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("chat")),
 ):
     logger.info("POST /chat/tool_result  request_id=%s  result_len=%d", req.request_id, len(req.result))
     if not resolve_pending(req.request_id, req.result):

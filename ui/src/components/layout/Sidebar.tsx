@@ -17,6 +17,8 @@ import {
   Hash,
   Eye,
   Lock,
+  KeyRound,
+  BarChart3,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -55,6 +57,8 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Tools", href: "/admin/tools", icon: Wrench },
       { label: "Providers", href: "/admin/providers", icon: Server },
+      { label: "Usage", href: "/admin/usage", icon: BarChart3 },
+      { label: "API Keys", href: "/admin/api-keys", icon: KeyRound },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
       { label: "Settings", href: "/settings", icon: Settings },

@@ -75,12 +75,15 @@ class BotOut(BaseModel):
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
+    context_pruning: Optional[bool] = None
+    context_pruning_keep_turns: Optional[int] = None
     history_mode: Optional[str] = "summary"
     model_params: dict = {}
     delegation_config: dict = {}
     user_id: Optional[str] = None
     shared_workspace_id: Optional[str] = None
     shared_workspace_role: Optional[str] = None
+    api_permissions: Optional[list[str]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

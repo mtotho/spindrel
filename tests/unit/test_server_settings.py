@@ -31,6 +31,14 @@ class TestSchemaValidity:
             )
 
 
+    def test_heartbeat_default_prompt_in_schema(self):
+        assert "HEARTBEAT_DEFAULT_PROMPT" in SETTINGS_SCHEMA
+        schema = SETTINGS_SCHEMA["HEARTBEAT_DEFAULT_PROMPT"]
+        assert schema["group"] == "Heartbeat"
+        assert schema["type"] == "string"
+        assert schema["widget"] == "textarea"
+
+
 class TestCoercion:
     def test_bool_true_values(self):
         schema = {"type": "bool"}

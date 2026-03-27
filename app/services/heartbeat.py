@@ -154,11 +154,21 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             workspace_id=str(hb.workspace_id) if hb.workspace_id else None,
             workspace_file_path=hb.workspace_file_path,
             template_id=str(hb.prompt_template_id) if hb.prompt_template_id else None,
-            inline_prompt=hb.prompt,
+            inline_prompt=hb.prompt or settings.HEARTBEAT_DEFAULT_PROMPT,
             db=db,
         )
 
-        # Inject previous heartbeat result from heartbeat_runs history
+        # --- Build heartbeat metadata header ---
+        metadata_lines = [
+            "[SCHEDULED HEARTBEAT]",
+            "This is an automated scheduled heartbeat — not a user message.",
+            f"Current time: {now.strftime('%Y-%m-%d %H:%M UTC')}",
+            f"Channel: {channel.name}",
+            f"Heartbeat interval: every {hb.interval_minutes} minutes",
+            f"Run number: {(hb.run_count or 0) + 1}",
+        ]
+
+        # Last heartbeat info
         last_run_stmt = (
             select(HeartbeatRun)
             .where(
@@ -169,14 +179,82 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             .limit(1)
         )
         last_run = (await db.execute(last_run_stmt)).scalars().first()
-        if last_run and last_run.result:
-            ts = last_run.completed_at.strftime("%Y-%m-%d %H:%M UTC") if last_run.completed_at else "unknown"
-            result_preview = last_run.result[:600]
-            if len(last_run.result) > 600:
-                result_preview += "\n… (use get_last_heartbeat tool for full result)"
-            prompt = (
-                f"[Previous heartbeat result ({ts})]\n{result_preview}\n\n---\n\n{prompt}"
+        if last_run and last_run.completed_at:
+            elapsed = now - last_run.completed_at
+            elapsed_str = f"{int(elapsed.total_seconds() // 60)} minutes ago"
+            metadata_lines.append(f"Last heartbeat: {last_run.completed_at.strftime('%Y-%m-%d %H:%M UTC')} ({elapsed_str})")
+        else:
+            metadata_lines.append("Last heartbeat: none (this is the first run)")
+
+        # Activity since last heartbeat — count user and assistant messages
+        _since = last_run.completed_at if (last_run and last_run.completed_at) else (now - timedelta(minutes=hb.interval_minutes))
+        if channel.active_session_id:
+            from app.db.models import Message as _Msg
+            from sqlalchemy import func as _func
+            _activity_stmt = (
+                select(_Msg.role, _func.count(_Msg.id))
+                .where(
+                    _Msg.session_id == channel.active_session_id,
+                    _Msg.created_at > _since,
+                    _Msg.role.in_(["user", "assistant"]),
+                )
+                .group_by(_Msg.role)
             )
+            _activity_rows = (await db.execute(_activity_stmt)).all()
+            _counts = {role: count for role, count in _activity_rows}
+            user_msgs = _counts.get("user", 0)
+            assistant_msgs = _counts.get("assistant", 0)
+
+            # Subtract heartbeat messages from counts
+            _hb_msg_stmt = (
+                select(_func.count(_Msg.id))
+                .where(
+                    _Msg.session_id == channel.active_session_id,
+                    _Msg.created_at > _since,
+                    _Msg.role == "user",
+                    _Msg.metadata_["is_heartbeat"].astext == "true",
+                )
+            )
+            _hb_count = (await db.execute(_hb_msg_stmt)).scalar() or 0
+            user_msgs -= _hb_count
+
+            if user_msgs > 0 or assistant_msgs > 0:
+                metadata_lines.append(f"Activity since last heartbeat: {user_msgs} user message(s), {assistant_msgs} assistant response(s)")
+            else:
+                metadata_lines.append("Activity since last heartbeat: none (channel has been idle)")
+
+            # Last user message timestamp
+            if user_msgs > 0:
+                _last_user_stmt = (
+                    select(_Msg.created_at)
+                    .where(
+                        _Msg.session_id == channel.active_session_id,
+                        _Msg.role == "user",
+                        _Msg.metadata_["is_heartbeat"].astext != "true",
+                    )
+                    .order_by(_Msg.created_at.desc())
+                    .limit(1)
+                )
+                _last_user_ts = (await db.execute(_last_user_stmt)).scalar()
+                if _last_user_ts:
+                    _user_elapsed = now - _last_user_ts
+                    _mins = int(_user_elapsed.total_seconds() // 60)
+                    if _mins > 60:
+                        _user_ago = f"{_mins // 60}h {_mins % 60}m ago"
+                    else:
+                        _user_ago = f"{_mins}m ago"
+                    metadata_lines.append(f"Last user message: {_user_ago}")
+
+        # Previous result — first 150 chars only (enough to jog memory, not enough to parrot)
+        if last_run and last_run.result:
+            # Take first line or first 150 chars, whichever is shorter
+            first_line = last_run.result.split("\n")[0][:150]
+            metadata_lines.append(f"Previous heartbeat conclusion: {first_line}")
+            if len(last_run.result) > 150:
+                metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
+
+        metadata_header = "\n".join(metadata_lines)
+        prompt = f"{metadata_header}\n\n---\n\n{prompt}"
 
         # Create a heartbeat_run record
         run_record = HeartbeatRun(
@@ -315,6 +393,36 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 _heartbeat_semaphore = asyncio.Semaphore(3)
 
 
+async def _expire_stale_approvals() -> None:
+    """Mark pending tool approvals as expired if they've exceeded their timeout."""
+    try:
+        from app.db.models import ToolApproval
+        now = datetime.now(timezone.utc)
+        async with async_session() as db:
+            stmt = (
+                select(ToolApproval)
+                .where(
+                    ToolApproval.status == "pending",
+                )
+                .limit(100)
+            )
+            rows = (await db.execute(stmt)).scalars().all()
+            expired_count = 0
+            for row in rows:
+                elapsed = (now - row.created_at).total_seconds()
+                if elapsed > row.timeout_seconds:
+                    row.status = "expired"
+                    expired_count += 1
+                    # Also resolve the in-memory Future if still waiting
+                    from app.agent.approval_pending import cancel_approval
+                    cancel_approval(str(row.id))
+            if expired_count:
+                await db.commit()
+                logger.info("Expired %d stale tool approvals", expired_count)
+    except Exception:
+        logger.exception("Failed to expire stale approvals")
+
+
 async def heartbeat_worker() -> None:
     """Background worker loop: polls for due heartbeats every 30 seconds."""
     logger.info("Heartbeat worker started")
@@ -326,6 +434,8 @@ async def heartbeat_worker() -> None:
             due = await fetch_due_heartbeats()
             for hb in due:
                 asyncio.create_task(_safe_fire_heartbeat(hb))
+            # Sweep for stale tool approvals
+            await _expire_stale_approvals()
         except Exception:
             logger.exception("heartbeat_worker poll error")
         await asyncio.sleep(30)

@@ -56,6 +56,7 @@ async def admin_bots_list(
 @router.get("/bots/{bot_id}", response_model=BotOut)
 async def admin_bot_detail(
     bot_id: str,
+    db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
     """Get a single bot's full config."""
@@ -68,11 +69,17 @@ async def admin_bot_detail(
     ws_persona = None
     if bot.shared_workspace_id:
         ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+
+    # Get api_permissions from linked key
+    bot_row = await db.get(BotRow, bot_id)
+    api_perms = await _get_bot_api_permissions(db, bot_row) if bot_row else None
+
     return _bot_to_out(
         bot,
         persona_content=persona_content,
         persona_from_workspace=ws_persona is not None,
         workspace_persona_content=ws_persona,
+        api_permissions=api_perms,
     )
 
 
@@ -326,6 +333,8 @@ class BotUpdateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    context_pruning: Optional[bool] = None
+    context_pruning_keep_turns: Optional[int] = None
     history_mode: Optional[str] = None
     audio_input: Optional[str] = None
     memory_config: Optional[dict] = None
@@ -345,6 +354,7 @@ class BotUpdateIn(BaseModel):
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
+    api_permissions: Optional[list[str]] = None
 
 
 @router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
@@ -365,6 +375,7 @@ async def admin_bot_update(
     updates = data.model_dump(exclude_unset=True)
 
     persona_content_val = updates.pop("persona_content", None)
+    api_permissions_val = updates.pop("api_permissions", None)
 
     if "memory_config" in updates:
         row.memory_config = updates.pop("memory_config")
@@ -385,6 +396,11 @@ async def admin_bot_update(
             setattr(row, key, val)
 
     row.updated_at = datetime.now(timezone.utc)
+
+    # Handle api_permissions: auto-create/update scoped API key for this bot
+    if api_permissions_val is not None:
+        await _sync_bot_api_key(db, row, api_permissions_val)
+
     await db.commit()
 
     if persona_content_val is not None:
@@ -394,7 +410,7 @@ async def admin_bot_update(
 
     bot = get_bot(bot_id)
     pc = await get_persona(bot_id)
-    return _bot_to_out(bot, persona_content=pc)
+    return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +440,8 @@ class BotCreateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    context_pruning: Optional[bool] = None
+    context_pruning_keep_turns: Optional[int] = None
     history_mode: Optional[str] = "summary"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
@@ -504,6 +522,49 @@ async def admin_bot_create(
 
     bot = get_bot(data.id)
     return _bot_to_out(bot)
+
+
+# ---------------------------------------------------------------------------
+# Bot API key management helpers
+# ---------------------------------------------------------------------------
+
+async def _sync_bot_api_key(db: AsyncSession, bot_row: BotRow, scopes: list[str]) -> None:
+    """Create or update the scoped API key for a bot based on permissions."""
+    from app.db.models import ApiKey
+    from app.services.api_keys import create_api_key, ALL_SCOPES
+
+    # Validate scopes
+    invalid = [s for s in scopes if s not in ALL_SCOPES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid scopes: {invalid}")
+
+    if bot_row.api_key_id:
+        # Update existing key's scopes
+        api_key = await db.get(ApiKey, bot_row.api_key_id)
+        if api_key:
+            api_key.scopes = scopes
+            api_key.updated_at = datetime.now(timezone.utc)
+            return
+
+    # Create new key (store_key_value=True so we can inject it into containers)
+    key_row, _full_key = await create_api_key(
+        db,
+        name=f"bot:{bot_row.id}",
+        scopes=scopes,
+        store_key_value=True,
+    )
+    bot_row.api_key_id = key_row.id
+
+
+async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[str] | None:
+    """Read the scopes from a bot's linked API key."""
+    if not bot_row.api_key_id:
+        return None
+    from app.db.models import ApiKey
+    api_key = await db.get(ApiKey, bot_row.api_key_id)
+    if not api_key:
+        return None
+    return api_key.scopes or []
 
 
 # ---------------------------------------------------------------------------

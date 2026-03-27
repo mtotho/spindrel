@@ -142,18 +142,20 @@ class TestMessagesForSummaryExtended:
         result = _messages_for_summary(msgs)
         assert len(result) == 1
 
-    def test_tool_and_system_messages_excluded(self):
+    def test_tool_messages_included_as_compact_representation(self):
         msgs = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "ask"},
-            {"role": "tool", "content": "result"},
+            {"role": "tool", "content": "result", "name": "web_search"},
             {"role": "assistant", "content": "done"},
         ]
         result = _messages_for_summary(msgs)
         roles = [m["role"] for m in result]
         assert "system" not in roles
         assert "tool" not in roles
-        assert len(result) == 2
+        # Tool result is now included as a compact assistant message
+        assert len(result) == 3
+        assert "[Tool result from web_search: result]" in result[1]["content"]
 
     def test_multiple_passive_combined(self):
         msgs = [

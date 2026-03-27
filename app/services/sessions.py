@@ -303,7 +303,10 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
 
             _inject_channel_context(messages, passive)
-            messages.extend(active)
+            if active:
+                messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
+                messages.extend(active)
+                messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
             return _sanitize_tool_messages(_strip_metadata_keys(messages))
         else:
             # watermark gone but summary exists — inject summary + all non-system messages
@@ -322,7 +325,10 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
-            messages.extend(active)
+            if active:
+                messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
+                messages.extend(active)
+                messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
             return _sanitize_tool_messages(_strip_metadata_keys(messages))
 
     result = await db.execute(

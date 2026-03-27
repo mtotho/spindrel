@@ -99,19 +99,21 @@ class TestChunkingLogic:
     """Test that messages are correctly chunked by chunk_size."""
 
     def test_messages_for_summary_filters_correctly(self):
-        """_messages_for_summary keeps only user/assistant messages."""
+        """_messages_for_summary keeps user/assistant and includes tool results as compact summaries."""
         msgs = [
             {"role": "system", "content": "system prompt"},
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi"},
-            {"role": "tool", "content": "result"},
+            {"role": "tool", "content": "result", "name": "web_search"},
             {"role": "user", "content": "bye"},
         ]
         result = _messages_for_summary(msgs)
         roles = [m["role"] for m in result]
         assert "system" not in roles
         assert "tool" not in roles
-        assert len(result) == 3  # user, assistant, user
+        # Tool results are now included as compact assistant messages
+        assert len(result) == 4  # user, assistant, tool-as-assistant, user
+        assert "[Tool result from web_search: result]" in result[2]["content"]
 
     def test_msg_to_dict_basic(self):
         """_msg_to_dict converts ORM message to dict."""

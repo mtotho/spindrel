@@ -10,16 +10,24 @@ from app.routers.api_v1_tasks import router as tasks_router
 from app.routers.api_v1_todos import router as todos_router
 from app.routers.api_v1_users import router as users_router
 from app.routers.api_v1_prompt_templates import router as prompt_templates_router
+from app.routers.api_v1_discover import router as discover_router
 from app.routers.api_v1_workspaces import router as workspaces_router
+from app.routers.api_v1_tool_calls import router as tool_calls_router
+from app.routers.api_v1_tool_policies import router as tool_policies_router
+from app.routers.api_v1_approvals import router as approvals_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router, include_in_schema=False)
+router.include_router(approvals_router)
 router.include_router(attachments_router)
 router.include_router(channels_router)
+router.include_router(discover_router)
 router.include_router(documents_router)
 router.include_router(prompt_templates_router)
 router.include_router(sessions_router)
 router.include_router(tasks_router)
 router.include_router(todos_router)
+router.include_router(tool_calls_router)
+router.include_router(tool_policies_router)
 router.include_router(users_router)
 router.include_router(workspaces_router)
