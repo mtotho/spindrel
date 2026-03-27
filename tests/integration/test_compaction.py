@@ -45,54 +45,6 @@ def _mock_llm_response(content):
 
 
 # ---------------------------------------------------------------------------
-# _messages_for_memory_phase
-# ---------------------------------------------------------------------------
-
-class TestMessagesForMemoryPhase:
-    def test_includes_user_and_assistant(self):
-        from app.services.compaction import _messages_for_memory_phase
-        msgs = [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi there"},
-        ]
-        result = _messages_for_memory_phase(msgs)
-        assert len(result) == 2
-        assert result[0]["content"] == "hello"
-
-    def test_truncates_tool_content(self):
-        from app.services.compaction import _messages_for_memory_phase
-        msgs = [{"role": "tool", "content": "x" * 600}]
-        result = _messages_for_memory_phase(msgs)
-        assert len(result) == 1
-        assert result[0]["content"].endswith("...")
-        assert len(result[0]["content"]) <= 504  # 500 + "..."
-
-    def test_passive_messages_prefixed(self):
-        from app.services.compaction import _messages_for_memory_phase
-        msgs = [
-            {"role": "user", "content": "ambient msg", "_metadata": {"passive": True}},
-        ]
-        result = _messages_for_memory_phase(msgs)
-        assert result[0]["content"].startswith("[passive]")
-
-    def test_skips_none_content(self):
-        from app.services.compaction import _messages_for_memory_phase
-        msgs = [{"role": "assistant", "content": None}]
-        result = _messages_for_memory_phase(msgs)
-        assert len(result) == 0
-
-    def test_excludes_system_messages(self):
-        from app.services.compaction import _messages_for_memory_phase
-        msgs = [
-            {"role": "system", "content": "You are a bot."},
-            {"role": "user", "content": "hi"},
-        ]
-        result = _messages_for_memory_phase(msgs)
-        assert len(result) == 1
-        assert result[0]["role"] == "user"
-
-
-# ---------------------------------------------------------------------------
 # _messages_for_summary
 # ---------------------------------------------------------------------------
 

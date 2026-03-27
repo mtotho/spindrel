@@ -6,7 +6,6 @@ import re as _re_mod
 import shutil
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import replace as _dc_replace
 from datetime import datetime
 from typing import Any
 
@@ -14,8 +13,6 @@ from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig
-from app.agent.context import set_agent_context
-from app.agent.loop import run_agent_tool_loop
 from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
@@ -188,155 +185,10 @@ def _get_compaction_keep_turns(bot: BotConfig, channel: Channel | None = None) -
     return settings.COMPACTION_KEEP_TURNS
 
 
-async def _get_compaction_prompt(bot: BotConfig, channel: Channel | None = None) -> str:
-    from app.services.prompt_resolution import resolve_prompt_template, resolve_workspace_file_prompt
-
-    # 0. Channel-level workspace file link (highest priority)
-    if channel and getattr(channel, "compaction_workspace_file_path", None):
-        resolved = resolve_workspace_file_prompt(
-            str(channel.compaction_workspace_id) if getattr(channel, "compaction_workspace_id", None) else None,
-            channel.compaction_workspace_file_path,
-            "",
-        )
-        if resolved:
-            return resolved
-
-    has_template = (
-        (channel and getattr(channel, "compaction_prompt_template_id", None))
-        or bot.compaction_prompt_template_id
-    )
-
-    if has_template:
-        async with async_session() as db:
-            # 1. Channel-level template link
-            if channel and getattr(channel, "compaction_prompt_template_id", None):
-                resolved = await resolve_prompt_template(
-                    str(channel.compaction_prompt_template_id), "", db,
-                )
-                if resolved:
-                    return resolved
-
-            # 2. Channel inline prompt
-            if channel and channel.memory_knowledge_compaction_prompt:
-                return channel.memory_knowledge_compaction_prompt
-
-            # 3. Bot-level template link
-            if bot.compaction_prompt_template_id:
-                resolved = await resolve_prompt_template(
-                    bot.compaction_prompt_template_id, "", db,
-                )
-                if resolved:
-                    return resolved
-
-    # 2 (no template path). Channel inline prompt
-    if channel and channel.memory_knowledge_compaction_prompt:
-        return channel.memory_knowledge_compaction_prompt
-
-    # 4. Bot inline prompt → global setting
-    return (bot.memory_knowledge_compaction_prompt or settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT).strip()
-
-
 def _is_compaction_enabled(bot: BotConfig, channel: Channel | None = None) -> bool:
     if channel is not None:
         return channel.context_compaction
     return bot.context_compaction
-
-
-def _messages_for_memory_phase(messages: list[dict]) -> list[dict]:
-    """Build message list for memory phase: user, assistant, and tool (content truncated to 500 chars).
-    Lets the model see tool results when deciding what to store, without blowing context on huge payloads.
-    Passive messages are included with a [passive] prefix so the LLM can decide what to memorize.
-    """
-    filtered = []
-    for m in messages:
-        role = m.get("role")
-        content = m.get("content")
-        if content is None:
-            continue
-        is_passive = (m.get("_metadata") or {}).get("passive", False)
-        if role in ("user", "assistant"):
-            text = _stringify_message_content(content)
-            if is_passive:
-                filtered.append({"role": role, "content": f"[passive] {text}"})
-            else:
-                filtered.append({"role": role, "content": text})
-        elif role == "tool":
-            text = _stringify_message_content(content)
-            truncated = text[:500] + "..." if len(text) > 500 else text
-            filtered.append({"role": "tool", "content": truncated})
-    return filtered
-
-
-async def _run_compaction_memory_phase(
-    session_id: uuid.UUID,
-    client_id: str,
-    bot: BotConfig,
-    memory_phase_messages: list[dict],
-    correlation_id: uuid.UUID | None = None,
-    channel: Channel | None = None,
-) -> AsyncGenerator[dict[str, Any], None]:
-    """Run the shared agent tool loop with the 'last chance to save' prompt only.
-    Model decides what to store in memory/knowledge/persona and uses tools; _generate_summary does the actual summary separately.
-    Yields events with compaction=True.
-    """
-    system_content = await _get_compaction_prompt(bot, channel)
-    transcript = "\n".join(
-        f"[{m['role'].upper()}]: {m['content']}" for m in memory_phase_messages
-    )
-    user_content = f"Conversation so far (about to be summarized):\n\n{transcript}"
-
-    set_agent_context(
-        session_id=session_id,
-        client_id=client_id,
-        bot_id=bot.id,
-        correlation_id=correlation_id,
-        channel_id=channel.id if channel else None,
-        memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
-        memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
-        memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
-        memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
-    )
-
-    messages = [
-        {"role": "system", "content": system_content},
-        {"role": "user", "content": user_content},
-    ]
-
-    # If the compaction prompt contains @tool: or @tool-pack: tags, inject those tools
-    # into the memory phase even if they aren't in the bot's configured local_tools.
-    # Same pattern as run_stream() pinning for user-message @tool: tags.
-    import re as _re
-    _tool_tag_re = _re.compile(r"@tool:([A-Za-z_][\w\-\.]*)")
-    _pack_tag_re = _re.compile(r"@tool-pack:([A-Za-z_][\w\-\.]*)")
-    _tagged: list[str] = list(_tool_tag_re.findall(system_content))
-    _pack_names = _pack_tag_re.findall(system_content)
-    if _pack_names:
-        from app.tools.packs import get_tool_packs
-        _packs = get_tool_packs()
-        for _pack in _pack_names:
-            _tagged.extend(_packs.get(_pack, []))
-    _tagged_tool_names = list(dict.fromkeys(_tagged))
-    if _tagged_tool_names:
-        run_bot = _dc_replace(
-            bot,
-            local_tools=list(dict.fromkeys((bot.local_tools or []) + _tagged_tool_names)),
-            pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _tagged_tool_names)),
-        )
-    else:
-        run_bot = bot
-
-    model = _get_compaction_model(bot, channel)
-    async for event in run_agent_tool_loop(
-        messages,
-        run_bot,
-        session_id=session_id,
-        client_id=client_id,
-        model_override=model,
-        compaction=True,
-        correlation_id=correlation_id,
-        channel_id=channel.id if channel else None,
-    ):
-        yield event
 
 
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
@@ -595,34 +447,15 @@ async def run_compaction_stream(
         logger.debug("No turns to summarize for %s", session_id)
         return
 
-    run_memory_phase = (
-        bot.memory.enabled or bot.knowledge.enabled or bot.persona
-    )
-    _trigger_hb = _resolve_trigger_heartbeat(channel)
-    if _trigger_hb:
-        # Trigger a heartbeat for this channel instead of the dedicated memory phase LLM call
-        run_memory_phase = False
-        if channel:
-            from app.services.heartbeat import trigger_channel_heartbeat
-            try:
-                await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
-                logger.info("Triggered heartbeat before compaction for channel %s", channel.id)
-            except Exception:
-                logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
-
-    if run_memory_phase:
-        memory_conversation = _messages_for_memory_phase(messages)
-        user_count_m = 0
-        memory_phase_messages: list[dict] = []
-        for m in memory_conversation:
-            if m.get("role") == "user":
-                user_count_m += 1
-                if user_count_m > turns_to_summarize:
-                    break
-            memory_phase_messages.append(m)
-        yield {"type": "compaction_start", "phase": "memory"}
-        async for event in _run_compaction_memory_phase(session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id, channel=channel):
-            yield event
+    # Optionally trigger heartbeat before compaction so the bot can save
+    # memories/knowledge/persona while it still sees the full recent window.
+    if _resolve_trigger_heartbeat(channel) and channel:
+        from app.services.heartbeat import trigger_channel_heartbeat
+        try:
+            await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
+            logger.info("Triggered heartbeat before compaction for channel %s", channel.id)
+        except Exception:
+            logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
 
     try:
         model = _get_compaction_model(bot, channel)
@@ -861,22 +694,14 @@ async def run_compaction_forced(
     if not conversation:
         raise ValueError("No conversation content to summarize")
 
-    run_memory_phase = bot.memory.enabled or bot.knowledge.enabled or bot.persona
-    _trigger_hb2 = _resolve_trigger_heartbeat(channel)
-    if _trigger_hb2:
-        run_memory_phase = False
-        if channel:
-            from app.services.heartbeat import trigger_channel_heartbeat
-            try:
-                await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
-            except Exception:
-                logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
-    if run_memory_phase:
-        memory_phase_messages = _messages_for_memory_phase(messages)
-        async for _ in _run_compaction_memory_phase(
-            session_id, client_id, bot, memory_phase_messages, correlation_id=correlation_id, channel=channel
-        ):
-            pass
+    # Optionally trigger heartbeat before compaction
+    if _resolve_trigger_heartbeat(channel) and channel:
+        from app.services.heartbeat import trigger_channel_heartbeat
+        try:
+            await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
+            logger.info("Triggered heartbeat before section compaction for channel %s", channel.id)
+        except Exception:
+            logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
 
     model = _get_compaction_model(bot, channel)
     history_mode = _get_history_mode(bot, channel)

@@ -112,10 +112,6 @@ export default function ChannelSettingsScreen() {
         context_compaction: settings.context_compaction,
         compaction_interval: settings.compaction_interval,
         compaction_keep_turns: settings.compaction_keep_turns,
-        memory_knowledge_compaction_prompt: settings.memory_knowledge_compaction_prompt,
-        compaction_prompt_template_id: settings.compaction_prompt_template_id,
-        compaction_workspace_file_path: settings.compaction_workspace_file_path,
-        compaction_workspace_id: settings.compaction_workspace_id,
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
         trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
@@ -873,53 +869,16 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
           </div>
 
-          {/* Heartbeat trigger toggle + prompt */}
+          {/* Heartbeat trigger toggle */}
           <Toggle
             value={!!form.trigger_heartbeat_before_compaction}
-            onChange={(v) => {
-              patch("trigger_heartbeat_before_compaction", v || undefined);
-              if (v) {
-                patch("memory_knowledge_compaction_prompt", undefined);
-                patch("compaction_workspace_file_path", undefined);
-                patch("compaction_workspace_id", undefined);
-                patch("compaction_prompt_template_id", undefined);
-              }
-            }}
+            onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
             label="Trigger heartbeat before compaction"
           />
           <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
             Runs all channel heartbeats (and waits for them to finish) before archiving messages.
-            Replaces the dedicated memory phase LLM call — heartbeats handle saving memories, knowledge, and persona instead.
+            The bot sees the full recent window and can save memories, knowledge, and persona via its normal heartbeat flow.
           </div>
-
-          {!form.trigger_heartbeat_before_compaction && (
-            <>
-              <WorkspaceFilePrompt
-                workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
-                filePath={form.compaction_workspace_file_path ?? null}
-                onLink={(path, wsId) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", wsId); patch("compaction_prompt_template_id", undefined); }}
-                onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
-              />
-              {!form.compaction_workspace_file_path && (
-                <>
-                  <PromptTemplateLink
-                    templateId={form.compaction_prompt_template_id ?? null}
-                    onLink={(id) => patch("compaction_prompt_template_id", id)}
-                    onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-                  />
-                  <LlmPrompt
-                    value={form.memory_knowledge_compaction_prompt ?? ""}
-                    onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                    label="Memory Phase Prompt"
-                    placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-                    helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-                    rows={5}
-                    generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
-                  />
-                </>
-              )}
-            </>
-          )}
 
           {/* Section index injection */}
           <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
@@ -1016,53 +975,16 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 Used for summarization. A cheap/fast model works well — the prompts are straightforward.
               </div>
 
-              {/* Heartbeat trigger toggle + prompt */}
+              {/* Heartbeat trigger toggle */}
               <Toggle
                 value={!!form.trigger_heartbeat_before_compaction}
-                onChange={(v) => {
-                  patch("trigger_heartbeat_before_compaction", v || undefined);
-                  if (v) {
-                    patch("memory_knowledge_compaction_prompt", undefined);
-                    patch("compaction_workspace_file_path", undefined);
-                    patch("compaction_workspace_id", undefined);
-                    patch("compaction_prompt_template_id", undefined);
-                  }
-                }}
+                onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
                 label="Trigger heartbeat before compaction"
               />
               <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
                 Runs all channel heartbeats (and waits for them to finish) before summarizing messages.
-                Replaces the dedicated memory phase LLM call — heartbeats handle saving memories, knowledge, and persona instead.
+                The bot sees the full recent window and can save memories, knowledge, and persona via its normal heartbeat flow.
               </div>
-
-              {!form.trigger_heartbeat_before_compaction && (
-                <>
-                  <WorkspaceFilePrompt
-                    workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
-                    filePath={form.compaction_workspace_file_path ?? null}
-                    onLink={(path, wsId) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", wsId); patch("compaction_prompt_template_id", undefined); }}
-                    onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
-                  />
-                  {!form.compaction_workspace_file_path && (
-                    <>
-                      <PromptTemplateLink
-                        templateId={form.compaction_prompt_template_id ?? null}
-                        onLink={(id) => patch("compaction_prompt_template_id", id)}
-                        onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-                      />
-                      <LlmPrompt
-                        value={form.memory_knowledge_compaction_prompt ?? ""}
-                        onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                        label="Memory Phase Prompt"
-                        placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-                        helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-                        rows={5}
-                        generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
-                      />
-                    </>
-                  )}
-                </>
-              )}
             </>
           )}
         </Section>
