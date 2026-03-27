@@ -12,6 +12,8 @@ services:
       - ./mcp.yaml:/app/mcp.yaml:ro
       # External integrations (uncomment and adjust path):
       # - /path/to/my-integrations:/app/ext-integrations:ro
+      - /var/run/docker.sock:/var/run/docker.sock        # sibling container management
+      - ${WORKSPACE_HOST_DIR:-~/.agent-workspaces}:/workspace-data  # workspace files
     depends_on:
       postgres:
         condition: service_healthy

@@ -119,6 +119,13 @@ class Settings(BaseSettings):
     # Workspaces
     WORKSPACE_BASE_DIR: str = "~/.agent-workspaces"
     WORKSPACE_DEFAULT_IMAGE: str = "agent-workspace:latest"
+    # Path translation for Docker deployment (sibling container pattern).
+    # When the server runs inside Docker, it accesses workspace files via
+    # a mounted volume (WORKSPACE_LOCAL_DIR), but child containers need
+    # the actual host path (WORKSPACE_HOST_DIR) for their -v bind mounts.
+    # Leave both empty when running the server on the host.
+    WORKSPACE_HOST_DIR: str = ""    # e.g., "/home/you/.agent-workspaces"
+    WORKSPACE_LOCAL_DIR: str = ""   # e.g., "/workspace-data"
     # Public URL of this server (injected into workspace containers)
     SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
 
