@@ -100,6 +100,15 @@ _SCHEDULE_TASK_SCHEMA = {
                         "updates all future runs."
                     ),
                 },
+                "workspace_file_path": {
+                    "type": "string",
+                    "description": (
+                        "Path to a file in the bot's shared workspace to use as the prompt. "
+                        "The file content is read at execution time (always up-to-date). "
+                        "Takes priority over prompt_template and inline prompt. "
+                        "Example: 'prompts/daily-review.md'"
+                    ),
+                },
                 "scheduled_at": {
                     "type": "string",
                     "description": (
@@ -138,6 +147,7 @@ async def schedule_task(
     prompt: str,
     title: str | None = None,
     prompt_template: str | None = None,
+    workspace_file_path: str | None = None,
     scheduled_at: str | None = None,
     bot_id: str | None = None,
     reply_in_thread: bool = False,
@@ -168,12 +178,25 @@ async def schedule_task(
 
     callback_cfg = {"trigger_rag_loop": True} if trigger_rag_loop else None
 
+    # Resolve workspace_id from bot config when workspace_file_path is provided
+    ws_file_path = workspace_file_path
+    ws_id = None
+    ws_msg = ""
+    if ws_file_path:
+        from app.agent.bots import get_bot
+        bot_cfg = get_bot(effective_bot_id)
+        if bot_cfg and bot_cfg.shared_workspace_id:
+            ws_id = bot_cfg.shared_workspace_id
+            ws_msg = f" Using workspace file '{ws_file_path}'."
+        else:
+            return json.dumps({"error": f"Bot '{effective_bot_id}' has no shared workspace. Cannot use workspace_file_path."})
+
     template_id = None
     template_msg = ""
 
     async with async_session() as db:
-        # Resolve template if provided
-        if prompt_template:
+        # Resolve template if provided (only if no workspace file — workspace file takes priority)
+        if prompt_template and not ws_file_path:
             try:
                 tpl = await _resolve_template(prompt_template, prompt, db)
                 template_id = tpl.id
@@ -218,6 +241,8 @@ async def schedule_task(
             callback_config=callback_cfg,
             recurrence=recurrence or None,
             prompt_template_id=template_id,
+            workspace_file_path=ws_file_path,
+            workspace_id=ws_id,
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)
@@ -225,14 +250,15 @@ async def schedule_task(
         await db.refresh(task)
 
     recur_suffix = f" Repeats every {recurrence}." if recurrence else ""
+    prompt_info = ws_msg or template_msg
     if scheduled:
         from zoneinfo import ZoneInfo
         from app.config import settings
         local_dt = scheduled.astimezone(ZoneInfo(settings.TIMEZONE))
         when_local = local_dt.strftime("%Y-%m-%d %H:%M %Z")
         when_utc = scheduled.strftime("%H:%M UTC")
-        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{recur_suffix}{template_msg}{dup_warning}"
-    return f"Task {task.id} queued (runs immediately).{recur_suffix}{template_msg}{dup_warning}"
+        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{recur_suffix}{prompt_info}{dup_warning}"
+    return f"Task {task.id} queued (runs immediately).{recur_suffix}{prompt_info}{dup_warning}"
 
 
 @register({
@@ -308,6 +334,9 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
         }
         if tpl_name:
             data["prompt_template"] = tpl_name
+        _wfp = getattr(task, "workspace_file_path", None)
+        if isinstance(_wfp, str) and _wfp:
+            data["workspace_file_path"] = _wfp
         if task.result:
             data["result"] = task.result
         if task.error:
@@ -364,9 +393,12 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
             status_label = t.status
         recur = f" recurrence={t.recurrence}" if t.recurrence and t.status != "active" else ""
 
-        # Template badge
+        # Prompt source badge
         tpl_badge = ""
-        if t.prompt_template_id:
+        _wfp = getattr(t, "workspace_file_path", None)
+        if isinstance(_wfp, str) and _wfp:
+            tpl_badge = f" file={_wfp}"
+        elif t.prompt_template_id:
             name = tpl_names.get(t.prompt_template_id, "?")
             tpl_badge = f" template={name}"
         elif t.status == "active" and t.recurrence:
@@ -471,6 +503,14 @@ async def cancel_task(task_id: str) -> str:
                         "Omit to leave unchanged."
                     ),
                 },
+                "workspace_file_path": {
+                    "type": "string",
+                    "description": (
+                        "Path to a workspace file to use as the prompt. Pass null to unlink. "
+                        "Takes priority over prompt_template and inline prompt. "
+                        "Omit to leave unchanged."
+                    ),
+                },
                 "recurrence": {
                     "type": "string",
                     "description": (
@@ -493,6 +533,7 @@ async def update_task(
     scheduled_at: str | None | object = _UNSET,
     prompt: str | object = _UNSET,
     prompt_template: str | None | object = _UNSET,
+    workspace_file_path: str | None | object = _UNSET,
     recurrence: str | None | object = _UNSET,
     bot_id: str | object = _UNSET,
     reply_in_thread: bool | object = _UNSET,
@@ -544,6 +585,21 @@ async def update_task(
                         changes.append(f"linked template '{tpl.name}'")
                 except ValueError as e:
                     return json.dumps({"error": str(e)})
+
+        if workspace_file_path is not _UNSET:
+            if workspace_file_path is None:
+                task.workspace_file_path = None
+                task.workspace_id = None
+                changes.append("workspace file unlinked")
+            else:
+                from app.agent.bots import get_bot
+                bot_cfg = get_bot(task.bot_id)
+                if bot_cfg and bot_cfg.shared_workspace_id:
+                    task.workspace_file_path = workspace_file_path
+                    task.workspace_id = bot_cfg.shared_workspace_id
+                    changes.append(f"workspace file → '{workspace_file_path}'")
+                else:
+                    return json.dumps({"error": f"Bot '{task.bot_id}' has no shared workspace."})
 
         if recurrence is not _UNSET:
             old_recurrence = task.recurrence
