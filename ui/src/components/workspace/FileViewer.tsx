@@ -66,11 +66,17 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
   }
 
   if (error) {
-    const msg = (error as any)?.body ? JSON.parse((error as any).body)?.detail : error.message;
+    let msg = error.message;
+    try {
+      const body = (error as any)?.body;
+      if (body) msg = JSON.parse(body)?.detail || msg;
+    } catch {}
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", padding: 24 }}>
         <div style={{ textAlign: "center" }}>
-          <FileText size={32} color="#555" style={{ marginBottom: 8 }} />
+          <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
+            <FileText size={32} color="#555" />
+          </div>
           <div style={{ fontSize: 13 }}>{msg || "Cannot display file"}</div>
         </div>
       </div>
