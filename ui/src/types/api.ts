@@ -168,6 +168,8 @@ export interface ChannelSettings {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  private: boolean;
+  user_id?: string | null;
   allow_bot_messages: boolean;
   workspace_rag: boolean;
   max_iterations?: number;
@@ -309,6 +311,7 @@ export interface Message {
   correlation_id?: string;
   tool_calls?: ToolCall[];
   attachments?: AttachmentBrief[];
+  metadata?: Record<string, any>;
   created_at: string;
 }
 

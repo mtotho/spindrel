@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -34,6 +34,18 @@ interface UserRecord {
   created_at: string;
 }
 
+interface IntegrationField {
+  key: string;
+  label: string;
+  description: string;
+}
+
+interface IntegrationInfo {
+  id: string;
+  name: string;
+  fields: IntegrationField[];
+}
+
 function useUsers() {
   return useQuery({
     queryKey: ["admin-users"],
@@ -41,13 +53,142 @@ function useUsers() {
   });
 }
 
+function useIntegrations() {
+  return useQuery({
+    queryKey: ["auth-integrations"],
+    queryFn: () => apiFetch<IntegrationInfo[]>("/auth/integrations"),
+  });
+}
+
+function useIdentitySuggestions(integration: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["identity-suggestions", integration],
+    queryFn: () => apiFetch<string[]>(`/api/v1/admin/users/identity-suggestions/${integration}`),
+    enabled,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration fields editor with suggestions for user_id fields
+// ---------------------------------------------------------------------------
+function IntegrationFieldsEditor({
+  user,
+  integrations,
+  values,
+  onChange,
+}: {
+  user: UserRecord;
+  integrations: IntegrationInfo[];
+  values: Record<string, Record<string, string>>;
+  onChange: (integrationId: string, key: string, value: string) => void;
+}) {
+  if (!integrations.length) return null;
+
+  return (
+    <>
+      {integrations.map((integration) => (
+        <View key={integration.id} className="gap-2">
+          <Text className="text-text-dim text-xs font-medium">{integration.name}</Text>
+          {integration.fields.map((field) => (
+            <IntegrationFieldInput
+              key={field.key}
+              integration={integration.id}
+              field={field}
+              value={values[integration.id]?.[field.key] || ""}
+              onChange={(v) => onChange(integration.id, field.key, v)}
+            />
+          ))}
+        </View>
+      ))}
+    </>
+  );
+}
+
+function IntegrationFieldInput({
+  integration,
+  field,
+  value,
+  onChange,
+}: {
+  integration: string;
+  field: IntegrationField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const isUserIdField = field.key === "user_id";
+  const { data: suggestions } = useIdentitySuggestions(integration, isUserIdField);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  return (
+    <View className="gap-1">
+      <Text className="text-text-dim text-[11px]">{field.label}</Text>
+      <View>
+        <TextInput
+          className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
+          value={value}
+          onChangeText={(v) => {
+            onChange(v);
+            if (isUserIdField) setShowSuggestions(true);
+          }}
+          onFocus={() => { if (isUserIdField && suggestions?.length) setShowSuggestions(true); }}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+          placeholder={field.description}
+          placeholderTextColor="#666666"
+        />
+        {isUserIdField && showSuggestions && suggestions && suggestions.length > 0 && (
+          <View className="bg-surface-raised border border-surface-border rounded mt-1 overflow-hidden" style={{ maxHeight: 150 }}>
+            {suggestions
+              .filter((s) => !value || s.toLowerCase().includes(value.toLowerCase()))
+              .slice(0, 8)
+              .map((suggestion) => (
+                <Pressable
+                  key={suggestion}
+                  onPress={() => {
+                    onChange(suggestion);
+                    setShowSuggestions(false);
+                  }}
+                  className="px-3 py-2 hover:bg-surface-overlay"
+                >
+                  <Text className="text-text text-sm">{suggestion}</Text>
+                </Pressable>
+              ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UserRow
+// ---------------------------------------------------------------------------
 function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void }) {
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(user.display_name);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || "");
-  const [iconEmoji, setIconEmoji] = useState(
-    user.integration_config?.slack?.icon_emoji || ""
-  );
+  const { data: integrations } = useIntegrations();
+  const [integrationValues, setIntegrationValues] = useState<Record<string, Record<string, string>>>({});
+
+  // Initialize integration values from user config
+  useEffect(() => {
+    if (!integrations) return;
+    const init: Record<string, Record<string, string>> = {};
+    for (const integration of integrations) {
+      init[integration.id] = {};
+      for (const field of integration.fields) {
+        init[integration.id][field.key] =
+          user.integration_config?.[integration.id]?.[field.key] || "";
+      }
+    }
+    setIntegrationValues(init);
+  }, [integrations, user.integration_config]);
+
+  const updateIntegrationField = (integrationId: string, key: string, value: string) => {
+    setIntegrationValues((prev) => ({
+      ...prev,
+      [integrationId]: { ...prev[integrationId], [key]: value },
+    }));
+  };
 
   const updateMutation = useMutation({
     mutationFn: (body: Record<string, any>) =>
@@ -62,17 +203,25 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
   });
 
   const handleSave = () => {
-    const integration_config = { ...user.integration_config };
-    if (iconEmoji) {
-      integration_config.slack = { ...(integration_config.slack || {}), icon_emoji: iconEmoji };
-    } else if (integration_config.slack) {
-      delete integration_config.slack.icon_emoji;
+    // Merge integration values into config
+    const config = { ...(user.integration_config || {}) };
+    for (const [integrationId, fields] of Object.entries(integrationValues)) {
+      const cleaned: Record<string, string> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        if (v) cleaned[k] = v;
+      }
+      if (Object.keys(cleaned).length > 0) {
+        config[integrationId] = { ...(config[integrationId] || {}), ...cleaned };
+      } else {
+        // Clear empty integration config
+        delete config[integrationId];
+      }
     }
 
     updateMutation.mutate({
       display_name: displayName,
       avatar_url: avatarUrl || null,
-      integration_config,
+      integration_config: config,
     });
   };
 
@@ -112,16 +261,14 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
             placeholderTextColor="#666666"
           />
         </View>
-        <View className="gap-2">
-          <Text className="text-text-dim text-xs">Slack Icon Emoji</Text>
-          <TextInput
-            className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm"
-            value={iconEmoji}
-            onChangeText={setIconEmoji}
-            placeholder=":wave:"
-            placeholderTextColor="#666666"
+        {integrations && (
+          <IntegrationFieldsEditor
+            user={user}
+            integrations={integrations}
+            values={integrationValues}
+            onChange={updateIntegrationField}
           />
-        </View>
+        )}
       </View>
     );
   }

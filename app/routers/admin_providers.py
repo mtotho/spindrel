@@ -20,7 +20,7 @@ router = APIRouter()
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-PROVIDER_TYPES = ["litellm", "openai", "anthropic", "anthropic-subscription"]
+PROVIDER_TYPES = ["litellm", "openai", "anthropic", "anthropic-compatible"]
 
 
 @router.get("/providers", response_class=HTMLResponse)
@@ -75,8 +75,6 @@ async def admin_provider_create(
             return None
 
     config: dict = {}
-    if provider_type == "anthropic-subscription" and credentials_path.strip():
-        config["credentials_path"] = credentials_path.strip()
     if provider_type == "litellm" and management_key.strip():
         config["management_key"] = management_key.strip()
 
@@ -147,11 +145,7 @@ async def admin_provider_update(
             raise HTTPException(status_code=404, detail="Provider not found")
 
         config: dict = dict(row.config or {})
-        if provider_type == "anthropic-subscription":
-            if credentials_path.strip():
-                config["credentials_path"] = credentials_path.strip()
-        else:
-            config.pop("credentials_path", None)
+        config.pop("credentials_path", None)
         if provider_type == "litellm":
             if management_key.strip():
                 config["management_key"] = management_key.strip()
@@ -211,20 +205,10 @@ async def admin_provider_test(request: Request, provider_id: str):
         )
 
     ptype = provider.provider_type
-    if ptype in ("anthropic", "anthropic-subscription"):
-        # Can't list models from Anthropic easily without a real call; just verify credentials load
-        try:
-            if ptype == "anthropic-subscription":
-                from app.services.providers import _load_anthropic_subscription_token  # noqa: PLC0415
-                creds = (provider.config or {}).get("credentials_path", "~/.claude/.credentials.json")
-                _load_anthropic_subscription_token(creds)
-            return HTMLResponse(
-                "<span class='text-xs text-green-400 font-medium'>✓ Credentials OK</span>"
-            )
-        except Exception as exc:
-            return HTMLResponse(
-                f"<span class='text-xs text-red-400'>✗ {str(exc)[:120]}</span>"
-            )
+    if ptype == "anthropic":
+        return HTMLResponse(
+            "<span class='text-xs text-green-400 font-medium'>✓ Credentials OK</span>"
+        )
     else:
         try:
             client = get_llm_client(provider_id)

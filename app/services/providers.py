@@ -1,9 +1,7 @@
 """Provider registry: manages LLM provider configs and returns per-provider AsyncOpenAI clients."""
-import json
 import logging
 import time
 from collections import deque
-from pathlib import Path
 
 from openai import AsyncOpenAI
 from sqlalchemy import select
@@ -24,26 +22,6 @@ _model_info_cache: dict[str | None, dict[str, dict]] = {}
 _no_sys_msg_models: set[str] = set()
 
 
-def _load_anthropic_subscription_token(credentials_path: str) -> str:
-    """Read OAuth access token from ~/.claude/.credentials.json."""
-    path = Path(credentials_path).expanduser()
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        token = (
-            data.get("claudeAiOauth", {}).get("accessToken")
-            or data.get("access_token")
-            or data.get("token")
-        )
-        if not token:
-            raise ValueError(f"No access token found in {path}")
-        return token
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to load Anthropic subscription credentials from {path}: {exc}"
-        ) from exc
-
-
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
     ptype = provider.provider_type
     if ptype == "litellm":
@@ -62,18 +40,6 @@ def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url=provider.base_url or "https://api.anthropic.com/v1",
             api_key=provider.api_key,
-            timeout=60.0,
-            max_retries=0,
-            default_headers={"anthropic-version": "2023-06-01"},
-        )
-    elif ptype == "anthropic-subscription":
-        creds_path = (provider.config or {}).get(
-            "credentials_path", "~/.claude/.credentials.json"
-        )
-        token = _load_anthropic_subscription_token(creds_path)
-        return AsyncOpenAI(
-            base_url=provider.base_url or "https://api.anthropic.com/v1",
-            api_key=token,
             timeout=60.0,
             max_retries=0,
             default_headers={"anthropic-version": "2023-06-01"},
@@ -305,9 +271,6 @@ async def list_models_for_provider(provider_id: str) -> list[str]:
         return []
 
     ptype = provider.provider_type
-    if ptype == "anthropic-subscription":
-        return list(_ANTHROPIC_MODELS)
-
     # anthropic (direct) returns hardcoded list; anthropic-compatible tries the API first
     if ptype == "anthropic":
         return list(_ANTHROPIC_MODELS)
