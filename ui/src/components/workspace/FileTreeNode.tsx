@@ -1,20 +1,34 @@
-import { View, Text, Pressable } from "react-native";
 import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useFileBrowserStore, type PaneId } from "../../stores/fileBrowser";
+import { useFileBrowserStore } from "../../stores/fileBrowser";
 import { useWorkspaceFiles, useDeleteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import type { WorkspaceFileEntry } from "../../types/api";
+
+function formatTimestamp(ts: number | null | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "now";
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}h`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 30) return `${diffDays}d`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 interface FileTreeNodeProps {
   entry: WorkspaceFileEntry;
   workspaceId: string;
   depth: number;
-  activePaths: Set<string>;
+  activePaths: Record<string, boolean>;
 }
 
 export function FileTreeNode({ entry, workspaceId, depth, activePaths }: FileTreeNodeProps) {
   const [hovered, setHovered] = useState(false);
-  const expanded = useFileBrowserStore((s) => s.expandedDirs.has(entry.path));
+  const expanded = useFileBrowserStore((s) => !!s.expandedDirs[entry.path]);
   const toggleDir = useFileBrowserStore((s) => s.toggleDir);
   const openFile = useFileBrowserStore((s) => s.openFile);
   const splitMode = useFileBrowserStore((s) => s.splitMode);
@@ -22,7 +36,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths }: FileTre
   const { data: children } = useWorkspaceFiles(workspaceId, entry.path);
   const deleteMutation = useDeleteWorkspaceFile(workspaceId);
 
-  const isActive = activePaths.has(entry.path);
+  const isActive = !!activePaths[entry.path];
 
   const handleClick = () => {
     if (entry.is_dir) {
@@ -105,6 +119,12 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths }: FileTre
         >
           {entry.name}
         </span>
+
+        {!hovered && !entry.is_dir && entry.modified_at && (
+          <span style={{ fontSize: 10, color: "#444", flexShrink: 0, paddingRight: 4 }}>
+            {formatTimestamp(entry.modified_at)}
+          </span>
+        )}
 
         {hovered && (
           <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>

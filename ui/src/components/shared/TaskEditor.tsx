@@ -537,14 +537,12 @@ export function TaskEditor({
                   }}
                 />
               </FormRow>
-              {selectedBot?.shared_workspace_id && (
-                <WorkspaceFilePrompt
-                  workspaceId={workspaceId ?? selectedBot.shared_workspace_id}
-                  filePath={workspaceFilePath}
-                  onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(selectedBot.shared_workspace_id!); }}
-                  onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-                />
-              )}
+              <WorkspaceFilePrompt
+                workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
+                filePath={workspaceFilePath}
+                onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(selectedBot?.shared_workspace_id ?? null); }}
+                onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
+              />
               {!workspaceFilePath && (
                 <>
                   <PromptTemplateLink

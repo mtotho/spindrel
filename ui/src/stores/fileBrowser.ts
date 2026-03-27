@@ -14,6 +14,9 @@ export interface PaneState {
   activeFile: string | null; // path of active file
 }
 
+// Use plain object instead of Set to avoid SSR serialization issues
+type DirMap = Record<string, boolean>;
+
 interface FileBrowserState {
   // Split view
   splitMode: boolean;
@@ -24,7 +27,7 @@ interface FileBrowserState {
   rightPane: PaneState;
 
   // Tree
-  expandedDirs: Set<string>;
+  expandedDirs: DirMap;
   treeWidth: number;
 
   // Actions — split
@@ -68,7 +71,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
   splitRatio: 0.5,
   leftPane: { ...emptyPane },
   rightPane: { ...emptyPane },
-  expandedDirs: new Set<string>(),
+  expandedDirs: {} as DirMap,
   treeWidth: 220,
 
   toggleSplit: () =>
@@ -95,25 +98,23 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
 
   toggleDir: (path) =>
     set((s) => {
-      const next = new Set(s.expandedDirs);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      const next = { ...s.expandedDirs };
+      if (next[path]) delete next[path];
+      else next[path] = true;
       return { expandedDirs: next };
     }),
 
   expandDir: (path) =>
     set((s) => {
-      if (s.expandedDirs.has(path)) return s;
-      const next = new Set(s.expandedDirs);
-      next.add(path);
-      return { expandedDirs: next };
+      if (s.expandedDirs[path]) return s;
+      return { expandedDirs: { ...s.expandedDirs, [path]: true } };
     }),
 
   collapseDir: (path) =>
     set((s) => {
-      if (!s.expandedDirs.has(path)) return s;
-      const next = new Set(s.expandedDirs);
-      next.delete(path);
+      if (!s.expandedDirs[path]) return s;
+      const next = { ...s.expandedDirs };
+      delete next[path];
       return { expandedDirs: next };
     }),
 
@@ -187,7 +188,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       splitRatio: 0.5,
       leftPane: { ...emptyPane },
       rightPane: { ...emptyPane },
-      expandedDirs: new Set<string>(),
+      expandedDirs: {} as DirMap,
       treeWidth: 220,
     }),
 }));

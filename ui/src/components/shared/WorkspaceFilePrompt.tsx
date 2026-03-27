@@ -4,13 +4,21 @@ import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/
 import { WorkspaceFilePicker } from "./WorkspaceFilePicker";
 
 interface Props {
-  workspaceId: string;
+  workspaceId: string | null | undefined;
   filePath: string | null;
   onLink: (path: string) => void;
   onUnlink: () => void;
 }
 
 export function WorkspaceFilePrompt({ workspaceId, filePath, onLink, onUnlink }: Props) {
+  if (!workspaceId) {
+    return (
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", fontSize: 11, color: "#555" }}>
+        <FolderOpen size={11} />
+        <span>Bot has no workspace — link a workspace to use file prompts</span>
+      </div>
+    );
+  }
   if (!filePath) {
     return <BrowseButton workspaceId={workspaceId} onLink={onLink} />;
   }

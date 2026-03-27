@@ -385,14 +385,12 @@ export default function TaskDetailScreen() {
               const botWsId = selectedBot?.shared_workspace_id;
               return (
                 <>
-                  {botWsId && (
-                    <WorkspaceFilePrompt
-                      workspaceId={workspaceId ?? botWsId}
-                      filePath={workspaceFilePath}
-                      onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(botWsId); }}
-                      onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-                    />
-                  )}
+                  <WorkspaceFilePrompt
+                    workspaceId={workspaceId ?? botWsId}
+                    filePath={workspaceFilePath}
+                    onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(botWsId ?? null); }}
+                    onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
+                  />
                   {!workspaceFilePath && (
                     <>
                       <PromptTemplateLink

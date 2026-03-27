@@ -366,11 +366,13 @@ class SharedWorkspaceService:
         entries = []
         try:
             for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
+                stat = entry.stat()
                 entries.append({
                     "name": entry.name,
                     "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if entry.is_file() else None,
+                    "size": stat.st_size if entry.is_file() else None,
                     "path": os.path.relpath(entry.path, host_root),
+                    "modified_at": stat.st_mtime,
                 })
         except OSError:
             pass

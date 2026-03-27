@@ -672,14 +672,12 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
           {!form.compaction_skip_memory_phase && (
             <>
-              {workspaceId && (
-                <WorkspaceFilePrompt
-                  workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
-                  filePath={form.compaction_workspace_file_path ?? null}
-                  onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
-                  onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
-                />
-              )}
+              <WorkspaceFilePrompt
+                workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
+                filePath={form.compaction_workspace_file_path ?? null}
+                onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
+                onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
+              />
               {!form.compaction_workspace_file_path && (
                 <>
                   <PromptTemplateLink
@@ -806,14 +804,12 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
               {!form.compaction_skip_memory_phase && (
                 <>
-                  {workspaceId && (
-                    <WorkspaceFilePrompt
-                      workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
-                      filePath={form.compaction_workspace_file_path ?? null}
-                      onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
-                      onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
-                    />
-                  )}
+                  <WorkspaceFilePrompt
+                    workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
+                    filePath={form.compaction_workspace_file_path ?? null}
+                    onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
+                    onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
+                  />
                   {!form.compaction_workspace_file_path && (
                     <>
                       <PromptTemplateLink
@@ -1603,14 +1599,12 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         </Row>
 
         <div style={{ marginTop: 16 }}>
-          {workspaceId && (
-            <WorkspaceFilePrompt
-              workspaceId={hbForm.workspace_id ?? workspaceId}
-              filePath={hbForm.workspace_file_path}
-              onLink={(path) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: workspaceId }))}
-              onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
-            />
-          )}
+          <WorkspaceFilePrompt
+            workspaceId={hbForm.workspace_id ?? workspaceId}
+            filePath={hbForm.workspace_file_path}
+            onLink={(path) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: workspaceId }))}
+            onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
+          />
           {!hbForm.workspace_file_path && (
             <>
               <PromptTemplateLink
