@@ -122,6 +122,13 @@ async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
     return result
 
 
+def resolve_heartbeat_timeout(hb: ChannelHeartbeat) -> int:
+    """Resolve effective timeout: hb.max_run_seconds > global default."""
+    if hb.max_run_seconds is not None:
+        return hb.max_run_seconds
+    return settings.TASK_MAX_RUN_SECONDS
+
+
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     """Execute a heartbeat directly (no Task row) and record history."""
     now = datetime.now(timezone.utc)
@@ -223,16 +230,20 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             )
 
         messages_start = len(messages)
-        run_result = await run(
-            messages, bot, prompt,
-            session_id=eff_session_id,
-            client_id=client_id or "heartbeat",
-            correlation_id=correlation_id,
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
-            channel_id=channel_id,
-            model_override=model_override,
-            provider_id_override=provider_id_override,
+        _hb_timeout = resolve_heartbeat_timeout(hb)
+        run_result = await asyncio.wait_for(
+            run(
+                messages, bot, prompt,
+                session_id=eff_session_id,
+                client_id=client_id or "heartbeat",
+                correlation_id=correlation_id,
+                dispatch_type=dispatch_type,
+                dispatch_config=dispatch_config,
+                channel_id=channel_id,
+                model_override=model_override,
+                provider_id_override=provider_id_override,
+            ),
+            timeout=_hb_timeout,
         )
         result_text = run_result.response
 
@@ -270,6 +281,10 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 db.add(_trl_task)
                 await db.commit()
             logger.info("Heartbeat %s: created trigger_rag_loop follow-up task", hb.id)
+
+    except asyncio.TimeoutError:
+        logger.error("Heartbeat %s timed out after %ds", hb.id, _hb_timeout)
+        error_text = f"Timed out after {_hb_timeout}s"
 
     except Exception as exc:
         logger.exception("Heartbeat %s execution failed", hb.id)

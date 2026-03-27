@@ -91,11 +91,6 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
-    # --- Response Condensing ---
-    "RESPONSE_CONDENSING_THRESHOLD": {"group": "Response Condensing", "label": "Threshold (chars)", "description": "Responses above this length are condensed", "type": "int", "min": 100, "max": 50000},
-    "RESPONSE_CONDENSING_KEEP_EXACT": {"group": "Response Condensing", "label": "Keep Exact", "description": "Recent messages shown at full fidelity (not condensed)", "type": "int", "min": 0, "max": 50},
-    "RESPONSE_CONDENSING_MODEL": {"group": "Response Condensing", "label": "Model", "description": "Model for condensing (empty = compaction model chain)", "type": "string", "widget": "model"},
-    "RESPONSE_CONDENSING_PROMPT": {"group": "Response Condensing", "label": "Default Prompt", "description": "Default condensing prompt. Channels inherit this unless they set their own.", "type": "string", "widget": "textarea"},
     # --- Image Generation ---
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
     # --- Prompt Generation ---
@@ -104,7 +99,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Agent", "Compaction", "Response Condensing",
+    "System", "General", "Agent", "Compaction",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
     "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]

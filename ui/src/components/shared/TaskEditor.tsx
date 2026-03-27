@@ -265,6 +265,7 @@ export function TaskEditor({
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
+  const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
 
   // Populate form when existing task loads (edit mode)
@@ -282,6 +283,7 @@ export function TaskEditor({
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
 
@@ -299,6 +301,7 @@ export function TaskEditor({
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
 
@@ -339,6 +342,7 @@ export function TaskEditor({
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       } else {
         await updateMut.mutateAsync({
@@ -354,6 +358,7 @@ export function TaskEditor({
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       }
       invalidateExtra();
@@ -361,7 +366,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -651,6 +656,15 @@ export function TaskEditor({
                     onChange={setModelOverride}
                     placeholder="Inherit from bot"
                     allowClear
+                  />
+                </FormRow>
+
+                <FormRow label="Max run time (seconds)">
+                  <TextInput
+                    value={maxRunSeconds}
+                    onChangeText={setMaxRunSeconds}
+                    placeholder="Inherit from channel/global"
+                    type="number"
                   />
                 </FormRow>
               </Section>

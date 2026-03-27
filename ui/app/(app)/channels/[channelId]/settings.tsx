@@ -836,7 +836,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
       )}
 
       {/* 3. Response Condensing — always visible */}
-      <Section title="Response Condensing" description="Condense verbose assistant responses to save context. Values here override the global defaults in Settings.">
+      <Section title="Response Condensing" description="Automatically condense verbose assistant responses to save context space between compactions.">
         <Toggle
           value={!!form.response_condensing_enabled}
           onChange={(v) => patch("response_condensing_enabled", v)}
@@ -858,7 +858,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                   <TextInput
                     value={form.response_condensing_threshold?.toString() ?? ""}
                     onChangeText={(v) => patch("response_condensing_threshold", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="inherit from global settings"
+                    placeholder="default (1500)"
                     type="number"
                   />
                 </FormRow>
@@ -868,7 +868,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                   <TextInput
                     value={form.response_condensing_keep_exact?.toString() ?? ""}
                     onChangeText={(v) => patch("response_condensing_keep_exact", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="inherit from global settings"
+                    placeholder="default (6)"
                     type="number"
                   />
                 </FormRow>
@@ -878,14 +878,14 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
               label="Condensing Model"
               value={form.response_condensing_model ?? ""}
               onChange={(v) => patch("response_condensing_model", v || undefined)}
-              placeholder="inherit from global settings"
+              placeholder="inherit (compaction model chain)"
             />
             <LlmPrompt
               value={form.response_condensing_prompt ?? ""}
               onChange={(v) => patch("response_condensing_prompt", v || undefined)}
               label="Custom Condensing Prompt"
-              placeholder="Leave blank to inherit from global settings..."
-              helpText="Overrides the global default prompt. Leave empty to use the prompt set in Settings > Response Condensing."
+              placeholder="Leave blank to use the default..."
+              helpText="Additional instructions for condensing, e.g. 'Always preserve code blocks verbatim'"
               rows={3}
               generateContext="A system prompt for condensing verbose assistant responses. Should preserve specific values, decisions, code, file paths, commands, and action items while removing verbose explanations and filler. Target ~30% of original length."
             />
@@ -999,6 +999,14 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
             value={form.max_iterations?.toString() ?? ""}
             onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
             placeholder="default"
+            type="number"
+          />
+        </FormRow>
+        <FormRow label="Max task run time (seconds)">
+          <TextInput
+            value={form.task_max_run_seconds?.toString() ?? ""}
+            onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
+            placeholder="1200 (default)"
             type="number"
           />
         </FormRow>
@@ -1509,6 +1517,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         prompt_template_id: data.config.prompt_template_id ?? null,
         workspace_file_path: data.config.workspace_file_path ?? null,
         workspace_id: data.config.workspace_id ?? null,
+        max_run_seconds: data.config.max_run_seconds ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -1521,6 +1530,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         prompt_template_id: null,
         workspace_file_path: null,
         workspace_id: null,
+        max_run_seconds: null,
       });
     }
   }, [data]);
@@ -1637,6 +1647,17 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
             label="Trigger agent response after posting"
             description="After posting the heartbeat result, the bot will process it and respond again."
           />
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <FormRow label="Max run time (seconds)">
+            <TextInput
+              value={hbForm.max_run_seconds?.toString() ?? ""}
+              onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
+              placeholder="1200 (default)"
+              type="number"
+            />
+          </FormRow>
         </div>
 
         <div style={{ marginTop: 20, display: "flex", gap: 8 }}>

@@ -300,10 +300,10 @@ class TestRunAgentToolLoop:
         async def _fake_llm_call(model, messages, tools_param, tool_choice, **kw):
             nonlocal call_count
             call_count += 1
+            # First 2 calls are the tool loop; 3rd is the forced response after max iterations
+            if call_count > 2:
+                return final_resp
             return tool_resp
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=final_resp)
 
         with (
             patch("app.agent.loop.get_local_tool_schemas", return_value=[]),
@@ -317,7 +317,6 @@ class TestRunAgentToolLoop:
             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='"ok"'),
             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock),
             patch("app.agent.loop.settings") as mock_settings,
-            patch("app.services.providers.get_llm_client", return_value=mock_client),
         ):
             mock_settings.AGENT_MAX_ITERATIONS = 2
             mock_settings.AGENT_TRACE = False
@@ -333,7 +332,7 @@ class TestRunAgentToolLoop:
         response_events = [e for e in events if e["type"] == "response"]
         assert len(response_events) == 1
         assert response_events[0]["text"] == "Forced answer"
-        assert call_count == 2
+        assert call_count == 3  # 2 tool-loop iterations + 1 forced response
 
     @pytest.mark.asyncio
     async def test_tool_dispatch_mcp(self):

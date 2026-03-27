@@ -188,7 +188,6 @@ export default function ChatScreen() {
           zIndex: 10,
           minHeight: 52,
           backgroundColor: "#111111",
-          ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
         }}
       >
         {columns === "single" && (

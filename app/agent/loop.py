@@ -251,15 +251,17 @@ async def run_agent_tool_loop(
                         "content": "You must respond to the user. Write a response now."
                     })
                     try:
-                        # Anthropic (via LiteLLM) rejects requests that include tool turns in
-                        # `messages` unless `tools=` is also sent; use tool_choice=none so we
+                        # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+                        # retry logic, and fallback all apply.  Use tool_choice=none so we
                         # only get a plain assistant reply.
-                        retry_kw: dict[str, Any] = {"model": model, "messages": messages}
-                        if tools_param is not None:
-                            retry_kw["tools"] = tools_param
-                            retry_kw["tool_choice"] = "none"
-                        from app.services.providers import get_llm_client as _get_client
-                        retry = await _get_client(provider_id).chat.completions.create(**retry_kw)
+                        retry = await _llm_call(
+                            model, messages,
+                            tools_param,
+                            "none" if tools_param is not None else None,
+                            provider_id=provider_id,
+                            fallback_model=fallback_model,
+                            fallback_provider_id=fallback_provider_id,
+                        )
                         text = retry.choices[0].message.content or ""
                         messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                     except Exception as exc:
@@ -414,13 +416,17 @@ async def run_agent_tool_loop(
             "role": "system",
             "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
         })
-        final_kw: dict[str, Any] = {"model": model, "messages": messages}
-        if tools_param is not None:
-            final_kw["tools"] = tools_param
-            final_kw["tool_choice"] = "none"
-        from app.services.providers import get_llm_client as _get_client
         try:
-            response = await _get_client(provider_id).chat.completions.create(**final_kw)
+            # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+            # retry logic, and fallback all apply.
+            response = await _llm_call(
+                model, messages,
+                tools_param,
+                "none" if tools_param is not None else None,
+                provider_id=provider_id,
+                fallback_model=fallback_model,
+                fallback_provider_id=fallback_provider_id,
+            )
             msg = response.choices[0].message
         except Exception as exc:
             logger.error("Max-iterations final LLM call failed: %s", exc)

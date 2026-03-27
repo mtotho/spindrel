@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Timeout resolution
+# ---------------------------------------------------------------------------
+
+def resolve_task_timeout(task: Task, channel: Channel | None = None) -> int:
+    """Resolve effective timeout: task.max_run_seconds > channel.task_max_run_seconds > global default."""
+    if task.max_run_seconds is not None:
+        return task.max_run_seconds
+    if channel is not None and channel.task_max_run_seconds is not None:
+        return channel.task_max_run_seconds
+    return settings.TASK_MAX_RUN_SECONDS
+
+
+# ---------------------------------------------------------------------------
 # Recurrence helpers
 # ---------------------------------------------------------------------------
 
@@ -81,6 +94,7 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             execution_config=dict(schedule.execution_config) if schedule.execution_config else None,
             recurrence=None,  # concrete task, not a schedule
             parent_task_id=schedule.id,
+            max_run_seconds=schedule.max_run_seconds,
             created_at=datetime.now(timezone.utc),
         )
         db.add(concrete)
@@ -203,13 +217,19 @@ async def run_harness_task(task: Task) -> None:
         # Pass extra_args from execution_config (used for --resume on retry)
         resume_extra_args: list[str] | None = ecfg.get("resume_extra_args")
 
-        result = await harness_service.run(
-            harness_name=harness_name,
-            prompt=prompt,
-            working_directory=working_directory,
-            bot=bot,
-            sandbox_instance_id=sandbox_instance_id,
-            extra_args=resume_extra_args,
+        # Resolve timeout
+        _harness_timeout = resolve_task_timeout(task)
+
+        result = await asyncio.wait_for(
+            harness_service.run(
+                harness_name=harness_name,
+                prompt=prompt,
+                working_directory=working_directory,
+                bot=bot,
+                sandbox_instance_id=sandbox_instance_id,
+                extra_args=resume_extra_args,
+            ),
+            timeout=_harness_timeout,
         )
 
         # Attempt to parse Claude Code JSON output
@@ -344,6 +364,27 @@ async def run_harness_task(task: Task) -> None:
                 except Exception:
                     logger.exception("Failed to create parent callback task for harness task %s", task.id)
 
+    except asyncio.TimeoutError:
+        logger.error("Harness task %s timed out after %ds", task.id, _harness_timeout)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = f"Timed out after {_harness_timeout}s"
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        # Dispatch timeout error to integration
+        try:
+            _err_text = f"[Error: Harness task timed out after {_harness_timeout}s]"
+            output_task = Task(
+                id=task.id, bot_id=task.bot_id,
+                dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
+            )
+            dispatcher = dispatchers.get(output_dispatch_type)
+            await dispatcher.deliver(output_task, _err_text)
+        except Exception:
+            logger.warning("Failed to dispatch timeout error for harness task %s", task.id)
+
     except Exception as exc:
         logger.exception("Harness task %s failed", task.id)
 
@@ -437,32 +478,37 @@ async def run_exec_task(task: Task) -> None:
         bot = get_bot(task.bot_id)
         script = build_exec_script(command, args, working_directory, stream_to)
 
-        if sandbox_instance_id is not None:
-            from app.config import settings as _settings
-            if not _settings.DOCKER_SANDBOX_ENABLED:
-                raise RuntimeError("DOCKER_SANDBOX_ENABLED is false")
-            allowed = bot.docker_sandbox_profiles or None
-            instance = await sandbox_service.get_instance_for_bot(
-                sandbox_instance_id, bot.id, allowed_profiles=allowed
-            )
-            if instance is None:
-                raise RuntimeError("Sandbox instance not found or not allowed")
-            result = await sandbox_service.exec(instance, script)
-        elif bot.workspace.enabled or bot.shared_workspace_id:
-            from app.services.workspace import workspace_service
-            ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "", bot=bot)
-            # Convert to sandbox-compatible result
-            from dataclasses import dataclass as _dc
-            @_dc
-            class _R:
-                stdout: str; stderr: str; exit_code: int; truncated: bool; duration_ms: int
-            result = _R(stdout=ws_result.stdout, stderr=ws_result.stderr,
-                        exit_code=ws_result.exit_code, truncated=ws_result.truncated,
-                        duration_ms=ws_result.duration_ms)
-        elif bot.bot_sandbox.enabled:
-            result = await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
-        else:
-            raise RuntimeError("No sandbox available for exec task")
+        # Resolve timeout
+        _exec_timeout = resolve_task_timeout(task)
+
+        async def _do_exec():
+            if sandbox_instance_id is not None:
+                from app.config import settings as _settings
+                if not _settings.DOCKER_SANDBOX_ENABLED:
+                    raise RuntimeError("DOCKER_SANDBOX_ENABLED is false")
+                allowed = bot.docker_sandbox_profiles or None
+                instance = await sandbox_service.get_instance_for_bot(
+                    sandbox_instance_id, bot.id, allowed_profiles=allowed
+                )
+                if instance is None:
+                    raise RuntimeError("Sandbox instance not found or not allowed")
+                return await sandbox_service.exec(instance, script)
+            elif bot.workspace.enabled or bot.shared_workspace_id:
+                from app.services.workspace import workspace_service
+                ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "", bot=bot)
+                from dataclasses import dataclass as _dc
+                @_dc
+                class _R:
+                    stdout: str; stderr: str; exit_code: int; truncated: bool; duration_ms: int
+                return _R(stdout=ws_result.stdout, stderr=ws_result.stderr,
+                            exit_code=ws_result.exit_code, truncated=ws_result.truncated,
+                            duration_ms=ws_result.duration_ms)
+            elif bot.bot_sandbox.enabled:
+                return await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
+            else:
+                raise RuntimeError("No sandbox available for exec task")
+
+        result = await asyncio.wait_for(_do_exec(), timeout=_exec_timeout)
 
         parts = []
         if result.stdout:
@@ -540,6 +586,26 @@ async def run_exec_task(task: Task) -> None:
                 except Exception:
                     logger.exception("Failed to create parent callback task for exec task %s", task.id)
 
+    except asyncio.TimeoutError:
+        logger.error("Exec task %s timed out after %ds", task.id, _exec_timeout)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = f"Timed out after {_exec_timeout}s"
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        try:
+            _err_text = f"[Error: Exec task timed out after {_exec_timeout}s]"
+            output_task = Task(
+                id=task.id, bot_id=task.bot_id,
+                dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
+            )
+            dispatcher = dispatchers.get(output_dispatch_type)
+            await dispatcher.deliver(output_task, _err_text)
+        except Exception:
+            logger.warning("Failed to dispatch timeout error for exec task %s", task.id)
+
     except Exception as exc:
         logger.exception("Exec task %s failed", task.id)
         async with async_session() as db:
@@ -585,11 +651,13 @@ async def run_task(task: Task) -> None:
     # (Heartbeats already do this in fire_heartbeat; tasks created by bots via
     # create_task or _schedule_next_occurrence can hold an outdated session_id
     # after a channel session reset.)
+    _task_channel: Channel | None = None
     if task.channel_id:
         async with async_session() as db:
             channel = await db.get(Channel, task.channel_id)
-            if channel and channel.active_session_id:
-                if task.session_id != channel.active_session_id:
+            if channel:
+                _task_channel = channel
+                if channel.active_session_id and task.session_id != channel.active_session_id:
                     logger.info(
                         "Task %s: resolving stale session %s → channel active session %s",
                         task.id, task.session_id, channel.active_session_id,
@@ -692,16 +760,21 @@ async def run_task(task: Task) -> None:
         _model_override = _ecfg_pre.get("model_override") or None
         _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
 
-        run_result = await run(
-            messages, bot, task_prompt,
-            session_id=session_id,
-            client_id=task.client_id or "task",
-            correlation_id=correlation_id,
-            dispatch_type=task.dispatch_type,
-            dispatch_config=task.dispatch_config,
-            channel_id=task.channel_id,
-            model_override=_model_override,
-            provider_id_override=_provider_id_override,
+        _task_timeout = resolve_task_timeout(task, _task_channel)
+
+        run_result = await asyncio.wait_for(
+            run(
+                messages, bot, task_prompt,
+                session_id=session_id,
+                client_id=task.client_id or "task",
+                correlation_id=correlation_id,
+                dispatch_type=task.dispatch_type,
+                dispatch_config=task.dispatch_config,
+                channel_id=task.channel_id,
+                model_override=_model_override,
+                provider_id_override=_provider_id_override,
+            ),
+            timeout=_task_timeout,
         )
         result_text = run_result.response
 
@@ -779,6 +852,22 @@ async def run_task(task: Task) -> None:
                 except Exception:
                     logger.exception("Failed to create parent callback task for task %s", task.id)
 
+    except asyncio.TimeoutError:
+        logger.error("Task %s timed out after %ds", task.id, _task_timeout)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = f"Timed out after {_task_timeout}s"
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        _err_text = f"[Error: Task timed out after {_task_timeout}s]"
+        try:
+            dispatcher = dispatchers.get(task.dispatch_type)
+            await dispatcher.deliver(task, _err_text)
+        except Exception:
+            logger.warning("Failed to dispatch timeout error for task %s", task.id)
+
     except openai.RateLimitError as exc:
         async with async_session() as db:
             t = await db.get(Task, task.id)
@@ -846,9 +935,55 @@ async def fetch_due_tasks() -> list[Task]:
         return list((await db.execute(stmt)).scalars().all())
 
 
+async def recover_stuck_tasks() -> None:
+    """Mark running tasks that have exceeded their timeout as failed.
+
+    Called once at task_worker startup to clean up tasks from prior crashes.
+    """
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        stmt = select(Task).where(Task.status == "running", Task.run_at.isnot(None))
+        running = list((await db.execute(stmt)).scalars().all())
+
+    if not running:
+        return
+
+    # Build a channel cache for timeout resolution
+    channel_ids = {t.channel_id for t in running if t.channel_id}
+    channels_by_id: dict[uuid.UUID, Channel] = {}
+    if channel_ids:
+        async with async_session() as db:
+            ch_rows = (await db.execute(
+                select(Channel).where(Channel.id.in_(channel_ids))
+            )).scalars().all()
+            channels_by_id = {ch.id: ch for ch in ch_rows}
+
+    recovered = 0
+    for task in running:
+        ch = channels_by_id.get(task.channel_id) if task.channel_id else None
+        timeout = resolve_task_timeout(task, ch)
+        elapsed = (now - task.run_at).total_seconds()
+        if elapsed > timeout:
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t and t.status == "running":
+                    t.status = "failed"
+                    t.error = f"Recovered: stuck running for {int(elapsed)}s (timeout={timeout}s)"
+                    t.completed_at = now
+                    await db.commit()
+                    recovered += 1
+                    logger.warning("Recovered stuck task %s (running %ds, timeout %ds)", task.id, int(elapsed), timeout)
+    if recovered:
+        logger.info("Recovered %d stuck tasks", recovered)
+
+
 async def task_worker() -> None:
     """Background worker loop: polls for due tasks every 5 seconds."""
     logger.info("Task worker started")
+    try:
+        await recover_stuck_tasks()
+    except Exception:
+        logger.exception("recover_stuck_tasks failed at startup")
     while True:
         try:
             if settings.SYSTEM_PAUSED:
