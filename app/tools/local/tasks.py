@@ -70,10 +70,10 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
     raise ValueError(f"Template '{name}' not found. Provide a prompt to auto-create it.")
 
 
-@register({
+_SCHEDULE_TASK_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "create_task",
+        "name": "schedule_task",
         "description": (
             "Schedule a task for THIS bot to run later, or immediately. "
             "Use for reminders, recurring jobs, or deferred self-work. "
@@ -110,10 +110,6 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
                         "a timezone in ISO 8601 format (e.g. 2026-03-21T09:00:00-05:00)."
                     ),
                 },
-                "bot_id": {
-                    "type": "string",
-                    "description": "Bot to use. Defaults to the current bot.",
-                },
                 "recurrence": {
                     "type": "string",
                     "description": (
@@ -134,8 +130,11 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
             "required": ["prompt"],
         },
     },
-})
-async def create_task(
+}
+
+
+@register(_SCHEDULE_TASK_SCHEMA)
+async def schedule_task(
     prompt: str,
     title: str | None = None,
     prompt_template: str | None = None,
@@ -147,7 +146,8 @@ async def create_task(
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
 
-    # Resolve bot_id: validate early so we don't queue a task that will explode at runtime
+    # bot_id kept as internal param for backward compat but removed from schema
+    # (agents should use delegate_to_agent for cross-bot work)
     if bot_id:
         from app.agent.bots import resolve_bot_id, list_bots
         resolved = resolve_bot_id(bot_id)
@@ -155,7 +155,7 @@ async def create_task(
             available = ", ".join(b.id for b in list_bots())
             return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"})
         if resolved.id != bot_id:
-            bot_id = resolved.id  # silently use the canonical ID
+            bot_id = resolved.id
 
     effective_bot_id = bot_id or current_bot_id.get() or "default"
     effective_client_id = current_client_id.get()
@@ -241,7 +241,8 @@ async def create_task(
         "name": "list_tasks",
         "description": (
             "List tasks for the current channel, or get details on a specific task by ID. "
-            "By default only shows pending/running/active (future) tasks."
+            "By default only shows pending/running/active (future) tasks, excluding internal tasks "
+            "(callbacks, concrete schedule runs)."
         ),
         "parameters": {
             "type": "object",
@@ -260,12 +261,19 @@ async def create_task(
                         "Default false (only pending, running, and active tasks)."
                     ),
                 },
+                "include_internal": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, include internal tasks (callbacks, concrete schedule runs) "
+                        "that are normally hidden. Default false."
+                    ),
+                },
             },
             "required": [],
         },
     },
 })
-async def list_tasks(task_id: str | None = None, include_completed: bool = False) -> str:
+async def list_tasks(task_id: str | None = None, include_completed: bool = False, include_internal: bool = False) -> str:
     # Detail mode: single task lookup
     if task_id:
         try:
@@ -322,6 +330,9 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
         conditions = [_or(*scope_filters)]
         if not include_completed:
             conditions.append(Task.status.in_(["pending", "running", "active"]))
+        # Hide child tasks (callbacks, concrete schedule runs) by default
+        if not include_internal:
+            conditions.append(Task.parent_task_id.is_(None))
         stmt = (
             select(Task)
             .where(_and(*conditions))
@@ -577,3 +588,85 @@ async def update_task(
         await db.commit()
 
     return f"Task {task_id} updated ({'; '.join(changes)})."
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat alias: create_task → schedule_task
+# ---------------------------------------------------------------------------
+# Register the same function under the old name so existing bots/agents that
+# call create_task still work.  The old schema is identical except for the name.
+_CREATE_TASK_ALIAS_SCHEMA = {
+    "type": "function",
+    "function": {
+        **_SCHEDULE_TASK_SCHEMA["function"],
+        "name": "create_task",
+    },
+}
+register(_CREATE_TASK_ALIAS_SCHEMA)(schedule_task)
+
+# Python-level alias so `from app.tools.local.tasks import create_task` still works
+create_task = schedule_task
+
+
+# ---------------------------------------------------------------------------
+# get_task_result — check output of a delegation / harness / exec task
+# ---------------------------------------------------------------------------
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_task_result",
+        "description": (
+            "Retrieve the result or current status of a task by ID. "
+            "Useful for checking the output of delegation, harness, or exec tasks "
+            "after they complete."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task UUID to look up.",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+})
+async def get_task_result(task_id: str) -> str:
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        return json.dumps({"error": f"Invalid task_id: {task_id}"})
+
+    async with async_session() as db:
+        task = await db.get(Task, tid)
+        if not task:
+            return json.dumps({"error": f"Task {task_id} not found."})
+
+        data: dict = {
+            "id": str(task.id),
+            "status": task.status,
+            "task_type": task.task_type,
+            "bot_id": task.bot_id,
+        }
+        if task.title:
+            data["title"] = task.title
+        if task.result:
+            data["result"] = task.result
+        if task.error:
+            data["error"] = task.error
+        if task.run_at:
+            data["run_at"] = task.run_at.isoformat()
+        if task.completed_at:
+            data["completed_at"] = task.completed_at.isoformat()
+        if task.run_count:
+            data["run_count"] = task.run_count
+
+        # Include child tasks count if any
+        child_count = (await db.execute(
+            select(func.count()).select_from(Task).where(Task.parent_task_id == tid)
+        )).scalar_one()
+        if child_count:
+            data["child_task_count"] = child_count
+
+    return json.dumps(data)

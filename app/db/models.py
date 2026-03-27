@@ -50,12 +50,6 @@ class Channel(Base):
     response_condensing_keep_exact: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_condensing_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_condensing_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # History RAG (summarize recent history before each request)
-    history_rag_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), default=False)
-    history_rag_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    history_rag_max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    history_rag_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    history_rag_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -193,6 +187,7 @@ class Session(Base):
     depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    source_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",
@@ -809,8 +804,28 @@ class ChannelHeartbeat(Base):
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
     channel: Mapped["Channel"] = relationship("Channel")
+
+
+class HeartbeatRun(Base):
+    __tablename__ = "heartbeat_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    heartbeat_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channel_heartbeats.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'running'"))
 
 
 class IntegrationChannelConfig(Base):
@@ -856,6 +871,7 @@ class Task(Base):
     dispatch_type: Mapped[str] = mapped_column(Text, nullable=False, default="none")
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     callback_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    execution_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     recurrence: Mapped[str | None] = mapped_column(Text, nullable=True)  # e.g. "+1h", "+1d"
     task_type: Mapped[str] = mapped_column(Text, nullable=False, default="agent", server_default=text("'agent'"))
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

@@ -253,6 +253,8 @@ class TestRunTask:
         task.dispatch_type = overrides.get("dispatch_type", "none")
         task.dispatch_config = overrides.get("dispatch_config", {})
         task.callback_config = overrides.get("callback_config", {})
+        task.execution_config = overrides.get("execution_config", {})
+        task.task_type = overrides.get("task_type", "agent")
         task.recurrence = overrides.get("recurrence", None)
         task.retry_count = overrides.get("retry_count", 0)
         task.status = overrides.get("status", "pending")
@@ -414,12 +416,12 @@ class TestRunTask:
 
     @pytest.mark.asyncio
     async def test_model_override_from_callback_config(self):
-        """model_override in callback_config should be passed to the agent loop."""
+        """model_override in execution_config (or callback_config fallback) should be passed to the agent loop."""
         from app.agent.tasks import run_task
         from app.agent.loop import RunResult
 
         task = self._make_task(
-            callback_config={
+            execution_config={
                 "model_override": "custom/my-model",
                 "model_provider_id_override": "provider-42",
             },
