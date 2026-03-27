@@ -537,18 +537,24 @@ export function TaskEditor({
                   }}
                 />
               </FormRow>
-              <WorkspaceFilePrompt
-                workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
-                filePath={workspaceFilePath}
-                onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(selectedBot?.shared_workspace_id ?? null); }}
-                onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
-              />
+              {workspaceFilePath && (
+                <WorkspaceFilePrompt
+                  workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
+                  filePath={workspaceFilePath}
+                  onLink={() => {}}
+                  onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
+                />
+              )}
               {!workspaceFilePath && (
                 <>
                   <PromptTemplateLink
                     templateId={promptTemplateId}
                     onLink={(id) => setPromptTemplateId(id)}
                     onUnlink={() => setPromptTemplateId(null)}
+                    workspaceId={selectedBot?.shared_workspace_id}
+                    workspaceFilePath={workspaceFilePath}
+                    onLinkFile={(path) => { setWorkspaceFilePath(path); setWorkspaceId(selectedBot?.shared_workspace_id ?? null); setPromptTemplateId(null); }}
+                    onUnlinkFile={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
                   />
                   <LlmPrompt
                     value={prompt}
