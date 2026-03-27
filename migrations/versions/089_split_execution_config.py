@@ -6,6 +6,8 @@ execution parameters from callback_config.
 Revision ID: 089
 Revises: 088
 """
+import json
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
@@ -48,7 +50,7 @@ def upgrade() -> None:
                 sa.text(
                     "UPDATE tasks SET execution_config = :exec_cfg, callback_config = :new_cb WHERE id = :id"
                 ),
-                {"exec_cfg": sa.type_coerce(exec_cfg, JSONB), "new_cb": sa.type_coerce(new_cb or None, JSONB), "id": row[0]},
+                {"exec_cfg": json.dumps(exec_cfg), "new_cb": json.dumps(new_cb) if new_cb else None, "id": row[0]},
             )
 
     # Also backfill model_override/model_provider_id_override for non-harness/exec tasks
@@ -76,7 +78,7 @@ def upgrade() -> None:
                 sa.text(
                     "UPDATE tasks SET execution_config = :exec_cfg, callback_config = :new_cb WHERE id = :id"
                 ),
-                {"exec_cfg": sa.type_coerce(exec_cfg, JSONB), "new_cb": sa.type_coerce(new_cb or None, JSONB), "id": row[0]},
+                {"exec_cfg": json.dumps(exec_cfg), "new_cb": json.dumps(new_cb) if new_cb else None, "id": row[0]},
             )
 
 
@@ -93,7 +95,7 @@ def downgrade() -> None:
         merged = {**cb, **ec}
         conn.execute(
             sa.text("UPDATE tasks SET callback_config = :merged WHERE id = :id"),
-            {"merged": sa.type_coerce(merged, JSONB), "id": row[0]},
+            {"merged": json.dumps(merged), "id": row[0]},
         )
 
     op.drop_column("tasks", "execution_config")
