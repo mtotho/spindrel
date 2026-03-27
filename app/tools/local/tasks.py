@@ -265,9 +265,8 @@ async def schedule_task(
     "function": {
         "name": "list_tasks",
         "description": (
-            "List tasks for the current channel, or get details on a specific task by ID. "
-            "By default only shows pending/running/active (future) tasks, excluding internal tasks "
-            "(callbacks, concrete schedule runs)."
+            "List tasks for the current channel (or another bot's channel). "
+            "By default only shows pending/running/active tasks, excluding internal tasks."
         ),
         "parameters": {
             "type": "object",
@@ -277,6 +276,14 @@ async def schedule_task(
                     "description": (
                         "If set, return detailed info for this specific task instead of listing. "
                         "Accepts a task UUID."
+                    ),
+                },
+                "bot_id": {
+                    "type": "string",
+                    "description": (
+                        "List tasks for a different bot (by bot ID). "
+                        "Requires that the current bot has the target bot in its delegate_bots list. "
+                        "Omit to list tasks for the current channel."
                     ),
                 },
                 "include_completed": {
@@ -298,7 +305,7 @@ async def schedule_task(
         },
     },
 })
-async def list_tasks(task_id: str | None = None, include_completed: bool = False, include_internal: bool = False) -> str:
+async def list_tasks(task_id: str | None = None, bot_id: str | None = None, include_completed: bool = False, include_internal: bool = False) -> str:
     # Detail mode: single task lookup
     if task_id:
         try:
@@ -342,20 +349,32 @@ async def list_tasks(task_id: str | None = None, include_completed: bool = False
             data["error"] = task.error
         return json.dumps(data)
 
-    # List mode
-    session_id = current_session_id.get()
-    channel_id = current_channel_id.get()
-    if not session_id and not channel_id:
-        return "No session or channel context available."
-
+    # List mode — cross-bot or current channel
     async with async_session() as db:
         from sqlalchemy import or_ as _or, and_ as _and
-        scope_filters = []
-        if channel_id:
-            scope_filters.append(Task.channel_id == channel_id)
-        if session_id:
-            scope_filters.append(Task.session_id == session_id)
-        conditions = [_or(*scope_filters)]
+
+        if bot_id:
+            # Cross-bot: check delegation access
+            from app.agent.bots import get_bot as _get_bot, resolve_bot_id
+            resolved = resolve_bot_id(bot_id)
+            if not resolved:
+                return json.dumps({"error": f"Unknown bot '{bot_id}'."})
+            caller_bot = _get_bot(current_bot_id.get() or "default")
+            if caller_bot and resolved.id not in caller_bot.delegate_bots:
+                return json.dumps({"error": f"No access to bot '{resolved.id}'. Add it to your delegate_bots list."})
+            # Query by bot_id across all channels
+            conditions = [Task.bot_id == resolved.id]
+        else:
+            session_id = current_session_id.get()
+            channel_id = current_channel_id.get()
+            if not session_id and not channel_id:
+                return "No session or channel context available."
+            scope_filters = []
+            if channel_id:
+                scope_filters.append(Task.channel_id == channel_id)
+            if session_id:
+                scope_filters.append(Task.session_id == session_id)
+            conditions = [_or(*scope_filters)]
         if not include_completed:
             conditions.append(Task.status.in_(["pending", "running", "active"]))
         # Hide child tasks (callbacks, concrete schedule runs) by default

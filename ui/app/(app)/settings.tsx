@@ -133,15 +133,20 @@ function TextareaField({
 }) {
   return (
     <TextInput
-      className="bg-surface border border-surface-border rounded px-3 py-2 text-text text-sm flex-1"
+      className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm flex-1"
       value={value}
       onChangeText={onChange}
       editable={!item.read_only}
       placeholder="(empty)"
       placeholderTextColor="#666666"
       multiline
-      numberOfLines={4}
-      style={{ minHeight: 80, textAlignVertical: "top" }}
+      numberOfLines={12}
+      style={{
+        minHeight: 200,
+        textAlignVertical: "top",
+        fontFamily: "monospace",
+        lineHeight: 20,
+      }}
     />
   );
 }
