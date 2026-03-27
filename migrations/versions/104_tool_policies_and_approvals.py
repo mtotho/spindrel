@@ -16,8 +16,8 @@ depends_on = None
 
 def upgrade() -> None:
     # -- Phase 1: indexes on tool_calls for audit queries --
-    op.create_index("ix_tool_calls_bot_id_created_at", "tool_calls", ["bot_id", "created_at"])
-    op.create_index("ix_tool_calls_tool_name_created_at", "tool_calls", ["tool_name", "created_at"])
+    op.create_index("ix_tool_calls_bot_id_created_at", "tool_calls", ["bot_id", "created_at"], if_not_exists=True)
+    op.create_index("ix_tool_calls_tool_name_created_at", "tool_calls", ["tool_name", "created_at"], if_not_exists=True)
 
     # -- Phase 2: tool_policy_rules --
     op.create_table(
