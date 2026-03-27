@@ -77,9 +77,9 @@ async def start_watchers(bots: list) -> None:
     _stop_event = asyncio.Event()
     seen: set[tuple[str, str]] = set()
     for bot in bots:
-        # Workspace-based watcher (new)
+        # Workspace-based watcher — skip shared workspace bots (covered by shared ws watcher)
         ws = getattr(bot, "workspace", None)
-        if ws and ws.enabled and ws.indexing.enabled:
+        if ws and ws.enabled and ws.indexing.enabled and not getattr(bot, "shared_workspace_id", None):
             from app.services.workspace_indexing import resolve_indexing, get_all_roots
             _resolved = resolve_indexing(ws.indexing, getattr(bot, "_workspace_raw", {}), getattr(bot, "_ws_indexing_config", None))
             if not _resolved["watch"]:
@@ -116,30 +116,34 @@ async def start_watchers(bots: list) -> None:
         logger.info("Started %d filesystem watcher task(s)", len(_watcher_tasks))
 
 
-async def _watch_workspace_skills(
-    workspace_id: str, skills_root: str,
+async def _watch_shared_workspace(
+    workspace_id: str, host_root: str, skills_enabled: bool,
 ) -> None:
-    """Watch workspace skill .md files and re-embed on changes."""
+    """Watch an entire shared workspace directory for file changes.
+
+    On changes, re-indexes filesystem chunks for each bot in the workspace
+    and re-embeds skills if skills_enabled.
+    """
     try:
         import watchfiles
     except ImportError:
-        logger.warning("watchfiles not installed; skipping skills watcher for workspace %s", workspace_id)
+        logger.warning("watchfiles not installed; skipping shared workspace watcher for %s", workspace_id)
         return
 
     global _stop_event
     assert _stop_event is not None
 
-    root_path = Path(skills_root).resolve()
+    root_path = Path(host_root).resolve()
     if not root_path.exists():
         return
-    logger.info("Workspace skills watcher started: %s (workspace=%s)", skills_root, workspace_id)
+    logger.info("Shared workspace watcher started: %s (workspace=%s)", host_root, workspace_id)
     last_change_time = 0.0
     has_pending = False
 
     try:
         async for changes in watchfiles.awatch(str(root_path), stop_event=_stop_event):
             for _, path_str in changes:
-                if path_str.endswith(".md"):
+                if Path(path_str).is_file() or not Path(path_str).exists():
                     has_pending = True
             if not has_pending:
                 continue
@@ -148,37 +152,65 @@ async def _watch_workspace_skills(
             await asyncio.sleep(_DEBOUNCE_SECONDS)
             if has_pending and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
                 has_pending = False
-                logger.info("Skills watcher: re-embedding workspace skills for %s", workspace_id)
-                from app.services.workspace_skills import embed_workspace_skills
-                try:
-                    stats = await embed_workspace_skills(workspace_id)
-                    logger.info("Skills watcher: %s", stats)
-                except Exception:
-                    logger.exception("Skills watcher: embed failed for workspace %s", workspace_id)
+                logger.info("Shared workspace watcher: changes detected in %s, re-indexing", workspace_id)
+
+                # Re-index filesystem for each bot in the workspace
+                from app.agent.bots import list_bots
+                from app.agent.fs_indexer import index_directory
+                from app.services.workspace_indexing import resolve_indexing, get_all_roots
+
+                for bot in list_bots():
+                    if bot.shared_workspace_id != workspace_id:
+                        continue
+                    if not bot.workspace.indexing.enabled:
+                        continue
+                    try:
+                        _resolved = resolve_indexing(
+                            bot.workspace.indexing,
+                            getattr(bot, "_workspace_raw", {}),
+                            getattr(bot, "_ws_indexing_config", None),
+                        )
+                        for root in get_all_roots(bot):
+                            await index_directory(
+                                root, bot.id, _resolved["patterns"], force=True,
+                                embedding_model=_resolved["embedding_model"],
+                                segments=_resolved.get("segments"),
+                            )
+                    except Exception:
+                        logger.exception("Shared workspace watcher: index failed for bot %s", bot.id)
+
+                # Re-embed skills
+                if skills_enabled:
+                    from app.services.workspace_skills import embed_workspace_skills
+                    try:
+                        stats = await embed_workspace_skills(workspace_id)
+                        logger.info("Shared workspace watcher: skills re-embedded: %s", stats)
+                    except Exception:
+                        logger.exception("Shared workspace watcher: skill embed failed for %s", workspace_id)
     except asyncio.CancelledError:
         pass
-    logger.info("Workspace skills watcher stopped: %s", skills_root)
+    logger.info("Shared workspace watcher stopped: %s", host_root)
 
 
-async def start_workspace_skills_watchers(workspaces: list[tuple[str, str]]) -> None:
-    """Start watchers for workspace skill directories.
+async def start_shared_workspace_watchers(
+    workspaces: list[tuple[str, str, bool]],
+) -> None:
+    """Start watchers for shared workspace directories.
 
     Args:
-        workspaces: list of (workspace_id, host_root) tuples
+        workspaces: list of (workspace_id, host_root, skills_enabled) tuples
     """
     global _stop_event, _watcher_tasks
     if _stop_event is None:
         _stop_event = asyncio.Event()
-    for workspace_id, host_root in workspaces:
-        # Watch common/skills and bots/*/skills under the workspace root
-        skills_root = str(Path(host_root).resolve())
+    for workspace_id, host_root, skills_enabled in workspaces:
         task = asyncio.create_task(
-            _watch_workspace_skills(workspace_id, skills_root),
-            name=f"skills_watcher:{workspace_id}",
+            _watch_shared_workspace(workspace_id, host_root, skills_enabled),
+            name=f"shared_ws_watcher:{workspace_id}",
         )
         _watcher_tasks.append(task)
     if workspaces:
-        logger.info("Started %d workspace skills watcher(s)", len(workspaces))
+        logger.info("Started %d shared workspace watcher(s)", len(workspaces))
 
 
 async def stop_watchers() -> None:

@@ -75,10 +75,11 @@ _SCHEDULE_TASK_SCHEMA = {
     "function": {
         "name": "schedule_task",
         "description": (
-            "Schedule a task for THIS bot to run later, or immediately. "
-            "Use for reminders, recurring jobs, or deferred self-work. "
-            "To run a DIFFERENT bot, use delegate_to_agent instead (preferred for cross-bot work). "
-            "The result is dispatched back to the originating channel/thread automatically."
+            "Schedule a task for any bot to run later (or immediately). "
+            "Defaults to the current bot in the current channel. "
+            "To schedule work for a DIFFERENT bot, pass bot_id — the task "
+            "will run in that bot's primary channel automatically. "
+            "The result is dispatched back to the target channel/thread."
         ),
         "parameters": {
             "type": "object",
@@ -91,13 +92,12 @@ _SCHEDULE_TASK_SCHEMA = {
                     "type": "string",
                     "description": "The full prompt/instruction to run when the task executes.",
                 },
-                "prompt_template": {
+                "bot_id": {
                     "type": "string",
                     "description": (
-                        "Name of a prompt template to link. If the name exists, it is linked. "
-                        "If it doesn't exist, a new template is auto-created using the prompt text. "
-                        "Linked templates are resolved at execution time, so editing the template "
-                        "updates all future runs."
+                        "Bot to run this task. Defaults to the current bot. "
+                        "When targeting a different bot, the task runs in that bot's "
+                        "primary channel with its dispatch config."
                     ),
                 },
                 "workspace_file_path": {
@@ -105,7 +105,7 @@ _SCHEDULE_TASK_SCHEMA = {
                     "description": (
                         "Path to a file in the bot's shared workspace to use as the prompt. "
                         "The file content is read at execution time (always up-to-date). "
-                        "Takes priority over prompt_template and inline prompt. "
+                        "Takes priority over the inline prompt. "
                         "Example: 'prompts/daily-review.md'"
                     ),
                 },
@@ -142,11 +142,27 @@ _SCHEDULE_TASK_SCHEMA = {
 }
 
 
+async def _resolve_bot_channel(bot_id: str, db) -> tuple[uuid.UUID | None, str | None, uuid.UUID | None, str, dict]:
+    """Find the primary channel for a bot. Returns (channel_id, client_id, session_id, dispatch_type, dispatch_config)."""
+    from app.db.models import Channel
+    stmt = (
+        select(Channel)
+        .where(Channel.bot_id == bot_id)
+        .order_by(Channel.name.asc())
+        .limit(1)
+    )
+    channel = (await db.execute(stmt)).scalar_one_or_none()
+    if not channel:
+        return None, None, None, "none", {}
+    dispatch_type = channel.integration or "none"
+    dispatch_config = dict(channel.dispatch_config or {})
+    return channel.id, channel.client_id, channel.active_session_id, dispatch_type, dispatch_config
+
+
 @register(_SCHEDULE_TASK_SCHEMA)
 async def schedule_task(
     prompt: str,
     title: str | None = None,
-    prompt_template: str | None = None,
     workspace_file_path: str | None = None,
     scheduled_at: str | None = None,
     bot_id: str | None = None,
@@ -156,25 +172,18 @@ async def schedule_task(
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
 
-    # bot_id kept as internal param for backward compat but removed from schema
-    # (agents should use delegate_to_agent for cross-bot work)
+    cross_bot = False
     if bot_id:
         from app.agent.bots import resolve_bot_id, list_bots
         resolved = resolve_bot_id(bot_id)
         if resolved is None:
             available = ", ".join(b.id for b in list_bots())
             return json.dumps({"error": f"Unknown bot {bot_id!r}. Available: {available}"})
-        if resolved.id != bot_id:
-            bot_id = resolved.id
+        bot_id = resolved.id
+        if bot_id != (current_bot_id.get() or "default"):
+            cross_bot = True
 
     effective_bot_id = bot_id or current_bot_id.get() or "default"
-    effective_client_id = current_client_id.get()
-    effective_session_id = current_session_id.get()
-    effective_channel_id = current_channel_id.get()
-    dispatch_type = current_dispatch_type.get() or "none"
-    dispatch_config = dict(current_dispatch_config.get() or {})
-    if dispatch_type == "slack":
-        dispatch_config["reply_in_thread"] = reply_in_thread
 
     callback_cfg = {"trigger_rag_loop": True} if trigger_rag_loop else None
 
@@ -191,46 +200,35 @@ async def schedule_task(
         else:
             return json.dumps({"error": f"Bot '{effective_bot_id}' has no shared workspace. Cannot use workspace_file_path."})
 
-    template_id = None
-    template_msg = ""
-
     async with async_session() as db:
-        # Resolve template if provided (only if no workspace file — workspace file takes priority)
-        if prompt_template and not ws_file_path:
-            try:
-                tpl = await _resolve_template(prompt_template, prompt, db)
-                template_id = tpl.id
-                created = tpl in db.new  # was just auto-created
-                if created:
-                    template_msg = f" Created new template '{prompt_template}' and linked."
-                else:
-                    template_msg = f" Linked to template '{tpl.name}'."
-            except ValueError as e:
-                return json.dumps({"error": str(e)})
+        # Resolve channel/dispatch context
+        if cross_bot:
+            # Cross-bot: resolve the target bot's primary channel
+            ch_id, client_id, session_id, dispatch_type, dispatch_config = await _resolve_bot_channel(effective_bot_id, db)
+            if not ch_id:
+                return json.dumps({"error": f"Bot '{effective_bot_id}' has no channel. Create a channel for it first."})
+        else:
+            # Same bot: use current context, with fallback to bot's primary channel
+            ch_id = current_channel_id.get()
+            client_id = current_client_id.get()
+            session_id = current_session_id.get()
+            dispatch_type = current_dispatch_type.get() or "none"
+            dispatch_config = dict(current_dispatch_config.get() or {})
 
-        # Duplicate detection: same bot + template already pending/active
-        dup_warning = ""
-        if template_id:
-            dup_stmt = (
-                select(Task.id)
-                .where(
-                    Task.bot_id == effective_bot_id,
-                    Task.prompt_template_id == template_id,
-                    Task.status.in_(["pending", "active"]),
-                )
-                .limit(1)
-            )
-            dup_row = (await db.execute(dup_stmt)).scalar_one_or_none()
-            if dup_row:
-                dup_warning = f" Warning: existing task {dup_row} already uses this template (pending/active)."
+            if not ch_id:
+                # No channel in context (e.g. ephemeral delegation) — resolve from bot's channels
+                ch_id, client_id, session_id, dispatch_type, dispatch_config = await _resolve_bot_channel(effective_bot_id, db)
+
+        if dispatch_type == "slack":
+            dispatch_config["reply_in_thread"] = reply_in_thread
 
         # If recurrence is set, create as an active schedule template
         initial_status = "active" if recurrence else "pending"
         task = Task(
             bot_id=effective_bot_id,
-            client_id=effective_client_id,
-            session_id=effective_session_id,
-            channel_id=effective_channel_id,
+            client_id=client_id,
+            session_id=session_id,
+            channel_id=ch_id,
             prompt=prompt,
             title=title or None,
             scheduled_at=scheduled,
@@ -240,7 +238,6 @@ async def schedule_task(
             dispatch_config=dispatch_config,
             callback_config=callback_cfg,
             recurrence=recurrence or None,
-            prompt_template_id=template_id,
             workspace_file_path=ws_file_path,
             workspace_id=ws_id,
             created_at=datetime.now(timezone.utc),
@@ -250,15 +247,17 @@ async def schedule_task(
         await db.refresh(task)
 
     recur_suffix = f" Repeats every {recurrence}." if recurrence else ""
-    prompt_info = ws_msg or template_msg
+    bot_suffix = f" (bot={effective_bot_id})" if cross_bot else ""
     if scheduled:
         from zoneinfo import ZoneInfo
         from app.config import settings
         local_dt = scheduled.astimezone(ZoneInfo(settings.TIMEZONE))
         when_local = local_dt.strftime("%Y-%m-%d %H:%M %Z")
         when_utc = scheduled.strftime("%H:%M UTC")
-        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{recur_suffix}{prompt_info}{dup_warning}"
-    return f"Task {task.id} queued (runs immediately).{recur_suffix}{prompt_info}{dup_warning}"
+        ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
+        return f"Task {task.id} scheduled for {when_local} ({when_utc}).{bot_suffix}{recur_suffix}{ws_info}"
+    ws_info = f" Using workspace file '{ws_file_path}'." if ws_file_path else ""
+    return f"Task {task.id} queued (runs immediately).{bot_suffix}{recur_suffix}{ws_info}"
 
 
 @register({
@@ -470,8 +469,8 @@ async def cancel_task(task_id: str) -> str:
     "function": {
         "name": "update_task",
         "description": (
-            "Update a pending or active task: schedule time, prompt, template, recurrence, or bot. "
-            "Omit any field to leave it unchanged. Set prompt_template to null to unlink."
+            "Update a pending or active task: schedule time, prompt, workspace file, recurrence, or bot. "
+            "Omit any field to leave it unchanged."
         ),
         "parameters": {
             "type": "object",
@@ -495,19 +494,10 @@ async def cancel_task(task_id: str) -> str:
                     "type": "string",
                     "description": "New instruction text (replaces existing prompt). Omit to leave unchanged.",
                 },
-                "prompt_template": {
-                    "type": "string",
-                    "description": (
-                        "Template name to link. Pass null to unlink the current template. "
-                        "If the name doesn't exist, auto-creates a template using the task's prompt. "
-                        "Omit to leave unchanged."
-                    ),
-                },
                 "workspace_file_path": {
                     "type": "string",
                     "description": (
                         "Path to a workspace file to use as the prompt. Pass null to unlink. "
-                        "Takes priority over prompt_template and inline prompt. "
                         "Omit to leave unchanged."
                     ),
                 },
@@ -532,7 +522,6 @@ async def update_task(
     title: str | None | object = _UNSET,
     scheduled_at: str | None | object = _UNSET,
     prompt: str | object = _UNSET,
-    prompt_template: str | None | object = _UNSET,
     workspace_file_path: str | None | object = _UNSET,
     recurrence: str | None | object = _UNSET,
     bot_id: str | object = _UNSET,
@@ -568,23 +557,6 @@ async def update_task(
         if prompt is not _UNSET:
             task.prompt = prompt
             changes.append("prompt updated")
-
-        if prompt_template is not _UNSET:
-            if prompt_template is None:
-                # Unlink template
-                task.prompt_template_id = None
-                changes.append("template unlinked")
-            else:
-                try:
-                    tpl = await _resolve_template(prompt_template, task.prompt, db)
-                    task.prompt_template_id = tpl.id
-                    created = tpl in db.new
-                    if created:
-                        changes.append(f"created + linked template '{prompt_template}'")
-                    else:
-                        changes.append(f"linked template '{tpl.name}'")
-                except ValueError as e:
-                    return json.dumps({"error": str(e)})
 
         if workspace_file_path is not _UNSET:
             if workspace_file_path is None:
@@ -644,24 +616,6 @@ async def update_task(
         await db.commit()
 
     return f"Task {task_id} updated ({'; '.join(changes)})."
-
-
-# ---------------------------------------------------------------------------
-# Backward-compat alias: create_task → schedule_task
-# ---------------------------------------------------------------------------
-# Register the same function under the old name so existing bots/agents that
-# call create_task still work.  The old schema is identical except for the name.
-_CREATE_TASK_ALIAS_SCHEMA = {
-    "type": "function",
-    "function": {
-        **_SCHEDULE_TASK_SCHEMA["function"],
-        "name": "create_task",
-    },
-}
-register(_CREATE_TASK_ALIAS_SCHEMA)(schedule_task)
-
-# Python-level alias so `from app.tools.local.tasks import create_task` still works
-create_task = schedule_task
 
 
 # ---------------------------------------------------------------------------

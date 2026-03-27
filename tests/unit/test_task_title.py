@@ -14,7 +14,7 @@ class TestCreateTaskTitle:
     @pytest.mark.asyncio
     @patch("app.tools.local.tasks.async_session")
     async def test_create_task_with_title(self, mock_session):
-        from app.tools.local.tasks import create_task
+        from app.tools.local.tasks import schedule_task as create_task
 
         captured_task = {}
 
@@ -55,7 +55,7 @@ class TestCreateTaskTitle:
     @pytest.mark.asyncio
     @patch("app.tools.local.tasks.async_session")
     async def test_create_task_without_title(self, mock_session):
-        from app.tools.local.tasks import create_task
+        from app.tools.local.tasks import schedule_task as create_task
 
         captured_task = {}
 
