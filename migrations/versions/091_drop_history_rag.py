@@ -1,12 +1,12 @@
 """Drop history RAG columns from channels.
 
 Revision ID: 091
-Revises: 090
+Revises: 089
 """
 from alembic import op
 
 revision = "091"
-down_revision = "090"
+down_revision = "089"
 branch_labels = None
 depends_on = None
 
