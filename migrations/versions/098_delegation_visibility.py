@@ -12,11 +12,21 @@ down_revision = "097"
 
 
 def upgrade() -> None:
-    op.add_column(
-        "sessions",
-        sa.Column("source_task_id", UUID(as_uuid=True), nullable=True),
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'sessions' AND column_name = 'source_task_id'"
+    ))
+    if not result.fetchone():
+        op.add_column(
+            "sessions",
+            sa.Column("source_task_id", UUID(as_uuid=True), nullable=True),
+        )
+    # Create index only if it doesn't exist
+    op.create_index(
+        "ix_sessions_source_task_id", "sessions", ["source_task_id"],
+        if_not_exists=True,
     )
-    op.create_index("ix_sessions_source_task_id", "sessions", ["source_task_id"])
 
 
 def downgrade() -> None:

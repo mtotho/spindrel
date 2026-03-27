@@ -52,9 +52,10 @@ The agent loop is iterative: LLM calls tools until it returns a text response (m
 
 ### Configuration Layers
 - **`.env`** → `app/config.py` (Pydantic Settings) — all runtime config
-- **`bots/*.yaml`** → `app/agent/bots.py` (BotConfig) — per-bot behavior
+- **`bots/*.yaml`** → `app/agent/bots.py` (BotConfig) — per-bot behavior (gitignored; users create their own)
+- **`skills/*.md`** — Markdown knowledge files (gitignored; users create their own)
 - **`mcp.yaml`** — MCP server URLs and auth (supports `${ENV_VAR}` substitution)
-- **`skills/*.md`** — Markdown knowledge files (chunked by `## ` headers, embedded)
+- **`INTEGRATION_DIRS`** — colon-separated paths to external integration directories (see `docs/integrations/README.md`)
 
 ### Tool System
 Three tool types, all passed to the LLM in OpenAI function format:
