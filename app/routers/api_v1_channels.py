@@ -157,6 +157,9 @@ class ChannelConfigOut(BaseModel):
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    # Fallback model
+    fallback_model: Optional[str] = None
+    fallback_model_provider_id: Optional[str] = None
     # Compaction
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
@@ -225,6 +228,9 @@ class ChannelConfigUpdate(BaseModel):
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    # Fallback model
+    fallback_model: Optional[str] = None
+    fallback_model_provider_id: Optional[str] = None
     # Compaction
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
@@ -479,6 +485,8 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "channel_prompt": channel.channel_prompt,
         "model_override": channel.model_override,
         "model_provider_id_override": channel.model_provider_id_override,
+        "fallback_model": channel.fallback_model,
+        "fallback_model_provider_id": channel.fallback_model_provider_id,
         "context_compaction": channel.context_compaction,
         "compaction_interval": channel.compaction_interval,
         "compaction_keep_turns": channel.compaction_keep_turns,

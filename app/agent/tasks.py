@@ -51,13 +51,15 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             logger.warning("Schedule %s has invalid recurrence %r — skipping", schedule.id, schedule.recurrence)
             return
 
-        # Resolve latest content from linked template (if any)
-        prompt = schedule.prompt
-        if schedule.prompt_template_id:
-            from app.services.prompt_resolution import resolve_prompt_template
-            prompt = await resolve_prompt_template(
-                str(schedule.prompt_template_id), schedule.prompt, db,
-            )
+        # Resolve latest content from linked template or workspace file (if any)
+        from app.services.prompt_resolution import resolve_prompt
+        prompt = await resolve_prompt(
+            workspace_id=str(schedule.workspace_id) if schedule.workspace_id else None,
+            workspace_file_path=schedule.workspace_file_path,
+            template_id=str(schedule.prompt_template_id) if schedule.prompt_template_id else None,
+            inline_prompt=schedule.prompt,
+            db=db,
+        )
 
         # Create concrete execution task
         concrete = Task(
@@ -68,6 +70,8 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             prompt=prompt,
             title=schedule.title,
             prompt_template_id=schedule.prompt_template_id,
+            workspace_file_path=schedule.workspace_file_path,
+            workspace_id=schedule.workspace_id,
             scheduled_at=schedule.scheduled_at,
             status="pending",
             task_type=schedule.task_type,
@@ -185,14 +189,16 @@ async def run_harness_task(task: Task) -> None:
         from app.services.harness import harness_service, HarnessError
         bot = get_bot(task.bot_id)
 
-        # Resolve latest content from linked template (if any)
-        prompt = task.prompt
-        if task.prompt_template_id:
-            from app.services.prompt_resolution import resolve_prompt_template
-            async with async_session() as resolve_db:
-                prompt = await resolve_prompt_template(
-                    str(task.prompt_template_id), task.prompt, resolve_db,
-                )
+        # Resolve latest content from linked template or workspace file (if any)
+        from app.services.prompt_resolution import resolve_prompt
+        async with async_session() as resolve_db:
+            prompt = await resolve_prompt(
+                workspace_id=str(task.workspace_id) if task.workspace_id else None,
+                workspace_file_path=task.workspace_file_path,
+                template_id=str(task.prompt_template_id) if task.prompt_template_id else None,
+                inline_prompt=task.prompt,
+                db=resolve_db,
+            )
 
         # Pass extra_args from execution_config (used for --resume on retry)
         resume_extra_args: list[str] | None = ecfg.get("resume_extra_args")
@@ -668,14 +674,16 @@ async def run_task(task: Task) -> None:
         correlation_id = _uuid.uuid4()
         messages_start = len(messages)  # capture before run() appends new turn
 
-        # Resolve latest content from linked template (if any)
-        task_prompt = task.prompt
-        if task.prompt_template_id:
-            from app.services.prompt_resolution import resolve_prompt_template
-            async with async_session() as resolve_db:
-                task_prompt = await resolve_prompt_template(
-                    str(task.prompt_template_id), task.prompt, resolve_db,
-                )
+        # Resolve latest content from linked template or workspace file (if any)
+        from app.services.prompt_resolution import resolve_prompt
+        async with async_session() as resolve_db:
+            task_prompt = await resolve_prompt(
+                workspace_id=str(task.workspace_id) if task.workspace_id else None,
+                workspace_file_path=task.workspace_file_path,
+                template_id=str(task.prompt_template_id) if task.prompt_template_id else None,
+                inline_prompt=task.prompt,
+                db=resolve_db,
+            )
 
         # Model override from execution_config (preferred) or callback_config (legacy)
         _ecfg_pre = task.execution_config or task.callback_config or {}

@@ -29,8 +29,8 @@ function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
   return (
     <View
       style={{
-        width: 32,
-        height: 32,
+        width: 36,
+        height: 36,
         borderRadius: 6,
         backgroundColor: bg,
         alignItems: "center",
@@ -38,7 +38,7 @@ function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
         flexShrink: 0,
       }}
     >
-      <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+      <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>
         {letter}
       </Text>
     </View>
@@ -92,7 +92,7 @@ function renderInlineNodes(nodes: InlineNode[]) {
               fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
               fontSize: "0.85em",
               background: "rgba(255,255,255,0.06)",
-              padding: "2px 5px",
+              padding: "2px 6px",
               borderRadius: 4,
               color: "#e06c75",
               border: "1px solid rgba(255,255,255,0.06)",
@@ -142,7 +142,7 @@ function MarkdownContent({ text }: { text: string }) {
   if (last < text.length) blocks.push({ type: "text", content: text.slice(last) });
 
   return (
-    <div style={{ fontSize: 14, lineHeight: "1.55", color: "#d1d5db" }}>
+    <div style={{ fontSize: 15, lineHeight: "1.6", color: "#d1d5db" }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
           return (
@@ -150,13 +150,13 @@ function MarkdownContent({ text }: { text: string }) {
               key={i}
               style={{
                 fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-                fontSize: 12.5,
+                fontSize: 13,
                 background: "#1a1a1e",
-                padding: "12px 14px",
-                borderRadius: 6,
+                padding: "12px 16px",
+                borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.06)",
                 overflowX: "auto",
-                margin: "6px 0",
+                margin: "8px 0",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
                 lineHeight: "1.5",
@@ -192,7 +192,7 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
   if (images.length === 0 && files.length === 0) return null;
 
   return (
-    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
       {images.map((img) => (
         <a
           key={img.id}
@@ -205,7 +205,7 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
             alt={img.description || img.filename}
             style={{
               maxWidth: "100%",
-              maxHeight: 300,
+              maxHeight: 360,
               borderRadius: 8,
               display: "block",
             }}
@@ -218,8 +218,8 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            fontSize: 12,
+            gap: 8,
+            fontSize: 13,
             color: "#999",
           }}
         >
@@ -255,7 +255,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
     </>
   ) : (
     <Text
-      className="text-sm leading-relaxed"
+      className="text-[15px] leading-relaxed"
       style={{ color: "#d1d5db" }}
       selectable
     >
@@ -270,8 +270,8 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         <div
           className="msg-hover"
           style={{
-            paddingLeft: 60,
-            paddingRight: 16,
+            paddingLeft: 68,
+            paddingRight: 20,
             paddingTop: 1,
             paddingBottom: 1,
             borderRadius: 4,
@@ -284,8 +284,8 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
     return (
       <View
         style={{
-          paddingLeft: 60,
-          paddingRight: 16,
+          paddingLeft: 68,
+          paddingRight: 20,
           paddingTop: 1,
           paddingBottom: 1,
         }}
@@ -309,14 +309,14 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <Text
             style={{
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: "700",
               color: isUser ? "#e5e5e5" : avatarColor(displayName),
             }}
           >
             {displayName}
           </Text>
-          <Text style={{ fontSize: 11, color: "#555555" }}>
+          <Text style={{ fontSize: 12, color: "#555555" }}>
             {timestamp}
           </Text>
         </View>
@@ -335,15 +335,14 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           display: "flex",
           flexDirection: "row",
           gap: 12,
-          paddingLeft: 16,
-          paddingRight: 16,
+          paddingLeft: 20,
+          paddingRight: 20,
           paddingTop: 8,
           paddingBottom: 4,
           borderRadius: 4,
         }}
       >
         {inner}
-        <style>{`.msg-hover:hover { background: rgba(255,255,255,0.015); }`}</style>
       </div>
     );
   }
@@ -353,7 +352,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       style={{
         flexDirection: "row",
         gap: 12,
-        paddingHorizontal: 16,
+        paddingHorizontal: 20,
         paddingTop: 8,
         paddingBottom: 4,
       }}

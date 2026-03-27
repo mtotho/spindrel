@@ -43,6 +43,8 @@ class AssemblyResult:
     channel_model_override: str | None = None
     channel_provider_id_override: str | None = None
     channel_max_iterations: int | None = None
+    channel_fallback_model: str | None = None
+    channel_fallback_provider_id: str | None = None
 
 
 async def _inject_workspace_skills(
@@ -161,6 +163,9 @@ async def assemble_context(
                 result.channel_provider_id_override = _ch_row.model_provider_id_override
             if _ch_row.max_iterations is not None:
                 result.channel_max_iterations = _ch_row.max_iterations
+            if _ch_row.fallback_model:
+                result.channel_fallback_model = _ch_row.fallback_model
+                result.channel_fallback_provider_id = _ch_row.fallback_model_provider_id
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(

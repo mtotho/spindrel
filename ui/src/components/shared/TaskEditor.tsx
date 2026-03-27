@@ -8,6 +8,7 @@ import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { formatDateTime, isoToLocalInput, localInputToISO, getTimezoneAbbr } from "@/src/utils/time";
@@ -254,6 +255,8 @@ export function TaskEditor({
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
+  const [workspaceFilePath, setWorkspaceFilePath] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [status, setStatus] = useState("pending");
@@ -269,6 +272,8 @@ export function TaskEditor({
     setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
+    setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
+    setWorkspaceId(existingTask.workspace_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setStatus(existingTask.status || "pending");
@@ -285,6 +290,8 @@ export function TaskEditor({
     setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
+    setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
+    setWorkspaceId(existingTask.workspace_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setTaskType(existingTask.task_type || "scheduled");
@@ -312,8 +319,10 @@ export function TaskEditor({
     }
   }, [qc, extraQueryKeysToInvalidate]);
 
+  const hasPrompt = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath;
+
   const handleSave = useCallback(async () => {
-    if (!prompt.trim() || !botId) return;
+    if (!hasPrompt || !botId) return;
     try {
       const scheduledAtISO = localInputToISO(scheduledAt) || null;
       if (isCreate) {
@@ -321,6 +330,8 @@ export function TaskEditor({
           prompt,
           title: title || null,
           prompt_template_id: promptTemplateId,
+          workspace_file_path: workspaceFilePath,
+          workspace_id: workspaceId,
           bot_id: botId,
           channel_id: channelId || null,
           scheduled_at: scheduledAtISO,
@@ -334,6 +345,8 @@ export function TaskEditor({
           prompt,
           title: title || null,
           prompt_template_id: promptTemplateId,
+          workspace_file_path: workspaceFilePath,
+          workspace_id: workspaceId,
           bot_id: botId,
           status,
           scheduled_at: scheduledAtISO,
@@ -348,7 +361,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -476,13 +489,13 @@ export function TaskEditor({
         )}
         <button
           onClick={handleSave}
-          disabled={saving || !prompt.trim() || !botId}
+          disabled={saving || !hasPrompt || !botId}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
-            color: (!prompt.trim() || !botId) ? "#666" : "#fff",
-            cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+            background: (!hasPrompt || !botId) ? "#333" : "#3b82f6",
+            color: (!hasPrompt || !botId) ? "#666" : "#fff",
+            cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
           }}
         >
           {saving ? "..." : isCreate ? "Create" : "Save"}
@@ -524,19 +537,30 @@ export function TaskEditor({
                   }}
                 />
               </FormRow>
-              <PromptTemplateLink
-                templateId={promptTemplateId}
-                onLink={(id) => setPromptTemplateId(id)}
-                onUnlink={() => setPromptTemplateId(null)}
-                workspaceId={selectedBot?.shared_workspace_id ?? undefined}
-              />
-              <LlmPrompt
-                value={prompt}
-                onChange={setPrompt}
-                label="Prompt"
-                placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
-                rows={isWide ? 12 : 6}
-              />
+              {selectedBot?.shared_workspace_id && (
+                <WorkspaceFilePrompt
+                  workspaceId={workspaceId ?? selectedBot.shared_workspace_id}
+                  filePath={workspaceFilePath}
+                  onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(selectedBot.shared_workspace_id!); }}
+                  onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
+                />
+              )}
+              {!workspaceFilePath && (
+                <>
+                  <PromptTemplateLink
+                    templateId={promptTemplateId}
+                    onLink={(id) => setPromptTemplateId(id)}
+                    onUnlink={() => setPromptTemplateId(null)}
+                  />
+                  <LlmPrompt
+                    value={prompt}
+                    onChange={setPrompt}
+                    label="Prompt"
+                    placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
+                    rows={isWide ? 12 : 6}
+                  />
+                </>
+              )}
 
               {!isCreate && existingTask?.result && (
                 <div>

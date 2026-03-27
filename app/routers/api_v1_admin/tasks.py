@@ -30,6 +30,8 @@ class TaskDetailOut(BaseModel):
     prompt: str
     title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     result: Optional[str] = None
     error: Optional[str] = None
     dispatch_type: str = "none"
@@ -77,6 +79,8 @@ class TaskCreateIn(BaseModel):
     title: Optional[str] = None
     channel_id: Optional[uuid.UUID] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
     task_type: str = "scheduled"
@@ -90,6 +94,8 @@ class TaskUpdateIn(BaseModel):
     bot_id: Optional[str] = None
     title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
@@ -181,6 +187,8 @@ async def admin_list_tasks(
             "prompt": t.prompt,
             "title": t.title,
             "prompt_template_id": str(t.prompt_template_id) if t.prompt_template_id else None,
+            "workspace_file_path": t.workspace_file_path,
+            "workspace_id": str(t.workspace_id) if t.workspace_id else None,
             "result": t.result[:500] if t.result else None,
             "error": t.error,
             "dispatch_type": t.dispatch_type,
@@ -306,6 +314,8 @@ async def admin_create_task(
         prompt=body.prompt,
         title=body.title,
         prompt_template_id=body.prompt_template_id,
+        workspace_file_path=body.workspace_file_path,
+        workspace_id=body.workspace_id,
         status=initial_status,
         task_type=body.task_type,
         scheduled_at=scheduled,
@@ -340,7 +350,7 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
-    for field in ("prompt", "prompt_template_id", "bot_id", "status", "task_type", "title"):
+    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title"):
         if field in updates:
             setattr(task, field, updates[field])
     if "recurrence" in updates:

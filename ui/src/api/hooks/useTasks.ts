@@ -8,6 +8,8 @@ export interface TaskDetail {
   prompt: string;
   title?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   result?: string | null;
   error?: string | null;
   dispatch_type: string;
@@ -40,6 +42,8 @@ export interface TaskCreatePayload {
   title?: string | null;
   channel_id?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
@@ -53,6 +57,8 @@ export interface TaskUpdatePayload {
   bot_id?: string;
   title?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   status?: string;
   scheduled_at?: string | null;
   recurrence?: string | null;

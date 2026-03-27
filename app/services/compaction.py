@@ -92,7 +92,17 @@ def _get_compaction_keep_turns(bot: BotConfig, channel: Channel | None = None) -
 
 
 async def _get_compaction_prompt(bot: BotConfig, channel: Channel | None = None) -> str:
-    from app.services.prompt_resolution import resolve_prompt_template
+    from app.services.prompt_resolution import resolve_prompt_template, resolve_workspace_file_prompt
+
+    # 0. Channel-level workspace file link (highest priority)
+    if channel and getattr(channel, "compaction_workspace_file_path", None):
+        resolved = resolve_workspace_file_prompt(
+            str(channel.compaction_workspace_id) if getattr(channel, "compaction_workspace_id", None) else None,
+            channel.compaction_workspace_file_path,
+            "",
+        )
+        if resolved:
+            return resolved
 
     has_template = (
         (channel and getattr(channel, "compaction_prompt_template_id", None))

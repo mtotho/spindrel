@@ -126,6 +126,8 @@ class HeartbeatConfigOut(BaseModel):
     model_provider_id: Optional[str] = None
     prompt: str = ""
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
     trigger_response: bool = False
     quiet_start: Optional[str] = None
@@ -143,6 +145,7 @@ class HeartbeatConfigOut(BaseModel):
         data = {c: getattr(hb, c) for c in [
             "id", "channel_id", "enabled", "interval_minutes", "model",
             "model_provider_id", "prompt", "prompt_template_id",
+            "workspace_file_path", "workspace_id",
             "dispatch_results", "trigger_response",
             "timezone", "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
@@ -175,6 +178,8 @@ class HeartbeatUpdate(BaseModel):
     model_provider_id: Optional[str] = None
     prompt: str = ""
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
     trigger_response: bool = False
     quiet_start: Optional[str] = None  # "HH:MM" or null
@@ -280,6 +285,8 @@ class ChannelSettingsOut(BaseModel):
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
+    compaction_workspace_file_path: Optional[str] = None
+    compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     compaction_skip_memory_phase: Optional[bool] = None
@@ -330,13 +337,14 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_keep_turns: Optional[int] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     compaction_prompt_template_id: Optional[uuid.UUID] = None
+    compaction_workspace_file_path: Optional[str] = None
+    compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     compaction_skip_memory_phase: Optional[bool] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
-    compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
     # Response condensing
     response_condensing_enabled: Optional[bool] = None
@@ -730,6 +738,10 @@ async def admin_channel_heartbeat_update(
         heartbeat.prompt = updates["prompt"].strip() if updates["prompt"] else ""
     if "prompt_template_id" in updates:
         heartbeat.prompt_template_id = updates["prompt_template_id"]
+    if "workspace_file_path" in updates:
+        heartbeat.workspace_file_path = updates["workspace_file_path"]
+    if "workspace_id" in updates:
+        heartbeat.workspace_id = updates["workspace_id"]
     if "dispatch_results" in updates:
         heartbeat.dispatch_results = updates["dispatch_results"]
     if "trigger_response" in updates:

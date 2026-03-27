@@ -65,6 +65,8 @@ async def run_agent_tool_loop(
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
     max_iterations: int | None = None,
+    fallback_model: str | None = None,
+    fallback_provider_id: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -191,7 +193,7 @@ async def run_agent_tool_loop(
 
             import time as _time
             _llm_t0 = _time.monotonic()
-            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params)
+            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params, fallback_model=fallback_model, fallback_provider_id=fallback_provider_id)
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
 
             # Backfill elevation log with outcome data
@@ -618,6 +620,14 @@ async def run_stream(
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 
+    # Resolve fallback model: channel > bot > global (global handled in _llm_call)
+    _fallback_model = assembly_result.channel_fallback_model or bot.fallback_model
+    _fallback_provider_id = (
+        assembly_result.channel_fallback_provider_id
+        if assembly_result.channel_fallback_model
+        else bot.fallback_model_provider_id
+    ) if _fallback_model else None
+
     # --- Context compression (pre-turn) ---
     _compression_active = False
     _full_messages: list[dict] | None = None
@@ -691,6 +701,8 @@ async def run_stream(
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,
+            fallback_model=_fallback_model,
+            fallback_provider_id=_fallback_provider_id,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -723,6 +735,8 @@ async def run_stream(
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,
+            fallback_model=_fallback_model,
+            fallback_provider_id=_fallback_provider_id,
         ):
             yield event
 
