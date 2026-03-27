@@ -712,6 +712,10 @@ async def read_workspace_file(
         return shared_workspace_service.read_file(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.put("/{workspace_id}/files/content")
@@ -729,6 +733,10 @@ async def write_workspace_file(
         return shared_workspace_service.write_file(workspace_id, path, body.content)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.post("/{workspace_id}/files/mkdir")
@@ -745,6 +753,10 @@ async def mkdir_workspace(
         return shared_workspace_service.mkdir(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.delete("/{workspace_id}/files")
@@ -761,6 +773,10 @@ async def delete_workspace_file(
         return shared_workspace_service.delete_path(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 # ── File upload ─────────────────────────────────────────────────
@@ -783,6 +799,10 @@ async def upload_workspace_file(
         return shared_workspace_service.write_binary_file(workspace_id, path, content)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 # ── Reindex ─────────────────────────────────────────────────────
