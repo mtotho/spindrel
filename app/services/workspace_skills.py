@@ -213,7 +213,7 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
             await db.commit()
 
         stats["embedded"] += 1
-        logger.info("Embedded workspace skill %s (%d chunks)", skill.source_path, len(chunks))
+        logger.info("Embedded workspace skill %s (%d chunks)", skill.source_path, len(chunk_results))
 
     logger.info(
         "Workspace skill embedding complete for %s: %d total, %d embedded, %d unchanged, %d errors",

@@ -116,6 +116,71 @@ async def start_watchers(bots: list) -> None:
         logger.info("Started %d filesystem watcher task(s)", len(_watcher_tasks))
 
 
+async def _watch_workspace_skills(
+    workspace_id: str, skills_root: str,
+) -> None:
+    """Watch workspace skill .md files and re-embed on changes."""
+    try:
+        import watchfiles
+    except ImportError:
+        logger.warning("watchfiles not installed; skipping skills watcher for workspace %s", workspace_id)
+        return
+
+    global _stop_event
+    assert _stop_event is not None
+
+    root_path = Path(skills_root).resolve()
+    if not root_path.exists():
+        return
+    logger.info("Workspace skills watcher started: %s (workspace=%s)", skills_root, workspace_id)
+    last_change_time = 0.0
+    has_pending = False
+
+    try:
+        async for changes in watchfiles.awatch(str(root_path), stop_event=_stop_event):
+            for _, path_str in changes:
+                if path_str.endswith(".md"):
+                    has_pending = True
+            if not has_pending:
+                continue
+            last_change_time = time.monotonic()
+
+            await asyncio.sleep(_DEBOUNCE_SECONDS)
+            if has_pending and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
+                has_pending = False
+                logger.info("Skills watcher: re-embedding workspace skills for %s", workspace_id)
+                from app.services.workspace_skills import embed_workspace_skills
+                try:
+                    stats = await embed_workspace_skills(workspace_id)
+                    logger.info("Skills watcher: %s", stats)
+                except Exception:
+                    logger.exception("Skills watcher: embed failed for workspace %s", workspace_id)
+    except asyncio.CancelledError:
+        pass
+    logger.info("Workspace skills watcher stopped: %s", skills_root)
+
+
+async def start_workspace_skills_watchers(workspaces: list[tuple[str, str]]) -> None:
+    """Start watchers for workspace skill directories.
+
+    Args:
+        workspaces: list of (workspace_id, host_root) tuples
+    """
+    global _stop_event, _watcher_tasks
+    if _stop_event is None:
+        _stop_event = asyncio.Event()
+    for workspace_id, host_root in workspaces:
+        # Watch common/skills and bots/*/skills under the workspace root
+        skills_root = str(Path(host_root).resolve())
+        task = asyncio.create_task(
+            _watch_workspace_skills(workspace_id, skills_root),
+            name=f"skills_watcher:{workspace_id}",
+        )
+        _watcher_tasks.append(task)
+    if workspaces:
+        logger.info("Started %d workspace skills watcher(s)", len(workspaces))
+
+
 async def stop_watchers() -> None:
     global _stop_event
     if _stop_event:
