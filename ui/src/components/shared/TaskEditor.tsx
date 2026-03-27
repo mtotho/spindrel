@@ -9,7 +9,7 @@ import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail }
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { FormRow, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
+import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { formatDateTime, isoToLocalInput, localInputToISO, getTimezoneAbbr } from "@/src/utils/time";
 
