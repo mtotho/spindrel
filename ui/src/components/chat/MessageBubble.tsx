@@ -1,5 +1,6 @@
 import { View, Text, Platform } from "react-native";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
+import { formatTimeShort } from "../../utils/time";
 import type { Message, AttachmentBrief } from "../../types/api";
 
 interface Props {
@@ -241,10 +242,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isUser = message.role === "user";
   const isWeb = Platform.OS === "web";
   const displayName = isUser ? "You" : (botName || "Bot");
-  const timestamp = new Date(message.created_at).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const timestamp = formatTimeShort(message.created_at);
 
   const messageContent = isWeb ? (
     <>

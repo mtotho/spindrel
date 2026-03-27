@@ -191,12 +191,6 @@ export interface ChannelSettings {
   response_condensing_keep_exact?: number;
   response_condensing_model?: string;
   response_condensing_prompt?: string;
-  // History RAG
-  history_rag_enabled?: boolean;
-  history_rag_turns?: number;
-  history_rag_max_tokens?: number;
-  history_rag_model?: string;
-  history_rag_prompt?: string;
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;

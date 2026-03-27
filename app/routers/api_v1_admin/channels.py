@@ -19,6 +19,7 @@ from app.db.models import (
     BotKnowledge,
     Channel,
     ChannelHeartbeat,
+    HeartbeatRun,
     KnowledgeAccess,
     Memory,
     Message,
@@ -105,6 +106,7 @@ class SessionOut(BaseModel):
     title: Optional[str] = None
     depth: int = 0
     locked: bool = False
+    source_task_id: Optional[uuid.UUID] = None
     message_count: int = 0
     is_active: bool = False
 
@@ -149,11 +151,10 @@ class HeartbeatConfigOut(BaseModel):
         return cls(**data)
 
 
-class HeartbeatHistoryTaskOut(BaseModel):
+class HeartbeatHistoryRunOut(BaseModel):
     id: uuid.UUID
     status: str
-    created_at: datetime
-    run_at: Optional[datetime] = None
+    run_at: datetime
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     correlation_id: Optional[uuid.UUID] = None
@@ -163,7 +164,7 @@ class HeartbeatHistoryTaskOut(BaseModel):
 
 class HeartbeatOut(BaseModel):
     config: Optional[HeartbeatConfigOut] = None
-    history: list[HeartbeatHistoryTaskOut] = []
+    history: list[HeartbeatHistoryRunOut] = []
     total_history: int = 0
 
 
@@ -293,12 +294,6 @@ class ChannelSettingsOut(BaseModel):
     response_condensing_keep_exact: Optional[int] = None
     response_condensing_model: Optional[str] = None
     response_condensing_prompt: Optional[str] = None
-    # History RAG
-    history_rag_enabled: bool = False
-    history_rag_turns: Optional[int] = None
-    history_rag_max_tokens: Optional[int] = None
-    history_rag_model: Optional[str] = None
-    history_rag_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -349,12 +344,6 @@ class ChannelSettingsUpdate(BaseModel):
     response_condensing_keep_exact: Optional[int] = None
     response_condensing_model: Optional[str] = None
     response_condensing_prompt: Optional[str] = None
-    # History RAG
-    history_rag_enabled: Optional[bool] = None
-    history_rag_turns: Optional[int] = None
-    history_rag_max_tokens: Optional[int] = None
-    history_rag_model: Optional[str] = None
-    history_rag_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -631,39 +620,70 @@ async def admin_channel_heartbeat_get(
         select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
     )).scalar_one_or_none()
 
-    history_stmt = (
-        select(Task)
-        .where(Task.channel_id == channel_id)
-        .where(Task.callback_config["source"].astext == "heartbeat")
-        .order_by(Task.created_at.desc())
-        .limit(10)
-    )
-    history = list((await db.execute(history_stmt)).scalars().all())
-    corr_map = await _heartbeat_correlation_ids(db, history)
-
-    total_history = (await db.execute(
-        select(func.count()).select_from(
-            select(Task.id)
-            .where(Task.channel_id == channel_id)
-            .where(Task.callback_config["source"].astext == "heartbeat")
-            .subquery()
-        )
-    )).scalar_one()
-
     config_out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat) if heartbeat else None
 
-    history_out = [
-        HeartbeatHistoryTaskOut(
-            id=t.id,
-            status=t.status,
-            created_at=t.created_at,
-            run_at=t.run_at,
-            completed_at=t.completed_at,
-            error=t.error,
-            correlation_id=corr_map.get(t.id),
+    # Read from heartbeat_runs table (new), fall back to legacy Task rows
+    history_out: list[HeartbeatHistoryRunOut] = []
+    total_history = 0
+
+    if heartbeat:
+        runs_stmt = (
+            select(HeartbeatRun)
+            .where(HeartbeatRun.heartbeat_id == heartbeat.id)
+            .order_by(HeartbeatRun.run_at.desc())
+            .limit(10)
         )
-        for t in history
-    ]
+        runs = list((await db.execute(runs_stmt)).scalars().all())
+        total_history = (await db.execute(
+            select(func.count()).select_from(
+                select(HeartbeatRun.id)
+                .where(HeartbeatRun.heartbeat_id == heartbeat.id)
+                .subquery()
+            )
+        )).scalar_one()
+
+        if runs:
+            history_out = [
+                HeartbeatHistoryRunOut(
+                    id=r.id,
+                    status=r.status,
+                    run_at=r.run_at,
+                    completed_at=r.completed_at,
+                    error=r.error,
+                    correlation_id=r.correlation_id,
+                )
+                for r in runs
+            ]
+        else:
+            # Fallback: read from legacy Task rows for historical data
+            history_stmt = (
+                select(Task)
+                .where(Task.channel_id == channel_id)
+                .where(Task.callback_config["source"].astext == "heartbeat")
+                .order_by(Task.created_at.desc())
+                .limit(10)
+            )
+            legacy_history = list((await db.execute(history_stmt)).scalars().all())
+            corr_map = await _heartbeat_correlation_ids(db, legacy_history)
+            total_history = (await db.execute(
+                select(func.count()).select_from(
+                    select(Task.id)
+                    .where(Task.channel_id == channel_id)
+                    .where(Task.callback_config["source"].astext == "heartbeat")
+                    .subquery()
+                )
+            )).scalar_one()
+            history_out = [
+                HeartbeatHistoryRunOut(
+                    id=t.id,
+                    status=t.status,
+                    run_at=t.run_at or t.created_at,
+                    completed_at=t.completed_at,
+                    error=t.error,
+                    correlation_id=corr_map.get(t.id),
+                )
+                for t in legacy_history
+            ]
 
     return HeartbeatOut(
         config=config_out,

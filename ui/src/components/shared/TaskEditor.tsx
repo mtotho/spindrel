@@ -10,25 +10,7 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { FormRow, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function toLocalDatetimeString(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  const h = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${mo}-${da}T${h}:${mi}`;
-}
-
-function fmtDatetime(iso: string | null | undefined) {
-  if (!iso) return "\u2014";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  });
-}
+import { formatDateTime, isoToLocalInput, localInputToISO, getTimezoneAbbr } from "@/src/utils/time";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,11 +26,9 @@ const STATUS_OPTIONS = [
 
 const TASK_TYPE_OPTIONS = [
   { label: "Scheduled", value: "scheduled" },
-  { label: "Heartbeat", value: "heartbeat" },
   { label: "Delegation", value: "delegation" },
   { label: "Harness", value: "harness" },
   { label: "Exec", value: "exec" },
-  { label: "Callback", value: "callback" },
   { label: "API", value: "api" },
   { label: "Agent", value: "agent" },
 ];
@@ -142,16 +122,21 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
             </button>
           ))}
         </div>
-        <input
-          type="datetime-local"
-          value={isRelative ? "" : value}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            background: "#111", border: "1px solid #333", borderRadius: 8,
-            padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
-            outline: "none", colorScheme: "dark",
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="datetime-local"
+            value={isRelative ? "" : value}
+            onChange={(e) => onChange(e.target.value)}
+            style={{
+              background: "#111", border: "1px solid #333", borderRadius: 8,
+              padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
+              outline: "none", colorScheme: "dark",
+            }}
+          />
+          <span style={{ fontSize: 10, color: "#666", whiteSpace: "nowrap" }}>
+            {getTimezoneAbbr()}
+          </span>
+        </div>
         {isRelative && (
           <div style={{ fontSize: 10, color: "#666" }}>
             Relative: runs {value} from now
@@ -288,10 +273,10 @@ export function TaskEditor({
     setChannelId(existingTask.channel_id || "");
     setStatus(existingTask.status || "pending");
     setTaskType(existingTask.task_type || "scheduled");
-    setScheduledAt(existingTask.scheduled_at ? toLocalDatetimeString(new Date(existingTask.scheduled_at)) : "");
+    setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
     setRecurrence(existingTask.recurrence || "");
-    setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(existingTask.callback_config?.model_override || "");
+    setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
     setInitialized(true);
   }
 
@@ -303,10 +288,10 @@ export function TaskEditor({
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setTaskType(existingTask.task_type || "scheduled");
-    setScheduledAt(existingTask.scheduled_at ? toLocalDatetimeString(new Date(existingTask.scheduled_at)) : "");
+    setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
     setRecurrence(existingTask.recurrence || "");
-    setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(existingTask.callback_config?.model_override || "");
+    setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
     setInitialized(true);
   }
 
@@ -330,6 +315,7 @@ export function TaskEditor({
   const handleSave = useCallback(async () => {
     if (!prompt.trim() || !botId) return;
     try {
+      const scheduledAtISO = localInputToISO(scheduledAt) || null;
       if (isCreate) {
         await createMut.mutateAsync({
           prompt,
@@ -337,7 +323,7 @@ export function TaskEditor({
           prompt_template_id: promptTemplateId,
           bot_id: botId,
           channel_id: channelId || null,
-          scheduled_at: scheduledAt || null,
+          scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
@@ -350,7 +336,7 @@ export function TaskEditor({
           prompt_template_id: promptTemplateId,
           bot_id: botId,
           status,
-          scheduled_at: scheduledAt || null,
+          scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
@@ -651,10 +637,10 @@ export function TaskEditor({
               {!isCreate && existingTask && (
                 <Section title="Timing">
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <InfoRow label="Created" value={fmtDatetime(existingTask.created_at)} />
-                    <InfoRow label="Scheduled" value={fmtDatetime(existingTask.scheduled_at)} />
-                    <InfoRow label="Run At" value={fmtDatetime(existingTask.run_at)} />
-                    <InfoRow label="Completed" value={fmtDatetime(existingTask.completed_at)} />
+                    <InfoRow label="Created" value={formatDateTime(existingTask.created_at)} />
+                    <InfoRow label="Scheduled" value={formatDateTime(existingTask.scheduled_at)} />
+                    <InfoRow label="Run At" value={formatDateTime(existingTask.run_at)} />
+                    <InfoRow label="Completed" value={formatDateTime(existingTask.completed_at)} />
                     <InfoRow label="Retry Count" value={String(existingTask.retry_count)} />
                     {existingTask.run_count > 0 && (
                       <InfoRow label="Run Count" value={String(existingTask.run_count)} />
@@ -668,14 +654,28 @@ export function TaskEditor({
                 <Section title="Dispatch">
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <InfoRow label="Type" value={existingTask.dispatch_type} />
+                    {existingTask.delegation_session_id && (
+                      <InfoRow label="Delegation Session" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />
+                    )}
                     {existingTask.dispatch_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Config</div>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Dispatch Config</div>
                         <pre style={{
                           fontSize: 10, color: "#888", background: "#111", padding: 8,
                           borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
                         }}>
                           {JSON.stringify(existingTask.dispatch_config, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {existingTask.execution_config && (
+                      <div>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Execution Config</div>
+                        <pre style={{
+                          fontSize: 10, color: "#888", background: "#111", padding: 8,
+                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
+                        }}>
+                          {JSON.stringify(existingTask.execution_config, null, 2)}
                         </pre>
                       </div>
                     )}

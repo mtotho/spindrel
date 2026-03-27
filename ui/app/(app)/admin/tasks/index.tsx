@@ -11,6 +11,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { formatTime, formatDate } from "@/src/utils/time";
 
 interface TaskItem {
   id: string;
@@ -44,7 +45,7 @@ interface TasksResponse {
 }
 
 type ViewMode = "schedule" | "day" | "week" | "list";
-type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api";
+type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api";
 type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
 type EditorState =
@@ -56,11 +57,9 @@ type EditorState =
 const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "scheduled", label: "Scheduled" },
-  { key: "heartbeat", label: "Heartbeat" },
   { key: "delegation", label: "Delegation" },
   { key: "harness", label: "Harness" },
   { key: "exec", label: "Exec" },
-  { key: "callback", label: "Callback" },
   { key: "api", label: "API" },
 ];
 
@@ -147,13 +146,7 @@ function addDays(d: Date, n: number) {
   return r;
 }
 
-function fmtDate(d: Date) {
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
+// fmtDate and fmtTime are imported from @/src/utils/time as formatDate and formatTime
 
 function getTaskTime(t: TaskItem): Date {
   return new Date(t.scheduled_at || t.created_at || Date.now());
@@ -461,7 +454,7 @@ function TaskCard({
         )}
 
         <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
-          {time ? fmtTime(time) : "\u2014"}
+          {time ? formatTime(time) : "\u2014"}
         </span>
       </div>
 
@@ -517,7 +510,7 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
         position: "sticky", top: 0, zIndex: 3,
       }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? "#3b82f6" : "#e5e5e5" }}>
-          {fmtDate(date)}
+          {formatDate(date)}
         </div>
         <div style={{ fontSize: 10, color: "#555" }}>
           {tasks.length} task{tasks.length !== 1 ? "s" : ""}
@@ -808,8 +801,8 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                         </span>
                       )}
 
-                      <span style={{ fontSize: 11, color: "#555", flexShrink: 0, minWidth: 55, textAlign: "right" }}>
-                        {time ? fmtTime(time) : "\u2014"}
+                      <span style={{ fontSize: 10, color: "#555", flexShrink: 0, minWidth: 90, textAlign: "right" }}>
+                        {time ? formatTime(time) : "\u2014"}
                       </span>
                     </div>
                   );
@@ -961,7 +954,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
                 <span style={{ fontSize: 10, color: "#666" }}>{t.bot_id}</span>
                 {t.task_type && <TypeBadge type={t.task_type} />}
                 <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
-                  {time ? fmtTime(time) : "\u2014"}
+                  {time ? formatTime(time) : "\u2014"}
                 </span>
               </div>
             );
@@ -1169,8 +1162,8 @@ export default function TasksScreen() {
                 </button>
                 <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
                   {viewMode === "day"
-                    ? fmtDate(baseDate)
-                    : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
+                    ? formatDate(baseDate)
+                    : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
                 </span>
                 <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
                   <ChevronRight size={16} color="#999" />

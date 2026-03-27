@@ -121,11 +121,6 @@ export default function ChannelSettingsScreen() {
         response_condensing_keep_exact: settings.response_condensing_keep_exact,
         response_condensing_model: settings.response_condensing_model,
         response_condensing_prompt: settings.response_condensing_prompt,
-        history_rag_enabled: settings.history_rag_enabled,
-        history_rag_turns: settings.history_rag_turns,
-        history_rag_max_tokens: settings.history_rag_max_tokens,
-        history_rag_model: settings.history_rag_model,
-        history_rag_prompt: settings.history_rag_prompt,
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
@@ -875,66 +870,6 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
         )}
       </Section>
 
-      {/* 4. History RAG — summarize recent history before each request */}
-      <Section title="History RAG" description="Before each request, summarize recent conversation history and inject relevant context. Adds one LLM call per user message.">
-        <Toggle
-          value={!!form.history_rag_enabled}
-          onChange={(v) => patch("history_rag_enabled", v)}
-          label="Enable history RAG"
-        />
-        {form.history_rag_enabled && (
-          <>
-            <div style={{
-              padding: "10px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
-              borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginBottom: 4,
-            }}>
-              Before the agent processes each message, the last N messages from this channel are sent to a
-              summarizer LLM. The summary of relevant context is injected as a system message, giving the
-              agent awareness of prior conversations without needing structured history or embeddings.
-            </div>
-            <Row>
-              <Col>
-                <FormRow label="Messages to scan" description="How many recent messages to load for summarization.">
-                  <TextInput
-                    value={form.history_rag_turns?.toString() ?? ""}
-                    onChangeText={(v) => patch("history_rag_turns", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (50)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Max tokens" description="Cap on history text sent to summarizer (prevents excessive cost).">
-                  <TextInput
-                    value={form.history_rag_max_tokens?.toString() ?? ""}
-                    onChangeText={(v) => patch("history_rag_max_tokens", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (16000)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-            <LlmModelDropdown
-              label="Summarizer Model"
-              value={form.history_rag_model ?? ""}
-              onChange={(v) => patch("history_rag_model", v || undefined)}
-              placeholder="inherit (compaction model)"
-            />
-            <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-              A cheap/fast model works well — the prompt is straightforward summarization.
-            </div>
-            <LlmPrompt
-              value={form.history_rag_prompt ?? ""}
-              onChange={(v) => patch("history_rag_prompt", v || undefined)}
-              label="Summarizer Prompt"
-              placeholder="Leave blank for the default prompt. Use {query} for the user's message and {history} for the conversation history."
-              helpText="Custom prompt template. Available variables: {query} (current user message), {history} (formatted recent messages). Leave empty for the built-in default that extracts relevant context."
-              rows={5}
-              generateContext="A prompt template for summarizing recent conversation history. Available variables: {query} (user's current message), {history} (formatted recent messages as [user]/[assistant] pairs). Should extract only context relevant to the current query."
-            />
-          </>
-        )}
-      </Section>
     </>
   );
 }

@@ -74,6 +74,7 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             dispatch_type=schedule.dispatch_type,
             dispatch_config=dict(schedule.dispatch_config) if schedule.dispatch_config else None,
             callback_config=dict(schedule.callback_config) if schedule.callback_config else None,
+            execution_config=dict(schedule.execution_config) if schedule.execution_config else None,
             recurrence=None,  # concrete task, not a schedule
             parent_task_id=schedule.id,
             created_at=datetime.now(timezone.utc),
@@ -168,13 +169,15 @@ async def run_harness_task(task: Task) -> None:
         t.run_at = now
         await db.commit()
 
+    # Read execution params from execution_config (new) with fallback to callback_config (legacy)
+    ecfg = task.execution_config or task.callback_config or {}
     cfg = task.callback_config or {}
-    harness_name = cfg.get("harness_name", "")
-    working_directory = cfg.get("working_directory")
-    output_dispatch_type = cfg.get("output_dispatch_type", "none")
-    output_dispatch_config = cfg.get("output_dispatch_config") or {}
-    source_correlation_id = _harness_source_correlation(cfg)
-    sandbox_instance_id = _harness_sandbox_instance(cfg)
+    harness_name = ecfg.get("harness_name", "")
+    working_directory = ecfg.get("working_directory")
+    output_dispatch_type = ecfg.get("output_dispatch_type", task.dispatch_type or "none")
+    output_dispatch_config = ecfg.get("output_dispatch_config") or dict(task.dispatch_config or {})
+    source_correlation_id = _harness_source_correlation(ecfg)
+    sandbox_instance_id = _harness_sandbox_instance(ecfg)
 
     try:
         from app.agent.bots import get_bot
@@ -191,8 +194,8 @@ async def run_harness_task(task: Task) -> None:
                     str(task.prompt_template_id), task.prompt, resolve_db,
                 )
 
-        # Pass extra_args from callback_config (used for --resume on retry)
-        resume_extra_args: list[str] | None = cfg.get("resume_extra_args")
+        # Pass extra_args from execution_config (used for --resume on retry)
+        resume_extra_args: list[str] | None = ecfg.get("resume_extra_args")
 
         result = await harness_service.run(
             harness_name=harness_name,
@@ -244,7 +247,7 @@ async def run_harness_task(task: Task) -> None:
             parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
             result_text = "\n".join(parts)
 
-        # Store claude_session_id on callback_config for potential resume
+        # Store claude_session_id on execution_config for potential resume
         async with async_session() as db:
             t = await db.get(Task, task.id)
             if t:
@@ -252,14 +255,14 @@ async def run_harness_task(task: Task) -> None:
                 t.result = result_text
                 t.completed_at = datetime.now(timezone.utc)
                 if claude_session_id:
-                    merged_cfg = dict(t.callback_config or {})
-                    merged_cfg["claude_session_id"] = claude_session_id
+                    merged_ecfg = dict(t.execution_config or t.callback_config or {})
+                    merged_ecfg["claude_session_id"] = claude_session_id
                     if claude_data:
                         if claude_data.get("cost_usd") is not None:
-                            merged_cfg["claude_cost_usd"] = claude_data["cost_usd"]
+                            merged_ecfg["claude_cost_usd"] = claude_data["cost_usd"]
                         if claude_data.get("num_turns") is not None:
-                            merged_cfg["claude_num_turns"] = claude_data["num_turns"]
-                    t.callback_config = merged_cfg
+                            merged_ecfg["claude_num_turns"] = claude_data["num_turns"]
+                    t.execution_config = merged_ecfg
                 await db.commit()
 
         _h_err: str | None = None
@@ -320,6 +323,7 @@ async def run_harness_task(task: Task) -> None:
                         task_type="callback",
                         dispatch_type=output_dispatch_type,
                         dispatch_config=dict(output_dispatch_config),
+                        parent_task_id=task.id,
                         created_at=datetime.now(timezone.utc),
                     )
                     async with async_session() as db:
@@ -338,8 +342,8 @@ async def run_harness_task(task: Task) -> None:
 
         # Resume retry: check for a session_id we can resume from.
         # Sources: local variable from this run's JSON parse, prior run stored on DB, or prior resume args.
-        _resume_session_id = locals().get("claude_session_id") or cfg.get("claude_session_id")
-        _resume_retries = cfg.get("resume_retries", 0)
+        _resume_session_id = locals().get("claude_session_id") or ecfg.get("claude_session_id")
+        _resume_retries = ecfg.get("resume_retries", 0)
         _can_resume = (
             _resume_session_id
             and _resume_retries < settings.HARNESS_MAX_RESUME_RETRIES
@@ -353,10 +357,10 @@ async def run_harness_task(task: Task) -> None:
             async with async_session() as db:
                 t = await db.get(Task, task.id)
                 if t:
-                    merged_cfg = dict(t.callback_config or {})
-                    merged_cfg["resume_extra_args"] = ["--resume", str(_resume_session_id)]
-                    merged_cfg["resume_retries"] = _resume_retries + 1
-                    t.callback_config = merged_cfg
+                    merged_ecfg = dict(t.execution_config or t.callback_config or {})
+                    merged_ecfg["resume_extra_args"] = ["--resume", str(_resume_session_id)]
+                    merged_ecfg["resume_retries"] = _resume_retries + 1
+                    t.execution_config = merged_ecfg
                     t.status = "pending"
                     t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
                     t.error = f"resuming (attempt {_resume_retries + 1}): {str(exc)[:200]}"
@@ -405,15 +409,17 @@ async def run_exec_task(task: Task) -> None:
         t.run_at = now
         await db.commit()
 
+    # Read execution params from execution_config (new) with fallback to callback_config (legacy)
+    ecfg = task.execution_config or task.callback_config or {}
     cfg = task.callback_config or {}
-    command = cfg.get("command", "")
-    args = cfg.get("args", [])
-    working_directory = cfg.get("working_directory")
-    stream_to = cfg.get("stream_to")
-    output_dispatch_type = cfg.get("output_dispatch_type", "none")
-    output_dispatch_config = cfg.get("output_dispatch_config") or {}
-    source_correlation_id = _harness_source_correlation(cfg)
-    sandbox_instance_id = _harness_sandbox_instance(cfg)
+    command = ecfg.get("command", "")
+    args = ecfg.get("args", [])
+    working_directory = ecfg.get("working_directory")
+    stream_to = ecfg.get("stream_to")
+    output_dispatch_type = ecfg.get("output_dispatch_type", task.dispatch_type or "none")
+    output_dispatch_config = ecfg.get("output_dispatch_config") or dict(task.dispatch_config or {})
+    source_correlation_id = _harness_source_correlation(ecfg)
+    sandbox_instance_id = _harness_sandbox_instance(ecfg)
 
     try:
         from app.agent.bots import get_bot
@@ -512,6 +518,7 @@ async def run_exec_task(task: Task) -> None:
                         task_type="callback",
                         dispatch_type=output_dispatch_type,
                         dispatch_config=dict(output_dispatch_config),
+                        parent_task_id=task.id,
                         created_at=datetime.now(timezone.utc),
                     )
                     async with async_session() as db:
@@ -557,10 +564,11 @@ async def run_exec_task(task: Task) -> None:
 
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
-    if task.dispatch_type == "harness":
+    # Route on task_type (preferred) with fallback to dispatch_type for legacy rows
+    if task.task_type == "harness" or (task.task_type == "agent" and task.dispatch_type == "harness"):
         await run_harness_task(task)
         return
-    if task.dispatch_type == "exec":
+    if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
         return
 
@@ -637,6 +645,7 @@ async def run_task(task: Task) -> None:
                     parent_session_id=parent_for_delegation,
                     root_session_id=delegation_root_id,
                     depth=delegation_depth,
+                    source_task_id=task.id,
                 )
                 db.add(child_session)
                 await db.commit()
@@ -668,10 +677,10 @@ async def run_task(task: Task) -> None:
                     str(task.prompt_template_id), task.prompt, resolve_db,
                 )
 
-        # Model override from callback_config (used by heartbeats + admin tasks)
-        _cb_pre = task.callback_config or {}
-        _model_override = _cb_pre.get("model_override") or None
-        _provider_id_override = _cb_pre.get("model_provider_id_override") or None
+        # Model override from execution_config (preferred) or callback_config (legacy)
+        _ecfg_pre = task.execution_config or task.callback_config or {}
+        _model_override = _ecfg_pre.get("model_override") or None
+        _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
 
         run_result = await run(
             messages, bot, task_prompt,
@@ -719,6 +728,7 @@ async def run_task(task: Task) -> None:
                 dispatch_type=task.dispatch_type,
                 dispatch_config=dict(task.dispatch_config or {}),
                 callback_config={"trigger_rag_loop": False},  # prevent loop
+                parent_task_id=task.id,
                 created_at=datetime.now(timezone.utc),
             )
             async with async_session() as db:
@@ -743,6 +753,7 @@ async def run_task(task: Task) -> None:
                         task_type="callback",
                         dispatch_type=task.dispatch_type,
                         dispatch_config=dict(task.dispatch_config or {}),
+                        parent_task_id=task.id,
                         created_at=datetime.now(timezone.utc),
                     )
                     async with async_session() as db:

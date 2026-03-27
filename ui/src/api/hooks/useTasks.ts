@@ -19,6 +19,11 @@ export interface TaskDetail {
   parent_task_id?: string | null;
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
+  execution_config?: Record<string, any> | null;
+  delegation_session_id?: string | null;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  trigger_rag_loop?: boolean;
   retry_count: number;
   correlation_id?: string | null;
   run_count: number;
@@ -104,5 +109,13 @@ export function useDeleteTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
     },
+  });
+}
+
+export function useTaskChildren(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["admin-task-children", taskId],
+    queryFn: () => apiFetch<TaskDetail[]>(`/api/v1/admin/tasks/${taskId}/children`),
+    enabled: !!taskId,
   });
 }

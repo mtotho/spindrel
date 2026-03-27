@@ -278,7 +278,8 @@ async def _exec_deferred(
     delivery_config = dict(dispatch_config)
     delivery_config["reply_in_thread"] = reply_in_thread
 
-    callback_cfg: dict = {
+    # execution_config: what to run
+    exec_cfg: dict = {
         "command": command,
         "args": args or [],
         "working_directory": working_directory,
@@ -286,15 +287,18 @@ async def _exec_deferred(
         "output_dispatch_config": delivery_config,
     }
     if stream_to:
-        callback_cfg["stream_to"] = stream_to
+        exec_cfg["stream_to"] = stream_to
+    if src_corr is not None:
+        exec_cfg["source_correlation_id"] = str(src_corr)
+
+    # callback_config: what happens after
+    callback_cfg: dict = {}
     if notify_parent and session_id is not None:
         callback_cfg["notify_parent"] = True
         callback_cfg["parent_bot_id"] = bot_id
         callback_cfg["parent_session_id"] = str(session_id)
         if client_id:
             callback_cfg["parent_client_id"] = client_id
-    if src_corr is not None:
-        callback_cfg["source_correlation_id"] = str(src_corr)
 
     task = Task(
         bot_id=bot_id,
@@ -303,9 +307,10 @@ async def _exec_deferred(
         prompt=f"{command} {shlex.join(args or [])}".strip(),
         status="pending",
         task_type="exec",
-        dispatch_type="exec",
-        dispatch_config={},
-        callback_config=callback_cfg,
+        dispatch_type=dispatch_type or "none",
+        dispatch_config=delivery_config,
+        execution_config=exec_cfg,
+        callback_config=callback_cfg or None,
     )
     async with async_session() as db:
         db.add(task)
@@ -314,13 +319,13 @@ async def _exec_deferred(
 
     # Determine output file path (use stream_to if set, else deterministic path)
     output_file = stream_to or f"{EXEC_OUTPUT_DIR}/{task.id}.log"
-    # Patch stream_to into callback_config if it wasn't explicitly set
+    # Patch stream_to into execution_config if it wasn't explicitly set
     if not stream_to:
-        callback_cfg["stream_to"] = output_file
+        exec_cfg["stream_to"] = output_file
         async with async_session() as db:
             t = await db.get(Task, task.id)
             if t:
-                t.callback_config = callback_cfg
+                t.execution_config = exec_cfg
                 await db.commit()
 
     logger.info("Deferred exec task created: %s (command=%s)", task.id, command)

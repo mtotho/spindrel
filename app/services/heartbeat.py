@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelHeartbeat, Task
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
 
 
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
-    """Create a Task for a due heartbeat and advance the schedule."""
+    """Execute a heartbeat directly (no Task row) and record history."""
     now = datetime.now(timezone.utc)
 
     async with async_session() as db:
@@ -141,16 +141,6 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             dispatch_config.pop("thread_ts", None)
             dispatch_config["reply_in_thread"] = False
 
-        callback_config = {
-            "source": "heartbeat",
-            "heartbeat_id": str(hb.id),
-            "trigger_rag_loop": hb.trigger_response,
-        }
-        if hb.model:
-            callback_config["model_override"] = hb.model
-        if hb.model_provider_id:
-            callback_config["model_provider_id_override"] = hb.model_provider_id
-
         # Resolve prompt from linked template (falls back to inline prompt)
         from app.services.prompt_resolution import resolve_prompt_template
         prompt = await resolve_prompt_template(
@@ -158,40 +148,34 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             hb.prompt,
             db,
         )
-        last_task_stmt = (
-            select(Task)
+
+        # Inject previous heartbeat result from heartbeat_runs history
+        last_run_stmt = (
+            select(HeartbeatRun)
             .where(
-                Task.channel_id == hb.channel_id,
-                Task.status == "complete",
-                Task.callback_config["source"].astext == "heartbeat",
+                HeartbeatRun.heartbeat_id == hb.id,
+                HeartbeatRun.status == "complete",
             )
-            .order_by(Task.completed_at.desc())
+            .order_by(HeartbeatRun.completed_at.desc())
             .limit(1)
         )
-        last_task = (await db.execute(last_task_stmt)).scalars().first()
-        if last_task and last_task.result:
-            ts = last_task.completed_at.strftime("%Y-%m-%d %H:%M UTC") if last_task.completed_at else "unknown"
-            result_preview = last_task.result[:600]
-            if len(last_task.result) > 600:
+        last_run = (await db.execute(last_run_stmt)).scalars().first()
+        if last_run and last_run.result:
+            ts = last_run.completed_at.strftime("%Y-%m-%d %H:%M UTC") if last_run.completed_at else "unknown"
+            result_preview = last_run.result[:600]
+            if len(last_run.result) > 600:
                 result_preview += "\n… (use get_last_heartbeat tool for full result)"
             prompt = (
                 f"[Previous heartbeat result ({ts})]\n{result_preview}\n\n---\n\n{prompt}"
             )
 
-        task = Task(
-            bot_id=channel.bot_id,
-            client_id=channel.client_id,
-            session_id=channel.active_session_id,
-            channel_id=channel.id,
-            prompt=prompt,
-            status="pending",
-            task_type="heartbeat",
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
-            callback_config=callback_config,
-            created_at=now,
+        # Create a heartbeat_run record
+        run_record = HeartbeatRun(
+            heartbeat_id=hb.id,
+            run_at=now,
+            status="running",
         )
-        db.add(task)
+        db.add(run_record)
 
         # Advance schedule — use effective interval (may be extended during quiet hours)
         heartbeat = await db.get(ChannelHeartbeat, hb.id)
@@ -202,11 +186,111 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             heartbeat.updated_at = now
 
         await db.commit()
-        logger.info(
-            "Heartbeat %s fired: task created for channel %s (bot=%s, next=%s)",
-            hb.id, channel.id, channel.bot_id,
-            heartbeat.next_run_at.strftime("%H:%M:%S") if heartbeat and heartbeat.next_run_at else "?",
+        await db.refresh(run_record)
+
+        # Capture what we need before leaving the DB session
+        run_id = run_record.id
+        bot_id = channel.bot_id
+        client_id = channel.client_id
+        session_id = channel.active_session_id
+        channel_id = channel.id
+        model_override = hb.model or None
+        provider_id_override = hb.model_provider_id or None
+        trigger_rag_loop = hb.trigger_response
+
+    logger.info(
+        "Heartbeat %s fired directly for channel %s (bot=%s, next=%s)",
+        hb.id, channel_id, bot_id,
+        heartbeat.next_run_at.strftime("%H:%M:%S") if heartbeat and heartbeat.next_run_at else "?",
+    )
+
+    # Run the agent directly (same path run_task uses)
+    correlation_id = uuid.uuid4()
+    result_text = None
+    error_text = None
+    try:
+        from app.agent.loop import run
+        from app.agent.bots import get_bot
+        from app.agent.persona import get_persona
+        from app.services.sessions import _effective_system_prompt, load_or_create
+
+        bot = get_bot(bot_id)
+        async with async_session() as db:
+            eff_session_id, messages = await load_or_create(
+                db, session_id, client_id or "heartbeat", bot_id
+            )
+
+        messages_start = len(messages)
+        run_result = await run(
+            messages, bot, prompt,
+            session_id=eff_session_id,
+            client_id=client_id or "heartbeat",
+            correlation_id=correlation_id,
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+            channel_id=channel_id,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
         )
+        result_text = run_result.response
+
+        # Persist turn
+        from app.services.sessions import persist_turn
+        async with async_session() as db:
+            await persist_turn(db, eff_session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=channel_id)
+
+        # Dispatch result
+        from app.agent import dispatchers
+        dispatcher = dispatchers.get(dispatch_type)
+        task_proxy = Task(
+            id=uuid.uuid4(),
+            bot_id=bot_id,
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+        )
+        await dispatcher.deliver(task_proxy, result_text, client_actions=run_result.client_actions)
+
+        # trigger_rag_loop: create a follow-up Task so the bot can react
+        if trigger_rag_loop and result_text:
+            _trl_task = Task(
+                bot_id=bot_id,
+                client_id=client_id,
+                session_id=eff_session_id,
+                prompt=f"[Your scheduled heartbeat just ran and posted to the channel. The output was:]\n\n{result_text}",
+                status="pending",
+                task_type="callback",
+                dispatch_type=dispatch_type,
+                dispatch_config=dict(dispatch_config or {}),
+                callback_config={"trigger_rag_loop": False},
+                created_at=datetime.now(timezone.utc),
+            )
+            async with async_session() as db:
+                db.add(_trl_task)
+                await db.commit()
+            logger.info("Heartbeat %s: created trigger_rag_loop follow-up task", hb.id)
+
+    except Exception as exc:
+        logger.exception("Heartbeat %s execution failed", hb.id)
+        error_text = str(exc)[:4000]
+
+    # Update heartbeat_run record and heartbeat tracking columns
+    async with async_session() as db:
+        run_rec = await db.get(HeartbeatRun, run_id)
+        if run_rec:
+            run_rec.completed_at = datetime.now(timezone.utc)
+            run_rec.result = result_text
+            run_rec.error = error_text
+            run_rec.correlation_id = correlation_id
+            run_rec.status = "complete" if error_text is None else "failed"
+
+        heartbeat = await db.get(ChannelHeartbeat, hb.id)
+        if heartbeat:
+            heartbeat.last_result = result_text
+            heartbeat.last_error = error_text
+            heartbeat.run_count = (heartbeat.run_count or 0) + 1
+            heartbeat.updated_at = datetime.now(timezone.utc)
+
+        await db.commit()
 
 
 async def heartbeat_worker() -> None:
@@ -219,10 +303,15 @@ async def heartbeat_worker() -> None:
                 continue
             due = await fetch_due_heartbeats()
             for hb in due:
-                try:
-                    await fire_heartbeat(hb)
-                except Exception:
-                    logger.exception("Failed to fire heartbeat %s", hb.id)
+                asyncio.create_task(_safe_fire_heartbeat(hb))
         except Exception:
             logger.exception("heartbeat_worker poll error")
         await asyncio.sleep(30)
+
+
+async def _safe_fire_heartbeat(hb: ChannelHeartbeat) -> None:
+    """Wrapper to catch exceptions from fire_heartbeat in asyncio.create_task."""
+    try:
+        await fire_heartbeat(hb)
+    except Exception:
+        logger.exception("Failed to fire heartbeat %s", hb.id)
