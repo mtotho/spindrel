@@ -255,6 +255,8 @@ class ChannelSettingsOut(BaseModel):
     active_session_id: Optional[uuid.UUID] = None
     require_mention: bool = True
     passive_memory: bool = True
+    private: bool = False
+    user_id: Optional[uuid.UUID] = None
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     max_iterations: Optional[int] = None
@@ -299,6 +301,8 @@ class ChannelSettingsUpdate(BaseModel):
     bot_id: Optional[str] = None
     require_mention: Optional[bool] = None
     passive_memory: Optional[bool] = None
+    private: Optional[bool] = None
+    user_id: Optional[uuid.UUID] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     max_iterations: Optional[int] = None
@@ -1169,7 +1173,6 @@ async def admin_channel_context_breakdown(
         "total_chars": result.total_chars,
         "total_tokens_approx": result.total_tokens_approx,
         "compaction": asdict(result.compaction),
-        "compression": asdict(result.compression),
         "reranking": asdict(result.reranking),
         "effective_settings": {
             k: {"value": v.value, "source": v.source}

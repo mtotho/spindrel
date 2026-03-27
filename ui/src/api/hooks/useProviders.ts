@@ -24,7 +24,6 @@ export interface ProviderCreatePayload {
   is_enabled?: boolean;
   tpm_limit?: number | null;
   rpm_limit?: number | null;
-  credentials_path?: string;
   management_key?: string;
 }
 
@@ -36,7 +35,6 @@ export interface ProviderUpdatePayload {
   is_enabled?: boolean;
   tpm_limit?: number | null;
   rpm_limit?: number | null;
-  credentials_path?: string;
   management_key?: string;
   clear_tpm_limit?: boolean;
   clear_rpm_limit?: boolean;
@@ -123,7 +121,6 @@ export interface TestInlinePayload {
   provider_type: string;
   api_key?: string;
   base_url?: string;
-  credentials_path?: string;
 }
 
 export function useTestProviderInline() {

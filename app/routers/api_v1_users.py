@@ -5,10 +5,10 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User
+from app.db.models import Message, User
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.auth import create_local_user, get_user_by_id, hash_password
 
@@ -118,3 +118,28 @@ async def deactivate_user(
     user.is_active = False
     await db.commit()
     return {"status": "deactivated"}
+
+
+@router.get("/identity-suggestions/{integration}")
+async def identity_suggestions(
+    integration: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Return distinct sender IDs for an integration, excluding already-claimed ones."""
+    prefix = f"{integration}:"
+    stmt = select(distinct(Message.metadata_["sender_id"].astext)).where(
+        Message.metadata_["sender_id"].astext.like(f"{prefix}%"),
+        Message.metadata_["sender_type"].astext == "human",
+    )
+    result = await db.execute(stmt)
+    all_ids = [row[0].removeprefix(prefix) for row in result.all()]
+
+    # Filter out claimed
+    users_result = await db.execute(select(User))
+    users = users_result.scalars().all()
+    claimed = {
+        u.integration_config.get(integration, {}).get("user_id")
+        for u in users if u.integration_config
+    }
+    return [uid for uid in all_ids if uid not in claimed]

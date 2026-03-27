@@ -290,22 +290,10 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages = _base_messages()
 
             if _history_mode == "file" and session.channel_id:
-                # File mode: inject executive summary + section index
-                from app.db.models import ConversationSection
-                sec_result = await db.execute(
-                    select(ConversationSection)
-                    .where(ConversationSection.channel_id == session.channel_id)
-                    .order_by(ConversationSection.sequence)
-                )
-                sections = sec_result.scalars().all()
-                index_lines = []
-                for s in sections:
-                    date_str = s.period_start.strftime("%Y-%m-%d") if s.period_start else ""
-                    tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
-                    index_lines.append(f"- [{s.id}] {s.title} ({s.message_count} msgs, {date_str}){tag_str}: {s.summary}")
-                index_text = "\n".join(index_lines) if index_lines else "No archived sections yet."
-                summary_block = f"Executive summary: {session.summary}\n\nArchived sections (use read_conversation_history tool to view full content):\n{index_text}"
-                messages.append({"role": "system", "content": summary_block})
+                # File mode: inject executive summary only
+                # (section index is injected separately by context_assembly.py
+                # with proper count/verbosity settings)
+                messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
             elif _history_mode == "structured":
                 # Structured mode: inject compact executive summary (section retrieval happens in context_assembly)
                 messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
@@ -373,6 +361,9 @@ async def persist_turn(
         if msg_metadata and msg.get("role") == "user" and first_user:
             meta = msg_metadata
             first_user = False
+        # Auto-inject bot metadata on assistant messages
+        if msg.get("role") == "assistant" and not meta:
+            meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
         record = Message(
             session_id=session_id,
             role=msg["role"],

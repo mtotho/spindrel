@@ -1057,6 +1057,27 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 }
 
 // ===========================================================================
+// Channel owner select (fetches users for dropdown)
+// ===========================================================================
+function ChannelOwnerSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const { data: users } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => apiFetch<{ id: string; display_name: string; email: string }[]>("/api/v1/admin/users"),
+  });
+  const options = [
+    { label: "None", value: "" },
+    ...(users?.map((u) => ({ label: `${u.display_name} (${u.email})`, value: u.id })) ?? []),
+  ];
+  return (
+    <SelectInput
+      value={value ?? ""}
+      onChange={(v) => onChange(v || null)}
+      options={options}
+    />
+  );
+}
+
+// ===========================================================================
 // General Tab — settings form
 // ===========================================================================
 function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, channelId }: {
@@ -1134,6 +1155,21 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           <FallbackModelList
             value={form.fallback_models ?? []}
             onChange={(v) => patch("fallback_models", v)}
+          />
+        </FormRow>
+      </Section>
+
+      <Section title="Privacy">
+        <Toggle
+          value={form.private ?? false}
+          onChange={(v) => patch("private", v)}
+          label="Private channel"
+          description="Private channels are only visible to the assigned user."
+        />
+        <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
+          <ChannelOwnerSelect
+            value={form.user_id ?? null}
+            onChange={(v) => patch("user_id", v || undefined)}
           />
         </FormRow>
       </Section>

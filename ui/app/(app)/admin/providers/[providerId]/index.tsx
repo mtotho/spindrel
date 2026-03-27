@@ -17,7 +17,6 @@ const PROVIDER_TYPE_OPTIONS = [
   { label: "OpenAI Compatible", value: "openai-compatible" },
   { label: "Anthropic", value: "anthropic" },
   { label: "Anthropic Compatible", value: "anthropic-compatible" },
-  { label: "Anthropic Subscription", value: "anthropic-subscription" },
 ];
 
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
@@ -73,7 +72,6 @@ export default function ProviderDetailScreen() {
   const [isEnabled, setIsEnabled] = useState(true);
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
-  const [credentialsPath, setCredentialsPath] = useState("");
   const [managementKey, setManagementKey] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [initialized, setInitialized] = useState(isNew);
@@ -94,7 +92,6 @@ export default function ProviderDetailScreen() {
     setIsEnabled(provider.is_enabled);
     setTpmLimit(provider.tpm_limit ? String(provider.tpm_limit) : "");
     setRpmLimit(provider.rpm_limit ? String(provider.rpm_limit) : "");
-    setCredentialsPath(provider.config?.credentials_path || "");
     setInitialized(true);
   }
 
@@ -107,7 +104,6 @@ export default function ProviderDetailScreen() {
         is_enabled: isEnabled,
         tpm_limit: tpmLimit ? parseInt(tpmLimit) : null,
         rpm_limit: rpmLimit ? parseInt(rpmLimit) : null,
-        credentials_path: credentialsPath || undefined,
         management_key: managementKey || undefined,
       });
       goBack();
@@ -120,11 +116,10 @@ export default function ProviderDetailScreen() {
         rpm_limit: rpmLimit ? parseInt(rpmLimit) : undefined,
         clear_tpm_limit: !tpmLimit,
         clear_rpm_limit: !rpmLimit,
-        credentials_path: credentialsPath || undefined,
         management_key: managementKey || undefined,
       });
     }
-  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, credentialsPath, managementKey, createMut, updateMut, goBack]);
+  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!providerId || !confirm("Delete this provider?")) return;
@@ -141,21 +136,19 @@ export default function ProviderDetailScreen() {
         provider_type: providerType,
         api_key: apiKey || undefined,
         base_url: baseUrl || undefined,
-        credentials_path: credentialsPath || undefined,
       }, { onSuccess, onError });
     } else {
       testMut.mutate(providerId, { onSuccess, onError });
     }
-  }, [providerId, isNew, providerType, apiKey, baseUrl, credentialsPath, testMut, testInlineMut]);
+  }, [providerId, isNew, providerType, apiKey, baseUrl, testMut, testInlineMut]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew ? (id.trim() && displayName.trim()) : displayName.trim();
   const mutError = createMut.error || updateMut.error || deleteMut.error;
 
   // Fields visible per provider type
-  const showApiKey = providerType !== "anthropic-subscription";
+  const showApiKey = true;
   const showBaseUrl = ["litellm", "openai", "openai-compatible", "anthropic-compatible"].includes(providerType);
-  const showCredentialsPath = providerType === "anthropic-subscription";
   const showManagementKey = providerType === "litellm";
 
   if (!isNew && isLoading) {
@@ -292,11 +285,6 @@ export default function ProviderDetailScreen() {
                   providerType === "anthropic-compatible" ? "https://api.minimax.chat/v1" :
                   "https://litellm.example.com"
                 } />
-              </FormRow>
-            )}
-            {showCredentialsPath && (
-              <FormRow label="Credentials Path" description="Path to Claude credentials JSON file">
-                <TextInput value={credentialsPath} onChangeText={setCredentialsPath} placeholder="~/.claude/.credentials.json" />
               </FormRow>
             )}
             {showManagementKey && (

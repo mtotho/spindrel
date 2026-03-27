@@ -150,6 +150,8 @@ async def _resolve_channel_and_session(
             resolved = await resolve_integration_user(db, "slack", slack_uid)
             if resolved:
                 extra_kwargs["user_id"] = resolved.id
+                if req.msg_metadata:
+                    req.msg_metadata["sender_display_name"] = resolved.display_name
 
     # Resolve channel
     channel = await get_or_create_channel(
@@ -248,6 +250,15 @@ async def chat(
 ):
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
+
+    # Auto-inject web UI metadata when caller doesn't supply any
+    if not req.msg_metadata and user is not None:
+        req.msg_metadata = {
+            "source": "web",
+            "sender_type": "human",
+            "sender_id": f"user:{user.id}",
+            "sender_display_name": user.display_name,
+        }
 
     # Resolve audio: if audio_data provided but not native mode, transcribe first
     audio_data = None
@@ -399,6 +410,15 @@ async def chat_stream(
 ):
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
+
+    # Auto-inject web UI metadata when caller doesn't supply any
+    if not req.msg_metadata and user is not None:
+        req.msg_metadata = {
+            "source": "web",
+            "sender_type": "human",
+            "sender_id": f"user:{user.id}",
+            "sender_display_name": user.display_name,
+        }
 
     # Resolve audio
     audio_data = None

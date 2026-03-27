@@ -16,6 +16,7 @@ import {
   Plus,
   Hash,
   Eye,
+  Lock,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -291,10 +292,11 @@ export function Sidebar() {
                       isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
                   >
-                    <Hash
-                      size={16}
-                      color={isActive ? "#3b82f6" : "#555555"}
-                    />
+                    {channel.private ? (
+                      <Lock size={16} color={isActive ? "#3b82f6" : "#555555"} />
+                    ) : (
+                      <Hash size={16} color={isActive ? "#3b82f6" : "#555555"} />
+                    )}
                     <View className="flex-1 min-w-0">
                       <Text
                         className={`text-sm ${

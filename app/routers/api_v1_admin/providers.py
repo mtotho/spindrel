@@ -14,7 +14,7 @@ from app.dependencies import get_db, verify_auth_or_user
 
 router = APIRouter()
 
-PROVIDER_TYPES = ["litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "anthropic-subscription"]
+PROVIDER_TYPES = ["litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible"]
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,6 @@ class ProviderCreateIn(BaseModel):
     is_enabled: bool = True
     tpm_limit: Optional[int] = None
     rpm_limit: Optional[int] = None
-    credentials_path: Optional[str] = None
     management_key: Optional[str] = None
 
 
@@ -58,7 +57,6 @@ class ProviderUpdateIn(BaseModel):
     is_enabled: Optional[bool] = None
     tpm_limit: Optional[int] = Field(None)
     rpm_limit: Optional[int] = Field(None)
-    credentials_path: Optional[str] = None
     management_key: Optional[str] = None
     clear_tpm_limit: bool = False
     clear_rpm_limit: bool = False
@@ -241,8 +239,6 @@ async def admin_create_provider(
         raise HTTPException(status_code=409, detail=f"Provider '{pid}' already exists")
 
     config: dict = {}
-    if body.provider_type == "anthropic-subscription" and body.credentials_path:
-        config["credentials_path"] = body.credentials_path.strip()
     if body.provider_type == "litellm" and body.management_key:
         config["management_key"] = body.management_key.strip()
 
@@ -304,11 +300,6 @@ async def admin_update_provider(
         row.rpm_limit = None
 
     config = dict(row.config or {})
-    if body.credentials_path is not None:
-        if body.credentials_path.strip():
-            config["credentials_path"] = body.credentials_path.strip()
-        else:
-            config.pop("credentials_path", None)
     if body.management_key is not None:
         if body.management_key.strip():
             config["management_key"] = body.management_key.strip()
@@ -353,24 +344,16 @@ class ProviderTestInlineIn(BaseModel):
     provider_type: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    credentials_path: Optional[str] = None
 
 
 async def _test_provider_connection(
-    ptype: str, api_key: str | None, base_url: str | None, credentials_path: str | None,
+    ptype: str, api_key: str | None, base_url: str | None,
 ) -> ProviderTestResult:
     """Test a provider connection given raw params (works for saved and unsaved configs)."""
     from openai import AsyncOpenAI
-    from app.services.providers import _load_anthropic_subscription_token
 
-    if ptype in ("anthropic", "anthropic-subscription"):
-        try:
-            if ptype == "anthropic-subscription":
-                creds = credentials_path or "~/.claude/.credentials.json"
-                _load_anthropic_subscription_token(creds)
-            return ProviderTestResult(ok=True, message="Credentials OK")
-        except Exception as exc:
-            return ProviderTestResult(ok=False, message=str(exc)[:200])
+    if ptype == "anthropic":
+        return ProviderTestResult(ok=True, message="Credentials OK")
 
     # Anthropic-compatible: /models often not implemented, so test with a
     # minimal messages POST that will return an auth or validation error (not a
@@ -423,7 +406,7 @@ async def admin_test_provider_inline(
 ):
     """Test provider connection without saving — works for new/unsaved providers."""
     return await _test_provider_connection(
-        body.provider_type, body.api_key, body.base_url, body.credentials_path,
+        body.provider_type, body.api_key, body.base_url,
     )
 
 
@@ -441,7 +424,6 @@ async def admin_test_provider(
     if not provider:
         return ProviderTestResult(ok=False, message="Provider not found in registry")
 
-    creds_path = (provider.config or {}).get("credentials_path")
     return await _test_provider_connection(
-        provider.provider_type, provider.api_key, provider.base_url, creds_path,
+        provider.provider_type, provider.api_key, provider.base_url,
     )

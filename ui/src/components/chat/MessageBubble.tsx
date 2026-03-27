@@ -10,6 +10,39 @@ interface Props {
   isGrouped?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Metadata-aware display name resolution
+// ---------------------------------------------------------------------------
+
+const SLACK_PREFIX_RE = /^\[Slack channel:\S+ user:\S+\]\s*/;
+
+function resolveDisplay(message: Message, botName?: string): { name: string; isCurrentUser: boolean } {
+  const meta = message.metadata || {};
+  if (message.role === "assistant") {
+    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false };
+  }
+  // User messages
+  if (meta.sender_type === "bot") {
+    return { name: meta.sender_display_name || "Bot", isCurrentUser: false };
+  }
+  if (meta.source === "slack") {
+    const slackId = (meta.sender_id || "").replace("slack:", "");
+    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false };
+  }
+  if (meta.source === "web" && meta.sender_display_name) {
+    return { name: meta.sender_display_name, isCurrentUser: true };
+  }
+  // Legacy messages without metadata
+  return { name: "You", isCurrentUser: true };
+}
+
+function cleanContent(content: string, meta: Record<string, any>): string {
+  if (meta.source === "slack" && content) {
+    return content.replace(SLACK_PREFIX_RE, "");
+  }
+  return content;
+}
+
 // Deterministic color from string hash
 function avatarColor(name: string): string {
   let hash = 0;
@@ -239,15 +272,18 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
 // ---------------------------------------------------------------------------
 
 export function MessageBubble({ message, botName, isGrouped }: Props) {
-  const isUser = message.role === "user";
   const isWeb = Platform.OS === "web";
-  const displayName = isUser ? "You" : (botName || "Bot");
+  const meta = message.metadata || {};
+  const { name: displayName, isCurrentUser } = resolveDisplay(message, botName);
+  const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
+  const displayContent = cleanContent(message.content || "", meta);
+  const sourceLabel = meta.source === "slack" ? "via Slack" : null;
 
   const messageContent = isWeb ? (
     <>
-      {(message.content || "").length > 0 && (
-        <MarkdownContent text={message.content || ""} />
+      {displayContent.length > 0 && (
+        <MarkdownContent text={displayContent} />
       )}
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
@@ -259,7 +295,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       style={{ color: "#d1d5db" }}
       selectable
     >
-      {message.content || ""}
+      {displayContent}
     </Text>
   );
 
@@ -319,6 +355,11 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           <Text style={{ fontSize: 12, color: "#555555" }}>
             {timestamp}
           </Text>
+          {sourceLabel && (
+            <Text style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+              {sourceLabel}
+            </Text>
+          )}
         </View>
 
         {/* Message content */}
