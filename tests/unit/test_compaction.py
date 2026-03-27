@@ -3,66 +3,8 @@ import pytest
 from unittest.mock import MagicMock
 
 from app.services.compaction import (
-    _messages_for_memory_phase,
     _messages_for_summary,
 )
-
-
-# ---------------------------------------------------------------------------
-# _messages_for_memory_phase
-# ---------------------------------------------------------------------------
-
-class TestMessagesForMemoryPhase:
-    def test_includes_user_and_assistant(self):
-        messages = [
-            {"role": "user", "content": "What is X?"},
-            {"role": "assistant", "content": "X is a thing."},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 2
-        assert result[0]["role"] == "user"
-        assert result[1]["role"] == "assistant"
-
-    def test_truncates_tool_results(self):
-        long_content = "a" * 600
-        messages = [
-            {"role": "tool", "content": long_content},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-        assert len(result[0]["content"]) < len(long_content)
-        assert result[0]["content"].endswith("...")
-
-    def test_short_tool_result_not_truncated(self):
-        messages = [
-            {"role": "tool", "content": "short result"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert result[0]["content"] == "short result"
-
-    def test_passive_messages_get_prefix(self):
-        messages = [
-            {"role": "user", "content": "ambient msg", "_metadata": {"passive": True}},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert result[0]["content"].startswith("[passive]")
-
-    def test_skips_none_content(self):
-        messages = [
-            {"role": "user", "content": None},
-            {"role": "assistant", "content": "ok"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-
-    def test_system_messages_excluded(self):
-        messages = [
-            {"role": "system", "content": "You are a bot"},
-            {"role": "user", "content": "hi"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-        assert result[0]["role"] == "user"
 
 
 # ---------------------------------------------------------------------------

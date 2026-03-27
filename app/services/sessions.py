@@ -287,6 +287,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             recent_orm = [m for m in recent_result.scalars().all() if m.role != "system"]
             recent = _convert_msgs(recent_orm)
             passive, active = _split_passive_active(recent)
+            active = _filter_old_heartbeats(active)
             messages = _base_messages()
 
             if _history_mode == "file" and session.channel_id:
@@ -317,6 +318,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             all_msgs = _convert_msgs(all_orm)
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
+            active = _filter_old_heartbeats(active)
             messages = _base_messages()
             messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
@@ -333,6 +335,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     all_msgs = _convert_msgs(all_orm)
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
+    active = _filter_old_heartbeats(active)
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     messages.extend(active)
@@ -347,6 +350,7 @@ async def persist_turn(
     correlation_id: uuid.UUID | None = None,
     msg_metadata: dict | None = None,
     channel_id: uuid.UUID | None = None,
+    is_heartbeat: bool = False,
 ) -> uuid.UUID | None:
     """Persist new messages from a turn. Returns the first user message ID (for attachment linking)."""
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
@@ -364,6 +368,9 @@ async def persist_turn(
         # Auto-inject bot metadata on assistant messages
         if msg.get("role") == "assistant" and not meta:
             meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
+        # Tag all messages in heartbeat turns so _load_messages can filter old ones
+        if is_heartbeat:
+            meta = {**meta, "is_heartbeat": True}
         record = Message(
             session_id=session_id,
             role=msg["role"],
@@ -637,6 +644,31 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     if msg.metadata_:
         d["_metadata"] = msg.metadata_
     return d
+
+
+def _filter_old_heartbeats(msgs: list[dict]) -> list[dict]:
+    """Keep only the most recent heartbeat exchange; drop older ones.
+
+    Heartbeat messages are tagged with is_heartbeat=True in metadata.
+    We find the LAST heartbeat user message and keep everything from that
+    point forward. All earlier heartbeat messages are dropped.
+    """
+    last_hb_start = -1
+    for i, m in enumerate(msgs):
+        meta = m.get("_metadata") or {}
+        if meta.get("is_heartbeat") and m.get("role") == "user":
+            last_hb_start = i
+
+    if last_hb_start == -1:
+        return msgs  # no heartbeat messages at all
+
+    result = []
+    for i, m in enumerate(msgs):
+        meta = m.get("_metadata") or {}
+        if meta.get("is_heartbeat") and i < last_hb_start:
+            continue  # drop older heartbeat messages
+        result.append(m)
+    return result
 
 
 def _strip_metadata_keys(messages: list[dict]) -> list[dict]:

@@ -252,7 +252,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # Persist turn
         from app.services.sessions import persist_turn
         async with async_session() as db:
-            await persist_turn(db, eff_session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=channel_id)
+            await persist_turn(db, eff_session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=channel_id, is_heartbeat=True)
 
         # Dispatch result
         from app.agent import dispatchers

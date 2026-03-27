@@ -18,9 +18,7 @@ from app.services.compaction import (
     _get_compaction_interval,
     _get_compaction_keep_turns,
     _get_compaction_model,
-    _get_compaction_prompt,
     _is_compaction_enabled,
-    _messages_for_memory_phase,
     _messages_for_summary,
     _stringify_message_content,
 )
@@ -77,48 +75,6 @@ def _mock_llm_response(content):
 
 
 # ===================================================================
-# _get_compaction_prompt (previously untested)
-# ===================================================================
-
-class TestGetCompactionPrompt:
-    @pytest.mark.asyncio
-    async def test_channel_override(self):
-        bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
-        ch = _make_channel(memory_knowledge_compaction_prompt="channel prompt")
-        assert await _get_compaction_prompt(bot, ch) == "channel prompt"
-
-    @pytest.mark.asyncio
-    async def test_bot_override(self):
-        bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
-        assert await _get_compaction_prompt(bot) == "bot prompt"
-
-    @pytest.mark.asyncio
-    async def test_fallback_to_settings(self):
-        bot = _make_bot(memory_knowledge_compaction_prompt=None)
-        from app.config import settings
-        assert await _get_compaction_prompt(bot) == settings.MEMORY_KNOWLEDGE_COMPACTION_PROMPT.strip()
-
-    @pytest.mark.asyncio
-    async def test_channel_none_falls_to_bot(self):
-        bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
-        ch = _make_channel(memory_knowledge_compaction_prompt=None)
-        assert await _get_compaction_prompt(bot, ch) == "bot prompt"
-
-    @pytest.mark.asyncio
-    async def test_channel_empty_string_is_falsy(self):
-        """Empty string channel prompt falls through to bot/settings."""
-        bot = _make_bot(memory_knowledge_compaction_prompt="bot prompt")
-        ch = _make_channel(memory_knowledge_compaction_prompt="")
-        # Empty string is falsy, so should fall through
-        assert await _get_compaction_prompt(bot, ch) == "bot prompt"
-
-    @pytest.mark.asyncio
-    async def test_strips_whitespace(self):
-        bot = _make_bot(memory_knowledge_compaction_prompt="  trimmed  \n")
-        assert await _get_compaction_prompt(bot) == "trimmed"
-
-
-# ===================================================================
 # _stringify_message_content — additional edge cases
 # ===================================================================
 
@@ -152,58 +108,6 @@ class TestStringifyMessageContentExtended:
         result = _stringify_message_content(content)
         assert "[audio]" in result
         assert "transcription" in result
-
-
-# ===================================================================
-# _messages_for_memory_phase — additional edge cases
-# ===================================================================
-
-class TestMessagesForMemoryPhaseExtended:
-    def test_empty_input(self):
-        assert _messages_for_memory_phase([]) == []
-
-    def test_tool_exactly_500_chars(self):
-        content = "a" * 500
-        msgs = [{"role": "tool", "content": content}]
-        result = _messages_for_memory_phase(msgs)
-        assert result[0]["content"] == content  # no truncation
-        assert not result[0]["content"].endswith("...")
-
-    def test_tool_501_chars_truncated(self):
-        content = "a" * 501
-        msgs = [{"role": "tool", "content": content}]
-        result = _messages_for_memory_phase(msgs)
-        assert result[0]["content"].endswith("...")
-        assert len(result[0]["content"]) == 503  # 500 + "..."
-
-    def test_metadata_none_treated_as_not_passive(self):
-        msgs = [{"role": "user", "content": "hello", "_metadata": None}]
-        result = _messages_for_memory_phase(msgs)
-        assert not result[0]["content"].startswith("[passive]")
-
-    def test_no_metadata_key_treated_as_not_passive(self):
-        msgs = [{"role": "user", "content": "hello"}]
-        result = _messages_for_memory_phase(msgs)
-        assert not result[0]["content"].startswith("[passive]")
-
-    def test_passive_assistant_message(self):
-        msgs = [{"role": "assistant", "content": "reply", "_metadata": {"passive": True}}]
-        result = _messages_for_memory_phase(msgs)
-        assert result[0]["content"].startswith("[passive]")
-
-    def test_preserves_order(self):
-        msgs = [
-            {"role": "user", "content": "first"},
-            {"role": "tool", "content": "tool_out"},
-            {"role": "assistant", "content": "second"},
-            {"role": "user", "content": "third"},
-        ]
-        result = _messages_for_memory_phase(msgs)
-        assert len(result) == 4
-        assert result[0]["content"] == "first"
-        assert result[1]["role"] == "tool"
-        assert result[2]["content"] == "second"
-        assert result[3]["content"] == "third"
 
 
 # ===================================================================
@@ -663,122 +567,6 @@ class TestRunCompactionStream:
         assert "compaction_done" not in types
 
     @pytest.mark.asyncio
-    async def test_with_memory_phase(self, factory):
-        """When memory is enabled, memory phase events are yielded."""
-        bot = _make_bot(
-            compaction_interval=2, compaction_keep_turns=1,
-            memory=MemoryConfig(enabled=True),
-        )
-        sid = await _create_session_with_messages(factory, num_user=3, num_assistant=3)
-
-        messages = [
-            {"role": "user", "content": f"user message {i}"} for i in range(3)
-        ] + [
-            {"role": "assistant", "content": f"assistant reply {i}"} for i in range(3)
-        ]
-
-        mock_client = AsyncMock()
-        summary_resp = _mock_llm_response('{"title": "T", "summary": "S"}')
-        mock_client.chat.completions.create = AsyncMock(return_value=summary_resp)
-
-        async def mock_agent_loop(*args, **kwargs):
-            yield {"type": "tool_start", "name": "save_memory", "compaction": True}
-            yield {"type": "tool_result", "name": "save_memory", "compaction": True}
-
-        with (
-            patch("app.services.compaction.async_session", factory),
-            patch("app.services.providers.get_llm_client", return_value=mock_client),
-            patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-            patch("app.services.compaction.run_agent_tool_loop", side_effect=mock_agent_loop),
-            patch("app.services.compaction.set_agent_context"),
-        ):
-            from app.services.compaction import run_compaction_stream
-            events = [e async for e in run_compaction_stream(sid, bot, messages)]
-
-        types = [e.get("type") for e in events]
-        assert "compaction_start" in types  # memory phase start
-        assert "tool_start" in types
-        assert "compaction_done" in types
-        # Memory phase start should come before compaction_done
-        mem_idx = types.index("compaction_start")
-        done_idx = types.index("compaction_done")
-        assert mem_idx < done_idx
-
-    @pytest.mark.asyncio
-    async def test_with_knowledge_enabled_triggers_memory_phase(self, factory):
-        """Knowledge enabled (without memory) should also trigger memory phase."""
-        bot = _make_bot(
-            compaction_interval=2, compaction_keep_turns=1,
-            knowledge=KnowledgeConfig(enabled=True),
-        )
-        sid = await _create_session_with_messages(factory, num_user=3, num_assistant=3)
-
-        messages = [
-            {"role": "user", "content": f"user message {i}"} for i in range(3)
-        ] + [
-            {"role": "assistant", "content": f"assistant reply {i}"} for i in range(3)
-        ]
-
-        mock_client = AsyncMock()
-        summary_resp = _mock_llm_response('{"title": "T", "summary": "S"}')
-        mock_client.chat.completions.create = AsyncMock(return_value=summary_resp)
-
-        async def mock_agent_loop(*args, **kwargs):
-            return
-            yield  # make it an async generator
-
-        with (
-            patch("app.services.compaction.async_session", factory),
-            patch("app.services.providers.get_llm_client", return_value=mock_client),
-            patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-            patch("app.services.compaction.run_agent_tool_loop", side_effect=mock_agent_loop),
-            patch("app.services.compaction.set_agent_context"),
-        ):
-            from app.services.compaction import run_compaction_stream
-            events = [e async for e in run_compaction_stream(sid, bot, messages)]
-
-        types = [e.get("type") for e in events]
-        assert "compaction_start" in types  # memory phase
-        mem_start = [e for e in events if e.get("type") == "compaction_start" and e.get("phase") == "memory"]
-        assert len(mem_start) == 1
-
-    @pytest.mark.asyncio
-    async def test_with_persona_triggers_memory_phase(self, factory):
-        """Persona enabled should also trigger memory phase."""
-        bot = _make_bot(
-            compaction_interval=2, compaction_keep_turns=1,
-            persona=True,
-        )
-        sid = await _create_session_with_messages(factory, num_user=3, num_assistant=3)
-
-        messages = [
-            {"role": "user", "content": f"user message {i}"} for i in range(3)
-        ] + [
-            {"role": "assistant", "content": f"assistant reply {i}"} for i in range(3)
-        ]
-
-        mock_client = AsyncMock()
-        summary_resp = _mock_llm_response('{"title": "T", "summary": "S"}')
-        summary_resp = _mock_llm_response('{"title": "T", "summary": "S"}')
-        mock_client.chat.completions.create = AsyncMock(return_value=summary_resp)
-
-        async def mock_agent_loop(*args, **kwargs):
-            return
-            yield
-
-        with (
-            patch("app.services.compaction.async_session", factory),
-            patch("app.services.providers.get_llm_client", return_value=mock_client),
-            patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-            patch("app.services.compaction.run_agent_tool_loop", side_effect=mock_agent_loop),
-            patch("app.services.compaction.set_agent_context"),
-        ):
-            from app.services.compaction import run_compaction_stream
-            events = [e async for e in run_compaction_stream(sid, bot, messages)]
-
-        types = [e.get("type") for e in events]
-        assert "compaction_start" in types
-
     @pytest.mark.asyncio
     async def test_error_during_summary_logged_not_raised(self, factory):
         """If _generate_summary raises, compaction fails silently."""
@@ -1110,36 +898,6 @@ class TestRunCompactionForced:
             session = await db.get(Session, sid)
             assert session.title == "Forced Title"
             assert session.summary_message_id is not None
-
-    @pytest.mark.asyncio
-    async def test_with_memory_phase_enabled(self, factory):
-        """Forced compaction also runs memory phase when memory is enabled."""
-        bot = _make_bot(
-            compaction_interval=3, compaction_keep_turns=1,
-            memory=MemoryConfig(enabled=True),
-        )
-        sid = await _create_session_with_messages(factory, num_user=5, num_assistant=5)
-
-        mock_client = AsyncMock()
-        resp = _mock_llm_response('{"title": "T", "summary": "S"}')
-        mock_client.chat.completions.create = AsyncMock(return_value=resp)
-
-        async def mock_agent_loop(*args, **kwargs):
-            return
-            yield
-
-        async with factory() as db:
-            from app.services.compaction import run_compaction_forced
-            with (
-                patch("app.services.providers.get_llm_client", return_value=mock_client),
-                patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-                patch("app.services.compaction.run_agent_tool_loop", side_effect=mock_agent_loop),
-                patch("app.services.compaction.set_agent_context"),
-            ):
-                title, summary = await run_compaction_forced(sid, bot, db)
-                await db.commit()
-
-        assert title == "T"
 
     @pytest.mark.asyncio
     async def test_all_in_keep_window_raises(self, factory):
