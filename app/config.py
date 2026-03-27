@@ -224,15 +224,12 @@ class Settings(BaseSettings):
 
     SECTION_COMPACTION_PROMPT: str = """\
         You are a conversation archiver. You will receive a segment of conversation between \
-        a user and an AI assistant that is being archived.
+        a user and an AI assistant that is being archived. The raw transcript is stored separately — \
+        you only need to produce metadata.
 
         Produce a JSON object with the following fields:
         - "title": A concise heading for this conversation segment (5-12 words).
         - "summary": A 2-3 sentence summary capturing the key topics, decisions, and outcomes.
-        - "transcript": The conversation formatted as a readable transcript. Each message should \
-          be on its own line, prefixed with [ROLE TIMESTAMP]: where ROLE is USER or ASSISTANT \
-          and TIMESTAMP is the time if available. Include all substantive content — tool calls \
-          can be summarized briefly. Omit redundant pleasantries.
         - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment. \
           Examples: "database migration", "bug fix", "API design", "deployment", "memory system".
 

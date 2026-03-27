@@ -1,4 +1,6 @@
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
 import { Wrench, Server, Cpu } from "lucide-react";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
@@ -125,6 +127,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
 export default function ToolsScreen() {
   const router = useRouter();
   const { data: tools, isLoading } = useTools();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -169,7 +172,7 @@ export default function ToolsScreen() {
       )}
 
       {/* List */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: isWide ? 0 : 12,
         gap: isWide ? 0 : 8,
       }}>
@@ -241,7 +244,7 @@ export default function ToolsScreen() {
             ))}
           </div>
         ))}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

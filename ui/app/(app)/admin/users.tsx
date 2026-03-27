@@ -3,11 +3,12 @@ import {
   View,
   Text,
   Pressable,
-  ScrollView,
   ActivityIndicator,
   TextInput,
   Image,
 } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
@@ -171,6 +172,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
 
 export default function UsersScreen() {
   const { data, isLoading, refetch } = useUsers();
+  const { refreshing, onRefresh } = usePageRefresh();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [newEmail, setNewEmail] = useState("");
@@ -222,7 +224,7 @@ export default function UsersScreen() {
           <ActivityIndicator color="#3b82f6" />
         </View>
       ) : (
-        <ScrollView className="flex-1 p-4">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4">
           <View className="gap-2 max-w-3xl">
             {/* Create form */}
             {showCreate && (
@@ -276,7 +278,7 @@ export default function UsersScreen() {
               />
             ))}
           </View>
-        </ScrollView>
+        </RefreshableScrollView>
       )}
     </View>
   );

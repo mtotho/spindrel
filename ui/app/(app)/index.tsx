@@ -1,8 +1,10 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Link } from "expo-router";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import {
   Hash,
@@ -15,6 +17,7 @@ export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
   const columns = useResponsiveColumns();
+  const { refreshing, onRefresh } = usePageRefresh();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
   return (
@@ -35,7 +38,7 @@ export default function HomeScreen() {
         }
       />
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 16 : 28 }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 16 : 28 }}>
         <View className="max-w-2xl w-full mx-auto gap-6">
 
         {/* Channel list */}
@@ -99,7 +102,7 @@ export default function HomeScreen() {
           </View>
         )}
         </View>
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
-import { View, ScrollView, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus,
@@ -976,6 +978,7 @@ export default function TasksScreen() {
   const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
+  const { refreshing, onRefresh } = usePageRefresh();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const { data: bots } = useBots();
@@ -1249,7 +1252,7 @@ export default function TasksScreen() {
           <ActivityIndicator color="#3b82f6" />
         </View>
       ) : viewMode === "schedule" ? (
-        <ScrollView className="flex-1">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <ScheduleView
             tasks={data?.tasks ?? []}
             schedules={data?.schedules ?? []}
@@ -1258,18 +1261,18 @@ export default function TasksScreen() {
             statusFilter={statusFilter}
             conflicts={scheduleConflicts}
           />
-        </ScrollView>
+        </RefreshableScrollView>
       ) : viewMode === "list" ? (
-        <ScrollView className="flex-1">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <TaskListView
             tasks={data?.tasks ?? []}
             schedules={data?.schedules ?? []}
             onTaskPress={handleTaskPress}
             statusFilter={statusFilter}
           />
-        </ScrollView>
+        </RefreshableScrollView>
       ) : (
-        <ScrollView className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
           <div style={{
             display: "flex", flex: 1, minHeight: 1500,
             borderLeft: "1px solid #2a2a2a",
@@ -1283,7 +1286,7 @@ export default function TasksScreen() {
               />
             ))}
           </div>
-        </ScrollView>
+        </RefreshableScrollView>
       )}
 
       {/* Task Editor overlay */}

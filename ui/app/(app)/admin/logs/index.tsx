@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
@@ -86,6 +88,7 @@ function fmtDuration(ms: number | null | undefined): string {
 export default function LogsScreen() {
   const router = useRouter();
   const { channel_id: channelIdParam } = useLocalSearchParams<{ channel_id?: string }>();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
@@ -205,7 +208,7 @@ export default function LogsScreen() {
           <ActivityIndicator color="#3b82f6" />
         </View>
       ) : (
-        <ScrollView className="flex-1">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <div style={{ display: "flex", flexDirection: "column" }}>
             {data?.rows.map((row) => (
               <LogRowItem key={row.id} row={row} isMobile={isMobile} onCorrelationPress={(cid) => {
@@ -218,7 +221,7 @@ export default function LogsScreen() {
               </div>
             )}
           </div>
-        </ScrollView>
+        </RefreshableScrollView>
       )}
 
       {/* Pagination */}

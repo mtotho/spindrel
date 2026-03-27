@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
 import { Plus, ExternalLink, Server } from "lucide-react";
 import { useProviders, useTestProvider, type ProviderItem } from "@/src/api/hooks/useProviders";
@@ -147,6 +149,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 export default function ProvidersScreen() {
   const router = useRouter();
   const { data, isLoading } = useProviders();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -183,7 +186,7 @@ export default function ProvidersScreen() {
       />
 
       {/* Cards */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: isWide ? 20 : 12,
         gap: isWide ? 12 : 10,
       }}>
@@ -230,7 +233,7 @@ export default function ProvidersScreen() {
             Bots with no provider assigned use the first enabled <code style={{ color: "#555" }}>litellm</code> provider, or the .env fallback if none exist.
           </div>
         )}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

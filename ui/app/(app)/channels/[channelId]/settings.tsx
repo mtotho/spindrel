@@ -1,5 +1,7 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
@@ -74,6 +76,7 @@ export default function ChannelSettingsScreen() {
   const insets = useSafeAreaInsets();
   const goBack = useGoBack(`/channels/${channelId}`);
   const queryClient = useQueryClient();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { data: channel } = useChannel(channelId);
   const { data: settings, isLoading } = useChannelSettings(channelId);
   const { data: bots } = useBots();
@@ -213,7 +216,9 @@ export default function ChannelSettingsScreen() {
       </View>
 
       {/* Tab content */}
-      <ScrollView
+      <RefreshableScrollView
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         className="flex-1"
         contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: 20, maxWidth: 680 }}
         key={tab}
@@ -243,7 +248,7 @@ export default function ChannelSettingsScreen() {
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "compression" && <CompressionTab channelId={channelId!} form={form} patch={patch} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }
@@ -2407,7 +2412,150 @@ function ContextTab({ channelId }: { channelId: string }) {
       <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginTop: 4 }}>
         {data.disclaimer}
       </div>
+
+      {/* Full context preview */}
+      <ContextPreview channelId={channelId} />
     </>
+  );
+}
+
+// ===========================================================================
+// Context Preview — renders all injected system messages
+// ===========================================================================
+
+const ROLE_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
+  system:    { bg: "#0d1117", fg: "#8b949e", border: "#1e3a5f" },
+  user:      { bg: "#111a11", fg: "#a3d9a5", border: "#2d5a30" },
+  assistant: { bg: "#1a1117", fg: "#d4a0c8", border: "#5b2350" },
+  tool:      { bg: "#1a1700", fg: "#c9b87c", border: "#5b4f1e" },
+};
+
+function ContextPreview({ channelId }: { channelId: string }) {
+  const [includeHistory, setIncludeHistory] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["context-preview", channelId, includeHistory],
+    queryFn: () => apiFetch<{
+      blocks: { label: string; role: string; content: string }[];
+      conversation: { label: string; role: string; content: string }[];
+      total_chars: number;
+      total_tokens_approx: number;
+      history_mode: string | null;
+    }>(`/api/v1/admin/channels/${channelId}/context-preview?include_history=${includeHistory}`),
+  });
+
+  return (
+    <Section title="Context Preview">
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "5px 12px", fontSize: 11, fontWeight: 600,
+            border: "1px solid #333", borderRadius: 5,
+            background: "transparent", color: "#999", cursor: "pointer",
+          }}
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? "Collapse" : "Expand"}
+        </button>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={includeHistory}
+            onChange={(e) => setIncludeHistory(e.target.checked)}
+            style={{ accentColor: "#3b82f6" }}
+          />
+          Include conversation messages
+        </label>
+
+        {data && (
+          <span style={{ fontSize: 11, color: "#666", marginLeft: "auto" }}>
+            ~{data.total_chars.toLocaleString()} chars / ~{data.total_tokens_approx.toLocaleString()} tokens
+          </span>
+        )}
+      </div>
+
+      {isLoading && <ActivityIndicator color="#3b82f6" />}
+
+      {expanded && data && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {data.blocks.map((block, i) => {
+            const colors = ROLE_COLORS[block.role] || ROLE_COLORS.system;
+            const isPlaceholder = block.content.startsWith("[") && block.content.endsWith("]");
+            return (
+              <ContextBlock key={`sys-${i}`} block={block} colors={colors} isPlaceholder={isPlaceholder} />
+            );
+          })}
+
+          {data.conversation.length > 0 && (
+            <>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: "#666", letterSpacing: "0.05em",
+                textTransform: "uppercase", marginTop: 8, marginBottom: 2,
+              }}>
+                Conversation Messages ({data.conversation.length})
+              </div>
+              {data.conversation.map((block, i) => {
+                const colors = ROLE_COLORS[block.role] || ROLE_COLORS.system;
+                return (
+                  <ContextBlock key={`conv-${i}`} block={block} colors={colors} isPlaceholder={false} />
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      <div style={{ fontSize: 10, color: "#555", fontStyle: "italic", marginTop: 6 }}>
+        This preview shows all deterministic injections. RAG-dependent blocks (memories, knowledge, workspace files) vary per query and are shown as placeholders.
+      </div>
+    </Section>
+  );
+}
+
+function ContextBlock({ block, colors, isPlaceholder }: {
+  block: { label: string; role: string; content: string };
+  colors: { bg: string; fg: string; border: string };
+  isPlaceholder: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const truncated = block.content.length > 200 && !open;
+  const displayContent = truncated ? block.content.slice(0, 200) + "..." : block.content;
+
+  return (
+    <div style={{
+      background: colors.bg, border: `1px solid ${colors.border}`,
+      borderRadius: 6, overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          width: "100%", padding: "6px 10px", border: "none", cursor: "pointer",
+          background: "transparent",
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: colors.fg, letterSpacing: "0.03em" }}>
+          {block.label}
+        </span>
+        <span style={{ fontSize: 10, color: "#555" }}>
+          {block.content.length.toLocaleString()} chars
+          {open ? " ▲" : " ▼"}
+        </span>
+      </button>
+      <div style={{
+        padding: "6px 10px 8px", fontFamily: "monospace", fontSize: 11,
+        color: isPlaceholder ? "#666" : colors.fg,
+        fontStyle: isPlaceholder ? "italic" : "normal",
+        whiteSpace: "pre-wrap", lineHeight: "1.5",
+        maxHeight: open ? "none" : 120, overflow: "hidden",
+      }}>
+        {displayContent}
+      </div>
+    </div>
   );
 }
 

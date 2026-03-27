@@ -16,10 +16,10 @@ from app.config import settings
 from app.db.models import (
     BotKnowledge,
     Channel,
+    ConversationSection,
     KnowledgeAccess,
     Memory,
     Message,
-    Plan,
     Session,
 )
 
@@ -294,18 +294,6 @@ async def compute_context_breakdown(
             description=f"{pinned_k_count} pinned knowledge doc(s)",
         ))
 
-    # Plans
-    active_plans = (await db.execute(
-        select(func.count()).select_from(Plan)
-        .where(Plan.channel_id == channel_id, Plan.status == "active")
-    )).scalar_one()
-    if active_plans:
-        categories.append(ContextCategory(
-            key="plans", label="Active Plans", chars=active_plans * 600,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{active_plans} active plan(s) injected each turn",
-        ))
-
     # Workspace / filesystem context
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
         est_ws = int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.3)
@@ -314,6 +302,29 @@ async def compute_context_breakdown(
             tokens_approx=0, percentage=0, category="rag",
             description="Workspace file chunks; varies by query",
         ))
+
+    # Section index (file mode)
+    from app.services.compaction import _get_history_mode
+    _hist_mode = _get_history_mode(bot, channel)
+    if _hist_mode == "file":
+        _si_count = getattr(channel, "section_index_count", None)
+        _si_count = _si_count if _si_count is not None else 10
+        if _si_count > 0:
+            _si_verbosity = getattr(channel, "section_index_verbosity", None) or "standard"
+            _actual_sections = (await db.execute(
+                select(func.count()).select_from(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+            )).scalar_one()
+            _shown = min(_si_count, _actual_sections)
+            if _shown > 0:
+                # Estimate chars per section by verbosity
+                _per_section = {"compact": 60, "standard": 120, "detailed": 160}.get(_si_verbosity, 120)
+                _si_chars = 100 + _shown * _per_section  # header + entries
+                categories.append(ContextCategory(
+                    key="section_index", label="Section Index", chars=_si_chars,
+                    tokens_approx=0, percentage=0, category="rag",
+                    description=f"{_shown} recent section(s) in {_si_verbosity} mode (file history)",
+                ))
 
     # -----------------------------------------------------------------------
     # 3. Conversation history (live from DB)

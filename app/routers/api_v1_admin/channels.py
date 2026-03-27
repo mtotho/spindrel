@@ -1307,6 +1307,183 @@ async def admin_channel_context_breakdown(
     }
 
 
+@router.get("/channels/{channel_id}/context-preview")
+async def admin_channel_context_preview(
+    channel_id: uuid.UUID,
+    include_history: bool = Query(False, description="Include conversation messages from the active session"),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Render a preview of all system messages that would be injected before a user message."""
+    from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
+    from app.agent.bots import get_bot as _get_bot_fn
+    from app.agent.persona import get_persona
+    from app.db.models import ConversationSection, Skill as SkillRow
+    from app.services.compaction import _get_history_mode, format_section_index
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    bot = _get_bot_fn(channel.bot_id)
+    blocks: list[dict] = []  # {"label": str, "role": str, "content": str}
+
+    # --- System prompt (as stored in session) ---
+    parts = []
+    if settings.GLOBAL_BASE_PROMPT:
+        parts.append(settings.GLOBAL_BASE_PROMPT.rstrip())
+
+    ws_base = None
+    ws_base_enabled = False
+    if bot.shared_workspace_id:
+        from app.db.models import SharedWorkspaceBot as _SWBot, SharedWorkspace as _SW
+        _swb = (await db.execute(
+            select(_SWBot).where(_SWBot.bot_id == bot.id)
+        )).scalar_one_or_none()
+        if _swb:
+            _sw = await db.get(_SW, _swb.workspace_id)
+            if _sw:
+                ws_base_enabled = _sw.workspace_base_prompt_enabled
+        if channel.workspace_base_prompt_enabled is not None:
+            ws_base_enabled = channel.workspace_base_prompt_enabled
+        if ws_base_enabled:
+            ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
+
+    if ws_base:
+        parts.append(ws_base.rstrip())
+    else:
+        base = render_base_prompt(bot)
+        if base:
+            parts.append(base.rstrip())
+    parts.append(bot.system_prompt.rstrip())
+    if bot.memory.enabled and bot.memory.prompt:
+        parts.append(bot.memory.prompt.strip())
+    blocks.append({"label": "System Prompt", "role": "system", "content": "\n\n".join(parts)})
+
+    # --- Persona ---
+    if bot.persona:
+        persona_text = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
+        if persona_text:
+            blocks.append({"label": "Persona", "role": "system", "content": f"[PERSONA]\n{persona_text}"})
+
+    # --- Datetime ---
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz_mod
+        _tz = ZoneInfo(settings.TIMEZONE)
+        from datetime import datetime as _dt
+        _now_local = _dt.now(_tz)
+        _now_utc = _dt.now(_tz_mod.utc)
+        blocks.append({"label": "Date/Time", "role": "system", "content": f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} ({_now_utc.strftime('%H:%M UTC')})"})
+    except Exception:
+        blocks.append({"label": "Date/Time", "role": "system", "content": "(timezone unavailable)"})
+
+    # --- Pinned skills ---
+    pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
+    if pinned_skills:
+        ids = [s.id for s in pinned_skills]
+        rows = (await db.execute(select(SkillRow).where(SkillRow.id.in_(ids)))).scalars().all()
+        if rows:
+            content = "\n\n---\n\n".join(r.content for r in rows if r.content)
+            blocks.append({"label": f"Pinned Skills ({len(rows)})", "role": "system", "content": f"Pinned skill context:\n\n{content}"})
+
+    # --- On-demand skill index ---
+    od_skills = [s for s in bot.skills if s.mode == "on_demand"]
+    if od_skills:
+        ids = [s.id for s in od_skills]
+        rows = (await db.execute(select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(ids)))).all()
+        if rows:
+            index_lines = "\n".join(f"- {r.id}: {r.name}" for r in rows)
+            blocks.append({"label": f"Skill Index ({len(rows)})", "role": "system", "content": f"Available skills (use get_skill to retrieve full content):\n{index_lines}"})
+
+    # --- RAG skills placeholder ---
+    rag_skills = [s for s in bot.skills if s.mode == "rag"]
+    if rag_skills:
+        blocks.append({"label": f"RAG Skills ({len(rag_skills)})", "role": "system", "content": "[RAG skill chunks — varies by query similarity]"})
+
+    # --- Delegate bot index ---
+    if bot.delegate_bots:
+        lines = []
+        for did in bot.delegate_bots:
+            try:
+                db_ = _get_bot_fn(did)
+                desc = (db_.system_prompt or "").strip().splitlines()[0][:120] if db_.system_prompt else ""
+                lines.append(f"  \u2022 {did} \u2014 {db_.name}" + (f": {desc}" if desc else ""))
+            except Exception:
+                lines.append(f"  \u2022 {did}")
+        blocks.append({"label": f"Delegation Index ({len(bot.delegate_bots)})", "role": "system", "content": "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n" + "\n".join(lines)})
+
+    # --- Memory / Knowledge placeholders ---
+    if bot.memory.enabled:
+        blocks.append({"label": "Memory (RAG)", "role": "system", "content": "[Memory recall — varies by query similarity against stored memories]"})
+    if bot.knowledge.enabled:
+        blocks.append({"label": "Knowledge (RAG)", "role": "system", "content": "[Knowledge retrieval — varies by query similarity against saved docs]"})
+
+    # --- Section index (file mode) ---
+    hist_mode = _get_history_mode(bot, channel)
+    if hist_mode == "file":
+        si_count = channel.section_index_count if channel.section_index_count is not None else 10
+        if si_count > 0:
+            si_verbosity = channel.section_index_verbosity or "standard"
+            si_rows = (await db.execute(
+                select(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+                .order_by(ConversationSection.sequence.desc())
+                .limit(si_count)
+            )).scalars().all()
+            if si_rows:
+                si_text = format_section_index(si_rows, verbosity=si_verbosity)
+                blocks.append({"label": f"Section Index ({len(si_rows)} sections)", "role": "system", "content": si_text})
+            else:
+                blocks.append({"label": "Section Index", "role": "system", "content": "[No sections yet — run backfill first]"})
+
+    # --- Workspace filesystem placeholder ---
+    if bot.workspace.enabled and bot.workspace.indexing.enabled:
+        blocks.append({"label": "Workspace Files (RAG)", "role": "system", "content": "[Workspace file chunks — varies by query similarity]"})
+
+    # --- Channel prompt ---
+    if channel.channel_prompt:
+        blocks.append({"label": "Channel Prompt", "role": "system", "content": channel.channel_prompt})
+
+    # --- Conversation history (optional) ---
+    conversation_blocks: list[dict] = []
+    if include_history and channel.active_session_id:
+        active_session = await db.get(Session, channel.active_session_id)
+
+        if active_session and active_session.summary:
+            conversation_blocks.append({"label": "Compaction Summary", "role": "system", "content": active_session.summary})
+
+        # Only show messages after watermark (post-compaction)
+        msg_query = select(Message).where(
+            Message.session_id == channel.active_session_id,
+        ).order_by(Message.created_at)
+
+        if active_session and active_session.summary_message_id:
+            watermark_msg = await db.get(Message, active_session.summary_message_id)
+            if watermark_msg:
+                msg_query = msg_query.where(Message.created_at > watermark_msg.created_at)
+
+        msgs = (await db.execute(msg_query)).scalars().all()
+        for m in msgs:
+            if m.role == "system":
+                continue
+            conversation_blocks.append({
+                "label": m.role.capitalize(),
+                "role": m.role,
+                "content": m.content[:10000] if m.content else "",
+            })
+
+    total_chars = sum(len(b["content"]) for b in blocks + conversation_blocks)
+
+    return {
+        "blocks": blocks,
+        "conversation": conversation_blocks,
+        "total_chars": total_chars,
+        "total_tokens_approx": max(1, total_chars // 4) if total_chars > 0 else 0,
+        "history_mode": hist_mode,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Enriched (display name resolution)
 # ---------------------------------------------------------------------------
