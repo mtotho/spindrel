@@ -147,12 +147,11 @@ class Settings(BaseSettings):
     RAG_RERANK_MAX_CHUNKS: int = 20         # max chunks to keep after reranking
     RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response
 
-    # Context compression (pre-turn summarization via cheap model)
-    CONTEXT_COMPRESSION_ENABLED: bool = False
-    CONTEXT_COMPRESSION_MODEL: str = ""          # empty = use COMPACTION_MODEL
-    CONTEXT_COMPRESSION_THRESHOLD: int = 20000   # chars of conversation history to trigger
-    CONTEXT_COMPRESSION_KEEP_TURNS: int = 2      # recent user turns kept verbatim
-    CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS: int = 2000
+    # Chat History defaults
+    DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"
+    SECTION_INDEX_COUNT: int = 10
+    SECTION_INDEX_VERBOSITY: str = "standard"  # "compact" | "standard" | "detailed"
+    TRIGGER_HEARTBEAT_BEFORE_COMPACTION: bool = False
 
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True

@@ -288,10 +288,6 @@ async def admin_channel_settings_save(
     compaction_interval: str = Form(""),
     compaction_keep_turns: str = Form(""),
     memory_knowledge_compaction_prompt: str = Form(""),
-    context_compression: str = Form(""),
-    compression_model: str = Form(""),
-    compression_threshold: str = Form(""),
-    compression_keep_turns: str = Form(""),
     elevation_enabled: str = Form(""),
     elevation_threshold: str = Form(""),
     elevated_model: str = Form(""),
@@ -311,16 +307,6 @@ async def admin_channel_settings_save(
         channel.compaction_interval = int(compaction_interval) if compaction_interval.strip() else None
         channel.compaction_keep_turns = int(compaction_keep_turns) if compaction_keep_turns.strip() else None
         channel.memory_knowledge_compaction_prompt = memory_knowledge_compaction_prompt.strip() or None
-        channel.context_compression = {"true": True, "false": False}.get(context_compression.strip().lower())
-        channel.compression_model = compression_model.strip() or None
-        try:
-            channel.compression_threshold = int(compression_threshold.strip()) if compression_threshold.strip() else None
-        except ValueError:
-            channel.compression_threshold = None
-        try:
-            channel.compression_keep_turns = int(compression_keep_turns.strip()) if compression_keep_turns.strip() else None
-        except ValueError:
-            channel.compression_keep_turns = None
         channel.elevation_enabled = {"true": True, "false": False}.get(elevation_enabled.strip().lower())
         try:
             channel.elevation_threshold = float(elevation_threshold.strip()) if elevation_threshold.strip() else None
@@ -767,85 +753,6 @@ async def admin_channel_memory_delete(
 
 
 # ---------------------------------------------------------------------------
-# Compression section
-# ---------------------------------------------------------------------------
-
-
-@router.get("/channels/{channel_id}/compression-section", response_class=HTMLResponse)
-async def admin_channel_compression_section(request: Request, channel_id: uuid.UUID):
-    from app.agent.bots import get_bot
-    from app.services.compression import (
-        _is_compression_enabled,
-        _get_compression_model,
-        _get_compression_threshold,
-        _get_compression_keep_turns,
-    )
-
-    async with async_session() as db:
-        channel = await db.get(Channel, channel_id)
-        if not channel:
-            raise HTTPException(status_code=404, detail="Channel not found")
-
-        # Get all session IDs for this channel
-        session_ids = (await db.execute(
-            select(Session.id).where(Session.channel_id == channel_id)
-        )).scalars().all()
-
-        # Query compression trace events
-        events = []
-        if session_ids:
-            events = (await db.execute(
-                select(TraceEvent)
-                .where(
-                    TraceEvent.session_id.in_(session_ids),
-                    TraceEvent.event_type == "context_compressed",
-                )
-                .order_by(TraceEvent.created_at.desc())
-                .limit(50)
-            )).scalars().all()
-
-    # Resolve effective compression config
-    bot_cfg = get_bot(channel.bot_id)
-    compression_enabled = _is_compression_enabled(bot_cfg, channel) if bot_cfg else False
-    compression_model = _get_compression_model(bot_cfg, channel) if bot_cfg else ""
-    compression_threshold = _get_compression_threshold(bot_cfg, channel) if bot_cfg else 20000
-    compression_keep_turns = _get_compression_keep_turns(bot_cfg, channel) if bot_cfg else 2
-
-    # Compute aggregate stats
-    total_compressions = len(events)
-    total_chars_saved = 0
-    total_msgs_saved = 0
-    total_original = 0
-    total_compressed = 0
-    for e in events:
-        d = e.data or {}
-        orig = d.get("original_chars", 0)
-        comp = d.get("compressed_chars", 0)
-        total_original += orig
-        total_compressed += comp
-        total_chars_saved += orig - comp
-        total_msgs_saved += d.get("original_messages", 0) - d.get("compressed_messages", 0)
-
-    stats = {
-        "total_compressions": total_compressions,
-        "total_chars_saved": total_chars_saved,
-        "total_msgs_saved": total_msgs_saved,
-        "avg_reduction_pct": ((1 - total_compressed / total_original) * 100) if total_original > 0 else 0,
-        "avg_ratio": (total_original / total_compressed) if total_compressed > 0 else 0,
-        "avg_original": total_original // max(total_compressions, 1),
-        "avg_compressed": total_compressed // max(total_compressions, 1),
-    }
-
-    return templates.TemplateResponse("admin/channel_compression_section.html", {
-        "request": request,
-        "channel": channel,
-        "compression_enabled": compression_enabled,
-        "compression_model": compression_model,
-        "compression_threshold": compression_threshold,
-        "compression_keep_turns": compression_keep_turns,
-        "stats": stats,
-        "events": events,
-    })
 
 
 # ---------------------------------------------------------------------------

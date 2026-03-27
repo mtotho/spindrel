@@ -48,7 +48,6 @@ class BotOut(BaseModel):
     tool_retrieval: bool = True
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: dict = {}
-    compression_config: dict = {}
     persona: bool = False
     persona_content: Optional[str] = None
     persona_from_workspace: bool = False

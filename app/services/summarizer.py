@@ -19,11 +19,9 @@ Structure as: Key Context, Recent Actions, Open Items.
 
 
 def _resolve_model(channel: Channel | None) -> str:
-    """Resolve model: channel.compression_model > global chain."""
-    if channel and channel.compression_model:
-        return channel.compression_model
-    if settings.CONTEXT_COMPRESSION_MODEL:
-        return settings.CONTEXT_COMPRESSION_MODEL
+    """Resolve model for summarization: channel compaction_model > global."""
+    if channel and channel.compaction_model:
+        return channel.compaction_model
     return settings.COMPACTION_MODEL
 
 
@@ -121,7 +119,7 @@ async def summarize_messages(
             model=model,
             messages=prompt_messages,
             temperature=0.2,
-            max_tokens=settings.CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS,
+            max_tokens=2048,
         )
         return response.choices[0].message.content or "Summary generation returned empty."
     except Exception:

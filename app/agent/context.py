@@ -40,23 +40,6 @@ current_session_depth: ContextVar[int] = ContextVar("current_session_depth", def
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
 
-# Stores the pre-compression conversation messages for the get_message_detail drill-down tool.
-# Keyed by session_id (str) — NOT a ContextVar because _with_keepalive in chat.py wraps
-# each __anext__() in ensure_future(), isolating ContextVar changes across yields.
-_compression_histories: dict[str, list[dict]] = {}
-
-
-def set_compression_history(session_id, history: list[dict] | None) -> None:
-    key = str(session_id)
-    if history is None:
-        _compression_histories.pop(key, None)
-    else:
-        _compression_histories[key] = history
-
-
-def get_compression_history(session_id) -> list[dict] | None:
-    return _compression_histories.get(str(session_id))
-
 # Accumulates child-bot Slack posts from immediate delegation so run_stream() can
 # emit them as delegation_post events BEFORE the parent's response event.
 # Set to a list by the outermost run_stream(); None means post immediately.

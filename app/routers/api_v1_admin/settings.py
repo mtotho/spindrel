@@ -71,6 +71,49 @@ async def admin_reset_setting(
     return {"ok": True, "default": default_value}
 
 
+@router.get("/settings/chat-history-deviations")
+async def chat_history_deviations(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return channels whose chat-history settings deviate from global defaults."""
+    from sqlalchemy import select
+    from app.config import settings
+    from app.db.models import Channel
+
+    channels = (await db.execute(select(Channel))).scalars().all()
+
+    _fields = [
+        ("history_mode", settings.DEFAULT_HISTORY_MODE),
+        ("compaction_interval", settings.COMPACTION_INTERVAL),
+        ("compaction_keep_turns", settings.COMPACTION_KEEP_TURNS),
+        ("compaction_model", settings.COMPACTION_MODEL),
+        ("trigger_heartbeat_before_compaction", settings.TRIGGER_HEARTBEAT_BEFORE_COMPACTION),
+        ("section_index_count", settings.SECTION_INDEX_COUNT),
+        ("section_index_verbosity", settings.SECTION_INDEX_VERBOSITY),
+    ]
+
+    result = []
+    for ch in channels:
+        deviations = []
+        for field_name, global_val in _fields:
+            ch_val = getattr(ch, field_name, None)
+            if ch_val is not None and ch_val != global_val:
+                deviations.append({
+                    "field": field_name,
+                    "global_value": global_val,
+                    "channel_value": ch_val,
+                })
+        if deviations:
+            result.append({
+                "channel_id": str(ch.id),
+                "channel_name": ch.name,
+                "deviations": deviations,
+            })
+
+    return {"channels": result}
+
+
 @router.get("/global-fallback-models")
 async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
     from app.services.server_config import get_global_fallback_models

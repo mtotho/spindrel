@@ -53,7 +53,6 @@ def _bot_to_out(
         tool_retrieval=bot.tool_retrieval,
         tool_similarity_threshold=bot.tool_similarity_threshold,
         tool_result_config=getattr(bot, "tool_result_config", {}),
-        compression_config=getattr(bot, "compression_config", {}),
         persona=bot.persona,
         persona_content=persona_content,
         persona_from_workspace=persona_from_workspace,

@@ -1,5 +1,5 @@
 """Channel CRUD + tab endpoints: sessions, heartbeat, memories, tasks, plans,
-compression, knowledge, enriched."""
+knowledge, enriched."""
 from __future__ import annotations
 
 import json
@@ -245,36 +245,6 @@ class PlanListOut(BaseModel):
     plans: list[PlanOut]
 
 
-class CompressionStatsOut(BaseModel):
-    compression_enabled: bool = False
-    compression_model: str = ""
-    compression_threshold: int = 20000
-    compression_keep_turns: int = 2
-    total_compressions: int = 0
-    total_chars_saved: int = 0
-    total_msgs_saved: int = 0
-    avg_reduction_pct: float = 0.0
-    avg_ratio: float = 0.0
-    avg_original: int = 0
-    avg_compressed: int = 0
-
-
-class CompressionEventOut(BaseModel):
-    id: uuid.UUID
-    session_id: Optional[uuid.UUID] = None
-    correlation_id: Optional[uuid.UUID] = None
-    original_chars: int = 0
-    compressed_chars: int = 0
-    original_messages: int = 0
-    compressed_messages: int = 0
-    created_at: datetime
-
-
-class CompressionOut(BaseModel):
-    stats: CompressionStatsOut
-    events: list[CompressionEventOut] = []
-
-
 class ChannelSettingsOut(BaseModel):
     """All channel settings — superset of ChannelOut."""
     id: uuid.UUID
@@ -298,14 +268,9 @@ class ChannelSettingsOut(BaseModel):
     compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
-    compaction_skip_memory_phase: Optional[bool] = None
+    trigger_heartbeat_before_compaction: Optional[bool] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
-    context_compression: Optional[bool] = None
-    compression_model: Optional[str] = None
-    compression_threshold: Optional[int] = None
-    compression_keep_turns: Optional[int] = None
-    compression_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -347,13 +312,9 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
-    compaction_skip_memory_phase: Optional[bool] = None
+    trigger_heartbeat_before_compaction: Optional[bool] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
-    context_compression: Optional[bool] = None
-    compression_model: Optional[str] = None
-    compression_threshold: Optional[int] = None
-    compression_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -967,95 +928,6 @@ async def admin_channel_plans(
             for p in plans
         ],
     )
-
-
-# ---------------------------------------------------------------------------
-# Compression
-# ---------------------------------------------------------------------------
-
-@router.get("/channels/{channel_id}/compression", response_model=CompressionOut)
-async def admin_channel_compression(
-    channel_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
-):
-    """Get compression stats from TraceEvent context_compressed events."""
-    from app.services.compression import (
-        _is_compression_enabled,
-        _get_compression_model,
-        _get_compression_threshold,
-        _get_compression_keep_turns,
-    )
-
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    session_ids = (await db.execute(
-        select(Session.id).where(Session.channel_id == channel_id)
-    )).scalars().all()
-
-    events = []
-    if session_ids:
-        events = (await db.execute(
-            select(TraceEvent)
-            .where(
-                TraceEvent.session_id.in_(session_ids),
-                TraceEvent.event_type == "context_compressed",
-            )
-            .order_by(TraceEvent.created_at.desc())
-            .limit(50)
-        )).scalars().all()
-
-    bot_cfg = get_bot(channel.bot_id)
-    compression_enabled = _is_compression_enabled(bot_cfg, channel) if bot_cfg else False
-    compression_model = _get_compression_model(bot_cfg, channel) if bot_cfg else ""
-    compression_threshold = _get_compression_threshold(bot_cfg, channel) if bot_cfg else 20000
-    compression_keep_turns = _get_compression_keep_turns(bot_cfg, channel) if bot_cfg else 2
-
-    total_compressions = len(events)
-    total_chars_saved = 0
-    total_msgs_saved = 0
-    total_original = 0
-    total_compressed = 0
-    for e in events:
-        d = e.data or {}
-        orig = d.get("original_chars", 0)
-        comp = d.get("compressed_chars", 0)
-        total_original += orig
-        total_compressed += comp
-        total_chars_saved += orig - comp
-        total_msgs_saved += d.get("original_messages", 0) - d.get("compressed_messages", 0)
-
-    stats = CompressionStatsOut(
-        compression_enabled=compression_enabled,
-        compression_model=compression_model,
-        compression_threshold=compression_threshold,
-        compression_keep_turns=compression_keep_turns,
-        total_compressions=total_compressions,
-        total_chars_saved=total_chars_saved,
-        total_msgs_saved=total_msgs_saved,
-        avg_reduction_pct=((1 - total_compressed / total_original) * 100) if total_original > 0 else 0,
-        avg_ratio=(total_original / total_compressed) if total_compressed > 0 else 0,
-        avg_original=total_original // max(total_compressions, 1),
-        avg_compressed=total_compressed // max(total_compressions, 1),
-    )
-
-    events_out = [
-        CompressionEventOut(
-            id=e.id,
-            session_id=e.session_id,
-            correlation_id=e.correlation_id,
-            original_chars=(e.data or {}).get("original_chars", 0),
-            compressed_chars=(e.data or {}).get("compressed_chars", 0),
-            original_messages=(e.data or {}).get("original_messages", 0),
-            compressed_messages=(e.data or {}).get("compressed_messages", 0),
-            created_at=e.created_at,
-        )
-        for e in events
-    ]
-
-    return CompressionOut(stats=stats, events=events_out)
 
 
 # ---------------------------------------------------------------------------

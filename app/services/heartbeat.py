@@ -338,3 +338,28 @@ async def _safe_fire_heartbeat(hb: ChannelHeartbeat) -> None:
             await fire_heartbeat(hb)
         except Exception:
             logger.exception("Failed to fire heartbeat %s", hb.id)
+
+
+async def trigger_channel_heartbeat(
+    channel_id: uuid.UUID,
+    bot=None,
+    *,
+    correlation_id: uuid.UUID | None = None,
+) -> None:
+    """Fire all heartbeats for a channel immediately (used by compaction pre-trigger).
+
+    If the channel has no heartbeats configured, this is a no-op.
+    """
+    async with async_session() as db:
+        hbs = (await db.execute(
+            select(ChannelHeartbeat)
+            .where(ChannelHeartbeat.channel_id == channel_id, ChannelHeartbeat.enabled == True)
+        )).scalars().all()
+    if not hbs:
+        logger.debug("trigger_channel_heartbeat: no active heartbeats for channel %s", channel_id)
+        return
+    for hb in hbs:
+        try:
+            await fire_heartbeat(hb)
+        except Exception:
+            logger.warning("trigger_channel_heartbeat: failed to fire heartbeat %s", hb.id, exc_info=True)

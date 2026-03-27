@@ -155,121 +155,22 @@ async def get_session_context(
     if event is None or not event.data:
         return {"breakdown": None, "total_chars": 0, "total_messages": 0, "iteration": None, "created_at": None}
 
-    # Also fetch the last context_compressed event from the same correlation
-    compression_info = None
-    correlation_id = event.correlation_id
-    if correlation_id:
-        comp_result = await db.execute(
-            select(TraceEvent)
-            .where(
-                TraceEvent.session_id == session_id,
-                TraceEvent.correlation_id == correlation_id,
-                TraceEvent.event_type == "context_compressed",
-            )
-            .order_by(TraceEvent.created_at.desc())
-            .limit(1)
-        )
-        comp_event = comp_result.scalar_one_or_none()
-        if comp_event and comp_event.data:
-            compression_info = comp_event.data
-
     return {
         "breakdown": event.data.get("breakdown"),
         "total_chars": event.data.get("total_chars", 0),
         "total_messages": event.data.get("total_messages", 0),
         "iteration": event.data.get("iteration"),
         "created_at": event.created_at.isoformat() if event.created_at else None,
-        "compression": compression_info,
-    }
-
-
-@router.get("/{session_id}/context/compressed")
-async def get_session_context_compressed(
-    session_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
-):
-    """Run compression on the current session messages and return both breakdowns.
-
-    This actually calls the cheap model to produce a summary — it's not free.
-    """
-    from app.agent.tracing import _CLASSIFY_SYS_MSG
-    from app.services.compression import compress_context
-    from app.services.sessions import _load_messages
-
-    session = await db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    bot = get_bot(session.bot_id)
-    if bot is None:
-        raise HTTPException(status_code=404, detail="Bot not found")
-
-    messages = await _load_messages(db, session)
-
-    def _build_breakdown(msgs: list[dict]) -> dict:
-        breakdown: dict[str, dict] = {}
-        for m in msgs:
-            role = m.get("role", "?")
-            content = m.get("content") or ""
-            chars = sum(len(str(p)) for p in content) if isinstance(content, list) else len(content)
-            if role == "assistant" and m.get("tool_calls"):
-                chars += sum(len(str(tc)) for tc in m["tool_calls"])
-            key = role
-            if role == "system" and isinstance(content, str):
-                key = _CLASSIFY_SYS_MSG(content)
-            if key not in breakdown:
-                breakdown[key] = {"count": 0, "chars": 0}
-            breakdown[key]["count"] += 1
-            breakdown[key]["chars"] += chars
-        total_chars = sum(v["chars"] for v in breakdown.values())
-        return {"breakdown": breakdown, "total_chars": total_chars, "total_messages": len(msgs)}
-
-    original = _build_breakdown(messages)
-
-    # Find the last user message for compression context
-    user_message = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            c = m.get("content", "")
-            user_message = c if isinstance(c, str) else str(c)
-            break
-
-    result = await compress_context(
-        messages, bot, user_message,
-        channel_id=session.channel_id,
-        provider_id=bot.model_provider_id,
-    )
-
-    if result is None:
-        return {**original, "compressed": None, "reason": "below_threshold_or_disabled"}
-
-    compressed_msgs, _drilldown = result
-    compressed = _build_breakdown(compressed_msgs)
-
-    return {
-        **original,
-        "compressed": compressed,
-        "chars_saved": original["total_chars"] - compressed["total_chars"],
-        "reduction_pct": round(
-            (1 - compressed["total_chars"] / original["total_chars"]) * 100, 1
-        ) if original["total_chars"] > 0 else 0,
     }
 
 
 @router.get("/{session_id}/context/contents")
 async def get_session_context_contents(
     session_id: uuid.UUID,
-    compress: bool = True,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """Dump the actual messages that would go to the model.
-
-    If compress=true (default) and compression is enabled, runs the cheap model
-    first and returns the compressed view. Otherwise returns the raw messages.
-    """
-    from app.services.compression import compress_context
+    """Dump the actual messages that would go to the model."""
     from app.services.sessions import _load_messages
 
     session = await db.get(Session, session_id)
@@ -281,24 +182,6 @@ async def get_session_context_contents(
         raise HTTPException(status_code=404, detail="Bot not found")
 
     messages = await _load_messages(db, session)
-
-    compressed = False
-    if compress:
-        user_message = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                c = m.get("content", "")
-                user_message = c if isinstance(c, str) else str(c)
-                break
-
-        result = await compress_context(
-            messages, bot, user_message,
-            channel_id=session.channel_id,
-            provider_id=bot.model_provider_id,
-        )
-        if result is not None:
-            messages = result[0]
-            compressed = True
 
     # Sanitize messages for display — strip huge binary content
     display_messages = []
@@ -312,7 +195,6 @@ async def get_session_context_contents(
 
     return {
         "session_id": str(session_id),
-        "compressed": compressed,
         "total_messages": len(display_messages),
         "total_chars": sum(
             len(str(m.get("content", ""))) for m in display_messages
@@ -327,16 +209,11 @@ async def get_session_context_diagnostics(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """Return compaction + compression diagnostic info for a session."""
+    """Return compaction diagnostic info for a session."""
     from app.services.compaction import (
         _get_compaction_interval,
         _get_compaction_keep_turns,
         _is_compaction_enabled,
-    )
-    from app.services.compression import (
-        _get_compression_keep_turns,
-        _get_compression_threshold,
-        _is_compression_enabled,
     )
 
     session = await db.get(Session, session_id)
@@ -400,10 +277,6 @@ async def get_session_context_diagnostics(
     compaction_interval = _get_compaction_interval(bot, channel) if compaction_enabled else None
     compaction_keep_turns = _get_compaction_keep_turns(bot, channel) if compaction_enabled else None
 
-    compression_enabled = _is_compression_enabled(bot, channel)
-    compression_keep_turns = _get_compression_keep_turns(bot, channel) if compression_enabled else None
-    compression_threshold = _get_compression_threshold(bot, channel) if compression_enabled else None
-
     return {
         "session_id": str(session_id),
         "total_messages": total_msg_count,
@@ -424,11 +297,6 @@ async def get_session_context_diagnostics(
             "last_compaction_at": (
                 last_compaction.created_at.isoformat() if last_compaction else None
             ),
-        },
-        "compression": {
-            "enabled": compression_enabled,
-            "keep_turns": compression_keep_turns,
-            "threshold_chars": compression_threshold,
         },
     }
 
