@@ -15,6 +15,7 @@ import {
   Container,
   Plus,
   Hash,
+  Eye,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -56,6 +57,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
       { label: "Settings", href: "/admin/settings", icon: Settings },
+      { label: "Config State", href: "/admin/config-state", icon: Eye },
     ],
   },
 ];

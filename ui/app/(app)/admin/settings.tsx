@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { View, Text, ScrollView, ActivityIndicator, Pressable } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, Check } from "lucide-react";
+import { Link } from "expo-router";
+import { Save, Check, Eye } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { FallbackModelList, type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
@@ -65,6 +66,13 @@ export default function AdminSettingsPage() {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 24, maxWidth: 720 }}
       >
+        <Link href={"/admin/config-state" as any} asChild>
+          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 mb-4 hover:bg-surface-overlay active:bg-surface-overlay" style={{ alignSelf: "flex-start" }}>
+            <Eye size={14} color="#3b82f6" />
+            <Text style={{ fontSize: 13, color: "#3b82f6" }}>View full config state</Text>
+          </Pressable>
+        </Link>
+
         <Section title="Global Fallback Models">
           <Text style={{ color: "#888", fontSize: 13, marginBottom: 12 }}>
             Catch-all fallback chain appended after channel/bot fallbacks. When all per-channel
