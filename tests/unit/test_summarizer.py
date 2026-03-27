@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio
 def _channel(**overrides) -> MagicMock:
     ch = MagicMock()
     ch.id = overrides.get("id", uuid.uuid4())
-    ch.compression_model = overrides.get("compression_model", None)
+    ch.compaction_model = overrides.get("compaction_model", None)
     return ch
 
 
@@ -69,19 +69,12 @@ class FakeSession:
 
 class TestResolveModel:
     @patch("app.services.summarizer.settings")
-    def test_channel_compression_model(self, mock_settings):
-        ch = _channel(compression_model="compression-model")
-        assert _resolve_model(ch) == "compression-model"
+    def test_channel_compaction_model(self, mock_settings):
+        ch = _channel(compaction_model="compaction-chan")
+        assert _resolve_model(ch) == "compaction-chan"
 
     @patch("app.services.summarizer.settings")
-    def test_global_compression_model_fallback(self, mock_settings):
-        mock_settings.CONTEXT_COMPRESSION_MODEL = "global-compression"
-        mock_settings.COMPACTION_MODEL = "compaction"
-        assert _resolve_model(None) == "global-compression"
-
-    @patch("app.services.summarizer.settings")
-    def test_compaction_model_last_resort(self, mock_settings):
-        mock_settings.CONTEXT_COMPRESSION_MODEL = ""
+    def test_global_compaction_model_fallback(self, mock_settings):
         mock_settings.COMPACTION_MODEL = "compaction-model"
         assert _resolve_model(None) == "compaction-model"
 

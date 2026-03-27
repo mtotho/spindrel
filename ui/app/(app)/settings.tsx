@@ -11,9 +11,9 @@ import {
 } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Eye } from "lucide-react";
+import { Save, RotateCcw, Check, Eye, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -434,6 +434,131 @@ function GlobalSection({
 }
 
 // ---------------------------------------------------------------------------
+// Chat History extras (section index preview + deviations)
+// ---------------------------------------------------------------------------
+
+const SECTION_INDEX_PREVIEW: Record<string, string> = {
+  compact: `#1: Database Migration (Mar 5) [database, migration]
+#2: API Design (Mar 3) [api, design]
+#3: Deploy Pipeline (Mar 1) [deploy, ci-cd]`,
+  standard: `#1: Database Migration (Mar 5) [database, migration]
+  Fixed PostgreSQL schema issues and updated indexes for vector search
+#2: API Design (Mar 3) [api, design]
+  Discussed REST endpoint structure for v2 and auth middleware
+#3: Deploy Pipeline (Mar 1) [deploy, ci-cd]
+  Set up GitHub Actions workflow with staging and production targets`,
+  detailed: `#1: Database Migration (Mar 5) [database, migration, postgresql]
+  Fixed PostgreSQL schema issues and updated indexes for vector search.
+  Resolved conflict between pgvector extension and existing JSONB columns.
+  Added new migration for conversation_sections table.
+#2: API Design (Mar 3) [api, design, rest]
+  Discussed REST endpoint structure for v2 and auth middleware.
+  Decided on JWT tokens with refresh rotation. Rate limiting via Redis.`,
+};
+
+interface ChatHistoryDeviation {
+  channel_id: string;
+  channel_name: string;
+  deviations: { field: string; global_value: any; channel_value: any }[];
+}
+
+function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
+  const router = useRouter();
+  const [showDeviations, setShowDeviations] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["chat-history-deviations"],
+    queryFn: () => apiFetch<{ channels: ChatHistoryDeviation[] }>("/api/v1/admin/settings/chat-history-deviations"),
+    enabled: showDeviations,
+  });
+
+  const preview = SECTION_INDEX_PREVIEW[verbosity] || SECTION_INDEX_PREVIEW.standard;
+
+  return (
+    <View style={{ marginTop: 16, gap: 16 }}>
+      {/* Section Index Preview */}
+      <Section title="Section Index Preview" description={`Example of what the section index looks like in "${verbosity}" mode`}>
+        <View style={{
+          backgroundColor: "#0d0d0d",
+          borderRadius: 8,
+          border: "1px solid #2a2a2a",
+          padding: 14,
+        }}>
+          <Text style={{
+            fontFamily: "monospace",
+            fontSize: 11,
+            lineHeight: 18,
+            color: "#888",
+            whiteSpace: "pre-wrap",
+          }}>
+            {preview}
+          </Text>
+        </View>
+      </Section>
+
+      {/* Show Deviations */}
+      <Section title="Channel Deviations" description="Channels with chat history settings that differ from these global defaults">
+        {!showDeviations ? (
+          <Pressable
+            onPress={() => setShowDeviations(true)}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: "#1a1a1a",
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 8,
+              border: "1px solid #333",
+              alignSelf: "flex-start",
+            }}
+          >
+            <Eye size={14} color="#3b82f6" />
+            <Text style={{ color: "#3b82f6", fontSize: 13 }}>Show Deviations</Text>
+          </Pressable>
+        ) : isLoading ? (
+          <ActivityIndicator color="#3b82f6" />
+        ) : !data?.channels?.length ? (
+          <Text style={{ color: "#666", fontSize: 12 }}>All channels use global defaults.</Text>
+        ) : (
+          <View style={{ gap: 8 }}>
+            {data.channels.map((ch) => (
+              <Pressable
+                key={ch.channel_id}
+                onPress={() => router.push(`/channels/${ch.channel_id}/settings` as any)}
+                style={{
+                  backgroundColor: "#1a1a1a",
+                  borderRadius: 8,
+                  border: "1px solid #2a2a2a",
+                  padding: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#e5e5e5", fontSize: 13, fontWeight: "500", marginBottom: 4 }}>
+                    {ch.channel_name}
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {ch.deviations.map((d) => (
+                      <Text key={d.field} style={{ fontSize: 11, color: "#888" }}>
+                        {d.field}: <Text style={{ color: "#f59e0b" }}>{String(d.channel_value)}</Text>
+                        {" "}(global: {String(d.global_value)})
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+                <ChevronRight size={14} color="#666" />
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </Section>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Settings screen
 // ---------------------------------------------------------------------------
 
@@ -688,6 +813,13 @@ export default function SettingsScreen() {
               />
             </View>
           ))}
+
+          {/* Chat History extras: section index preview + deviations */}
+          {activeGroup === "Chat History" && (
+            <ChatHistoryExtras
+              verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
+            />
+          )}
         </RefreshableScrollView>
       </View>
     </View>

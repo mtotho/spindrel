@@ -35,7 +35,6 @@ export interface BotConfig {
   tool_retrieval?: boolean;
   tool_similarity_threshold?: number | null;
   tool_result_config?: Record<string, any>;
-  compression_config?: Record<string, any>;
   persona?: boolean;
   persona_content?: string;
   persona_from_workspace?: boolean;
@@ -183,14 +182,9 @@ export interface ChannelSettings {
   compaction_workspace_id?: string | null;
   history_mode?: string | null;
   compaction_model?: string;
-  compaction_skip_memory_phase?: boolean | null;
+  trigger_heartbeat_before_compaction?: boolean | null;
   section_index_count?: number | null;
   section_index_verbosity?: string | null;
-  context_compression?: boolean;
-  compression_model?: string;
-  compression_threshold?: number;
-  compression_keep_turns?: number;
-  compression_prompt?: string;
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;
@@ -505,15 +499,6 @@ export interface CompactionState {
   turns_until_next: number | null;
 }
 
-export interface CompressionState {
-  enabled: boolean;
-  model: string;
-  threshold: number;
-  keep_turns: number;
-  conversation_chars: number;
-  would_compress: boolean;
-}
-
 export interface RerankState {
   enabled: boolean;
   model: string;
@@ -536,7 +521,6 @@ export interface ContextBreakdown {
   total_chars: number;
   total_tokens_approx: number;
   compaction: CompactionState;
-  compression: CompressionState;
   reranking: RerankState;
   effective_settings: Record<string, EffectiveSetting>;
   disclaimer: string;

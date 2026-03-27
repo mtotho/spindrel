@@ -178,10 +178,6 @@ class BotConfig:
     # threshold (int|None), model (str|None), max_tokens (int|None), exclude_tools (list[str]).
     # None values inherit from global TOOL_RESULT_SUMMARIZE_* settings.
     tool_result_config: dict = field(default_factory=dict)
-    # Bot-level overrides for pre-turn context compression. Keys: enabled (bool|None),
-    # model (str|None), threshold (int|None), keep_turns (int|None).
-    # None values inherit from global CONTEXT_COMPRESSION_* settings.
-    compression_config: dict = field(default_factory=dict)
     # Per-bot RAG injection limits (chars per item). None = use global settings.
     knowledge_max_inject_chars: int | None = None
     memory_max_inject_chars: int | None = None
@@ -401,7 +397,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         avatar_url=row.avatar_url,
         integration_config=row.integration_config or {},
         tool_result_config=row.tool_result_config or {},
-        compression_config=row.compression_config or {},
         knowledge_max_inject_chars=row.knowledge_max_inject_chars,
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
@@ -489,7 +484,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "avatar_url": data.get("avatar_url"),
         "integration_config": data.get("integration_config", {}),
         "tool_result_config": data.get("tool_result_config", {}),
-        "compression_config": data.get("compression_config", {}),
         "knowledge_max_inject_chars": data.get("knowledge_max_inject_chars"),
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),
         "delegation_config": {

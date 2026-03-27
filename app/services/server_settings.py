@@ -42,10 +42,14 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "LLM_RETRY_INITIAL_WAIT": {"group": "Agent", "label": "LLM Retry Initial Wait", "description": "Seconds before first retry (doubles each attempt)", "type": "float", "min": 0.5, "max": 60},
     "LLM_RATE_LIMIT_RETRIES": {"group": "Agent", "label": "Rate Limit Retries", "description": "Additional attempts after rate limit failure", "type": "int", "min": 0, "max": 10},
     "LLM_RATE_LIMIT_INITIAL_WAIT": {"group": "Agent", "label": "Rate Limit Initial Wait", "description": "Seconds before first rate limit retry", "type": "int", "min": 10, "max": 300},
-    # --- Compaction ---
-    "COMPACTION_MODEL": {"group": "Compaction", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
-    "COMPACTION_INTERVAL": {"group": "Compaction", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
-    "COMPACTION_KEEP_TURNS": {"group": "Compaction", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
+    # --- Chat History ---
+    "DEFAULT_HISTORY_MODE": {"group": "Chat History", "label": "Default History Mode", "description": "How conversation history is stored and retrieved", "type": "string", "options": ["summary", "structured", "file"]},
+    "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
+    "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
+    "COMPACTION_KEEP_TURNS": {"group": "Chat History", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
+    "TRIGGER_HEARTBEAT_BEFORE_COMPACTION": {"group": "Chat History", "label": "Trigger Heartbeat Before Compaction", "description": "Fire channel heartbeats before compaction instead of the dedicated memory phase LLM call", "type": "bool"},
+    "SECTION_INDEX_COUNT": {"group": "Chat History", "label": "Section Index Count", "description": "Number of recent sections shown in the index (file mode)", "type": "int", "min": 0, "max": 100},
+    "SECTION_INDEX_VERBOSITY": {"group": "Chat History", "label": "Section Index Verbosity", "description": "Detail level for section index entries", "type": "string", "options": ["compact", "standard", "detailed"]},
     # --- Embeddings & RAG ---
     "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings", "type": "string"},
     "RAG_TOP_K": {"group": "Embeddings & RAG", "label": "RAG Top-K", "description": "Number of RAG results to return", "type": "int", "min": 1, "max": 50},
@@ -99,7 +103,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Agent", "Compaction",
+    "System", "General", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
     "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]

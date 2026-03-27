@@ -167,12 +167,6 @@ class ChannelConfigOut(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Compression
-    context_compression: Optional[bool] = None
-    compression_model: Optional[str] = None
-    compression_threshold: Optional[int] = None
-    compression_keep_turns: Optional[int] = None
-    compression_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -234,12 +228,6 @@ class ChannelConfigUpdate(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Compression
-    context_compression: Optional[bool] = None
-    compression_model: Optional[str] = None
-    compression_threshold: Optional[int] = None
-    compression_keep_turns: Optional[int] = None
-    compression_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -485,11 +473,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compaction_prompt_template_id": channel.compaction_prompt_template_id,
         "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
         "history_mode": channel.history_mode,
-        "context_compression": channel.context_compression,
-        "compression_model": channel.compression_model,
-        "compression_threshold": channel.compression_threshold,
-        "compression_keep_turns": channel.compression_keep_turns,
-        "compression_prompt": channel.compression_prompt,
         "elevation_enabled": channel.elevation_enabled,
         "elevation_threshold": channel.elevation_threshold,
         "elevated_model": channel.elevated_model,

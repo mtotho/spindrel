@@ -45,11 +45,6 @@ class Channel(Base):
         ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
-    context_compression: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    compression_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    compression_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    compression_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    compression_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -80,7 +75,7 @@ class Channel(Base):
     workspace_skills_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
-    compaction_skip_memory_phase: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    trigger_heartbeat_before_compaction: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     channel_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     section_index_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -660,7 +655,6 @@ class Bot(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     integration_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    compression_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     knowledge_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
     delegation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))

@@ -126,10 +126,17 @@ def _msg_to_dict(m: Message) -> dict:
 
 
 def _get_history_mode(bot: BotConfig, channel: Channel | None = None) -> str:
-    """Resolve the effective history mode: channel override → bot → default 'summary'."""
+    """Resolve the effective history mode: channel override → bot → global default."""
     if channel and channel.history_mode:
         return channel.history_mode
-    return bot.history_mode or "file"
+    return bot.history_mode or settings.DEFAULT_HISTORY_MODE
+
+
+def _resolve_trigger_heartbeat(channel: Channel | None = None) -> bool:
+    """Resolve whether to trigger a heartbeat before compaction: channel → global."""
+    if channel and channel.trigger_heartbeat_before_compaction is not None:
+        return channel.trigger_heartbeat_before_compaction
+    return settings.TRIGGER_HEARTBEAT_BEFORE_COMPACTION
 
 
 def _stringify_message_content(content: Any) -> str:
@@ -591,8 +598,17 @@ async def run_compaction_stream(
     run_memory_phase = (
         bot.memory.enabled or bot.knowledge.enabled or bot.persona
     )
-    if channel and channel.compaction_skip_memory_phase:
+    _trigger_hb = _resolve_trigger_heartbeat(channel)
+    if _trigger_hb:
+        # Trigger a heartbeat for this channel instead of the dedicated memory phase LLM call
         run_memory_phase = False
+        if channel:
+            from app.services.heartbeat import trigger_channel_heartbeat
+            try:
+                await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
+                logger.info("Triggered heartbeat before compaction for channel %s", channel.id)
+            except Exception:
+                logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
 
     if run_memory_phase:
         memory_conversation = _messages_for_memory_phase(messages)
@@ -846,8 +862,15 @@ async def run_compaction_forced(
         raise ValueError("No conversation content to summarize")
 
     run_memory_phase = bot.memory.enabled or bot.knowledge.enabled or bot.persona
-    if channel and channel.compaction_skip_memory_phase:
+    _trigger_hb2 = _resolve_trigger_heartbeat(channel)
+    if _trigger_hb2:
         run_memory_phase = False
+        if channel:
+            from app.services.heartbeat import trigger_channel_heartbeat
+            try:
+                await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
+            except Exception:
+                logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
     if run_memory_phase:
         memory_phase_messages = _messages_for_memory_phase(messages)
         async for _ in _run_compaction_memory_phase(
@@ -1002,6 +1025,9 @@ async def count_eligible_messages(channel_id: uuid.UUID) -> int:
         is_passive = (m.metadata_ or {}).get("passive", False)
         if m.role == "user" and is_passive:
             continue
+        # Match _messages_for_summary: skip messages with no content
+        if not m.content:
+            continue
         count += 1
     return count
 
@@ -1152,9 +1178,21 @@ async def backfill_sections(
             covered_ua = sum(s.message_count for s in existing)
             start_seq = existing[-1].sequence + 1
 
+            # Count actual user+assistant messages in conversation (post-filter)
+            total_ua_in_conversation = sum(
+                1 for m in conversation if m.get("role") in ("user", "assistant")
+            )
+            logger.info(
+                "Backfill resume: %d existing sections covering %d msgs, "
+                "conversation has %d user+assistant msgs (post-filter), "
+                "skipping %d, start_seq=%d",
+                len(existing), covered_ua, total_ua_in_conversation,
+                min(covered_ua, total_ua_in_conversation), start_seq,
+            )
+
             # Skip covered_ua user+assistant messages in the conversation
             skipped = 0
-            skip_idx = 0
+            skip_idx = len(conversation)  # default: skip everything if covered_ua >= total
             for idx, m in enumerate(conversation):
                 if m.get("role") in ("user", "assistant"):
                     skipped += 1
@@ -1162,7 +1200,7 @@ async def backfill_sections(
                     skip_idx = idx + 1
                     break
             conversation = conversation[skip_idx:]
-            active_timestamps = active_timestamps[covered_ua:]
+            active_timestamps = active_timestamps[min(covered_ua, len(active_timestamps)):]
         else:
             start_seq = 1
 
@@ -1274,6 +1312,20 @@ async def backfill_sections(
 # Section index formatter (for context injection in file mode)
 # ---------------------------------------------------------------------------
 
+def _format_section_period(period_start, period_end, detailed: bool = False) -> str:
+    """Smart date range: same-day shows times, multi-day shows date range."""
+    if not period_start:
+        return "?"
+    if not period_end or period_start == period_end:
+        return period_start.strftime("%b %-d, %-I:%M%p").lower().replace("am", "am").replace("pm", "pm") if detailed else period_start.strftime("%b %-d")
+    same_day = period_start.date() == period_end.date()
+    if same_day:
+        return f"{period_start.strftime('%b %-d, %-I:%M%p').lower()} — {period_end.strftime('%-I:%M%p').lower()}"
+    if detailed:
+        return f"{period_start.strftime('%b %-d %-I:%M%p').lower()} — {period_end.strftime('%b %-d %-I:%M%p').lower()}"
+    return f"{period_start.strftime('%b %-d')} — {period_end.strftime('%b %-d')}"
+
+
 def format_section_index(sections: list, verbosity: str = "standard") -> str:
     """Format a section index for injection into the system prompt.
 
@@ -1289,7 +1341,7 @@ def format_section_index(sections: list, verbosity: str = "standard") -> str:
     if verbosity == "compact":
         lines = [header]
         for s in sections:
-            date_str = s.period_start.strftime("%b %-d") if s.period_start else "?"
+            date_str = _format_section_period(s.period_start, s.period_end)
             tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
             lines.append(f"- #{s.sequence}: {s.title} ({date_str}){tag_str}")
         return "\n".join(lines)
@@ -1297,11 +1349,10 @@ def format_section_index(sections: list, verbosity: str = "standard") -> str:
     if verbosity == "detailed":
         lines = [header, ""]
         for s in sections:
-            start_str = s.period_start.strftime("%b %-d %H:%M") if s.period_start else "?"
-            end_str = s.period_end.strftime("%b %-d %H:%M") if s.period_end else "?"
+            date_str = _format_section_period(s.period_start, s.period_end, detailed=True)
             tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
             lines.append(
-                f"#{s.sequence}: {s.title} ({s.message_count} msgs, {start_str} — {end_str}){tag_str}"
+                f"#{s.sequence}: {s.title} ({s.message_count} msgs, {date_str}){tag_str}"
             )
             lines.append(f"  {s.summary}")
             lines.append("")
@@ -1310,7 +1361,7 @@ def format_section_index(sections: list, verbosity: str = "standard") -> str:
     # standard (default)
     lines = [header, ""]
     for s in sections:
-        date_str = s.period_start.strftime("%b %-d") if s.period_start else "?"
+        date_str = _format_section_period(s.period_start, s.period_end)
         tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
         lines.append(f"#{s.sequence}: {s.title} ({date_str}){tag_str}")
         lines.append(f"  {s.summary}")

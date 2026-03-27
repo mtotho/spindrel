@@ -548,9 +548,9 @@ async def assemble_context(
 
                 # Inject section index so the bot knows what's in the archive
                 _si_count = getattr(_sec_ch, "section_index_count", None)
-                _si_count = _si_count if _si_count is not None else 10  # default 10
+                _si_count = _si_count if _si_count is not None else settings.SECTION_INDEX_COUNT
                 if _si_count > 0:
-                    _si_verbosity = getattr(_sec_ch, "section_index_verbosity", None) or "standard"
+                    _si_verbosity = getattr(_sec_ch, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
                     from app.db.models import ConversationSection as _SISection
                     from sqlalchemy import select as _si_select
                     async with _sec_async_session() as _si_db:

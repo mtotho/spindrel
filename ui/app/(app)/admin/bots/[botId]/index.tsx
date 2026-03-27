@@ -680,57 +680,6 @@ function ToolsSection({
         </Row>
       </div>
 
-      {/* Context Compression */}
-      <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Context Compression</div>
-        <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Summarizes conversation history via a cheap model before each LLM call.</div>
-        <Row gap={12}>
-          <Col>
-            <SelectInput
-              value={draft.compression_config?.enabled === true ? "true" : draft.compression_config?.enabled === false ? "false" : ""}
-              onChange={(v) => {
-                const cc = { ...draft.compression_config };
-                if (v === "true") cc.enabled = true;
-                else if (v === "false") cc.enabled = false;
-                else delete cc.enabled;
-                update({ compression_config: cc });
-              }}
-              options={[
-                { label: "Inherit global", value: "" },
-                { label: "Force on", value: "true" },
-                { label: "Force off", value: "false" },
-              ]}
-            />
-          </Col>
-          <Col>
-            <FormRow label="Trigger size (chars)">
-              <TextInput
-                value={String((draft.compression_config as any)?.threshold ?? "")}
-                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, threshold: v ? parseInt(v) : undefined } })}
-                placeholder="global (20000)" type="number"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Compression model">
-              <LlmModelDropdown
-                value={(draft.compression_config as any)?.model ?? ""}
-                onChange={(v) => update({ compression_config: { ...draft.compression_config, model: v || undefined } })}
-                placeholder="global model"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Keep turns (verbatim)">
-              <TextInput
-                value={String((draft.compression_config as any)?.keep_turns ?? "")}
-                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, keep_turns: v ? parseInt(v) : undefined } })}
-                placeholder="global (2)" type="number"
-              />
-            </FormRow>
-          </Col>
-        </Row>
-      </div>
     </div>
   );
 }
@@ -1350,7 +1299,7 @@ export default function BotEditorScreen() {
       identity: ["id", "name", "model", "provider", "temperature", "params", "creativity"],
       prompt: ["system", "prompt"],
       persona: ["persona", "personality", "tone"],
-      tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization", "compression"],
+      tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization"],
       skills: ["skill"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],

@@ -320,7 +320,6 @@ class BotUpdateIn(BaseModel):
     tool_retrieval: Optional[bool] = None
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
-    compression_config: Optional[dict] = None
     persona: Optional[bool] = None
     persona_content: Optional[str] = None
     context_compaction: Optional[bool] = None
@@ -419,7 +418,6 @@ class BotCreateIn(BaseModel):
     tool_retrieval: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
-    compression_config: Optional[dict] = None
     persona: Optional[bool] = False
     persona_content: Optional[str] = None
     context_compaction: Optional[bool] = True

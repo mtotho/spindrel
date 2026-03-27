@@ -50,16 +50,6 @@ class CompactionState:
 
 
 @dataclass
-class CompressionState:
-    enabled: bool = False
-    model: str = ""
-    threshold: int = 0
-    keep_turns: int = 0
-    conversation_chars: int = 0
-    would_compress: bool = False
-
-
-@dataclass
 class RerankState:
     enabled: bool = False
     model: str = ""
@@ -84,7 +74,6 @@ class ContextBreakdownResult:
     total_chars: int
     total_tokens_approx: int
     compaction: CompactionState
-    compression: CompressionState
     reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
     disclaimer: str
@@ -308,9 +297,9 @@ async def compute_context_breakdown(
     _hist_mode = _get_history_mode(bot, channel)
     if _hist_mode == "file":
         _si_count = getattr(channel, "section_index_count", None)
-        _si_count = _si_count if _si_count is not None else 10
+        _si_count = _si_count if _si_count is not None else settings.SECTION_INDEX_COUNT
         if _si_count > 0:
-            _si_verbosity = getattr(channel, "section_index_verbosity", None) or "standard"
+            _si_verbosity = getattr(channel, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
             _actual_sections = (await db.execute(
                 select(func.count()).select_from(ConversationSection)
                 .where(ConversationSection.channel_id == channel_id)
@@ -446,33 +435,7 @@ async def compute_context_breakdown(
     )
 
     # -----------------------------------------------------------------------
-    # 5. Context compression (ephemeral, per-turn)
-    # -----------------------------------------------------------------------
-    from app.services.compression import (
-        _is_compression_enabled,
-        _get_compression_model,
-        _get_compression_threshold,
-        _get_compression_keep_turns,
-    )
-
-    comp_enabled = _is_compression_enabled(bot, channel)
-    comp_model = _get_compression_model(bot, channel)
-    comp_threshold = _get_compression_threshold(bot, channel)
-    comp_keep_turns = _get_compression_keep_turns(bot, channel)
-    comp_conv_chars = chars_since_watermark
-    comp_would_compress = comp_enabled and comp_conv_chars >= comp_threshold
-
-    compression = CompressionState(
-        enabled=comp_enabled,
-        model=comp_model,
-        threshold=comp_threshold,
-        keep_turns=comp_keep_turns,
-        conversation_chars=comp_conv_chars,
-        would_compress=comp_would_compress,
-    )
-
-    # -----------------------------------------------------------------------
-    # 5b. RAG re-ranking state
+    # 5. RAG re-ranking state
     # -----------------------------------------------------------------------
     total_rag_chars = sum(c.chars for c in categories if c.category == "rag")
     rerank_model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
@@ -501,18 +464,6 @@ async def compute_context_breakdown(
         "compaction_keep_turns": _resolve_setting(
             channel.compaction_keep_turns, bot.compaction_keep_turns,
             settings.COMPACTION_KEEP_TURNS, "compaction_keep_turns",
-        ),
-        "context_compression": _resolve_setting(
-            channel.context_compression, (bot.compression_config or {}).get("enabled"),
-            settings.CONTEXT_COMPRESSION_ENABLED, "context_compression",
-        ),
-        "compression_threshold": _resolve_setting(
-            channel.compression_threshold, (bot.compression_config or {}).get("threshold"),
-            settings.CONTEXT_COMPRESSION_THRESHOLD, "compression_threshold",
-        ),
-        "compression_model": _resolve_setting(
-            channel.compression_model, (bot.compression_config or {}).get("model"),
-            settings.CONTEXT_COMPRESSION_MODEL or "(compaction model)", "compression_model",
         ),
         "memory_enabled": EffectiveSetting(value=bot.memory.enabled, source="bot"),
         "knowledge_enabled": EffectiveSetting(value=bot.knowledge.enabled, source="bot"),
@@ -546,7 +497,6 @@ async def compute_context_breakdown(
         total_chars=total_chars,
         total_tokens_approx=total_tokens,
         compaction=compaction,
-        compression=compression,
         reranking=reranking,
         effective_settings=effective_settings,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",

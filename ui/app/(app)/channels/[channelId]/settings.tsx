@@ -64,7 +64,6 @@ const BASE_TABS = [
   { key: "sessions", label: "Sessions" },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "tasks", label: "Tasks" },
-  { key: "compression", label: "Compression" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -119,14 +118,9 @@ export default function ChannelSettingsScreen() {
         compaction_workspace_id: settings.compaction_workspace_id,
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
-        compaction_skip_memory_phase: settings.compaction_skip_memory_phase,
+        trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
         section_index_count: settings.section_index_count,
         section_index_verbosity: settings.section_index_verbosity,
-        context_compression: settings.context_compression,
-        compression_model: settings.compression_model,
-        compression_threshold: settings.compression_threshold,
-        compression_keep_turns: settings.compression_keep_turns,
-        compression_prompt: settings.compression_prompt,
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
@@ -181,7 +175,7 @@ export default function ChannelSettingsScreen() {
             Channel Settings
           </Text>
         </View>
-        {(tab === "general" || tab === "history" || tab === "compression" || tab === "workspace") && (
+        {(tab === "general" || tab === "history" || tab === "workspace") && (
           <Pressable
             onPress={handleSave}
             disabled={updateMutation.isPending}
@@ -246,7 +240,6 @@ export default function ChannelSettingsScreen() {
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "compression" && <CompressionTab channelId={channelId!} form={form} patch={patch} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>
     </View>
@@ -880,18 +873,18 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
           </div>
 
-          {/* Memory phase toggle + prompt */}
+          {/* Heartbeat trigger toggle + prompt */}
           <Toggle
-            value={!!form.compaction_skip_memory_phase}
-            onChange={(v) => patch("compaction_skip_memory_phase", v || undefined)}
-            label="Skip memory phase"
+            value={!!form.trigger_heartbeat_before_compaction}
+            onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
+            label="Trigger heartbeat before compact/sectioning"
           />
           <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-            Skips the extra LLM call that lets the bot save memories/knowledge before archival.
-            Enable this if you use heartbeat or another mechanism to persist memories — the memory phase becomes redundant.
+            Fires channel heartbeats before compaction instead of the dedicated memory phase LLM call.
+            When off, uses the built-in memory phase prompt.
           </div>
 
-          {!form.compaction_skip_memory_phase && (
+          {!form.trigger_heartbeat_before_compaction && (
             <>
               <WorkspaceFilePrompt
                 workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
@@ -1015,18 +1008,18 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 Used for summarization. A cheap/fast model works well — the prompts are straightforward.
               </div>
 
-              {/* Memory phase toggle + prompt */}
+              {/* Heartbeat trigger toggle + prompt */}
               <Toggle
-                value={!!form.compaction_skip_memory_phase}
-                onChange={(v) => patch("compaction_skip_memory_phase", v || undefined)}
-                label="Skip memory phase"
+                value={!!form.trigger_heartbeat_before_compaction}
+                onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
+                label="Trigger heartbeat before compact/sectioning"
               />
               <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-                Skips the extra LLM call that lets the bot save memories/knowledge before summarization.
-                Enable this if you use heartbeat or another mechanism to persist memories.
+                Fires channel heartbeats before compaction instead of the dedicated memory phase LLM call.
+                When off, uses the built-in memory phase prompt.
               </div>
 
-              {!form.compaction_skip_memory_phase && (
+              {!form.trigger_heartbeat_before_compaction && (
                 <>
                   <WorkspaceFilePrompt
                     workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
@@ -2556,149 +2549,6 @@ function ContextBlock({ block, colors, isPlaceholder }: {
         {displayContent}
       </div>
     </div>
-  );
-}
-
-// ===========================================================================
-// Compression Tab
-// ===========================================================================
-function CompressionTab({ channelId, form, patch }: {
-  channelId: string;
-  form: Partial<ChannelSettings>;
-  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
-}) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["channel-compression", channelId],
-    queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/compression`),
-  });
-
-  const isFileMode = form.history_mode === "file" || form.history_mode === "structured";
-
-  return (
-    <>
-      {/* Settings (moved from General tab) */}
-      <Section title="Settings" description="Summarises old turns via a cheap model before each LLM call. Separate from compaction.">
-        {isFileMode && (
-          <div style={{
-            padding: "10px 14px", background: "#111", border: "1px solid #333",
-            borderRadius: 8, fontSize: 11, color: "#999", lineHeight: "1.5", marginBottom: 8,
-          }}>
-            With file mode, context compression is usually unnecessary — old turns are archived into sections.
-          </div>
-        )}
-        <Row>
-          <Col>
-            <FormRow label="Enable Compression">
-              <SelectInput
-                value={triStateValue(form.context_compression)}
-                onChange={(v) => patch("context_compression", triStateParse(v))}
-                options={triStateOptions}
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <LlmModelDropdown
-              label="Compression Model"
-              value={form.compression_model ?? ""}
-              onChange={(v) => patch("compression_model", v || undefined)}
-              placeholder="inherit"
-            />
-          </Col>
-        </Row>
-        <Row>
-          <Col>
-            <FormRow label="Trigger Threshold (chars)">
-              <TextInput
-                value={form.compression_threshold?.toString() ?? ""}
-                onChangeText={(v) => patch("compression_threshold", v ? parseInt(v) || undefined : undefined)}
-                placeholder="inherit (20000)"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Keep Turns (verbatim)">
-              <TextInput
-                value={form.compression_keep_turns?.toString() ?? ""}
-                onChangeText={(v) => patch("compression_keep_turns", v ? parseInt(v) || undefined : undefined)}
-                placeholder="inherit (2)"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-        </Row>
-        <LlmPrompt
-          value={form.compression_prompt ?? ""}
-          onChange={(v) => patch("compression_prompt", v || undefined)}
-          label="Compression Prompt"
-          placeholder="Leave blank to use the built-in default prompt..."
-          helpText="Custom system prompt for the compression LLM. Overrides the hardcoded default."
-          rows={5}
-          generateContext="A system prompt for compressing conversation history into a shorter form. Should preserve important context, decisions, and facts while significantly reducing token count."
-        />
-      </Section>
-
-      {/* Observability sections (from API) */}
-      {isLoading ? (
-        <ActivityIndicator color="#3b82f6" />
-      ) : data ? (
-        <>
-          {data.effective_config && (
-            <Section title="Effective Config">
-              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-                {Object.entries(data.effective_config).map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 12 }}>
-                    <span style={{ color: "#666" }}>{k}: </span>
-                    <span style={{ color: "#999" }}>{String(v ?? "—")}</span>
-                  </div>
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {data.stats && (
-            <Section title="Stats">
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-                {[
-                  ["Compressions", data.stats.total_compressions],
-                  ["Chars Saved", data.stats.total_chars_saved?.toLocaleString()],
-                  ["Msgs Saved", data.stats.total_msgs_saved],
-                  ["Avg Reduction", data.stats.avg_reduction_pct ? `${data.stats.avg_reduction_pct.toFixed(0)}%` : "—"],
-                ].map(([label, val]) => (
-                  <div key={String(label)} style={{
-                    padding: "12px 14px", background: "#1a1a1a", borderRadius: 8, border: "1px solid #2a2a2a",
-                  }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#e5e5e5" }}>{val ?? 0}</div>
-                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {data.events?.length > 0 && (
-            <Section title={`Recent Events (${data.events.length})`}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {data.events.map((e: any) => (
-                  <div key={e.id} style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
-                    fontSize: 12,
-                  }}>
-                    <span style={{ color: "#999" }}>{new Date(e.created_at).toLocaleString()}</span>
-                    <span style={{ color: "#666" }}>
-                      {e.data?.original_chars ?? "?"} → {e.data?.compressed_chars ?? "?"} chars
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Section>
-          )}
-        </>
-      ) : (
-        <EmptyState message="No compression data." />
-      )}
-    </>
   );
 }
 

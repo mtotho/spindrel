@@ -30,7 +30,7 @@ docker compose -f "$REPO_DIR/docker-compose.yml" exec -T postgres \
 # ── 2. Bundle dump + config files into a tarball ────────────────────────────
 echo "[backup] Creating archive …"
 TAR_ARGS=( -C "$BACKUP_DIR" "$DUMP_FILE"
-           -C "$REPO_DIR"   .env bots skills mcp.yaml config/searxng/settings.yml )
+           -C "$REPO_DIR"   .env bots skills tools integrations mcp.yaml config/searxng/settings.yml )
 
 # Include workspace data if it exists
 WORKSPACE_DIR="${HOME}/.agent-workspaces"
