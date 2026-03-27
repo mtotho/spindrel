@@ -1,14 +1,14 @@
 """Add source_task_id to sessions for delegation visibility.
 
-Revision ID: 090
-Revises: 089
+Revision ID: 098
+Revises: 097
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = "090"
-down_revision = "089"
+revision = "098"
+down_revision = "097"
 
 
 def upgrade() -> None:

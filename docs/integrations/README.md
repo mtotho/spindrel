@@ -4,7 +4,40 @@ This guide explains how to create a new integration — a self-contained module 
 connects an external service (GitHub, Gmail, webhooks, etc.) to the agent server without
 touching core code.
 
-> **Architecture decisions, design philosophy, and known debt** → see [DESIGN.md](DESIGN.md)
+> **Architecture decisions and design philosophy** → see [DESIGN.md](DESIGN.md)
+
+---
+
+## External Integrations (INTEGRATION_DIRS)
+
+Integrations don't have to live inside the agent-server repo. Set `INTEGRATION_DIRS` in
+`.env` to point to one or more directories containing integration folders:
+
+```bash
+# .env
+INTEGRATION_DIRS=/home/you/my-integrations
+```
+
+Each directory is scanned the same way as `integrations/` — any subfolder with a
+`router.py`, `dispatcher.py`, `tools/*.py`, `skills/*.md`, or `process.py` is discovered
+automatically.
+
+**Docker deployment:** mount your external integrations directory into the container and
+set `INTEGRATION_DIRS` to the mount point:
+
+```yaml
+# docker-compose.override.yml
+services:
+  agent-server:
+    volumes:
+      - /home/you/my-integrations:/app/ext-integrations:ro
+    environment:
+      - INTEGRATION_DIRS=/app/ext-integrations
+```
+
+**Self-contained structure:** each external integration should include its own `config.py`
+for settings and use `integrations/_register.py` (or a local copy of the stub) for tool
+registration. See the "Creating an External Integration" section in [example.md](example.md).
 
 ---
 

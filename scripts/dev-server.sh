@@ -12,7 +12,7 @@ source .venv/bin/activate
 
 if [ ! -f .env ]; then
     echo "No .env file found. Copying from .env.example..."
-    cp .env.example .envhttps:/platform.claude.com/oauth/code/callback is not supported by client.
+    cp .env.example .env
     echo "Edit .env with your settings before continuing."
     exit 1
 fi

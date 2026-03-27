@@ -44,6 +44,7 @@ def _make_bot(**overrides) -> BotConfig:
         memory=MemoryConfig(),
         knowledge=KnowledgeConfig(),
         persona=False,
+        history_mode="summary",
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

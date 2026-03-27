@@ -50,9 +50,35 @@ slack_state.json
 node_modules/
 android-client/node_modules/
 
-# Media data (cron-generated JSON)
-data/media/*.json
-
 # Backups
 backups/
 rclone.conf
+
+# User content (create your own via UI or drop files here)
+bots/
+!bots/.gitkeep
+skills/
+!skills/.gitkeep
+
+# User tools (see tools/README.md)
+tools/*.py
+
+# Personal/private integrations (only slack/ and example/ ship with the repo)
+integrations/arr/
+integrations/bennieloggins/
+integrations/frigate/
+integrations/github/
+integrations/ingestion/
+
+# Planning docs (internal)
+Plans/
+PLANS/
+!PLANS/README.md
+!PLANS/HEARTBEAT_QUIET_HOURS.md
+!PLANS/TESTING_PLAN.md
+
+# Runtime data
+data/
+
+# Personal migration guide
+MIKE.md

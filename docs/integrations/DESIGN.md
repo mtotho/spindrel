@@ -177,33 +177,32 @@ served by `app/routers/admin_channels.py`. It does NOT query the DB directly.
 
 ---
 
-## Known Debt
+## Integration Debt — Resolved
 
-For detailed explanation of each item (current behavior, problem, fix, implementation steps)
-see [`DEBT.md`](DEBT.md).
+All known integration boundary violations have been resolved. Key completed items:
 
-### Remaining issues
+- Dispatcher registry is pluggable — `app/agent/dispatchers.py` + integration-level `dispatcher.py`
+- All Slack HTTP calls consolidated in `integrations/slack/`
+- Bot display config uses generic `display_name`/`avatar_url` (Slack-specific in `integration_config` JSONB)
+- `dispatch_config` on Task is delivery-only; orchestration state lives in `callback_config`
+- Channel config reads from `channels` table (single source of truth)
 
-_(None — all known integration boundary violations have been resolved.)_
+---
 
-### Completed
+## External Integrations (Plugin Model)
 
-- [x] `slack-integration/` folder deleted — `integrations/slack/` is canonical
-- [x] Dispatcher registry is now pluggable — `app/agent/dispatchers.py` + `integrations/slack/dispatcher.py`
-- [x] `SlackDispatcher` moved out of `tasks.py` into `integrations/slack/dispatcher.py`
-- [x] `Bot.slack_display_name/icon_emoji/icon_url` → `display_name`, `avatar_url`, `integration_config`
-  (migration 033 + 034)
-- [x] `SlackChannelConfig` table dropped (migration 033)
-- [x] `integrations/slack/uploads.py` — canonical file upload (moved from `app/services/slack_uploads.py`)
-- [x] Integration process discovery — `process.py` convention, `dev-server.sh` auto-starts
-- [x] Knowledge session scoping + per-row similarity thresholds (migrations 035–038)
-- [x] `_post_to_slack()` consolidated — `integrations/slack/client.py` is single source of truth
-- [x] `_fanout()` driven through dispatcher registry — `post_message()` on Dispatcher protocol
-- [x] `Task.callback_config` JSONB added (migrations 039+040) — orchestration separated from delivery
-- [x] Delegation `_post_to_slack()` removed — uses dispatcher registry via `post_child_response()`
-- [x] `store_slack_echo_as_passive` renamed to `store_dispatch_echo` — integration-agnostic
-- [x] Hardcoded `dispatch_type == "slack"` checks replaced with `channel.integration or "none"`
-- [x] `_INTEGRATION_PREFIXES` deduplicated — exported from `channels.py`
+Integrations can live **outside** the agent-server repo. Set `INTEGRATION_DIRS` (colon-separated
+paths) in `.env` to point to directories containing integration folders. Each directory is
+scanned the same way as the in-repo `integrations/` — any subfolder with `router.py`,
+`dispatcher.py`, `tools/*.py`, `skills/*.md`, or `process.py` is auto-discovered.
+
+This enables:
+- **Private integrations** — keep personal/proprietary integrations in a separate repo
+- **Shared plugins** — publish reusable integrations independently
+- **Clean separation** — the agent-server repo ships only core integrations (slack, example)
+
+For Docker deployments, mount external integration directories as volumes and set
+`INTEGRATION_DIRS` to the mount path. See [README.md](README.md) for examples.
 
 ---
 

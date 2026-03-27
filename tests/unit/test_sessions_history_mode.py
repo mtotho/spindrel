@@ -53,10 +53,10 @@ class TestLoadMessagesSummaryMode:
         bot = _make_bot(history_mode="summary")
         assert _get_history_mode(bot) == "summary"
 
-    def test_default_mode_is_summary(self):
-        """When history_mode is not set, defaults to 'summary'."""
+    def test_default_mode_is_file(self):
+        """When history_mode is not set, defaults to 'file'."""
         bot = _make_bot()
-        assert _get_history_mode(bot) == "summary"
+        assert _get_history_mode(bot) == "file"
 
 
 class TestLoadMessagesFileMode:

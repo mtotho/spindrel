@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     # Extra tool directories (colon-separated paths) scanned at startup in addition to ./tools/
     TOOL_DIRS: str = ""
 
+    # Extra integration directories (colon-separated paths) scanned at startup
+    # in addition to ./integrations/. See docs/integrations/README.md.
+    INTEGRATION_DIRS: str = ""
+
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.35
     TOOL_RETRIEVAL_TOP_K: int = 10
@@ -187,11 +191,6 @@ class Settings(BaseSettings):
 
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""
-
-    # Frigate NVR
-    FRIGATE_URL: str = ""  # e.g. http://192.168.1.x:5000
-    FRIGATE_API_KEY: str = ""  # optional; only if behind an auth proxy
-    FRIGATE_MAX_CLIP_BYTES: int = 52_428_800  # 50 MB max for video downloads
 
     # Slack
     SLACK_DEFAULT_BOT: str = "default"
