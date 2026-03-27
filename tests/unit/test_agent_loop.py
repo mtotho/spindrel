@@ -242,8 +242,9 @@ class TestLlmCall:
              patch("app.services.providers.record_usage"), \
              patch("app.agent.llm.settings", _default_mock_settings(
                  LLM_MAX_RETRIES=1,
-                 LLM_FALLBACK_MODEL="gpt-3.5-turbo",
              )), \
+             patch("app.services.server_config.get_global_fallback_models",
+                   return_value=[{"model": "gpt-3.5-turbo"}]), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             result = await _llm_call("gpt-4", [], None, None)
             assert result is mock_resp
@@ -266,8 +267,9 @@ class TestLlmCall:
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.agent.llm.settings", _default_mock_settings(
                  LLM_MAX_RETRIES=1,
-                 LLM_FALLBACK_MODEL="gpt-3.5-turbo",
              )), \
+             patch("app.services.server_config.get_global_fallback_models",
+                   return_value=[{"model": "gpt-3.5-turbo"}]), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(openai.RateLimitError):
                 await _llm_call("gpt-4", [], None, None)
@@ -276,7 +278,7 @@ class TestLlmCall:
 
     @pytest.mark.asyncio
     async def test_no_fallback_when_not_configured(self):
-        """With no LLM_FALLBACK_MODEL, error should raise immediately after retries."""
+        """With no fallbacks configured, error should raise immediately after retries."""
         from app.agent.loop import _llm_call
 
         mock_client = AsyncMock()
@@ -290,8 +292,8 @@ class TestLlmCall:
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.agent.llm.settings", _default_mock_settings(
                  LLM_MAX_RETRIES=1,
-                 LLM_FALLBACK_MODEL="",
              )), \
+             patch("app.services.server_config.get_global_fallback_models", return_value=[]), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(openai.InternalServerError):
                 await _llm_call("gpt-4", [], None, None)
@@ -314,8 +316,9 @@ class TestLlmCall:
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.agent.llm.settings", _default_mock_settings(
                  LLM_MAX_RETRIES=1,
-                 LLM_FALLBACK_MODEL="gpt-4",
              )), \
+             patch("app.services.server_config.get_global_fallback_models",
+                   return_value=[{"model": "gpt-4"}]), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(openai.InternalServerError):
                 await _llm_call("gpt-4", [], None, None)

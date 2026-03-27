@@ -65,8 +65,7 @@ class BotOut(BaseModel):
     delegate_bots: list[str] = []
     harness_access: list[str] = []
     model_provider_id: Optional[str] = None
-    fallback_model: Optional[str] = None
-    fallback_model_provider_id: Optional[str] = None
+    fallback_models: list[dict] = []
     integration_config: dict = {}
     workspace: dict = {}
     docker_sandbox_profiles: list[str] = []

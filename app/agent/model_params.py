@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-# Providers that do NOT support role: "system" in messages.
-# System messages will be converted to user messages before the LLM call.
-NO_SYSTEM_MESSAGE_PROVIDERS: set[str] = {"minimax"}
+# Heuristic fallback: provider families that do NOT support role: "system".
+# Used when a model has no explicit DB entry.  The authoritative check is
+# `requires_system_message_folding()` in app/services/providers.py.
+_HEURISTIC_NO_SYS_MSG_FAMILIES: set[str] = {"minimax"}
 
 
 # Which OpenAI-style params each provider family supports.

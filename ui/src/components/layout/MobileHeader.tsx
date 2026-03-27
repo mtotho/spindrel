@@ -1,5 +1,6 @@
 import { View, Text, Pressable } from "react-native";
 import { ArrowLeft, Menu } from "lucide-react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 
@@ -22,6 +23,7 @@ interface MobileHeaderProps {
  */
 export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderProps) {
   const columns = useResponsiveColumns();
+  const insets = useSafeAreaInsets();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -31,12 +33,12 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
   return (
     <View
       className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
-      style={{ flexShrink: 0, minHeight: 52 }}
+      style={{ flexShrink: 0, minHeight: 52, paddingTop: insets.top }}
     >
       {onBack ? (
         <Pressable
           onPress={onBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
           style={{ width: 36, height: 36 }}
           accessibilityLabel="Go back"
         >
@@ -45,7 +47,7 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
       ) : sidebarHidden ? (
         <Pressable
           onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
           style={{ width: 36, height: 36 }}
           accessibilityLabel="Open menu"
         >

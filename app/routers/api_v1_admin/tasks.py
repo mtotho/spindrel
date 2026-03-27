@@ -49,6 +49,7 @@ class TaskDetailOut(BaseModel):
     # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     trigger_rag_loop: bool = False
     max_run_seconds: Optional[int] = None
     retry_count: int = 0
@@ -69,6 +70,8 @@ class TaskDetailOut(BaseModel):
             self.model_override = ec.get("model_override") or cb.get("model_override") or None
         if self.model_provider_id_override is None:
             self.model_provider_id_override = ec.get("model_provider_id_override") or cb.get("model_provider_id_override") or None
+        if self.fallback_models is None:
+            self.fallback_models = ec.get("fallback_models") or cb.get("fallback_models") or None
         if not self.trigger_rag_loop:
             self.trigger_rag_loop = cb.get("trigger_rag_loop", False)
         return self
@@ -88,6 +91,7 @@ class TaskCreateIn(BaseModel):
     trigger_rag_loop: bool = False
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
 
 
@@ -105,6 +109,7 @@ class TaskUpdateIn(BaseModel):
     trigger_rag_loop: Optional[bool] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
 
 
@@ -305,6 +310,8 @@ async def admin_create_task(
         ec_extras["model_override"] = body.model_override
     if body.model_provider_id_override:
         ec_extras["model_provider_id_override"] = body.model_provider_id_override
+    if body.fallback_models:
+        ec_extras["fallback_models"] = body.fallback_models
     if cb_extras:
         callback_config = cb_extras
     if ec_extras:
@@ -374,13 +381,15 @@ async def admin_update_task(
         task.callback_config = cb
         sa_attributes.flag_modified(task, "callback_config")
 
-    ec_fields = {"model_override", "model_provider_id_override"}
+    ec_fields = {"model_override", "model_provider_id_override", "fallback_models"}
     if ec_fields & updates.keys():
         ec = dict(task.execution_config or {})
         if "model_override" in updates:
             ec["model_override"] = updates["model_override"] or None
         if "model_provider_id_override" in updates:
             ec["model_provider_id_override"] = updates["model_provider_id_override"] or None
+        if "fallback_models" in updates:
+            ec["fallback_models"] = updates["fallback_models"] or None
         task.execution_config = ec
         sa_attributes.flag_modified(task, "execution_config")
 

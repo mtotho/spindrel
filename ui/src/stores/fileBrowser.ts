@@ -27,6 +27,7 @@ interface FileBrowserState {
   rightPane: PaneState;
 
   // Tree
+  treeVisible: boolean;
   expandedDirs: DirMap;
   treeWidth: number;
 
@@ -35,6 +36,9 @@ interface FileBrowserState {
   setSplitRatio: (ratio: number) => void;
 
   // Actions — tree
+  toggleTree: () => void;
+  showTree: () => void;
+  hideTree: () => void;
   toggleDir: (path: string) => void;
   expandDir: (path: string) => void;
   collapseDir: (path: string) => void;
@@ -71,8 +75,13 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
   splitRatio: 0.5,
   leftPane: { ...emptyPane },
   rightPane: { ...emptyPane },
+  treeVisible: true,
   expandedDirs: {} as DirMap,
   treeWidth: 220,
+
+  toggleTree: () => set((s) => ({ treeVisible: !s.treeVisible })),
+  showTree: () => set({ treeVisible: true }),
+  hideTree: () => set({ treeVisible: false }),
 
   toggleSplit: () =>
     set((s) => {
@@ -188,6 +197,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       splitRatio: 0.5,
       leftPane: { ...emptyPane },
       rightPane: { ...emptyPane },
+      treeVisible: true,
       expandedDirs: {} as DirMap,
       treeWidth: 220,
     }),

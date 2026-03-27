@@ -149,6 +149,7 @@ export interface ProviderModelItem {
   max_tokens?: number | null;
   input_cost_per_1m?: string | null;
   output_cost_per_1m?: string | null;
+  no_system_messages?: boolean;
   created_at: string;
 }
 
@@ -158,6 +159,7 @@ export interface ProviderModelCreatePayload {
   max_tokens?: number | null;
   input_cost_per_1m?: string;
   output_cost_per_1m?: string;
+  no_system_messages?: boolean;
 }
 
 export function useProviderModels(providerId: string | undefined) {

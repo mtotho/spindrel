@@ -129,11 +129,6 @@ class WorkspaceChannelOut(BaseModel):
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_prompt_template_name: Optional[str] = None
     heartbeat_prompt: Optional[str] = None
-    # Response condensing
-    response_condensing_enabled: bool = False
-    response_condensing_threshold: Optional[int] = None
-    response_condensing_model: Optional[str] = None
-    response_condensing_prompt: Optional[str] = None
     # Activity
     last_user_turn_at: Optional[datetime] = None
     user_turns_24h: int = 0
@@ -666,10 +661,6 @@ async def list_workspace_channels(
             heartbeat_prompt_template_id=hb.prompt_template_id if hb else None,
             heartbeat_prompt_template_name=tmpl_names.get(hb.prompt_template_id) if hb and hb.prompt_template_id else None,
             heartbeat_prompt=hb.prompt if hb else None,
-            response_condensing_enabled=ch.response_condensing_enabled,
-            response_condensing_threshold=ch.response_condensing_threshold,
-            response_condensing_model=ch.response_condensing_model,
-            response_condensing_prompt=ch.response_condensing_prompt,
             last_user_turn_at=act.get("last_user_turn_at"),
             user_turns_24h=act.get("user_turns_24h", 0),
             user_turns_48h=act.get("user_turns_48h", 0),

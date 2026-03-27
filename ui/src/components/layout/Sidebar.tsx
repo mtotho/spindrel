@@ -55,6 +55,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
+      { label: "Settings", href: "/admin/settings", icon: Settings },
     ],
   },
 ];
@@ -69,7 +70,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       <Pressable
         onPress={closeMobile}
         className={`flex-row items-center gap-3 rounded-md px-3 py-2 ${
-          active ? "bg-accent/15" : "hover:bg-surface-overlay"
+          active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
         }`}
       >
         <Icon size={16} color={active ? "#3b82f6" : "#666666"} />
@@ -93,7 +94,7 @@ function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
       <Pressable
         onPress={closeMobile}
         className={`items-center justify-center rounded-lg ${
-          active ? "bg-accent/15" : "hover:bg-surface-overlay"
+          active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
         }`}
         style={{ width: 44, height: 44 }}
         accessibilityLabel={item.label}
@@ -160,7 +161,7 @@ export function Sidebar() {
           {/* Expand toggle */}
           <Pressable
             onPress={toggleSidebar}
-            className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 44, height: 44 }}
             accessibilityLabel="Expand sidebar"
           >
@@ -172,7 +173,7 @@ export function Sidebar() {
             <Pressable
               onPress={closeMobile}
               className={`items-center justify-center rounded-lg ${
-                pathname === "/" ? "bg-accent/15" : "hover:bg-surface-overlay"
+                pathname === "/" ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
               }`}
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Channels"
@@ -186,7 +187,7 @@ export function Sidebar() {
             <Pressable
               onPress={closeMobile}
               className={`items-center justify-center rounded-lg ${
-                pathname.startsWith("/admin/workspaces") ? "bg-accent/15" : "hover:bg-surface-overlay"
+                pathname.startsWith("/admin/workspaces") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
               }`}
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Workspaces"
@@ -213,7 +214,7 @@ export function Sidebar() {
           <Link href={"/(app)/profile" as any} asChild>
             <Pressable
               onPress={closeMobile}
-              className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+              className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Profile"
             >
@@ -227,7 +228,7 @@ export function Sidebar() {
           <Link href={"/(app)/settings" as any} asChild>
             <Pressable
               onPress={closeMobile}
-              className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+              className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Settings"
             >
@@ -255,7 +256,7 @@ export function Sidebar() {
           </Link>
           <Pressable
             onPress={toggleSidebar}
-            className="items-center justify-center rounded hover:bg-surface-overlay"
+            className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 32, height: 32 }}
           >
             <ChevronLeft size={16} color="#666666" />
@@ -271,7 +272,7 @@ export function Sidebar() {
             <Link href={"/channels/new" as any} asChild>
               <Pressable
                 onPress={closeMobile}
-                className="items-center justify-center rounded hover:bg-surface-overlay"
+                className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 28, height: 28 }}
               >
                 <Plus size={14} color="#666666" />
@@ -295,7 +296,7 @@ export function Sidebar() {
                   <Pressable
                     onPress={closeMobile}
                     className={`flex-row items-center gap-2.5 rounded-md px-3 py-2 ${
-                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay"
+                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
                   >
                     <Hash
@@ -333,7 +334,7 @@ export function Sidebar() {
             <Link href={"/admin/workspaces/new" as any} asChild>
               <Pressable
                 onPress={closeMobile}
-                className="items-center justify-center rounded hover:bg-surface-overlay"
+                className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 28, height: 28 }}
               >
                 <Plus size={14} color="#666666" />
@@ -358,7 +359,7 @@ export function Sidebar() {
                   <Pressable
                     onPress={closeMobile}
                     className={`flex-row items-center gap-2.5 rounded-md px-3 py-2 ${
-                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay"
+                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
                   >
                     <Container
@@ -411,7 +412,7 @@ export function Sidebar() {
           <Pressable
             onPress={closeMobile}
             className={`flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
-              pathname === "/profile" ? "bg-accent/10" : "hover:bg-surface-overlay"
+              pathname === "/profile" ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
             }`}
           >
             <View className="w-8 h-8 rounded items-center justify-center" style={{ backgroundColor: "rgba(99,102,241,0.2)" }}>
@@ -432,7 +433,7 @@ export function Sidebar() {
         <Link href={"/(app)/settings" as any} asChild>
           <Pressable
             onPress={closeMobile}
-            className="flex-row items-center gap-3 rounded-md px-3 py-2.5 hover:bg-surface-overlay"
+            className="flex-row items-center gap-3 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
           >
             <Settings size={16} color="#666666" />
             <Text className="text-sm text-text-muted">Settings</Text>

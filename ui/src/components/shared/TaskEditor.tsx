@@ -11,6 +11,7 @@ import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { formatDateTime, isoToLocalInput, localInputToISO, getTimezoneAbbr } from "@/src/utils/time";
 
 // ---------------------------------------------------------------------------
@@ -265,6 +266,7 @@ export function TaskEditor({
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
+  const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
 
@@ -283,6 +285,7 @@ export function TaskEditor({
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
@@ -301,6 +304,7 @@ export function TaskEditor({
     setRecurrence(existingTask.recurrence || "");
     setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
@@ -342,6 +346,7 @@ export function TaskEditor({
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       } else {
@@ -358,6 +363,7 @@ export function TaskEditor({
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       }
@@ -366,7 +372,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -656,6 +662,13 @@ export function TaskEditor({
                     onChange={setModelOverride}
                     placeholder="Inherit from bot"
                     allowClear
+                  />
+                </FormRow>
+
+                <FormRow label="Fallback Models" description="Ordered fallback chain for this task.">
+                  <FallbackModelList
+                    value={fallbackModels}
+                    onChange={setFallbackModels}
                   />
                 </FormRow>
 

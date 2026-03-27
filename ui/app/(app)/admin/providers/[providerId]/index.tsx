@@ -85,6 +85,7 @@ export default function ProviderDetailScreen() {
   const [newModelId, setNewModelId] = useState("");
   const [newModelDisplay, setNewModelDisplay] = useState("");
   const [newModelMaxTokens, setNewModelMaxTokens] = useState("");
+  const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
 
   if (provider && !initialized) {
     setDisplayName(provider.display_name || "");
@@ -345,6 +346,13 @@ export default function ProviderDetailScreen() {
                       {m.max_tokens && (
                         <span style={{ color: "#666", fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
                       )}
+                      {m.no_system_messages && (
+                        <span style={{
+                          color: "#f59e0b", fontSize: 10, fontWeight: 600,
+                          background: "rgba(245,158,11,0.12)", padding: "1px 5px",
+                          borderRadius: 4,
+                        }}>no-sys</span>
+                      )}
                       <button
                         onClick={() => deleteModelMut.mutate(m.id)}
                         disabled={deleteModelMut.isPending}
@@ -371,7 +379,11 @@ export default function ProviderDetailScreen() {
                   <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Model ID *</div>
                   <input
                     value={newModelId}
-                    onChange={(e) => setNewModelId(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setNewModelId(v);
+                      if (v.toLowerCase().includes("minimax")) setNewModelNoSysMsg(true);
+                    }}
                     placeholder="e.g. gpt-4o"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
@@ -407,6 +419,19 @@ export default function ProviderDetailScreen() {
                     }}
                   />
                 </div>
+                <label style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  fontSize: 10, color: "#888", cursor: "pointer",
+                  flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={newModelNoSysMsg}
+                    onChange={(e) => setNewModelNoSysMsg(e.target.checked)}
+                    style={{ accentColor: "#f59e0b" }}
+                  />
+                  No system msgs
+                </label>
                 <button
                   onClick={async () => {
                     if (!newModelId.trim()) return;
@@ -414,10 +439,12 @@ export default function ProviderDetailScreen() {
                       model_id: newModelId.trim(),
                       display_name: newModelDisplay.trim() || undefined,
                       max_tokens: newModelMaxTokens ? parseInt(newModelMaxTokens) : undefined,
+                      no_system_messages: newModelNoSysMsg || undefined,
                     });
                     setNewModelId("");
                     setNewModelDisplay("");
                     setNewModelMaxTokens("");
+                    setNewModelNoSysMsg(false);
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}
                   style={{

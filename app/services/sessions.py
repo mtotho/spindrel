@@ -233,19 +233,6 @@ def _format_passive_context(passive_msgs: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _condensing_boundary(msgs: list[Message], channel: Channel | None) -> int:
-    """Return the index boundary: messages at or after this index are shown verbatim.
-
-    Messages before this index may use condensed content.
-    """
-    if not channel or not channel.response_condensing_enabled:
-        return 0  # no condensing — all messages verbatim
-    from app.config import settings
-    keep_exact = channel.response_condensing_keep_exact or settings.RESPONSE_CONDENSING_KEEP_EXACT
-    if keep_exact >= len(msgs):
-        return 0  # all messages within keep_exact window
-    return len(msgs) - keep_exact
-
 
 async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     """Load messages for a session, using compacted summary when available."""
@@ -275,18 +262,13 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages.append({"role": "system", "content": _format_passive_context(passive)})
         return messages
 
-    # Load channel once for condensing + history mode
+    # Load channel once for history mode
     _channel: Channel | None = None
     if session.channel_id:
         _channel = await db.get(Channel, session.channel_id)
 
-    def _convert_msgs_with_condensing(orm_msgs: list[Message]) -> list[dict]:
-        """Convert ORM messages to dicts, applying condensing for older assistant messages."""
-        boundary = _condensing_boundary(orm_msgs, _channel)
-        return [
-            _message_to_dict(m, enrich_attachments=True, use_condensed=(i < boundary))
-            for i, m in enumerate(orm_msgs)
-        ]
+    def _convert_msgs(orm_msgs: list[Message]) -> list[dict]:
+        return [_message_to_dict(m, enrich_attachments=True) for m in orm_msgs]
 
     if session.summary and session.summary_message_id and bot.context_compaction:
         # Resolve history mode
@@ -303,7 +285,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .order_by(Message.created_at)
             )
             recent_orm = [m for m in recent_result.scalars().all() if m.role != "system"]
-            recent = _convert_msgs_with_condensing(recent_orm)
+            recent = _convert_msgs(recent_orm)
             passive, active = _split_passive_active(recent)
             messages = _base_messages()
 
@@ -344,7 +326,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .order_by(Message.created_at)
             )
             all_orm = list(result.scalars().all())
-            all_msgs = _convert_msgs_with_condensing(all_orm)
+            all_msgs = _convert_msgs(all_orm)
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
             messages = _base_messages()
@@ -360,7 +342,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
         .order_by(Message.created_at)
     )
     all_orm = list(result.scalars().all())
-    all_msgs = _convert_msgs_with_condensing(all_orm)
+    all_msgs = _convert_msgs(all_orm)
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
     messages = _base_messages()
@@ -379,15 +361,12 @@ async def persist_turn(
     channel_id: uuid.UUID | None = None,
 ) -> uuid.UUID | None:
     """Persist new messages from a turn. Returns the first user message ID (for attachment linking)."""
-    import asyncio
-
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
     now = datetime.now(timezone.utc)
     first_user = True
     first_user_msg_id: uuid.UUID | None = None
-    assistant_records: list[Message] = []
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
         meta = {}
@@ -407,8 +386,6 @@ async def persist_turn(
         db.add(record)
         if first_user_msg_id is None and msg.get("role") == "user":
             first_user_msg_id = record.id
-        if msg.get("role") == "assistant" and record.content:
-            assistant_records.append(record)
 
     await db.execute(
         update(Session)
@@ -416,23 +393,6 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
-
-    # Fire-and-forget response condensing for verbose assistant messages
-    if channel_id and assistant_records:
-        try:
-            channel: Channel | None = await db.get(Channel, channel_id)
-            if channel and channel.response_condensing_enabled:
-                from app.services.response_condensing import condense_response
-                threshold = channel.response_condensing_threshold or 1500
-                for record in assistant_records:
-                    content = record.content or ""
-                    if len(content) >= threshold:
-                        asyncio.create_task(condense_response(
-                            record.id, content, channel,
-                            provider_id=bot.model_provider_id,
-                        ))
-        except Exception:
-            logger.warning("Failed to initiate response condensing", exc_info=True)
 
     return first_user_msg_id
 
@@ -663,13 +623,10 @@ def _enrich_content_with_attachments(content: Any, attachments: list[Attachment]
     return content
 
 
-def _message_to_dict(msg: Message, enrich_attachments: bool = False, use_condensed: bool = False) -> dict:
+def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     d: dict = {"role": msg.role}
     if msg.content is not None:
         content = normalize_stored_content(msg.content)
-        # Swap in condensed version for older assistant messages
-        if use_condensed and msg.role == "assistant" and msg.condensed:
-            content = msg.condensed
         if enrich_attachments and hasattr(msg, "attachments") and msg.attachments:
             content = _enrich_content_with_attachments(content, msg.attachments)
         d["content"] = content

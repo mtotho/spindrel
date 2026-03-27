@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Paperclip, X, Cpu } from "lucide-react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
@@ -23,6 +24,7 @@ interface Props {
 export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideChange, defaultModel }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -208,7 +210,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
-      <View style={{ flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" as any, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
+      <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
@@ -289,7 +291,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           <Pressable
             onPress={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 40, height: 40 }}
           >
             <Paperclip size={20} color="#555555" />
@@ -378,7 +380,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               ) : (
                 <Pressable
                   onPress={() => setShowModelPicker(true)}
-                  className="items-center justify-center rounded-lg hover:bg-surface-overlay"
+                  className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
                   style={{ width: 40, height: 40, opacity: 0.6 }}
                 >
                   <Cpu size={16} color="#666666" />

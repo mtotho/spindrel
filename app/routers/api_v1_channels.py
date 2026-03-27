@@ -158,9 +158,8 @@ class ChannelConfigOut(BaseModel):
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
-    # Fallback model
-    fallback_model: Optional[str] = None
-    fallback_model_provider_id: Optional[str] = None
+    # Fallback models
+    fallback_models: list[dict] = []
     # Compaction
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
@@ -174,12 +173,6 @@ class ChannelConfigOut(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Response condensing
-    response_condensing_enabled: bool = False
-    response_condensing_threshold: Optional[int] = None
-    response_condensing_keep_exact: Optional[int] = None
-    response_condensing_model: Optional[str] = None
-    response_condensing_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -201,6 +194,7 @@ class ChannelConfigOut(BaseModel):
     heartbeat_interval_minutes: int = 60
     heartbeat_model: str = ""
     heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_fallback_models: list[dict] = []
     heartbeat_prompt: str = ""
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_dispatch_results: bool = True
@@ -231,9 +225,8 @@ class ChannelConfigUpdate(BaseModel):
     # Model
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
-    # Fallback model
-    fallback_model: Optional[str] = None
-    fallback_model_provider_id: Optional[str] = None
+    # Fallback models
+    fallback_models: list[dict] = []
     # Compaction
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
@@ -247,12 +240,6 @@ class ChannelConfigUpdate(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Response condensing
-    response_condensing_enabled: Optional[bool] = None
-    response_condensing_threshold: Optional[int] = None
-    response_condensing_keep_exact: Optional[int] = None
-    response_condensing_model: Optional[str] = None
-    response_condensing_prompt: Optional[str] = None
     # Elevation
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
@@ -274,6 +261,7 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_interval_minutes: Optional[int] = None
     heartbeat_model: Optional[str] = None
     heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_fallback_models: Optional[list[dict]] = None
     heartbeat_prompt: Optional[str] = None
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_dispatch_results: Optional[bool] = None
@@ -490,8 +478,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "channel_prompt": channel.channel_prompt,
         "model_override": channel.model_override,
         "model_provider_id_override": channel.model_provider_id_override,
-        "fallback_model": channel.fallback_model,
-        "fallback_model_provider_id": channel.fallback_model_provider_id,
+        "fallback_models": channel.fallback_models or [],
         "context_compaction": channel.context_compaction,
         "compaction_interval": channel.compaction_interval,
         "compaction_keep_turns": channel.compaction_keep_turns,
@@ -503,11 +490,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compression_threshold": channel.compression_threshold,
         "compression_keep_turns": channel.compression_keep_turns,
         "compression_prompt": channel.compression_prompt,
-        "response_condensing_enabled": channel.response_condensing_enabled,
-        "response_condensing_threshold": channel.response_condensing_threshold,
-        "response_condensing_keep_exact": channel.response_condensing_keep_exact,
-        "response_condensing_model": channel.response_condensing_model,
-        "response_condensing_prompt": channel.response_condensing_prompt,
         "elevation_enabled": channel.elevation_enabled,
         "elevation_threshold": channel.elevation_threshold,
         "elevated_model": channel.elevated_model,
@@ -532,6 +514,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
             "heartbeat_interval_minutes": heartbeat.interval_minutes,
             "heartbeat_model": heartbeat.model,
             "heartbeat_model_provider_id": heartbeat.model_provider_id,
+            "heartbeat_fallback_models": heartbeat.fallback_models or [],
             "heartbeat_prompt": heartbeat.prompt,
             "heartbeat_prompt_template_id": heartbeat.prompt_template_id,
             "heartbeat_dispatch_results": heartbeat.dispatch_results,

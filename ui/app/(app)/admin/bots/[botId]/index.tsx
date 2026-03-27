@@ -7,6 +7,7 @@ import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateSelector } from "@/src/components/shared/PromptTemplateSelector";
 import {
@@ -1331,7 +1332,7 @@ export default function BotEditorScreen() {
       if (isNew) {
         if (!payload.id || !payload.name || !payload.model) return;
         await createMutation.mutateAsync(payload);
-        router.replace(`/admin/bots/${payload.id}`);
+        router.push(`/admin/bots/${payload.id}` as any);
       } else {
         await updateMutation.mutateAsync(payload);
       }
@@ -1486,15 +1487,10 @@ export default function BotEditorScreen() {
               <FormRow label="Model">
                 <LlmModelDropdown value={draft.model} onChange={(v) => update({ model: v })} />
               </FormRow>
-              <FormRow label="Fallback Model" description="Used when the primary model fails after retries.">
-                <LlmModelDropdown
-                  value={draft.fallback_model ?? ""}
-                  onChange={(v) => {
-                    update({ fallback_model: v || null });
-                    if (!v) update({ fallback_model_provider_id: null });
-                  }}
-                  placeholder="inherit (global)"
-                  allowClear
+              <FormRow label="Fallback Models" description="Ordered list of models tried when the primary fails. Global list is appended as catch-all.">
+                <FallbackModelList
+                  value={draft.fallback_models ?? []}
+                  onChange={(v) => update({ fallback_models: v })}
                 />
               </FormRow>
               {editorData.model_param_definitions?.length > 0 && (

@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X, Trash2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X, Trash2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
@@ -17,6 +17,7 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useBots, useBotEditorData } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
@@ -119,18 +120,12 @@ export default function ChannelSettingsScreen() {
         compression_threshold: settings.compression_threshold,
         compression_keep_turns: settings.compression_keep_turns,
         compression_prompt: settings.compression_prompt,
-        response_condensing_enabled: settings.response_condensing_enabled,
-        response_condensing_threshold: settings.response_condensing_threshold,
-        response_condensing_keep_exact: settings.response_condensing_keep_exact,
-        response_condensing_model: settings.response_condensing_model,
-        response_condensing_prompt: settings.response_condensing_prompt,
         elevation_enabled: settings.elevation_enabled,
         elevation_threshold: settings.elevation_threshold,
         elevated_model: settings.elevated_model,
         model_override: settings.model_override,
         model_provider_id_override: settings.model_provider_id_override,
-        fallback_model: settings.fallback_model,
-        fallback_model_provider_id: settings.fallback_model_provider_id,
+        fallback_models: settings.fallback_models ?? [],
         channel_prompt: settings.channel_prompt,
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
@@ -489,7 +484,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
     queryKey: ["channel-sections", channelId],
     queryFn: () => apiFetch<{ sections: Array<{
       id: string; sequence: number; title: string; summary: string;
-      transcript: string; message_count: number;
+      transcript_path: string | null; message_count: number;
       period_start: string | null; period_end: string | null;
       created_at: string | null; view_count: number;
       last_viewed_at: string | null; tags: string[];
@@ -563,17 +558,16 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                       ))}
                     </div>
                   )}
-                  <details style={{ marginTop: 8 }}>
-                    <summary style={{ fontSize: 11, color: "#666", cursor: "pointer", userSelect: "none" }}>
-                      View transcript
-                    </summary>
-                    <pre style={{
-                      fontSize: 10, color: "#777", lineHeight: "1.4",
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                      maxHeight: 300, overflow: "auto",
-                      background: "#0a0a0a", padding: 8, borderRadius: 4, marginTop: 4,
-                    }}>{s.transcript}</pre>
-                  </details>
+                  {s.transcript_path && (
+                    <div style={{ marginTop: 8, fontSize: 10, color: "#666", fontFamily: "monospace" }}>
+                      File: {s.transcript_path}
+                    </div>
+                  )}
+                  {!s.transcript_path && (
+                    <div style={{ marginTop: 8, fontSize: 10, color: "#555", fontStyle: "italic" }}>
+                      No transcript file — re-run backfill to generate.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -585,7 +579,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
 }
 
 // ===========================================================================
-// History Tab — history mode, compaction settings, backfill, response condensing
+// History Tab — history mode, compaction settings, backfill
 // ===========================================================================
 function HistoryTab({ form, patch, channelId, workspaceId }: {
   form: Partial<ChannelSettings>;
@@ -835,64 +829,6 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
         </Section>
       )}
 
-      {/* 3. Response Condensing — always visible */}
-      <Section title="Response Condensing" description="Automatically condense verbose assistant responses to save context space between compactions.">
-        <Toggle
-          value={!!form.response_condensing_enabled}
-          onChange={(v) => patch("response_condensing_enabled", v)}
-          label="Enable response condensing"
-        />
-        {form.response_condensing_enabled && (
-          <>
-            <div style={{
-              padding: "10px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
-              borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginBottom: 4,
-            }}>
-              Condensing runs in the background after each response.
-              User messages are never modified. The bot sees condensed versions
-              of older assistant messages, but full versions of the most recent ones.
-            </div>
-            <Row>
-              <Col>
-                <FormRow label="Threshold (chars)" description="Responses above this length are condensed.">
-                  <TextInput
-                    value={form.response_condensing_threshold?.toString() ?? ""}
-                    onChangeText={(v) => patch("response_condensing_threshold", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (1500)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Keep Exact" description="Recent messages shown at full fidelity.">
-                  <TextInput
-                    value={form.response_condensing_keep_exact?.toString() ?? ""}
-                    onChangeText={(v) => patch("response_condensing_keep_exact", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default (6)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-            <LlmModelDropdown
-              label="Condensing Model"
-              value={form.response_condensing_model ?? ""}
-              onChange={(v) => patch("response_condensing_model", v || undefined)}
-              placeholder="inherit (compaction model chain)"
-            />
-            <LlmPrompt
-              value={form.response_condensing_prompt ?? ""}
-              onChange={(v) => patch("response_condensing_prompt", v || undefined)}
-              label="Custom Condensing Prompt"
-              placeholder="Leave blank to use the default..."
-              helpText="Additional instructions for condensing, e.g. 'Always preserve code blocks verbatim'"
-              rows={3}
-              generateContext="A system prompt for condensing verbose assistant responses. Should preserve specific values, decisions, code, file paths, commands, and action items while removing verbose explanations and filler. Target ~30% of original length."
-            />
-          </>
-        )}
-      </Section>
-
     </>
   );
 }
@@ -956,15 +892,10 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
             allowClear
           />
         </FormRow>
-        <FormRow label="Fallback Model" description="Used when the primary model fails after retries. Leave empty to inherit from bot.">
-          <LlmModelDropdown
-            value={form.fallback_model ?? ""}
-            onChange={(v) => {
-              patch("fallback_model", v || undefined);
-              if (!v) patch("fallback_model_provider_id", undefined);
-            }}
-            placeholder="inherit (from bot)"
-            allowClear
+        <FormRow label="Fallback Models" description="Ordered list tried when primary fails. Empty inherits from bot. Global list appended as catch-all.">
+          <FallbackModelList
+            value={form.fallback_models ?? []}
+            onChange={(v) => patch("fallback_models", v)}
           />
         </FormRow>
       </Section>
@@ -1493,6 +1424,107 @@ function SessionsTab({ channelId }: { channelId: string }) {
 }
 
 // ===========================================================================
+// Heartbeat History List (expandable rows with result + trace link)
+// ===========================================================================
+function HeartbeatHistoryList({ history }: { history: any[] }) {
+  const router = useRouter();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  return (
+    <>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#666", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
+        Recent Runs
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {history.map((t: any) => {
+          const isExpanded = expandedId === t.id;
+          const hasContent = t.result || t.error || t.correlation_id;
+          return (
+            <div key={t.id}>
+              <div
+                onClick={() => hasContent && setExpandedId(isExpanded ? null : t.id)}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "8px 12px", background: isExpanded ? "#222" : "#1a1a1a",
+                  borderRadius: isExpanded ? "6px 6px 0 0" : 6,
+                  border: `1px solid ${isExpanded ? "#3b82f6" : "#2a2a2a"}`,
+                  cursor: hasContent ? "pointer" : "default",
+                  transition: "background 0.1s, border-color 0.1s",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {hasContent && (
+                    isExpanded
+                      ? <ChevronDown size={12} color="#666" />
+                      : <ChevronRight size={12} color="#666" />
+                  )}
+                  <span style={{ fontSize: 12, color: "#999" }}>
+                    {new Date(t.run_at).toLocaleString()}
+                  </span>
+                  {t.completed_at && (
+                    <span style={{ fontSize: 10, color: "#555" }}>
+                      ({Math.round((new Date(t.completed_at).getTime() - new Date(t.run_at).getTime()) / 1000)}s)
+                    </span>
+                  )}
+                </div>
+                <span style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                  background: t.status === "complete" ? "#166534" : t.status === "failed" ? "#7f1d1d" : "#333",
+                  color: t.status === "complete" ? "#86efac" : t.status === "failed" ? "#fca5a5" : "#999",
+                }}>
+                  {t.status}
+                </span>
+              </div>
+              {isExpanded && (
+                <div style={{
+                  padding: "10px 12px", background: "#151515",
+                  borderRadius: "0 0 6px 6px",
+                  border: "1px solid #3b82f6", borderTop: "none",
+                }}>
+                  {t.error && (
+                    <div style={{
+                      fontSize: 12, color: "#fca5a5", marginBottom: 8,
+                      padding: "6px 8px", background: "#1a0505", borderRadius: 4, border: "1px solid #7f1d1d",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}>
+                      {t.error}
+                    </div>
+                  )}
+                  {t.result && (
+                    <div style={{
+                      fontSize: 12, color: "#ccc", lineHeight: 1.5,
+                      maxHeight: 200, overflowY: "auto",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}>
+                      {t.result}
+                    </div>
+                  )}
+                  {t.correlation_id && (
+                    <div
+                      onClick={() => router.push(`/admin/logs/${t.correlation_id}`)}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        marginTop: 8, fontSize: 11, color: "#3b82f6", cursor: "pointer",
+                      }}
+                    >
+                      <ExternalLink size={11} color="#3b82f6" />
+                      View trace
+                    </div>
+                  )}
+                  {!t.result && !t.error && (
+                    <div style={{ fontSize: 11, color: "#555", fontStyle: "italic" }}>No output recorded</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ===========================================================================
 // Heartbeat Tab
 // ===========================================================================
 function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
@@ -1511,6 +1543,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         interval_minutes: data.config.interval_minutes ?? 60,
         model: data.config.model ?? "",
         model_provider_id: data.config.model_provider_id ?? "",
+        fallback_models: data.config.fallback_models ?? [],
         prompt: data.config.prompt ?? "",
         dispatch_results: data.config.dispatch_results ?? true,
         trigger_response: data.config.trigger_response ?? false,
@@ -1524,6 +1557,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         interval_minutes: 60,
         model: "",
         model_provider_id: "",
+        fallback_models: [],
         prompt: "",
         dispatch_results: true,
         trigger_response: false,
@@ -1552,9 +1586,14 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
     },
   });
 
+  const [hbFired, setHbFired] = useState(false);
   const fireMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/fire`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
+      setHbFired(true);
+      setTimeout(() => setHbFired(false), 3000);
+    },
   });
 
   if (isLoading || !hbForm) return <ActivityIndicator color="#3b82f6" />;
@@ -1608,6 +1647,13 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
           </Col>
         </Row>
 
+        <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
+          <FallbackModelList
+            value={hbForm.fallback_models ?? []}
+            onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
+          />
+        </FormRow>
+
         <div style={{ marginTop: 16 }}>
           <WorkspaceFilePrompt
             workspaceId={hbForm.workspace_id ?? workspaceId}
@@ -1654,7 +1700,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
             <TextInput
               value={hbForm.max_run_seconds?.toString() ?? ""}
               onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
-              placeholder="1200 (default)"
+              placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
               type="number"
             />
           </FormRow>
@@ -1677,14 +1723,14 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
             disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
             style={{
               padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#92400e" : "#333",
-              color: (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666",
+              background: hbFired ? "rgba(34,197,94,0.15)" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#92400e" : "#333",
+              color: hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666",
               fontSize: 13, fontWeight: 500,
               display: "flex", alignItems: "center", gap: 6,
             }}
           >
-            <Play size={12} color={(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666"} />
-            Run Now
+            <Play size={12} color={hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666"} />
+            {hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
           </button>
         </div>
       </div>
@@ -1702,30 +1748,7 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
           </div>
 
           {data.history?.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "#666", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
-                Recent Runs
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {data.history.map((t: any) => (
-                  <div key={t.id} style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 12px", background: "#1a1a1a", borderRadius: 6, border: "1px solid #2a2a2a",
-                  }}>
-                    <div style={{ fontSize: 12, color: "#999" }}>
-                      {new Date(t.created_at).toLocaleString()}
-                    </div>
-                    <span style={{
-                      fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                      background: t.status === "complete" ? "#166534" : t.status === "failed" ? "#7f1d1d" : "#333",
-                      color: t.status === "complete" ? "#86efac" : t.status === "failed" ? "#fca5a5" : "#999",
-                    }}>
-                      {t.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
+            <HeartbeatHistoryList history={data.history} />
           )}
         </div>
       )}

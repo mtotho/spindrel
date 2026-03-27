@@ -1,9 +1,13 @@
 import asyncio
 import json
 import logging
+import os
+import re as _re_mod
+import shutil
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import replace as _dc_replace
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, update, func
@@ -19,6 +23,71 @@ from app.db.models import Channel, ConversationSection, Message, Session
 from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Filesystem transcript helpers
+# ---------------------------------------------------------------------------
+
+def _get_history_dir(bot: BotConfig) -> str | None:
+    """Return host-side .history dir path, creating if needed. None if no workspace."""
+    from app.services.workspace import workspace_service
+    try:
+        root = workspace_service.get_workspace_root(bot.id, bot)
+        history_dir = os.path.join(root, ".history")
+        os.makedirs(history_dir, exist_ok=True)
+        return history_dir
+    except Exception:
+        return None
+
+
+def _get_workspace_root(bot: BotConfig) -> str | None:
+    """Return workspace root path for a bot, or None."""
+    from app.services.workspace import workspace_service
+    try:
+        return workspace_service.get_workspace_root(bot.id, bot)
+    except Exception:
+        return None
+
+
+def _write_section_file(
+    history_dir: str,
+    sequence: int,
+    title: str,
+    summary: str,
+    transcript: str,
+    period_start: datetime | None,
+    period_end: datetime | None,
+    message_count: int,
+    tags: list[str],
+    workspace_root: str,
+) -> str:
+    """Write a section markdown file. Returns relative path from workspace root."""
+    slug = _re_mod.sub(r'[^a-z0-9]+', '_', title.lower())[:50].strip('_')
+    filename = f"{sequence:03d}_{slug}.md"
+    filepath = os.path.join(history_dir, filename)
+
+    period = ""
+    if period_start:
+        period += f"From: {period_start.strftime('%Y-%m-%d %H:%M')}"
+    if period_end:
+        period += f"  To: {period_end.strftime('%Y-%m-%d %H:%M')}"
+    tag_line = f"Tags: {', '.join(tags)}\n" if tags else ""
+
+    content = (
+        f"# {title}\n"
+        f"{period}\n"
+        f"Messages: {message_count}\n"
+        f"{tag_line}\n"
+        f"Summary: {summary}\n\n"
+        f"---\n\n"
+        f"{transcript}"
+    )
+
+    with open(filepath, "w") as f:
+        f.write(content)
+
+    return os.path.relpath(filepath, workspace_root)
 
 
 def _msg_to_dict(m: Message) -> dict:
@@ -551,8 +620,13 @@ async def run_compaction_stream(
                 from app.agent.embeddings import embed_text
                 sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
 
-            # Get next sequence number and insert section
+            # Write transcript to filesystem
+            transcript_path = None
+            history_dir = _get_history_dir(bot)
+            ws_root = _get_workspace_root(bot)
             channel_id = channel.id if channel else None
+
+            # Get next sequence number
             async with async_session() as db:
                 if channel_id:
                     max_seq_result = await db.execute(
@@ -563,13 +637,26 @@ async def run_compaction_stream(
                 else:
                     max_seq = 0
 
+            if history_dir and ws_root:
+                try:
+                    transcript_path = _write_section_file(
+                        history_dir, max_seq + 1, sec_title, sec_summary,
+                        sec_transcript, None, None, msg_count,
+                        sec_tags or [], ws_root,
+                    )
+                except Exception:
+                    logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
+            elif not history_dir:
+                logger.warning("No workspace configured for bot %s — section file not written", bot.id)
+
+            async with async_session() as db:
                 section = ConversationSection(
                     channel_id=channel_id,
                     session_id=session_id,
                     sequence=max_seq + 1,
                     title=sec_title,
                     summary=sec_summary,
-                    transcript=sec_transcript,
+                    transcript_path=transcript_path,
                     message_count=msg_count,
                     embedding=sec_embedding,
                     tags=sec_tags or None,
@@ -778,13 +865,29 @@ async def run_compaction_forced(
         else:
             max_seq = 0
 
+        # Write transcript to filesystem
+        transcript_path = None
+        history_dir = _get_history_dir(bot)
+        ws_root = _get_workspace_root(bot)
+        if history_dir and ws_root:
+            try:
+                transcript_path = _write_section_file(
+                    history_dir, max_seq + 1, sec_title, sec_summary,
+                    sec_transcript, None, None, msg_count,
+                    sec_tags or [], ws_root,
+                )
+            except Exception:
+                logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
+        elif not history_dir:
+            logger.warning("No workspace configured for bot %s — section file not written", bot.id)
+
         section = ConversationSection(
             channel_id=channel_id,
             session_id=session_id,
             sequence=max_seq + 1,
             title=sec_title,
             summary=sec_summary,
-            transcript=sec_transcript,
+            transcript_path=transcript_path,
             message_count=msg_count,
             embedding=sec_embedding,
             tags=sec_tags or None,
@@ -964,6 +1067,11 @@ async def backfill_sections(
             )
             await db.commit()
             logger.info("Cleared %d existing sections for channel %s", deleted.rowcount, channel_id)
+        # Also clear history files on disk
+        history_dir = _get_history_dir(bot)
+        if history_dir and os.path.isdir(history_dir):
+            shutil.rmtree(history_dir)
+            os.makedirs(history_dir, exist_ok=True)
         start_seq = 1
     else:
         async with async_session() as db:
@@ -997,6 +1105,22 @@ async def backfill_sections(
             from app.agent.embeddings import embed_text
             embedding = await embed_text(f"{title}\n{summary}")
 
+        # Write transcript to filesystem
+        transcript_path = None
+        history_dir = _get_history_dir(bot)
+        ws_root = _get_workspace_root(bot)
+        if history_dir and ws_root:
+            try:
+                transcript_path = _write_section_file(
+                    history_dir, seq, title, summary, transcript,
+                    period_start, period_end, msg_count,
+                    tags or [], ws_root,
+                )
+            except Exception:
+                logger.warning("Failed to write section file for backfill chunk %d", seq, exc_info=True)
+        elif not history_dir:
+            logger.warning("No workspace configured for bot %s — section file not written", bot.id)
+
         async with async_session() as db:
             section = ConversationSection(
                 channel_id=channel_id,
@@ -1004,7 +1128,7 @@ async def backfill_sections(
                 sequence=seq,
                 title=title,
                 summary=summary,
-                transcript=transcript,
+                transcript_path=transcript_path,
                 message_count=msg_count,
                 period_start=period_start,
                 period_end=period_end,

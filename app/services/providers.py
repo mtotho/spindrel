@@ -20,6 +20,8 @@ _client_cache: dict[str | None, AsyncOpenAI] = {}
 _tpm_windows: dict[str, deque] = {}
 # model info cache: provider_id (or None for .env) → {model_name: {max_tokens, input_cost_per_1m, output_cost_per_1m}}
 _model_info_cache: dict[str | None, dict[str, dict]] = {}
+# Cached set of model_ids flagged as no_system_messages in provider_models table
+_no_sys_msg_models: set[str] = set()
 
 
 def _load_anthropic_subscription_token(credentials_path: str) -> str:
@@ -125,11 +127,12 @@ async def _warm_model_info_cache() -> None:
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
     _model_info_cache = {}
+    _no_sys_msg_models = set()
 
     async with async_session() as db:
         rows = (
@@ -137,6 +140,16 @@ async def load_providers() -> None:
                 select(ProviderConfigRow).where(ProviderConfigRow.is_enabled == True)  # noqa: E712
             )
         ).scalars().all()
+
+        # Load model IDs flagged as no_system_messages
+        flagged = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.no_system_messages == True  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _no_sys_msg_models = set(flagged)
 
     for row in rows:
         _registry[row.id] = row
@@ -147,8 +160,24 @@ async def load_providers() -> None:
     else:
         logger.info("Loaded %d provider(s) from DB", len(_registry))
 
+    if _no_sys_msg_models:
+        logger.info("Models with no_system_messages flag: %s", _no_sys_msg_models)
+
     # Pre-warm model info cache for all litellm providers + .env fallback
     await _warm_model_info_cache()
+
+
+def requires_system_message_folding(model: str) -> bool:
+    """Check whether a model requires system messages to be folded into user messages.
+
+    Resolution order:
+    1. Explicit DB flag (provider_models.no_system_messages) — checked via cached set.
+    2. Heuristic fallback: provider family prefix matches known no-system-message providers.
+    """
+    if model in _no_sys_msg_models:
+        return True
+    from app.agent.model_params import _HEURISTIC_NO_SYS_MSG_FAMILIES, get_provider_family
+    return get_provider_family(model) in _HEURISTIC_NO_SYS_MSG_FAMILIES
 
 
 def get_provider(provider_id: str) -> ProviderConfigRow | None:

@@ -43,8 +43,7 @@ class AssemblyResult:
     channel_model_override: str | None = None
     channel_provider_id_override: str | None = None
     channel_max_iterations: int | None = None
-    channel_fallback_model: str | None = None
-    channel_fallback_provider_id: str | None = None
+    channel_fallback_models: list[dict] = field(default_factory=list)
 
 
 async def _inject_workspace_skills(
@@ -143,11 +142,15 @@ async def assemble_context(
         pass  # non-fatal if timezone lookup fails
 
     # --- channel-level tool/skill overrides ---
+    _ch_row = None
     if channel_id is not None:
-        from app.db.engine import async_session
-        from app.db.models import Channel
-        async with async_session() as _ch_db:
-            _ch_row = await _ch_db.get(Channel, channel_id)
+        try:
+            from app.db.engine import async_session
+            from app.db.models import Channel
+            async with async_session() as _ch_db:
+                _ch_row = await _ch_db.get(Channel, channel_id)
+        except Exception:
+            logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id)
         if _ch_row is not None:
             _eff = resolve_effective_tools(bot, _ch_row)
             bot = _dc_replace(
@@ -163,9 +166,8 @@ async def assemble_context(
                 result.channel_provider_id_override = _ch_row.model_provider_id_override
             if _ch_row.max_iterations is not None:
                 result.channel_max_iterations = _ch_row.max_iterations
-            if _ch_row.fallback_model:
-                result.channel_fallback_model = _ch_row.fallback_model
-                result.channel_fallback_provider_id = _ch_row.fallback_model_provider_id
+            if _ch_row.fallback_models:
+                result.channel_fallback_models = _ch_row.fallback_models
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(
@@ -554,7 +556,18 @@ async def assemble_context(
                 if _sec_rows:
                     _sec_texts = []
                     for _sr in _sec_rows:
-                        _sec_texts.append(f"## {_sr.title}\n{_sr.transcript}")
+                        if _sr.transcript_path:
+                            import os as _sec_os
+                            from app.services.workspace import workspace_service as _ws_svc
+                            try:
+                                _ws_root = _ws_svc.get_workspace_root(bot.id, bot)
+                                _fpath = _sec_os.path.join(_ws_root, _sr.transcript_path)
+                                with open(_fpath) as _f:
+                                    _sec_texts.append(_f.read())
+                            except Exception:
+                                _sec_texts.append(f"## {_sr.title}\n{_sr.summary}")
+                        else:
+                            _sec_texts.append(f"## {_sr.title}\n{_sr.summary}")
                     _sec_chars = sum(len(t) for t in _sec_texts)
                     _inject_chars["conversation_sections"] = _sec_chars
                     messages.append({
@@ -709,7 +722,7 @@ async def assemble_context(
     result.pre_selected_tools = pre_selected_tools
 
     # --- channel prompt (injected just before user message) ---
-    if channel_id is not None and _ch_row is not None:  # type: ignore[possibly-undefined]
+    if channel_id is not None and _ch_row is not None:
         _ch_prompt = getattr(_ch_row, "channel_prompt", None)
         if _ch_prompt:
             messages.append({"role": "system", "content": _ch_prompt})

@@ -7,9 +7,10 @@ import { Folder } from "lucide-react";
 
 interface FileTreePanelProps {
   workspaceId: string;
+  mobile?: boolean;
 }
 
-export function FileTreePanel({ workspaceId }: FileTreePanelProps) {
+export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
   const treeWidth = useFileBrowserStore((s) => s.treeWidth);
   const setTreeWidth = useFileBrowserStore((s) => s.setTreeWidth);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
@@ -32,56 +33,63 @@ export function FileTreePanel({ workspaceId }: FileTreePanelProps) {
     });
   }, [data?.entries]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "row", height: "100%", flexShrink: 0 }}>
+  const treeContent = (
+    <div
+      style={{
+        width: mobile ? "100%" : treeWidth,
+        height: "100%",
+        overflow: "auto",
+        background: "#111",
+        borderRight: mobile ? "none" : "1px solid #222",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* Header */}
       <div
         style={{
-          width: treeWidth,
-          height: "100%",
-          overflow: "auto",
-          background: "#111",
-          borderRight: "1px solid #222",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
+          gap: 6,
+          padding: "10px 12px 8px",
+          borderBottom: "1px solid #1a1a1a",
+          flexShrink: 0,
         }}
       >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "10px 12px 8px",
-            borderBottom: "1px solid #1a1a1a",
-            flexShrink: 0,
-          }}
-        >
-          <Folder size={14} color="#666" />
-          <span style={{ fontSize: 11, color: "#666", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-            Explorer
-          </span>
-        </div>
-
-        {/* Tree */}
-        <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
-          {isLoading ? (
-            <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Loading...</div>
-          ) : sortedEntries.length === 0 ? (
-            <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Empty workspace</div>
-          ) : (
-            sortedEntries.map((entry) => (
-              <FileTreeNode
-                key={entry.path}
-                entry={entry}
-                workspaceId={workspaceId}
-                depth={0}
-                activePaths={activePaths}
-              />
-            ))
-          )}
-        </div>
+        <Folder size={14} color="#666" />
+        <span style={{ fontSize: 11, color: "#666", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+          Explorer
+        </span>
       </div>
 
+      {/* Tree */}
+      <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
+        {isLoading ? (
+          <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Loading...</div>
+        ) : sortedEntries.length === 0 ? (
+          <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Empty workspace</div>
+        ) : (
+          sortedEntries.map((entry) => (
+            <FileTreeNode
+              key={entry.path}
+              entry={entry}
+              workspaceId={workspaceId}
+              depth={0}
+              activePaths={activePaths}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  if (mobile) {
+    return treeContent;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "row", height: "100%", flexShrink: 0 }}>
+      {treeContent}
       <ResizeHandle
         direction="horizontal"
         onResize={(delta) => setTreeWidth(treeWidth + delta)}

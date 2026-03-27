@@ -28,6 +28,7 @@ from app.db.models import (
     Task,
     TraceEvent,
 )
+from app.config import settings
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.channels import apply_channel_visibility
 
@@ -124,6 +125,7 @@ class HeartbeatConfigOut(BaseModel):
     interval_minutes: int = 60
     model: str = ""
     model_provider_id: Optional[str] = None
+    fallback_models: list[dict] = []
     prompt: str = ""
     prompt_template_id: Optional[uuid.UUID] = None
     workspace_file_path: Optional[str] = None
@@ -145,7 +147,7 @@ class HeartbeatConfigOut(BaseModel):
     def from_orm_heartbeat(cls, hb: ChannelHeartbeat) -> "HeartbeatConfigOut":
         data = {c: getattr(hb, c) for c in [
             "id", "channel_id", "enabled", "interval_minutes", "model",
-            "model_provider_id", "prompt", "prompt_template_id",
+            "model_provider_id", "fallback_models", "prompt", "prompt_template_id",
             "workspace_file_path", "workspace_id",
             "dispatch_results", "trigger_response",
             "timezone", "max_run_seconds",
@@ -161,6 +163,7 @@ class HeartbeatHistoryRunOut(BaseModel):
     status: str
     run_at: datetime
     completed_at: Optional[datetime] = None
+    result: Optional[str] = None
     error: Optional[str] = None
     correlation_id: Optional[uuid.UUID] = None
 
@@ -171,6 +174,7 @@ class HeartbeatOut(BaseModel):
     config: Optional[HeartbeatConfigOut] = None
     history: list[HeartbeatHistoryRunOut] = []
     total_history: int = 0
+    default_max_run_seconds: int = settings.TASK_MAX_RUN_SECONDS
 
 
 class HeartbeatUpdate(BaseModel):
@@ -178,6 +182,7 @@ class HeartbeatUpdate(BaseModel):
     interval_minutes: int = Field(60, ge=1)
     model: str = ""
     model_provider_id: Optional[str] = None
+    fallback_models: list[dict] = []
     prompt: str = ""
     prompt_template_id: Optional[uuid.UUID] = None
     workspace_file_path: Optional[str] = None
@@ -299,12 +304,6 @@ class ChannelSettingsOut(BaseModel):
     compression_threshold: Optional[int] = None
     compression_keep_turns: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Response condensing
-    response_condensing_enabled: bool = False
-    response_condensing_threshold: Optional[int] = None
-    response_condensing_keep_exact: Optional[int] = None
-    response_condensing_model: Optional[str] = None
-    response_condensing_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -351,12 +350,6 @@ class ChannelSettingsUpdate(BaseModel):
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
     compression_prompt: Optional[str] = None
-    # Response condensing
-    response_condensing_enabled: Optional[bool] = None
-    response_condensing_threshold: Optional[int] = None
-    response_condensing_keep_exact: Optional[int] = None
-    response_condensing_model: Optional[str] = None
-    response_condensing_prompt: Optional[str] = None
     elevation_enabled: Optional[bool] = None
     elevation_threshold: Optional[float] = None
     elevated_model: Optional[str] = None
@@ -662,6 +655,7 @@ async def admin_channel_heartbeat_get(
                     status=r.status,
                     run_at=r.run_at,
                     completed_at=r.completed_at,
+                    result=r.result[:500] if r.result else None,
                     error=r.error,
                     correlation_id=r.correlation_id,
                 )
@@ -692,6 +686,7 @@ async def admin_channel_heartbeat_get(
                     status=t.status,
                     run_at=t.run_at or t.created_at,
                     completed_at=t.completed_at,
+                    result=t.result[:500] if t.result else None,
                     error=t.error,
                     correlation_id=corr_map.get(t.id),
                 )
@@ -757,10 +752,21 @@ async def admin_channel_heartbeat_update(
         heartbeat.quiet_end = dt_time.fromisoformat(updates["quiet_end"]) if updates["quiet_end"] else None
     if "timezone" in updates:
         heartbeat.timezone = updates["timezone"]
+    if "max_run_seconds" in updates:
+        heartbeat.max_run_seconds = updates["max_run_seconds"]
     heartbeat.updated_at = now
 
-    if heartbeat.enabled and heartbeat.next_run_at is None:
-        heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+    if heartbeat.enabled:
+        if heartbeat.next_run_at is None:
+            # First enable — schedule from now
+            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+        elif "interval_minutes" in updates:
+            # Interval changed — reschedule relative to last run (or now if never ran)
+            base = heartbeat.last_run_at or now
+            heartbeat.next_run_at = base + timedelta(minutes=heartbeat.interval_minutes)
+            # If the new schedule is already past, fire on next poll
+            if heartbeat.next_run_at <= now:
+                heartbeat.next_run_at = now
 
     await db.commit()
     await db.refresh(heartbeat)
@@ -811,8 +817,9 @@ async def admin_channel_heartbeat_fire(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """Fire heartbeat immediately."""
-    from app.services.heartbeat import fire_heartbeat
+    """Fire heartbeat immediately (non-blocking — spawns in background)."""
+    import asyncio
+    from app.services.heartbeat import _safe_fire_heartbeat
 
     heartbeat = (await db.execute(
         select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
@@ -821,9 +828,8 @@ async def admin_channel_heartbeat_fire(
     if not heartbeat:
         raise HTTPException(status_code=404, detail="No heartbeat configured")
 
-    await fire_heartbeat(heartbeat)
+    asyncio.create_task(_safe_fire_heartbeat(heartbeat))
 
-    await db.refresh(heartbeat)
     return HeartbeatConfigOut.model_validate(heartbeat)
 
 
@@ -1165,7 +1171,7 @@ async def admin_channel_sections(
                 "sequence": s.sequence,
                 "title": s.title,
                 "summary": s.summary,
-                "transcript": s.transcript,
+                "transcript_path": s.transcript_path,
                 "message_count": s.message_count,
                 "period_start": s.period_start.isoformat() if s.period_start else None,
                 "period_end": s.period_end.isoformat() if s.period_end else None,

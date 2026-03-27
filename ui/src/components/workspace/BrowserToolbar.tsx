@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRouter } from "expo-router";
 import {
   Columns2, FilePlus, FolderPlus, Upload, Settings, Play, Square, ChevronRight,
+  PanelLeft,
 } from "lucide-react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import {
@@ -15,12 +16,15 @@ import type { SharedWorkspace } from "../../types/api";
 interface BrowserToolbarProps {
   workspace: SharedWorkspace;
   onUpload: () => void;
+  isMobile?: boolean;
 }
 
-export function BrowserToolbar({ workspace, onUpload }: BrowserToolbarProps) {
+export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbarProps) {
   const router = useRouter();
   const splitMode = useFileBrowserStore((s) => s.splitMode);
   const toggleSplit = useFileBrowserStore((s) => s.toggleSplit);
+  const treeVisible = useFileBrowserStore((s) => s.treeVisible);
+  const toggleTree = useFileBrowserStore((s) => s.toggleTree);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
 
   const writeMutation = useWriteWorkspaceFile(workspace.id);
@@ -68,22 +72,43 @@ export function BrowserToolbar({ workspace, onUpload }: BrowserToolbarProps) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 8,
-        padding: "6px 12px",
+        gap: isMobile ? 4 : 8,
+        padding: isMobile ? "6px 8px" : "6px 12px",
         background: "#141414",
         borderBottom: "1px solid #222",
         flexShrink: 0,
         minHeight: 40,
+        flexWrap: isMobile ? "nowrap" : undefined,
+        overflow: "hidden",
       }}
     >
+      {/* Tree toggle */}
+      <ToolbarButton
+        icon={<PanelLeft size={14} />}
+        title={treeVisible ? "Hide Explorer" : "Show Explorer"}
+        onClick={toggleTree}
+        active={treeVisible}
+      />
+
       {/* Workspace name + status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: isMobile ? 1 : 0, minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5" }}>{workspace.name}</span>
+        <span
+          style={{
+            fontSize: isMobile ? 13 : 14,
+            fontWeight: 600,
+            color: "#e5e5e5",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {workspace.name}
+        </span>
       </div>
 
-      {/* Breadcrumb */}
-      {leftActive && (
+      {/* Breadcrumb — hide on mobile */}
+      {!isMobile && leftActive && (
         <div style={{ display: "flex", alignItems: "center", gap: 2, color: "#555", fontSize: 12, overflow: "hidden" }}>
           <ChevronRight size={12} color="#444" />
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -97,9 +122,11 @@ export function BrowserToolbar({ workspace, onUpload }: BrowserToolbarProps) {
       {/* Inline new file/folder input */}
       {creating && (
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 11, color: "#666" }}>
-            New {creating}:
-          </span>
+          {!isMobile && (
+            <span style={{ fontSize: 11, color: "#666" }}>
+              New {creating}:
+            </span>
+          )}
           <input
             autoFocus
             value={newName}
@@ -115,7 +142,7 @@ export function BrowserToolbar({ workspace, onUpload }: BrowserToolbarProps) {
               color: "#e5e5e5",
               fontSize: 12,
               outline: "none",
-              width: 160,
+              width: isMobile ? 120 : 160,
             }}
           />
         </div>
@@ -126,14 +153,18 @@ export function BrowserToolbar({ workspace, onUpload }: BrowserToolbarProps) {
       <ToolbarButton icon={<FolderPlus size={14} />} title="New Folder" onClick={() => setCreating("folder")} disabled={!isRunning} />
       <ToolbarButton icon={<Upload size={14} />} title="Upload" onClick={onUpload} disabled={!isRunning} />
 
-      <div style={{ width: 1, height: 20, background: "#333", flexShrink: 0 }} />
-
-      <ToolbarButton
-        icon={<Columns2 size={14} />}
-        title={splitMode ? "Close Split" : "Split View"}
-        onClick={toggleSplit}
-        active={splitMode}
-      />
+      {/* Split — hide on mobile */}
+      {!isMobile && (
+        <>
+          <div style={{ width: 1, height: 20, background: "#333", flexShrink: 0 }} />
+          <ToolbarButton
+            icon={<Columns2 size={14} />}
+            title={splitMode ? "Close Split" : "Split View"}
+            onClick={toggleSplit}
+            active={splitMode}
+          />
+        </>
+      )}
 
       <div style={{ width: 1, height: 20, background: "#333", flexShrink: 0 }} />
 

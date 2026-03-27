@@ -1,4 +1,4 @@
-"""Tests for per-bot / per-channel fallback model resolution."""
+"""Tests for ordered fallback model chain in _llm_call."""
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,121 +37,216 @@ def _rate_limit_error():
     )
 
 
+def _patched(global_fallbacks=None):
+    """Context manager that patches settings, providers, and global fallback cache."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def ctx():
+        with patch("app.agent.llm.settings") as mock_settings, \
+             patch("app.services.providers.get_llm_client") as mock_get_client, \
+             patch("app.services.providers.record_usage"), \
+             patch("app.services.server_config.get_global_fallback_models",
+                   return_value=global_fallbacks or []):
+            mock_settings.LLM_MAX_RETRIES = 0
+            mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
+            mock_settings.LLM_RETRY_INITIAL_WAIT = 0
+            yield mock_settings, mock_get_client
+    return ctx()
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_fallback_uses_passed_model():
-    """When primary fails and fallback_model is passed, it should be used."""
-    call_count = 0
+async def test_single_fallback_used():
+    """When primary fails and a single fallback is passed, it should be used."""
+    models_called = []
 
     async def mock_create(**kwargs):
-        nonlocal call_count
-        call_count += 1
-        if kwargs["model"] == "primary-model":
+        models_called.append(kwargs["model"])
+        if kwargs["model"] == "primary":
             raise _rate_limit_error()
         return _fake_response(kwargs["model"])
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = mock_create
-
-    with patch("app.agent.llm.settings") as mock_settings, \
-         patch("app.services.providers.get_llm_client", return_value=mock_client), \
-         patch("app.services.providers.record_usage"):
-        mock_settings.LLM_MAX_RETRIES = 0
-        mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
-        mock_settings.LLM_RETRY_INITIAL_WAIT = 0
-        mock_settings.LLM_FALLBACK_MODEL = ""  # no global fallback
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
 
         resp = await _llm_call(
-            "primary-model", [], None, None,
-            fallback_model="fallback-model",
-            fallback_provider_id="fallback-provider",
+            "primary", [], None, None,
+            fallback_models=[{"model": "fallback-1", "provider_id": None}],
         )
         assert resp is not None
-        assert call_count == 2  # primary fail + fallback success
+        assert models_called == ["primary", "fallback-1"]
 
 
 @pytest.mark.asyncio
-async def test_fallback_falls_through_to_global():
-    """When no per-bot/channel fallback, global LLM_FALLBACK_MODEL is used."""
-    call_count = 0
+async def test_chain_of_three_fallbacks():
+    """When primary and first two fallbacks fail, third should succeed."""
+    models_called = []
 
     async def mock_create(**kwargs):
-        nonlocal call_count
-        call_count += 1
-        if kwargs["model"] == "primary-model":
+        models_called.append(kwargs["model"])
+        if kwargs["model"] in ("primary", "fb1", "fb2"):
             raise _rate_limit_error()
         return _fake_response(kwargs["model"])
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = mock_create
-
-    with patch("app.agent.llm.settings") as mock_settings, \
-         patch("app.services.providers.get_llm_client", return_value=mock_client), \
-         patch("app.services.providers.record_usage"):
-        mock_settings.LLM_MAX_RETRIES = 0
-        mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
-        mock_settings.LLM_RETRY_INITIAL_WAIT = 0
-        mock_settings.LLM_FALLBACK_MODEL = "global-fallback"
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
 
         resp = await _llm_call(
-            "primary-model", [], None, None,
-            # no per-bot/channel fallback passed
+            "primary", [], None, None,
+            fallback_models=[
+                {"model": "fb1"},
+                {"model": "fb2"},
+                {"model": "fb3"},
+            ],
         )
         assert resp is not None
-        assert call_count == 2
+        assert models_called == ["primary", "fb1", "fb2", "fb3"]
 
 
 @pytest.mark.asyncio
-async def test_no_fallback_when_same_as_primary():
-    """When fallback == primary, the error should be raised (no infinite loop)."""
+async def test_global_fallback_appended():
+    """Global fallback list is appended after caller's list."""
+    models_called = []
+
+    async def mock_create(**kwargs):
+        models_called.append(kwargs["model"])
+        if kwargs["model"] in ("primary", "bot-fb"):
+            raise _rate_limit_error()
+        return _fake_response(kwargs["model"])
+
+    with _patched(global_fallbacks=[{"model": "global-fb", "provider_id": None}]) as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
+
+        resp = await _llm_call(
+            "primary", [], None, None,
+            fallback_models=[{"model": "bot-fb"}],
+        )
+        assert resp is not None
+        assert models_called == ["primary", "bot-fb", "global-fb"]
+
+
+@pytest.mark.asyncio
+async def test_global_only_when_no_caller_fallbacks():
+    """When no caller fallbacks, global list is still used."""
+    models_called = []
+
+    async def mock_create(**kwargs):
+        models_called.append(kwargs["model"])
+        if kwargs["model"] == "primary":
+            raise _rate_limit_error()
+        return _fake_response(kwargs["model"])
+
+    with _patched(global_fallbacks=[{"model": "global-catch", "provider_id": None}]) as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
+
+        resp = await _llm_call("primary", [], None, None)
+        assert resp is not None
+        assert models_called == ["primary", "global-catch"]
+
+
+@pytest.mark.asyncio
+async def test_dedup_primary_in_fallback_list():
+    """Primary model appearing in fallback list should be skipped (no retry loop)."""
+    models_called = []
+
+    async def mock_create(**kwargs):
+        models_called.append(kwargs["model"])
+        if kwargs["model"] == "primary":
+            raise _rate_limit_error()
+        return _fake_response(kwargs["model"])
+
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
+
+        resp = await _llm_call(
+            "primary", [], None, None,
+            fallback_models=[
+                {"model": "primary"},  # should be skipped
+                {"model": "actual-fallback"},
+            ],
+        )
+        assert resp is not None
+        assert models_called == ["primary", "actual-fallback"]
+
+
+@pytest.mark.asyncio
+async def test_dedup_between_caller_and_global():
+    """Duplicate models between caller list and global should be skipped."""
+    models_called = []
+
+    async def mock_create(**kwargs):
+        models_called.append(kwargs["model"])
+        if kwargs["model"] in ("primary", "shared-fb"):
+            raise _rate_limit_error()
+        return _fake_response(kwargs["model"])
+
+    with _patched(global_fallbacks=[
+        {"model": "shared-fb"},  # already in caller list
+        {"model": "global-only"},
+    ]) as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
+
+        resp = await _llm_call(
+            "primary", [], None, None,
+            fallback_models=[{"model": "shared-fb"}],
+        )
+        assert resp is not None
+        # shared-fb tried from caller list, NOT retried from global
+        assert models_called == ["primary", "shared-fb", "global-only"]
+
+
+@pytest.mark.asyncio
+async def test_all_fallbacks_fail_raises():
+    """When all fallbacks fail, the last error should be raised."""
     async def mock_create(**kwargs):
         raise _rate_limit_error()
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = mock_create
-
-    with patch("app.agent.llm.settings") as mock_settings, \
-         patch("app.services.providers.get_llm_client", return_value=mock_client), \
-         patch("app.services.providers.record_usage"):
-        mock_settings.LLM_MAX_RETRIES = 0
-        mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
-        mock_settings.LLM_RETRY_INITIAL_WAIT = 0
-        mock_settings.LLM_FALLBACK_MODEL = ""
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
 
         with pytest.raises(openai.RateLimitError):
             await _llm_call(
-                "my-model", [], None, None,
-                fallback_model="my-model",
+                "primary", [], None, None,
+                fallback_models=[{"model": "fb1"}, {"model": "fb2"}],
             )
 
 
 @pytest.mark.asyncio
-async def test_raises_when_no_fallback_configured():
+async def test_no_fallback_raises():
     """When no fallback at any level, the error should propagate."""
     async def mock_create(**kwargs):
         raise _rate_limit_error()
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = mock_create
-
-    with patch("app.agent.llm.settings") as mock_settings, \
-         patch("app.services.providers.get_llm_client", return_value=mock_client), \
-         patch("app.services.providers.record_usage"):
-        mock_settings.LLM_MAX_RETRIES = 0
-        mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
-        mock_settings.LLM_RETRY_INITIAL_WAIT = 0
-        mock_settings.LLM_FALLBACK_MODEL = ""
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.return_value = client
 
         with pytest.raises(openai.RateLimitError):
-            await _llm_call("my-model", [], None, None)
+            await _llm_call("primary", [], None, None)
 
 
 @pytest.mark.asyncio
-async def test_fallback_provider_used_for_fallback_call():
-    """When fallback has its own provider_id, the fallback call should use that provider."""
+async def test_fallback_provider_id_used():
+    """Each fallback entry's provider_id should be passed to get_llm_client."""
     providers_seen = []
 
     async def mock_create(**kwargs):
@@ -167,38 +262,66 @@ async def test_fallback_provider_used_for_fallback_call():
 
     with patch("app.agent.llm.settings") as mock_settings, \
          patch("app.services.providers.get_llm_client", side_effect=mock_get_client), \
-         patch("app.services.providers.record_usage"):
+         patch("app.services.providers.record_usage"), \
+         patch("app.services.server_config.get_global_fallback_models", return_value=[]):
         mock_settings.LLM_MAX_RETRIES = 0
         mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
         mock_settings.LLM_RETRY_INITIAL_WAIT = 0
-        mock_settings.LLM_FALLBACK_MODEL = ""
 
         await _llm_call(
             "primary", [], None, None,
-            provider_id="primary-provider",
-            fallback_model="fallback",
-            fallback_provider_id="fallback-provider",
+            provider_id="primary-prov",
+            fallback_models=[{"model": "fb", "provider_id": "fb-prov"}],
         )
-        # First call uses primary provider, second uses fallback provider
-        assert providers_seen[0] == "primary-provider"
-        assert providers_seen[1] == "fallback-provider"
+        assert providers_seen[0] == "primary-prov"
+        assert providers_seen[1] == "fb-prov"
 
 
-def test_resolution_channel_over_bot_over_global():
-    """Test the resolution logic: channel > bot > global."""
-    # This tests the resolution pattern used in run_stream()
-    # channel fallback set → uses channel
-    channel_fb = "channel-model"
-    bot_fb = "bot-model"
-    result = channel_fb or bot_fb
-    assert result == "channel-model"
+@pytest.mark.asyncio
+async def test_fallback_inherits_provider_when_none():
+    """When a fallback entry has no provider_id, primary provider is used."""
+    providers_seen = []
 
-    # channel fallback empty → uses bot
-    channel_fb = None
-    result = channel_fb or bot_fb
-    assert result == "bot-model"
+    async def mock_create(**kwargs):
+        if kwargs["model"] == "primary":
+            raise _rate_limit_error()
+        return _fake_response(kwargs["model"])
 
-    # both empty → None (global handled in _llm_call)
-    bot_fb = None
-    result = channel_fb or bot_fb
-    assert result is None
+    def mock_get_client(provider_id=None):
+        providers_seen.append(provider_id)
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        return client
+
+    with patch("app.agent.llm.settings") as mock_settings, \
+         patch("app.services.providers.get_llm_client", side_effect=mock_get_client), \
+         patch("app.services.providers.record_usage"), \
+         patch("app.services.server_config.get_global_fallback_models", return_value=[]):
+        mock_settings.LLM_MAX_RETRIES = 0
+        mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
+        mock_settings.LLM_RETRY_INITIAL_WAIT = 0
+
+        await _llm_call(
+            "primary", [], None, None,
+            provider_id="my-prov",
+            fallback_models=[{"model": "fb"}],  # no provider_id
+        )
+        assert providers_seen[0] == "my-prov"
+        assert providers_seen[1] == "my-prov"  # inherits primary
+
+
+def test_resolution_channel_over_bot():
+    """Test the resolution logic used in run_stream: channel list > bot list."""
+    channel_fbs = [{"model": "ch-fb"}]
+    bot_fbs = [{"model": "bot-fb"}]
+    # channel set → uses channel
+    result = channel_fbs or bot_fbs
+    assert result == [{"model": "ch-fb"}]
+
+    # channel empty → uses bot
+    result = [] or bot_fbs
+    assert result == [{"model": "bot-fb"}]
+
+    # both empty → empty list (global appended in _llm_call)
+    result = [] or []
+    assert result == []

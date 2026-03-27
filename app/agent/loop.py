@@ -21,7 +21,7 @@ from app.agent.message_utils import (
 from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
-from app.agent.llm import EmptyChoicesError, _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
+from app.agent.llm import EmptyChoicesError, FallbackInfo, _llm_call, _summarize_tool_result, last_fallback_info  # noqa: F401 — re-exported
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -65,8 +65,7 @@ async def run_agent_tool_loop(
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
     max_iterations: int | None = None,
-    fallback_model: str | None = None,
-    fallback_provider_id: str | None = None,
+    fallback_models: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -154,9 +153,17 @@ async def run_agent_tool_loop(
 
             # TPM rate limit check: yield wait event and sleep if needed
             from app.services.providers import check_rate_limit
-            _est_tokens = sum(
-                len(str(m.get("content") or "")) // 4 for m in messages
-            )
+
+            def _est_msg_chars(m: dict) -> int:
+                content = m.get("content") or ""
+                chars = len(content) if isinstance(content, str) else sum(
+                    len(str(p)) for p in content
+                ) if isinstance(content, list) else 0
+                if m.get("tool_calls"):
+                    chars += sum(len(str(tc)) for tc in m["tool_calls"])
+                return chars
+
+            _est_tokens = sum(_est_msg_chars(m) // 4 for m in messages)
             _wait = check_rate_limit(provider_id, _est_tokens)
             if _wait:
                 logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)
@@ -193,8 +200,38 @@ async def run_agent_tool_loop(
 
             import time as _time
             _llm_t0 = _time.monotonic()
-            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params, fallback_model=fallback_model, fallback_provider_id=fallback_provider_id)
+            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params, fallback_models=fallback_models)
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
+
+            # Check if a fallback was used and emit trace event
+            _fb_info = last_fallback_info.get()
+            if _fb_info is not None:
+                logger.warning(
+                    "Fallback used: %s → %s (reason: %s)",
+                    _fb_info.original_model, _fb_info.fallback_model, _fb_info.reason,
+                )
+                yield _event_with_compaction_tag({
+                    "type": "fallback",
+                    "original_model": _fb_info.original_model,
+                    "fallback_model": _fb_info.fallback_model,
+                    "reason": _fb_info.reason,
+                }, compaction)
+                if correlation_id is not None:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="model_fallback",
+                        data={
+                            "original_model": _fb_info.original_model,
+                            "fallback_model": _fb_info.fallback_model,
+                            "reason": _fb_info.reason,
+                            "original_error": _fb_info.original_error,
+                            "iteration": iteration + 1,
+                        },
+                        duration_ms=_llm_latency_ms,
+                    ))
 
             # Backfill elevation log with outcome data
             if _elev_log_id is not None:
@@ -246,6 +283,9 @@ async def run_agent_tool_loop(
                         "code": "empty_response",
                         "message": _empty_msg,
                     }, compaction)
+                    # Remove the empty assistant message that was eagerly appended
+                    # above — it would leak into persisted history as dead weight.
+                    messages.pop()
                     messages.append({
                         "role": "system",
                         "content": "You must respond to the user. Write a response now."
@@ -259,8 +299,7 @@ async def run_agent_tool_loop(
                             tools_param,
                             "none" if tools_param is not None else None,
                             provider_id=provider_id,
-                            fallback_model=fallback_model,
-                            fallback_provider_id=fallback_provider_id,
+                            fallback_models=fallback_models,
                         )
                         text = retry.choices[0].message.content or ""
                         messages.append(retry.choices[0].message.model_dump(exclude_none=True))
@@ -424,8 +463,7 @@ async def run_agent_tool_loop(
                 tools_param,
                 "none" if tools_param is not None else None,
                 provider_id=provider_id,
-                fallback_model=fallback_model,
-                fallback_provider_id=fallback_provider_id,
+                fallback_models=fallback_models,
             )
             msg = response.choices[0].message
         except Exception as exc:
@@ -521,6 +559,7 @@ async def run_stream(
     channel_id: uuid.UUID | None = None,
     model_override: str | None = None,
     provider_id_override: str | None = None,
+    fallback_models: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -626,13 +665,8 @@ async def run_stream(
     pre_selected_tools = assembly_result.pre_selected_tools
     user_msg_index = assembly_result.user_msg_index
 
-    # Resolve fallback model: channel > bot > global (global handled in _llm_call)
-    _fallback_model = assembly_result.channel_fallback_model or bot.fallback_model
-    _fallback_provider_id = (
-        assembly_result.channel_fallback_provider_id
-        if assembly_result.channel_fallback_model
-        else bot.fallback_model_provider_id
-    ) if _fallback_model else None
+    # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
+    _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
 
     # --- Context compression (pre-turn) ---
     _compression_active = False
@@ -707,8 +741,7 @@ async def run_stream(
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,
-            fallback_model=_fallback_model,
-            fallback_provider_id=_fallback_provider_id,
+            fallback_models=_fallback_models,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -741,8 +774,7 @@ async def run_stream(
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,
-            fallback_model=_fallback_model,
-            fallback_provider_id=_fallback_provider_id,
+            fallback_models=_fallback_models,
         ):
             yield event
 
@@ -771,6 +803,7 @@ async def run(
     channel_id: uuid.UUID | None = None,
     model_override: str | None = None,
     provider_id_override: str | None = None,
+    fallback_models: list[dict] | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -786,6 +819,7 @@ async def run(
         channel_id=channel_id,
         model_override=model_override,
         provider_id_override=provider_id_override,
+        fallback_models=fallback_models,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

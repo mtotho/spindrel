@@ -82,6 +82,25 @@ async def read_conversation_history(section: str) -> str:
     if not sec or sec.channel_id != channel_id:
         return f"Section not found: {section}"
 
+    # Read full transcript from filesystem if available
+    if sec.transcript_path:
+        import os
+        from app.agent.context import current_bot_id
+        from app.agent.bots import get_bot
+        from app.services.workspace import workspace_service
+
+        try:
+            bot = get_bot(current_bot_id.get())
+            ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            filepath = os.path.join(ws_root, sec.transcript_path)
+            with open(filepath) as f:
+                return f.read()
+        except FileNotFoundError:
+            return f"Transcript file not found: {sec.transcript_path}. Re-run backfill."
+        except Exception:
+            return f"Error reading transcript file: {sec.transcript_path}"
+
+    # Fallback: no transcript file available
     period = ""
     if sec.period_start:
         period += f"From: {sec.period_start.strftime('%Y-%m-%d %H:%M')}"
@@ -94,5 +113,5 @@ async def read_conversation_history(section: str) -> str:
         f"Messages: {sec.message_count}\n\n"
         f"Summary: {sec.summary}\n\n"
         f"---\n\n"
-        f"{sec.transcript}"
+        f"Transcript file not available for this section."
     )

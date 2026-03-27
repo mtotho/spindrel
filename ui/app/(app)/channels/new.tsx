@@ -27,7 +27,7 @@ export default function NewChannelScreen() {
         bot_id: botId,
         private: isPrivate,
       });
-      router.replace(`/channels/${channel.id}` as any);
+      router.push(`/channels/${channel.id}` as any);
     } catch {
       // mutation error handled by react-query
     }

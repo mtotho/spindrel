@@ -221,13 +221,14 @@ class TestLlmCallModelParams:
              patch("app.services.providers.record_usage"), \
              patch("app.agent.llm.settings", _default_mock_settings(
                  LLM_MAX_RETRIES=0,
-                 LLM_FALLBACK_MODEL="gpt-4",
              )), \
+             patch("app.services.server_config.get_global_fallback_models", return_value=[]), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             result = await _llm_call(
                 "anthropic/claude-3",
                 [{"role": "user", "content": "hi"}], None, None,
                 model_params={"temperature": 0.7, "frequency_penalty": 0.5},
+                fallback_models=[{"model": "gpt-4"}],
             )
 
         assert result is mock_resp
@@ -560,13 +561,13 @@ class TestFoldSystemMessages:
 
 
 # ---------------------------------------------------------------------------
-# _llm_call applies _fold_system_messages for NO_SYSTEM_MESSAGE_PROVIDERS
+# _llm_call applies _fold_system_messages via requires_system_message_folding
 # ---------------------------------------------------------------------------
 
 class TestLlmCallSystemMessageFolding:
     @pytest.mark.asyncio
     async def test_minimax_messages_folded(self):
-        """System messages should be folded to user for minimax/ models."""
+        """System messages should be folded to user for minimax/ models (heuristic fallback)."""
         from app.agent.llm import _llm_call
 
         mock_client = AsyncMock()
@@ -638,3 +639,65 @@ class TestLlmCallSystemMessageFolding:
         assert "Bot instructions here." in all_content
         assert "Memory: user likes cats" in all_content
         assert "What do I like?" in all_content
+
+    @pytest.mark.asyncio
+    async def test_db_flagged_model_messages_folded(self):
+        """A model flagged in the DB (via _no_sys_msg_models cache) should get system messages folded."""
+        from app.agent.llm import _llm_call
+        import app.services.providers as pmod
+
+        mock_client = AsyncMock()
+        mock_resp = _mock_response("ok")
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+        messages = [
+            {"role": "system", "content": "Instructions"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        original = pmod._no_sys_msg_models
+        try:
+            pmod._no_sys_msg_models = {"some-custom/model-v1"}
+            with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+                 patch("app.services.providers.record_usage"), \
+                 patch("app.agent.llm.settings", _default_mock_settings()):
+                await _llm_call("some-custom/model-v1", messages, None, None)
+        finally:
+            pmod._no_sys_msg_models = original
+
+        sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert all(m["role"] != "system" for m in sent_messages)
+
+
+# ---------------------------------------------------------------------------
+# requires_system_message_folding — unit tests
+# ---------------------------------------------------------------------------
+
+class TestRequiresSystemMessageFolding:
+    def test_db_flagged_model_returns_true(self):
+        import app.services.providers as pmod
+        original = pmod._no_sys_msg_models
+        try:
+            pmod._no_sys_msg_models = {"custom/no-sys-model"}
+            assert pmod.requires_system_message_folding("custom/no-sys-model") is True
+        finally:
+            pmod._no_sys_msg_models = original
+
+    def test_heuristic_minimax_returns_true(self):
+        from app.services.providers import requires_system_message_folding
+        assert requires_system_message_folding("minimax/some-model") is True
+
+    def test_standard_provider_returns_false(self):
+        from app.services.providers import requires_system_message_folding
+        assert requires_system_message_folding("openai/gpt-4") is False
+        assert requires_system_message_folding("anthropic/claude-3") is False
+
+    def test_db_flag_takes_precedence(self):
+        """Even if heuristic would return False, DB flag should return True."""
+        import app.services.providers as pmod
+        original = pmod._no_sys_msg_models
+        try:
+            pmod._no_sys_msg_models = {"openai/custom-no-sys"}
+            assert pmod.requires_system_message_folding("openai/custom-no-sys") is True
+        finally:
+            pmod._no_sys_msg_models = original
