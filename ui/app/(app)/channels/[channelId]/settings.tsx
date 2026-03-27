@@ -812,6 +812,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
       {/* 2. Compaction settings — conditional on mode */}
       {isFileOrStructured ? (
+        <>
         <Section title="Archival Settings" description="Manages long conversations by archiving old turns into titled sections.">
           {/* Locked banner */}
           <div style={{
@@ -943,6 +944,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
         <Section title="Archived Sections" description="Browse and manage archived conversation sections.">
           <SectionsViewer channelId={channelId} />
         </Section>
+        </>
       ) : (
         <Section title="Compaction" description="Manages long conversations by periodically summarizing old turns.">
           <Toggle

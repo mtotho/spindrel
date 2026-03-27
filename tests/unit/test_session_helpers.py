@@ -112,10 +112,11 @@ class TestMessageToDictToolCallContent:
         d = _message_to_dict(msg)
         assert d["content"] == "thinking..."
 
-    def test_no_tool_calls_none_content_omits_key(self):
+    def test_no_tool_calls_none_content_uses_empty_string(self):
         msg = _fake_message(content=None, tool_calls=None)
         d = _message_to_dict(msg)
-        assert "content" not in d
+        # Catch-all: content is always present (empty string fallback)
+        assert d["content"] == ""
 
 
 # ---------------------------------------------------------------------------
