@@ -22,30 +22,34 @@ def _mock_llm_response(content):
 
 class TestGenerateSection:
     @pytest.mark.asyncio
-    async def test_returns_title_summary_transcript(self):
-        """Mock LLM returns valid JSON -> parsed correctly."""
+    async def test_returns_title_summary_and_deterministic_transcript(self):
+        """LLM returns title/summary/tags; transcript is built from raw messages."""
         llm_json = json.dumps({
             "title": "Setting Up Slack",
             "summary": "User configured Slack integration with socket mode.",
-            "transcript": "[USER 10:02]: Let's set up Slack\n[ASSISTANT 10:03]: I'll help.",
+            "tags": ["slack", "integration"],
         })
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=_mock_llm_response(llm_json)
         )
+        conversation = [
+            {"role": "user", "content": "Let's set up Slack"},
+            {"role": "assistant", "content": "I'll help."},
+        ]
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
-                [{"role": "user", "content": "Let's set up Slack"}],
-                "gpt-4",
-            )
+            title, summary, transcript, tags = await _generate_section(conversation, "gpt-4")
         assert title == "Setting Up Slack"
         assert "socket mode" in summary
-        assert "[USER" in transcript
+        # Transcript is deterministic from raw messages, not LLM output
+        assert "[USER]: Let's set up Slack" in transcript
+        assert "[ASSISTANT]: I'll help." in transcript
+        assert tags == ["slack", "integration"]
 
     @pytest.mark.asyncio
     async def test_handles_markdown_fenced_json(self):
         """LLM wraps JSON in ```json fences -> still parsed."""
-        raw = '```json\n{"title":"Test","summary":"s","transcript":"t"}\n```'
+        raw = '```json\n{"title":"Test","summary":"s","tags":["t"]}\n```'
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=_mock_llm_response(raw)
@@ -54,26 +58,30 @@ class TestGenerateSection:
             title, summary, transcript, tags = await _generate_section([], "gpt-4")
         assert title == "Test"
         assert summary == "s"
-        assert transcript == "t"
+        assert tags == ["t"]
+        # Empty conversation -> empty transcript
+        assert transcript == ""
 
     @pytest.mark.asyncio
     async def test_non_json_response_fallback(self):
-        """LLM returns non-JSON -> graceful fallback with raw text as transcript."""
+        """LLM returns non-JSON -> graceful fallback with deterministic transcript."""
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=_mock_llm_response("Just a plain text summary")
         )
+        conversation = [{"role": "user", "content": "hello"}]
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags = await _generate_section(conversation, "gpt-4")
         assert title == "Conversation"  # fallback title
-        assert "plain text" in transcript
+        # Transcript is from raw messages, not LLM
+        assert "[USER]: hello" in transcript
 
     @pytest.mark.asyncio
     async def test_conversation_messages_included_in_prompt(self):
         """Verify the conversation messages are passed to the LLM."""
         mock_client = MagicMock()
         mock_create = AsyncMock(return_value=_mock_llm_response(
-            json.dumps({"title": "T", "summary": "S", "transcript": "T"})
+            json.dumps({"title": "T", "summary": "S", "tags": []})
         ))
         mock_client.chat.completions.create = mock_create
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
@@ -92,13 +100,14 @@ class TestGenerateSection:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=_mock_llm_response(
-                json.dumps({"title": "Empty", "summary": "Nothing discussed.", "transcript": ""})
+                json.dumps({"title": "Empty", "summary": "Nothing discussed.", "tags": []})
             )
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             title, summary, transcript, tags = await _generate_section([], "gpt-4")
         assert title == "Empty"
         assert "Nothing" in summary
+        assert transcript == ""
 
 
 class TestRegenerateExecutiveSummary:

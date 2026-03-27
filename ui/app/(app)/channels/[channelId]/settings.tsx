@@ -876,12 +876,20 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
           {/* Heartbeat trigger toggle + prompt */}
           <Toggle
             value={!!form.trigger_heartbeat_before_compaction}
-            onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
-            label="Trigger heartbeat before compact/sectioning"
+            onChange={(v) => {
+              patch("trigger_heartbeat_before_compaction", v || undefined);
+              if (v) {
+                patch("memory_knowledge_compaction_prompt", undefined);
+                patch("compaction_workspace_file_path", undefined);
+                patch("compaction_workspace_id", undefined);
+                patch("compaction_prompt_template_id", undefined);
+              }
+            }}
+            label="Trigger heartbeat before compaction"
           />
           <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-            Fires channel heartbeats before compaction instead of the dedicated memory phase LLM call.
-            When off, uses the built-in memory phase prompt.
+            Runs all channel heartbeats (and waits for them to finish) before archiving messages.
+            Replaces the dedicated memory phase LLM call — heartbeats handle saving memories, knowledge, and persona instead.
           </div>
 
           {!form.trigger_heartbeat_before_compaction && (
@@ -1011,12 +1019,20 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
               {/* Heartbeat trigger toggle + prompt */}
               <Toggle
                 value={!!form.trigger_heartbeat_before_compaction}
-                onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
-                label="Trigger heartbeat before compact/sectioning"
+                onChange={(v) => {
+                  patch("trigger_heartbeat_before_compaction", v || undefined);
+                  if (v) {
+                    patch("memory_knowledge_compaction_prompt", undefined);
+                    patch("compaction_workspace_file_path", undefined);
+                    patch("compaction_workspace_id", undefined);
+                    patch("compaction_prompt_template_id", undefined);
+                  }
+                }}
+                label="Trigger heartbeat before compaction"
               />
               <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-                Fires channel heartbeats before compaction instead of the dedicated memory phase LLM call.
-                When off, uses the built-in memory phase prompt.
+                Runs all channel heartbeats (and waits for them to finish) before summarizing messages.
+                Replaces the dedicated memory phase LLM call — heartbeats handle saving memories, knowledge, and persona instead.
               </div>
 
               {!form.trigger_heartbeat_before_compaction && (
