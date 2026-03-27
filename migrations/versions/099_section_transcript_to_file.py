@@ -2,14 +2,14 @@
 
 Adds transcript_path column, drops transcript column.
 
-Revision ID: 090
-Revises: 089
+Revision ID: 099
+Revises: 098
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "090"
-down_revision = "089"
+revision = "099"
+down_revision = "098"
 branch_labels = None
 depends_on = None
 
