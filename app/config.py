@@ -151,7 +151,26 @@ class Settings(BaseSettings):
     DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"
     SECTION_INDEX_COUNT: int = 10
     SECTION_INDEX_VERBOSITY: str = "standard"  # "compact" | "standard" | "detailed"
-    TRIGGER_HEARTBEAT_BEFORE_COMPACTION: bool = False
+    TRIGGER_HEARTBEAT_BEFORE_COMPACTION: bool = False  # deprecated — use MEMORY_FLUSH_ENABLED
+
+    # Memory flush (dedicated pre-compaction memory save)
+    MEMORY_FLUSH_ENABLED: bool = False
+    MEMORY_FLUSH_MODEL: str = ""  # empty = use bot's model
+    MEMORY_FLUSH_DEFAULT_PROMPT: str = """\
+[MEMORY FLUSH — PRE-COMPACTION]
+The conversation context is about to be compacted. Older messages will be archived and removed from your active context.
+
+Review the recent conversation and save anything important:
+- Use save_memory for facts, preferences, decisions, or context you'll need later
+- Use update_knowledge for documentation or reference material worth preserving
+- Use update_persona if the user revealed preferences about how they want to interact
+
+Focus on what would be LOST if you couldn't see these messages anymore. Don't save things that are already in your memories or knowledge. Be selective — only save what matters."""
+
+    # Context pruning (trim old tool results at assembly time)
+    CONTEXT_PRUNING_ENABLED: bool = True
+    CONTEXT_PRUNING_KEEP_TURNS: int = 3
+    CONTEXT_PRUNING_MIN_LENGTH: int = 200
 
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
@@ -176,6 +195,7 @@ class Settings(BaseSettings):
     HEARTBEAT_QUIET_HOURS: str = ""  # e.g. "23:00-07:00" — local time window where heartbeats slow/stop
     HEARTBEAT_QUIET_INTERVAL_MINUTES: int = 60  # interval during quiet hours (0 = disabled entirely)
     HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
+    HEARTBEAT_DEFAULT_PROMPT: str = ""  # fallback prompt when channel heartbeat has no prompt/template/workspace file
 
     # Attachments
     ATTACHMENT_SUMMARY_ENABLED: bool = True

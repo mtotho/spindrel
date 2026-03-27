@@ -130,10 +130,96 @@ def _get_history_mode(bot: BotConfig, channel: Channel | None = None) -> str:
 
 
 def _resolve_trigger_heartbeat(channel: Channel | None = None) -> bool:
-    """Resolve whether to trigger a heartbeat before compaction: channel → global."""
+    """Resolve whether to trigger a heartbeat before compaction: channel → global.
+    Deprecated — kept for backward compat when memory_flush_enabled is not set.
+    """
     if channel and channel.trigger_heartbeat_before_compaction is not None:
         return channel.trigger_heartbeat_before_compaction
     return settings.TRIGGER_HEARTBEAT_BEFORE_COMPACTION
+
+
+def _resolve_memory_flush_enabled(bot: BotConfig, channel: Channel | None = None) -> bool:
+    """Resolve whether to run a dedicated memory flush before compaction.
+
+    Priority: channel.memory_flush_enabled → global MEMORY_FLUSH_ENABLED.
+    Falls back to the legacy trigger_heartbeat path if neither is set.
+    """
+    if channel and channel.memory_flush_enabled is not None:
+        return channel.memory_flush_enabled
+    if settings.MEMORY_FLUSH_ENABLED:
+        return True
+    # Legacy fallback: if TRIGGER_HEARTBEAT_BEFORE_COMPACTION is set but
+    # MEMORY_FLUSH_ENABLED is not, the old heartbeat path still fires
+    return False
+
+
+def _get_memory_flush_model(bot: BotConfig, channel: Channel | None = None) -> str:
+    """Resolve the model for memory flush: channel → global → bot model."""
+    if channel and channel.memory_flush_model:
+        return channel.memory_flush_model
+    if settings.MEMORY_FLUSH_MODEL:
+        return settings.MEMORY_FLUSH_MODEL
+    return bot.model
+
+
+async def _run_memory_flush(
+    channel: Channel,
+    bot: BotConfig,
+    session_id: uuid.UUID,
+    messages: list[dict],
+    correlation_id: uuid.UUID | None = None,
+) -> None:
+    """Run a dedicated memory flush — gives the bot a chance to save memories,
+    knowledge, and persona before compaction archives older messages.
+
+    Uses the agent loop with the bot's normal tools so save_memory,
+    update_knowledge, update_persona, etc. are all available.
+    """
+    from app.agent.loop import run
+    from app.services.prompt_resolution import resolve_prompt
+
+    async with async_session() as db:
+        prompt = await resolve_prompt(
+            workspace_id=str(channel.memory_flush_workspace_id) if channel.memory_flush_workspace_id else None,
+            workspace_file_path=channel.memory_flush_workspace_file_path,
+            template_id=str(channel.memory_flush_prompt_template_id) if channel.memory_flush_prompt_template_id else None,
+            inline_prompt=channel.memory_flush_prompt or settings.MEMORY_FLUSH_DEFAULT_PROMPT,
+            db=db,
+        )
+
+    # Build metadata header
+    now = datetime.now()
+    msg_count = sum(1 for m in messages if m.get("role") in ("user", "assistant"))
+    header_lines = [
+        "[MEMORY FLUSH — PRE-COMPACTION]",
+        "This is an automated pre-compaction memory flush — not a user message.",
+        f"Current time: {now.strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Channel: {channel.name}",
+        f"Messages about to be archived: ~{msg_count}",
+        "",
+    ]
+    full_prompt = "\n".join(header_lines) + prompt
+
+    model = _get_memory_flush_model(bot, channel)
+    provider_id = channel.memory_flush_model_provider_id or bot.model_provider_id
+
+    logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
+
+    try:
+        await run(
+            messages=messages,
+            bot=bot,
+            user_message=full_prompt,
+            session_id=session_id,
+            client_id=channel.client_id,
+            correlation_id=correlation_id,
+            channel_id=channel.id,
+            model_override=model,
+            provider_id_override=provider_id,
+        )
+        logger.info("Memory flush complete for channel %s", channel.id)
+    except Exception:
+        logger.warning("Memory flush failed for channel %s", channel.id, exc_info=True)
 
 
 def _stringify_message_content(content: Any) -> str:
@@ -193,8 +279,12 @@ def _is_compaction_enabled(bot: BotConfig, channel: Channel | None = None) -> bo
 
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
     """Build the message list to send to the summarization LLM.
+
     Passive messages are excluded from the alternating user/assistant turns.
     If there are any passive messages, prepend a 'Channel context' system block.
+
+    Tool call messages are included as compact representations so the summarizer
+    knows what the bot actually did, not just what it said.
     """
     passive_lines: list[str] = []
     active: list[dict] = []
@@ -202,14 +292,38 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
     for m in messages:
         role = m.get("role")
         content = m.get("content")
-        if not content:
-            continue
+        tool_calls = m.get("tool_calls")
         is_passive = (m.get("_metadata") or {}).get("passive", False)
+
         if role == "user" and is_passive:
             meta = m.get("_metadata") or {}
             sender = meta.get("sender_id") or "user"
-            passive_lines.append(f"  {sender}: {_stringify_message_content(content)}")
-        elif role in ("user", "assistant") and not is_passive:
+            if content:
+                passive_lines.append(f"  {sender}: {_stringify_message_content(content)}")
+            continue
+
+        if role == "assistant":
+            parts: list[str] = []
+            if content:
+                parts.append(_stringify_message_content(content))
+            if tool_calls:
+                names = []
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    names.append(fn.get("name", "unknown"))
+                parts.append(f"[Used tools: {', '.join(names)}]")
+            if parts:
+                active.append({"role": "assistant", "content": " ".join(parts)})
+            continue
+
+        if role == "tool":
+            name = m.get("name") or m.get("_metadata", {}).get("tool_name", "tool")
+            result_text = _stringify_message_content(content) if content else ""
+            truncated = result_text[:200] + ("..." if len(result_text) > 200 else "")
+            active.append({"role": "assistant", "content": f"[Tool result from {name}: {truncated}]"})
+            continue
+
+        if role == "user" and content and not is_passive:
             active.append({"role": role, "content": _stringify_message_content(content)})
 
     if passive_lines:
@@ -447,9 +561,15 @@ async def run_compaction_stream(
         logger.debug("No turns to summarize for %s", session_id)
         return
 
-    # Optionally trigger heartbeat before compaction so the bot can save
+    # Run dedicated memory flush before compaction so the bot can save
     # memories/knowledge/persona while it still sees the full recent window.
-    if _resolve_trigger_heartbeat(channel) and channel:
+    if channel and _resolve_memory_flush_enabled(bot, channel):
+        try:
+            await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+        except Exception:
+            logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
+    elif _resolve_trigger_heartbeat(channel) and channel:
+        # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat
         try:
             await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
@@ -555,6 +675,22 @@ async def run_compaction_stream(
                 exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
             else:
                 exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+
+            # Auto-regenerate if executive summary has grown too large
+            _EXEC_SUMMARY_REGEN_CHARS = 2000
+            _EXEC_SUMMARY_REGEN_SECTIONS = 15
+            section_count = exec_summary.count("[Section ")
+            if channel_id and (len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS):
+                logger.info(
+                    "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for channel %s",
+                    len(exec_summary), section_count, channel_id,
+                )
+                try:
+                    exec_summary = await _regenerate_executive_summary(
+                        channel_id, model, provider_id=bot.model_provider_id,
+                    )
+                except Exception:
+                    logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
 
             # Update session with executive summary + watermark
             async with async_session() as db:
@@ -694,8 +830,14 @@ async def run_compaction_forced(
     if not conversation:
         raise ValueError("No conversation content to summarize")
 
-    # Optionally trigger heartbeat before compaction
-    if _resolve_trigger_heartbeat(channel) and channel:
+    # Run dedicated memory flush before compaction
+    if channel and _resolve_memory_flush_enabled(bot, channel):
+        try:
+            await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+        except Exception:
+            logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
+    elif _resolve_trigger_heartbeat(channel) and channel:
+        # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat
         try:
             await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
@@ -785,6 +927,22 @@ async def run_compaction_forced(
             exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
         else:
             exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+
+        # Auto-regenerate if executive summary has grown too large
+        _EXEC_SUMMARY_REGEN_CHARS = 2000
+        _EXEC_SUMMARY_REGEN_SECTIONS = 15
+        section_count = exec_summary.count("[Section ")
+        if channel_id and (len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS):
+            logger.info(
+                "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for channel %s",
+                len(exec_summary), section_count, channel_id,
+            )
+            try:
+                exec_summary = await _regenerate_executive_summary(
+                    channel_id, model, provider_id=bot.model_provider_id,
+                )
+            except Exception:
+                logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
 
         title, summary = sec_title, exec_summary
     else:

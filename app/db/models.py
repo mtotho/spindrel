@@ -76,9 +76,27 @@ class Channel(Base):
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     trigger_heartbeat_before_compaction: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Dedicated memory flush before compaction (replaces heartbeat trigger)
+    memory_flush_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    memory_flush_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_flush_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_flush_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_flush_prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    memory_flush_workspace_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_flush_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     channel_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     section_index_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -679,7 +697,14 @@ class Bot(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("api_keys.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
+    context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
@@ -998,6 +1023,25 @@ class RefreshToken(Base):
     user: Mapped["User"] = relationship("User")
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    key_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scopes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class PlanItem(Base):
     __tablename__ = "plan_items"
 
@@ -1028,3 +1072,44 @@ class ServerConfig(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True, server_default=text("'default'"))
     global_fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class ToolPolicyRule(Base):
+    __tablename__ = "tool_policy_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)  # "allow" | "deny" | "require_approval"
+    conditions: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("100"))
+    approval_timeout: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("300"))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class ToolApproval(Base):
+    __tablename__ = "tool_approvals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_type: Mapped[str] = mapped_column(Text, nullable=False)
+    arguments: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    policy_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tool_policy_rules.id", ondelete="SET NULL"), nullable=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    decided_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    dispatch_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("300"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

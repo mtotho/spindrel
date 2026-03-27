@@ -33,6 +33,11 @@ class ToolCallResult:
     tool_event: dict[str, Any] = field(default_factory=dict)
     pre_events: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
+    # Approval fields (Phase 3)
+    needs_approval: bool = False
+    approval_id: str | None = None
+    approval_timeout: int = 300
+    approval_reason: str | None = None
 
 
 async def dispatch_tool_call(
@@ -56,11 +61,64 @@ async def dispatch_tool_call(
     summarize_exclude: set[str],
     # Compaction flag for event tagging
     compaction: bool,
+    # Policy override — skip check when re-dispatching after approval
+    skip_policy: bool = False,
 ) -> ToolCallResult:
     """Route a single tool call to the appropriate handler, record it, and build the result event."""
     from app.agent.message_utils import _event_with_compaction_tag
 
     result_obj = ToolCallResult()
+
+    # --- Policy check ---
+    if not skip_policy:
+        try:
+            _tc_args_for_policy: dict = {}
+            try:
+                _tc_args_for_policy = json.loads(args or "{}") if args else {}
+                if not isinstance(_tc_args_for_policy, dict):
+                    _tc_args_for_policy = {}
+            except Exception:
+                pass
+            decision = await _check_tool_policy(bot_id, name, _tc_args_for_policy)
+            if decision is not None:
+                if decision.action == "deny":
+                    result_obj.result = json.dumps({"error": f"Tool call denied by policy: {decision.reason or 'no reason'}"})
+                    result_obj.result_for_llm = result_obj.result
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
+                    _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
+                    return result_obj
+                elif decision.action == "require_approval":
+                    # Determine tool type for the approval record
+                    if is_client_tool(name):
+                        _ap_type = "client"
+                    elif is_mcp_tool(name):
+                        _ap_type = "mcp"
+                    else:
+                        _ap_type = "local"
+                    approval_id = await _create_approval_record(
+                        session_id=session_id,
+                        channel_id=channel_id,
+                        bot_id=bot_id,
+                        client_id=client_id,
+                        correlation_id=correlation_id,
+                        tool_name=name,
+                        tool_type=_ap_type,
+                        arguments=_tc_args_for_policy,
+                        policy_rule_id=decision.rule_id,
+                        reason=decision.reason,
+                        timeout=decision.timeout,
+                    )
+                    result_obj.needs_approval = True
+                    result_obj.approval_id = approval_id
+                    result_obj.approval_timeout = decision.timeout
+                    result_obj.approval_reason = decision.reason
+                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": decision.reason})
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "pending_approval": True}
+                    _trace("⏳ %s requires approval (rule %s)", name, decision.rule_id)
+                    return result_obj
+        except Exception:
+            logger.exception("Policy check failed for %s — allowing by default", name)
+
     t0 = time.monotonic()
     _tc_type = "local"
     _tc_server: str | None = None
@@ -252,3 +310,119 @@ async def dispatch_tool_call(
     result_obj.tool_event = tool_event
 
     return result_obj
+
+
+# ---------------------------------------------------------------------------
+# Policy helpers
+# ---------------------------------------------------------------------------
+
+async def _check_tool_policy(bot_id: str, tool_name: str, arguments: dict) -> Any:
+    """Evaluate tool policy. Returns PolicyDecision or None (allow by default)."""
+    from app.db.engine import async_session
+    from app.services.tool_policies import evaluate_tool_policy
+
+    async with async_session() as db:
+        decision = await evaluate_tool_policy(db, bot_id, tool_name, arguments)
+    if decision.action == "allow" and decision.rule_id is None:
+        # Default allow (no rule matched) — return None to skip overhead
+        return None
+    return decision
+
+
+async def _create_approval_record(
+    *,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    bot_id: str,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    tool_name: str,
+    tool_type: str,
+    arguments: dict,
+    policy_rule_id: str | None,
+    reason: str | None,
+    timeout: int,
+) -> str:
+    """Create a ToolApproval DB record and return its ID as string."""
+    from app.db.engine import async_session
+    from app.db.models import ToolApproval
+
+    # Resolve dispatch info from context vars for notification routing
+    from app.agent.context import current_dispatch_type, current_dispatch_config
+    dispatch_type = current_dispatch_type.get(None)
+    dispatch_config = current_dispatch_config.get(None)
+
+    approval = ToolApproval(
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        client_id=client_id,
+        correlation_id=correlation_id,
+        tool_name=tool_name,
+        tool_type=tool_type,
+        arguments=arguments,
+        policy_rule_id=uuid.UUID(policy_rule_id) if policy_rule_id else None,
+        reason=reason,
+        status="pending",
+        dispatch_type=dispatch_type,
+        dispatch_metadata=dispatch_config,
+        timeout_seconds=timeout,
+    )
+    async with async_session() as db:
+        db.add(approval)
+        await db.commit()
+        await db.refresh(approval)
+        approval_id = str(approval.id)
+
+    # Fire-and-forget notification via dispatcher
+    if dispatch_type and dispatch_config:
+        asyncio.create_task(_notify_approval_request(
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+            approval_id=approval_id,
+            bot_id=bot_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            reason=reason,
+        ))
+
+    return approval_id
+
+
+async def _notify_approval_request(
+    *,
+    dispatch_type: str,
+    dispatch_config: dict,
+    approval_id: str,
+    bot_id: str,
+    tool_name: str,
+    arguments: dict,
+    reason: str | None,
+) -> None:
+    """Send approval notification via the appropriate dispatcher."""
+    try:
+        from app.agent import dispatchers
+        dispatcher = dispatchers.get(dispatch_type)
+        if hasattr(dispatcher, "request_approval"):
+            await dispatcher.request_approval(
+                dispatch_config=dispatch_config,
+                approval_id=approval_id,
+                bot_id=bot_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                reason=reason,
+            )
+        else:
+            # Fallback: post a text message
+            args_preview = json.dumps(arguments, indent=2)[:300]
+            text = (
+                f"🔒 *Tool approval required*\n"
+                f"Bot: `{bot_id}` | Tool: `{tool_name}`\n"
+                f"Reason: {reason or 'Policy requires approval'}\n"
+                f"```\n{args_preview}\n```\n"
+                f"Approval ID: `{approval_id}`\n"
+                f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
+            )
+            await dispatcher.post_message(dispatch_config, text, bot_id=bot_id)
+    except Exception:
+        logger.exception("Failed to send approval notification for %s", approval_id)

@@ -25,14 +25,12 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col, TabBar, EmptyState,
-  triStateOptions, triStateValue, triStateParse,
 } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings, BotEditorData, ToolGroup, ContextBreakdown } from "@/src/types/api";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
-import { useChannelElevation } from "@/src/api/hooks/useElevation";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
@@ -80,7 +78,6 @@ export default function ChannelSettingsScreen() {
   const { data: settings, isLoading } = useChannelSettings(channelId);
   const { data: bots } = useBots();
   const updateMutation = useUpdateChannelSettings(channelId!);
-  const { data: elevationData } = useChannelElevation(channelId);
 
   // Check if the channel's bot is in a workspace
   const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
@@ -115,11 +112,15 @@ export default function ChannelSettingsScreen() {
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
         trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
+        memory_flush_enabled: settings.memory_flush_enabled,
+        memory_flush_model: settings.memory_flush_model,
+        memory_flush_model_provider_id: settings.memory_flush_model_provider_id,
+        memory_flush_prompt: settings.memory_flush_prompt,
+        memory_flush_prompt_template_id: settings.memory_flush_prompt_template_id,
+        memory_flush_workspace_file_path: settings.memory_flush_workspace_file_path,
+        memory_flush_workspace_id: settings.memory_flush_workspace_id,
         section_index_count: settings.section_index_count,
         section_index_verbosity: settings.section_index_verbosity,
-        elevation_enabled: settings.elevation_enabled,
-        elevation_threshold: settings.elevation_threshold,
-        elevated_model: settings.elevated_model,
         model_override: settings.model_override,
         model_provider_id_override: settings.model_provider_id_override,
         fallback_models: settings.fallback_models ?? [],
@@ -214,7 +215,7 @@ export default function ChannelSettingsScreen() {
         key={tab}
       >
         {tab === "general" && (
-          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} elevationData={elevationData} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
+          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
         )}
         {tab === "history" && (
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} />
@@ -735,11 +736,9 @@ function SectionIndexSettings({ form, patch, channelId }: {
   });
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e5e5", marginBottom: 8 }}>Section Index</div>
+    <div>
       <div style={{ fontSize: 11, color: "#888", marginBottom: 8, lineHeight: "1.5" }}>
-        Injects a lightweight section index into the bot's context each turn so it knows what's in the archive
-        without spending a tool call. The bot can then use <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> with a section number to read full transcripts.
+        The bot sees what's in the archive without spending a tool call and can use <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> with a section number to read full transcripts.
       </div>
       <Row>
         <Col>
@@ -813,7 +812,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
       {/* 2. Compaction settings — conditional on mode */}
       {isFileOrStructured ? (
-        <Section title="Compaction" description="Manages long conversations by archiving old turns into titled sections.">
+        <Section title="Archival Settings" description="Manages long conversations by archiving old turns into titled sections.">
           {/* Locked banner */}
           <div style={{
             padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
@@ -869,23 +868,67 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
           </div>
 
-          {/* Heartbeat trigger toggle */}
+          {/* Memory Flush */}
           <Toggle
-            value={!!form.trigger_heartbeat_before_compaction}
-            onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
-            label="Trigger heartbeat before compaction"
+            value={!!form.memory_flush_enabled}
+            onChange={(v) => patch("memory_flush_enabled", v || undefined)}
+            label="Memory flush before compaction"
           />
           <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-            Runs all channel heartbeats (and waits for them to finish) before archiving messages.
-            The bot sees the full recent window and can save memories, knowledge, and persona via its normal heartbeat flow.
+            Runs a dedicated memory flush pass before archiving messages. The bot gets its normal tools (save_memory, update_knowledge, update_persona) and a prompt telling it to save anything important before context is compacted.
           </div>
 
-          {/* Section index injection */}
-          <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
+          {form.memory_flush_enabled && (
+            <>
+              <LlmModelDropdown
+                label="Memory Flush Model"
+                value={form.memory_flush_model ?? ""}
+                onChange={(v) => patch("memory_flush_model", v || undefined)}
+                placeholder="inherit (bot model)"
+              />
+              <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+                Model used for the memory flush pass. A capable model works best here since it needs to reason about what to save.
+              </div>
 
-          {/* Backfill subsection */}
+              <LlmPrompt
+                label="Memory Flush Prompt"
+                inlineValue={form.memory_flush_prompt ?? ""}
+                onInlineChange={(v) => patch("memory_flush_prompt", v || undefined)}
+                templateId={form.memory_flush_prompt_template_id ?? null}
+                onTemplateChange={(v) => patch("memory_flush_prompt_template_id", v)}
+                workspaceId={form.memory_flush_workspace_id ?? null}
+                workspaceFilePath={form.memory_flush_workspace_file_path ?? null}
+                onWorkspaceFileChange={(wsId, path) => {
+                  patch("memory_flush_workspace_id", wsId);
+                  patch("memory_flush_workspace_file_path", path);
+                }}
+                placeholder="Uses global default memory flush prompt"
+              />
+            </>
+          )}
+
+          {/* Legacy heartbeat trigger (hidden if memory flush is enabled) */}
+          {!form.memory_flush_enabled && (
+            <>
+              <Toggle
+                value={!!form.trigger_heartbeat_before_compaction}
+                onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
+                label="Trigger heartbeat before compaction (legacy)"
+              />
+              <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+                Legacy option — fires channel heartbeats before compaction. Use "Memory flush" above instead for a dedicated, configurable flush pass.
+              </div>
+            </>
+          )}
+        </Section>
+
+        <Section title="Section Index" description="Injects a lightweight section index into context each turn.">
+          <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
+        </Section>
+
+        <Section title="Backfill" description="Retroactively create archived sections from existing message history.">
           <div style={{
-            marginTop: 8, padding: "10px 14px", background: "#1a1117",
+            padding: "10px 14px", background: "#1a1117",
             border: "1px solid #5b2333", borderRadius: 8,
             fontSize: 11, color: "#d4a0a0", lineHeight: "1.5",
           }}>
@@ -895,6 +938,9 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             turns first. Resume only processes uncovered messages; re-chunk deletes everything and starts fresh.
           </div>
           <BackfillButton channelId={channelId} historyMode={selected} />
+        </Section>
+
+        <Section title="Archived Sections" description="Browse and manage archived conversation sections.">
           <SectionsViewer channelId={channelId} />
         </Section>
       ) : (
@@ -975,16 +1021,55 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
                 Used for summarization. A cheap/fast model works well — the prompts are straightforward.
               </div>
 
-              {/* Heartbeat trigger toggle */}
+              {/* Memory Flush */}
               <Toggle
-                value={!!form.trigger_heartbeat_before_compaction}
-                onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
-                label="Trigger heartbeat before compaction"
+                value={!!form.memory_flush_enabled}
+                onChange={(v) => patch("memory_flush_enabled", v || undefined)}
+                label="Memory flush before compaction"
               />
               <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
-                Runs all channel heartbeats (and waits for them to finish) before summarizing messages.
-                The bot sees the full recent window and can save memories, knowledge, and persona via its normal heartbeat flow.
+                Runs a dedicated memory flush pass before summarizing messages. The bot saves memories, knowledge, and persona before context is archived.
               </div>
+
+              {form.memory_flush_enabled && (
+                <>
+                  <LlmModelDropdown
+                    label="Memory Flush Model"
+                    value={form.memory_flush_model ?? ""}
+                    onChange={(v) => patch("memory_flush_model", v || undefined)}
+                    placeholder="inherit (bot model)"
+                  />
+
+                  <LlmPrompt
+                    label="Memory Flush Prompt"
+                    inlineValue={form.memory_flush_prompt ?? ""}
+                    onInlineChange={(v) => patch("memory_flush_prompt", v || undefined)}
+                    templateId={form.memory_flush_prompt_template_id ?? null}
+                    onTemplateChange={(v) => patch("memory_flush_prompt_template_id", v)}
+                    workspaceId={form.memory_flush_workspace_id ?? null}
+                    workspaceFilePath={form.memory_flush_workspace_file_path ?? null}
+                    onWorkspaceFileChange={(wsId, path) => {
+                      patch("memory_flush_workspace_id", wsId);
+                      patch("memory_flush_workspace_file_path", path);
+                    }}
+                    placeholder="Uses global default memory flush prompt"
+                  />
+                </>
+              )}
+
+              {/* Legacy heartbeat trigger (hidden if memory flush is enabled) */}
+              {!form.memory_flush_enabled && (
+                <>
+                  <Toggle
+                    value={!!form.trigger_heartbeat_before_compaction}
+                    onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
+                    label="Trigger heartbeat before compaction (legacy)"
+                  />
+                  <div style={{ fontSize: 10, color: "#666", marginTop: -4, marginBottom: 4 }}>
+                    Legacy option — fires channel heartbeats before compaction. Use "Memory flush" above instead.
+                  </div>
+                </>
+              )}
             </>
           )}
         </Section>
@@ -1018,12 +1103,11 @@ function ChannelOwnerSelect({ value, onChange }: { value: string | null; onChang
 // ===========================================================================
 // General Tab — settings form
 // ===========================================================================
-function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, channelId }: {
+function GeneralTab({ form, patch, bots, settings, workspaceId, channelId }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   bots: any[] | undefined;
   settings: ChannelSettings;
-  elevationData: any;
   workspaceId?: string | null;
   channelId: string;
 }) {
@@ -1075,6 +1159,18 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
             </div>
           </div>
         )}
+      </Section>
+
+      <Section title="Channel Prompt" description="A short prompt injected as a system message right before each user message. Useful for per-channel instructions or reminders.">
+        <LlmPrompt
+          value={form.channel_prompt ?? ""}
+          onChange={(v) => patch("channel_prompt", v || undefined)}
+          label="Channel Prompt"
+          placeholder="Leave blank for no channel-level prompt..."
+          helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
+          rows={4}
+          generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
+        />
       </Section>
 
       <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">
@@ -1137,138 +1233,28 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
           label="Workspace RAG"
           description="Auto-inject relevant workspace files into context each turn."
         />
-        <FormRow label="Max iterations">
-          <TextInput
-            value={form.max_iterations?.toString() ?? ""}
-            onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
-            placeholder="default"
-            type="number"
-          />
-        </FormRow>
-        <FormRow label="Max task run time (seconds)">
-          <TextInput
-            value={form.task_max_run_seconds?.toString() ?? ""}
-            onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
-            placeholder="1200 (default)"
-            type="number"
-          />
-        </FormRow>
-      </Section>
-
-      <Section title="Channel Prompt" description="A short prompt injected as a system message right before each user message. Useful for per-channel instructions or reminders.">
-        <LlmPrompt
-          value={form.channel_prompt ?? ""}
-          onChange={(v) => patch("channel_prompt", v || undefined)}
-          label="Channel Prompt"
-          placeholder="Leave blank for no channel-level prompt..."
-          helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
-          rows={4}
-          generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
-        />
-      </Section>
-
-      <Section title="Model Elevation" description="Per-channel elevation overrides. Leave blank to inherit.">
         <Row>
           <Col>
-            <FormRow label="Enable Elevation">
-              <SelectInput
-                value={triStateValue(form.elevation_enabled)}
-                onChange={(v) => patch("elevation_enabled", triStateParse(v))}
-                options={triStateOptions}
+            <FormRow label="Max iterations">
+              <TextInput
+                value={form.max_iterations?.toString() ?? ""}
+                onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
+                placeholder="default"
+                type="number"
               />
             </FormRow>
           </Col>
           <Col>
-            <FormRow label="Threshold (0.0–1.0)">
+            <FormRow label="Max task run time (seconds)">
               <TextInput
-                value={form.elevation_threshold?.toString() ?? ""}
-                onChangeText={(v) => patch("elevation_threshold", v ? parseFloat(v) || undefined : undefined)}
-                placeholder="inherit"
+                value={form.task_max_run_seconds?.toString() ?? ""}
+                onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
+                placeholder="1200 (default)"
                 type="number"
               />
             </FormRow>
           </Col>
         </Row>
-        <LlmModelDropdown
-          label="Elevated Model"
-          value={form.elevated_model ?? ""}
-          onChange={(v) => patch("elevated_model", v || undefined)}
-          placeholder="inherit"
-        />
-
-        {/* Elevation observability */}
-        {elevationData && (
-          <>
-            <div style={{
-              display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12,
-              background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 12,
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Stats</div>
-              <div style={{ fontSize: 11, color: "#888" }}>
-                Total: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.total_decisions}</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#888" }}>
-                Elevated: <span style={{ color: "#f59e0b" }}>{elevationData.stats.elevated_count}</span>
-                {" "}({(elevationData.stats.elevation_rate * 100).toFixed(1)}%)
-              </div>
-              <div style={{ fontSize: 11, color: "#888" }}>
-                Avg score: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_score.toFixed(3)}</span>
-              </div>
-              {elevationData.stats.avg_latency_ms != null && (
-                <div style={{ fontSize: 11, color: "#888" }}>
-                  Avg latency: <span style={{ color: "#e5e5e5" }}>{elevationData.stats.avg_latency_ms}ms</span>
-                </div>
-              )}
-            </div>
-
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginTop: 8 }}>Recent Decisions</div>
-            {elevationData.recent.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>No elevation decisions recorded yet.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {elevationData.recent.map((entry: any) => (
-                  <div key={entry.id} style={{
-                    background: entry.was_elevated ? "#1a1f1a" : "#1a1a1a",
-                    border: `1px solid ${entry.was_elevated ? "#2a3a2a" : "#2a2a2a"}`,
-                    borderRadius: 6, padding: 10,
-                    display: "flex", flexDirection: "column", gap: 4,
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, flexShrink: 0,
-                          background: entry.was_elevated ? "#f59e0b22" : "#33333366",
-                          color: entry.was_elevated ? "#f59e0b" : "#888",
-                        }}>
-                          {entry.was_elevated ? "ELEVATED" : "BASE"}
-                        </span>
-                        <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {entry.model_chosen}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 10, color: "#666", flexShrink: 0 }}>
-                        {new Date(entry.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#888" }}>
-                      <span>score: <span style={{ color: "#e5e5e5" }}>{entry.classifier_score.toFixed(3)}</span></span>
-                      {entry.tokens_used != null && <span>tokens: {entry.tokens_used}</span>}
-                      {entry.latency_ms != null && <span>latency: {entry.latency_ms}ms</span>}
-                    </div>
-                    {entry.rules_fired.length > 0 && (
-                      <div style={{ fontSize: 10, color: "#6b9" }}>
-                        rules: {entry.rules_fired.join(", ")}
-                      </div>
-                    )}
-                    {entry.elevation_reason && (
-                      <div style={{ fontSize: 10, color: "#999" }}>{entry.elevation_reason}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
       </Section>
 
       {/* Metadata */}

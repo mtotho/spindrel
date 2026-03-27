@@ -271,6 +271,14 @@ class ChannelSettingsOut(BaseModel):
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     trigger_heartbeat_before_compaction: Optional[bool] = None
+    # Memory flush (dedicated pre-compaction memory save)
+    memory_flush_enabled: Optional[bool] = None
+    memory_flush_model: Optional[str] = None
+    memory_flush_model_provider_id: Optional[str] = None
+    memory_flush_prompt: Optional[str] = None
+    memory_flush_prompt_template_id: Optional[uuid.UUID] = None
+    memory_flush_workspace_file_path: Optional[str] = None
+    memory_flush_workspace_id: Optional[uuid.UUID] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
     elevation_enabled: Optional[bool] = None
@@ -317,6 +325,14 @@ class ChannelSettingsUpdate(BaseModel):
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     trigger_heartbeat_before_compaction: Optional[bool] = None
+    # Memory flush (dedicated pre-compaction memory save)
+    memory_flush_enabled: Optional[bool] = None
+    memory_flush_model: Optional[str] = None
+    memory_flush_model_provider_id: Optional[str] = None
+    memory_flush_prompt: Optional[str] = None
+    memory_flush_prompt_template_id: Optional[uuid.UUID] = None
+    memory_flush_workspace_file_path: Optional[str] = None
+    memory_flush_workspace_id: Optional[uuid.UUID] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
     elevation_enabled: Optional[bool] = None
@@ -1210,10 +1226,9 @@ async def admin_channel_context_preview(
     bot = _get_bot_fn(channel.bot_id)
     blocks: list[dict] = []  # {"label": str, "role": str, "content": str}
 
-    # --- System prompt (as stored in session) ---
-    parts = []
+    # --- System prompt blocks (shown separately for clarity) ---
     if settings.GLOBAL_BASE_PROMPT:
-        parts.append(settings.GLOBAL_BASE_PROMPT.rstrip())
+        blocks.append({"label": "Global Base Prompt", "role": "system", "content": settings.GLOBAL_BASE_PROMPT.rstrip()})
 
     ws_base = None
     ws_base_enabled = False
@@ -1232,15 +1247,17 @@ async def admin_channel_context_preview(
             ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
-        parts.append(ws_base.rstrip())
+        blocks.append({"label": "Workspace Base Prompt", "role": "system", "content": ws_base.rstrip()})
     else:
         base = render_base_prompt(bot)
         if base:
-            parts.append(base.rstrip())
-    parts.append(bot.system_prompt.rstrip())
+            blocks.append({"label": "Base Prompt", "role": "system", "content": base.rstrip()})
+
+    if bot.system_prompt:
+        blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})
+
     if bot.memory.enabled and bot.memory.prompt:
-        parts.append(bot.memory.prompt.strip())
-    blocks.append({"label": "System Prompt", "role": "system", "content": "\n\n".join(parts)})
+        blocks.append({"label": "Memory Guidelines", "role": "system", "content": bot.memory.prompt.strip()})
 
     # --- Persona ---
     if bot.persona:

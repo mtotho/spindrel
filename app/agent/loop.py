@@ -264,6 +264,8 @@ async def run_agent_tool_loop(
                             "total_tokens": response.usage.total_tokens,
                             "iteration": iteration + 1,
                             "model": effective_model,
+                            "provider_id": provider_id,
+                            "channel_id": str(channel_id) if channel_id else None,
                         },
                         duration_ms=_llm_latency_ms,
                     ))
@@ -417,6 +419,62 @@ async def run_agent_tool_loop(
                     compaction=compaction,
                 )
 
+                # --- Approval gate ---
+                if tc_result.needs_approval:
+                    yield _event_with_compaction_tag({
+                        "type": "approval_request",
+                        "approval_id": tc_result.approval_id,
+                        "tool": name,
+                        "arguments": args,
+                        "reason": tc_result.approval_reason,
+                    }, compaction)
+                    from app.agent.approval_pending import create_approval_pending
+                    future = create_approval_pending(tc_result.approval_id)
+                    try:
+                        verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
+                    except asyncio.TimeoutError:
+                        verdict = "expired"
+                        # Mark DB record as expired
+                        try:
+                            from app.db.engine import async_session as _ap_session
+                            from app.db.models import ToolApproval as _TA
+                            async with _ap_session() as _ap_db:
+                                _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
+                                if _ap_row and _ap_row.status == "pending":
+                                    _ap_row.status = "expired"
+                                    await _ap_db.commit()
+                        except Exception:
+                            logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
+                    if verdict == "approved":
+                        tc_result = await dispatch_tool_call(
+                            name=name,
+                            args=args,
+                            tool_call_id=tc.id,
+                            bot_id=bot.id,
+                            bot_memory=bot.memory,
+                            session_id=session_id,
+                            client_id=client_id,
+                            correlation_id=correlation_id,
+                            channel_id=channel_id,
+                            iteration=iteration,
+                            provider_id=provider_id,
+                            summarize_enabled=_eff_summarize_enabled,
+                            summarize_threshold=_eff_summarize_threshold,
+                            summarize_model=_eff_summarize_model,
+                            summarize_max_tokens=_eff_summarize_max_tokens,
+                            summarize_exclude=_eff_summarize_exclude,
+                            compaction=compaction,
+                            skip_policy=True,
+                        )
+                    else:
+                        tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
+                        tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
+                    yield _event_with_compaction_tag({
+                        "type": "approval_resolved",
+                        "approval_id": tc_result.approval_id,
+                        "verdict": verdict,
+                    }, compaction)
+
                 tool_calls_made.append(name)
                 for pre_event in tc_result.pre_events:
                     yield pre_event
@@ -498,6 +556,8 @@ async def run_agent_tool_loop(
                     "total_tokens": response.usage.total_tokens,
                     "iteration": effective_max_iterations + 1,
                     "model": model,
+                    "provider_id": provider_id,
+                    "channel_id": str(channel_id) if channel_id else None,
                 },
             ))
 
@@ -576,6 +636,11 @@ async def run_stream(
     client can post child-bot messages first (giving them an earlier timestamp), then post
     the parent's response as a new message — ensuring correct visual ordering.
     """
+    # Reset per-request embedding cache so identical queries across skills/memory/knowledge/tools
+    # hit the cache instead of making redundant API calls.
+    from app.agent.embeddings import clear_embed_cache
+    clear_embed_cache()
+
     # Track whether this is the outermost run_stream invocation (not a nested call from
     # run_immediate).  Only the outermost instance manages the delegation-post queue;
     # nested calls (child runs inside delegate_to_agent) share the same list so their

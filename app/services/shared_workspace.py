@@ -233,10 +233,22 @@ class SharedWorkspaceService:
         _timeout = timeout or 30
         _max_bytes = max_bytes or 65536
 
+        # Build docker exec command, optionally injecting per-bot API key
+        exec_args = ["docker", "exec"]
+        try:
+            from app.services.api_keys import get_bot_api_key_value
+            async with async_session() as _db:
+                bot_key = await get_bot_api_key_value(_db, bot_id)
+            if bot_key:
+                exec_args += ["-e", f"AGENT_SERVER_API_KEY={bot_key}"]
+        except Exception:
+            pass  # Fall back to container-level env
+        exec_args += [ws.container_name, "sh", "-c", full_cmd]
+
         import time
         start = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", ws.container_name, "sh", "-c", full_cmd,
+            *exec_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

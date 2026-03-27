@@ -3,10 +3,16 @@
 Every call passes ``dimensions=settings.EMBEDDING_DIMENSIONS`` so that models
 supporting Matryoshka truncation (e.g. text-embedding-3-large) are automatically
 truncated to match the DB vector column width.  No migration needed.
+
+A per-request cache (via contextvars) deduplicates identical embed_text calls
+within a single request lifecycle — typically saving 5+ redundant API calls per
+request since skills, memory, knowledge, and tool retrieval all embed the same
+user query.
 """
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 
 from openai import AsyncOpenAI
 
@@ -25,6 +31,24 @@ _client = AsyncOpenAI(
 # Code-heavy content can be ~2 chars/token, so use a conservative ceiling.
 _MAX_EMBED_CHARS = 16_000
 
+# Per-request embedding cache.  Cleared automatically when the contextvar goes
+# out of scope (end of request).  Keyed by (model, truncated_text).
+_embed_cache: ContextVar[dict[tuple[str, str], list[float]]] = ContextVar("_embed_cache")
+
+
+def clear_embed_cache() -> None:
+    """Reset the per-request embedding cache (call at request start)."""
+    _embed_cache.set({})
+
+
+def _get_cache() -> dict[tuple[str, str], list[float]]:
+    try:
+        return _embed_cache.get()
+    except LookupError:
+        cache: dict[tuple[str, str], list[float]] = {}
+        _embed_cache.set(cache)
+        return cache
+
 
 def _truncate(text: str) -> str:
     if len(text) <= _MAX_EMBED_CHARS:
@@ -34,13 +58,29 @@ def _truncate(text: str) -> str:
 
 
 async def embed_text(text: str, *, model: str | None = None) -> list[float]:
-    """Embed a single text string, returning the embedding vector."""
+    """Embed a single text string, returning the embedding vector.
+
+    Results are cached per-request — identical (model, text) pairs return the
+    same vector without a second API call.
+    """
+    effective_model = model or settings.EMBEDDING_MODEL
+    truncated = _truncate(text)
+    cache_key = (effective_model, truncated)
+    cache = _get_cache()
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.debug("Embedding cache hit for %d-char input (model=%s)", len(truncated), effective_model)
+        return cached
+
     response = await _client.embeddings.create(
-        model=model or settings.EMBEDDING_MODEL,
-        input=[_truncate(text)],
+        model=effective_model,
+        input=[truncated],
         dimensions=settings.EMBEDDING_DIMENSIONS,
     )
-    return response.data[0].embedding
+    vector = response.data[0].embedding
+    cache[cache_key] = vector
+    return vector
 
 
 async def embed_batch(texts: list[str], *, model: str | None = None) -> list[list[float]]:

@@ -226,7 +226,16 @@ async def _summarize_tool_result(
     """Summarize a large tool result to reduce context window usage. Falls back to original on error."""
     from app.services.providers import get_llm_client
     cap = 12000
-    input_content = content[:cap] + (f"\n[... {len(content) - cap:,} chars omitted]" if len(content) > cap else "")
+    head = 8000
+    tail = 4000
+    if len(content) > cap:
+        input_content = (
+            content[:head]
+            + f"\n\n[... {len(content) - head - tail:,} chars omitted ...]\n\n"
+            + content[-tail:]
+        )
+    else:
+        input_content = content
     prompt = (
         "Summarize this tool output concisely. "
         "Preserve: exit codes, errors, warnings, key values, file names, IDs, counts, actionable info. "

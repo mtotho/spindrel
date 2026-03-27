@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Session, ToolCall, TraceEvent
 from app.dependencies import get_db, verify_auth_or_user
+from ._helpers import _parse_time
 
 router = APIRouter()
 
@@ -334,26 +334,3 @@ async def list_turns(
     )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _parse_time(value: str) -> datetime | None:
-    """Parse an ISO timestamp or relative time string like '30m', '2h', '1d'."""
-    if not value:
-        return None
-    # Relative: "30m", "2h", "1d"
-    value = value.strip()
-    if value and value[-1] in ("m", "h", "d") and value[:-1].replace(".", "").isdigit():
-        num = float(value[:-1])
-        unit = value[-1]
-        delta = {"m": timedelta(minutes=num), "h": timedelta(hours=num), "d": timedelta(days=num)}[unit]
-        return datetime.now(timezone.utc) - delta
-    # ISO 8601
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except ValueError:
-        return None

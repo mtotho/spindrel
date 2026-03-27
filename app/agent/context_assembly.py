@@ -151,7 +151,35 @@ async def assemble_context(
                 _ch_row = await _ch_db.get(Channel, channel_id)
         except Exception:
             logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id)
-        if _ch_row is not None:
+
+    # --- context pruning (trim stale tool results) ---
+    _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
+    _pruning_keep = settings.CONTEXT_PRUNING_KEEP_TURNS
+    _pruning_min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
+    # Bot-level override
+    if bot.context_pruning is not None:
+        _pruning_enabled = bot.context_pruning
+    if bot.context_pruning_keep_turns is not None:
+        _pruning_keep = bot.context_pruning_keep_turns
+    # Channel-level override (highest priority)
+    if _ch_row is not None:
+        if getattr(_ch_row, "context_pruning", None) is not None:
+            _pruning_enabled = _ch_row.context_pruning
+        if getattr(_ch_row, "context_pruning_keep_turns", None) is not None:
+            _pruning_keep = _ch_row.context_pruning_keep_turns
+
+    if _pruning_enabled:
+        from app.agent.context_pruning import prune_tool_results
+        _prune_stats = prune_tool_results(messages, keep_full_turns=_pruning_keep, min_content_length=_pruning_min_len)
+        if _prune_stats["pruned_count"] > 0:
+            yield {
+                "type": "context_pruning",
+                "pruned_count": _prune_stats["pruned_count"],
+                "chars_saved": _prune_stats["chars_saved"],
+                "turns_pruned": _prune_stats["turns_pruned"],
+            }
+
+    if _ch_row is not None:
             _eff = resolve_effective_tools(bot, _ch_row)
             bot = _dc_replace(
                 bot,
@@ -711,6 +739,12 @@ async def assemble_context(
         if _ch_prompt:
             messages.append({"role": "system", "content": _ch_prompt})
             _inject_chars["channel_prompt"] = len(_ch_prompt)
+
+    # --- current-turn marker (helps models distinguish injected context from the live message) ---
+    messages.append({
+        "role": "system",
+        "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+    })
 
     # --- user message (audio or text) ---
     if native_audio:

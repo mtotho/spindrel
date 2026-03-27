@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -33,6 +34,7 @@ def _bot_to_out(
     persona_content: str | None = None,
     persona_from_workspace: bool = False,
     workspace_persona_content: str | None = None,
+    api_permissions: list[str] | None = None,
 ) -> BotOut:
     """Convert a BotConfig dataclass to a BotOut Pydantic model."""
     return BotOut(
@@ -87,6 +89,8 @@ def _bot_to_out(
         attachment_summary_model=getattr(bot, "attachment_summary_model", None),
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
+        context_pruning=getattr(bot, "context_pruning", None),
+        context_pruning_keep_turns=getattr(bot, "context_pruning_keep_turns", None),
         history_mode=getattr(bot, "history_mode", "summary"),
         model_params=getattr(bot, "model_params", {}),
         delegation_config={
@@ -98,6 +102,7 @@ def _bot_to_out(
         shared_workspace_role=getattr(bot, "shared_workspace_role", None),
         created_at=bot.created_at.isoformat() if hasattr(bot, "created_at") and bot.created_at else None,
         updated_at=bot.updated_at.isoformat() if hasattr(bot, "updated_at") and bot.updated_at else None,
+        api_permissions=api_permissions,
     )
 
 
@@ -161,3 +166,22 @@ async def _heartbeat_correlation_ids(
                     break
 
     return result
+
+
+def _parse_time(value: str) -> datetime | None:
+    """Parse an ISO timestamp or relative time string like '30m', '2h', '1d'."""
+    if not value:
+        return None
+    value = value.strip()
+    if value and value[-1] in ("m", "h", "d") and value[:-1].replace(".", "").isdigit():
+        num = float(value[:-1])
+        unit = value[-1]
+        delta = {"m": timedelta(minutes=num), "h": timedelta(hours=num), "d": timedelta(days=num)}[unit]
+        return datetime.now(timezone.utc) - delta
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None

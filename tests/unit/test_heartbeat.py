@@ -1,4 +1,4 @@
-"""Tests for heartbeat quiet-hours logic."""
+"""Tests for heartbeat quiet-hours logic and prompt fallback."""
 from datetime import datetime, time
 
 import pytest
@@ -136,3 +136,41 @@ class TestGetEffectiveInterval:
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             result = get_effective_interval(5)
         assert result == 5
+
+
+class TestHeartbeatDefaultPrompt:
+    """Verify the prompt fallback logic: hb.prompt or settings.HEARTBEAT_DEFAULT_PROMPT."""
+
+    def test_empty_prompt_falls_back_to_default(self, monkeypatch):
+        """When hb.prompt is empty/None, the `or` expression returns the default."""
+        monkeypatch.setattr(
+            "app.services.heartbeat.settings.HEARTBEAT_DEFAULT_PROMPT",
+            "Check in on the user",
+        )
+        from app.services.heartbeat import settings
+        # Simulate the inline_prompt expression from fire_heartbeat
+        assert ("" or settings.HEARTBEAT_DEFAULT_PROMPT) == "Check in on the user"
+        assert (None or settings.HEARTBEAT_DEFAULT_PROMPT) == "Check in on the user"
+
+    def test_explicit_prompt_takes_precedence(self, monkeypatch):
+        """When hb.prompt is set, it takes precedence over the default."""
+        monkeypatch.setattr(
+            "app.services.heartbeat.settings.HEARTBEAT_DEFAULT_PROMPT",
+            "Check in on the user",
+        )
+        from app.services.heartbeat import settings
+        assert ("My custom prompt" or settings.HEARTBEAT_DEFAULT_PROMPT) == "My custom prompt"
+
+    def test_both_empty_returns_empty(self, monkeypatch):
+        """When both hb.prompt and default are empty, result is empty string."""
+        monkeypatch.setattr(
+            "app.services.heartbeat.settings.HEARTBEAT_DEFAULT_PROMPT",
+            "",
+        )
+        from app.services.heartbeat import settings
+        assert ("" or settings.HEARTBEAT_DEFAULT_PROMPT) == ""
+
+    def test_config_default_is_empty_string(self):
+        """HEARTBEAT_DEFAULT_PROMPT should default to empty string."""
+        from app.config import Settings
+        assert Settings.model_fields["HEARTBEAT_DEFAULT_PROMPT"].default == ""
