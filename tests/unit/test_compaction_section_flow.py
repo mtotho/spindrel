@@ -70,9 +70,9 @@ class TestHistoryModeRouting:
         bot = _make_bot(history_mode="file")
         assert _get_history_mode(bot, None) == "file"
 
-    def test_summary_mode_is_default(self):
+    def test_file_mode_is_default(self):
         bot = _make_bot()
-        assert _get_history_mode(bot) == "summary"
+        assert _get_history_mode(bot) == "file"
 
     def test_channel_override_wins(self):
         bot = _make_bot(history_mode="summary")
@@ -155,6 +155,6 @@ class TestCompactionStreamSummaryMode:
         bot = _make_bot(history_mode="summary")
         assert _get_history_mode(bot) == "summary"
 
-    def test_none_history_mode_defaults_to_summary(self):
+    def test_none_history_mode_defaults_to_file(self):
         bot = _make_bot(history_mode=None)
-        assert _get_history_mode(bot) == "summary"
+        assert _get_history_mode(bot) == "file"

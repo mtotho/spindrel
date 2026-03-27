@@ -79,6 +79,24 @@ async def _embed_knowledge_row(row: BotKnowledge) -> None:
         logger.exception("Failed to embed knowledge row '%s'", row.name)
 
 
+def _integration_dirs() -> list[Path]:
+    """Return all integration directories (in-repo + INTEGRATION_DIRS)."""
+    dirs = [Path("integrations")]
+    try:
+        from app.config import settings
+        extra = settings.INTEGRATION_DIRS
+    except Exception:
+        extra = ""
+    if extra:
+        for p in extra.split(":"):
+            p = p.strip()
+            if p:
+                path = Path(p).expanduser().resolve()
+                if path.is_dir():
+                    dirs.append(path)
+    return dirs
+
+
 def _collect_skill_files() -> list[tuple[Path, str, str]]:
     """Return (path, skill_id, source_type) for all discoverable skill .md files.
 
@@ -105,9 +123,10 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                     skill_id = f"bots/{bot_dir.name}/{p.stem}"
                     items.append((p, skill_id, SOURCE_FILE))
 
-    # integrations/{id}/skills/*.md
-    integrations_dir = Path("integrations")
-    if integrations_dir.is_dir():
+    # integrations/*/skills/*.md (in-repo + external)
+    for integrations_dir in _integration_dirs():
+        if not integrations_dir.is_dir():
+            continue
         for intg_dir in sorted(integrations_dir.iterdir()):
             if not intg_dir.is_dir():
                 continue
@@ -141,9 +160,10 @@ def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
                 for p in sorted(bot_knowledge.glob("*.md")):
                     items.append((p, p.stem, bot_dir.name, SOURCE_FILE))
 
-    # integrations/{id}/knowledge/*.md (global, cross-bot)
-    integrations_dir = Path("integrations")
-    if integrations_dir.is_dir():
+    # integrations/*/knowledge/*.md (in-repo + external)
+    for integrations_dir in _integration_dirs():
+        if not integrations_dir.is_dir():
+            continue
         for intg_dir in sorted(integrations_dir.iterdir()):
             if not intg_dir.is_dir():
                 continue

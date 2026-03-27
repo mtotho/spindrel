@@ -108,7 +108,7 @@ def _get_history_mode(bot: BotConfig, channel: Channel | None = None) -> str:
     """Resolve the effective history mode: channel override → bot → default 'summary'."""
     if channel and channel.history_mode:
         return channel.history_mode
-    return bot.history_mode or "summary"
+    return bot.history_mode or "file"
 
 
 def _stringify_message_content(content: Any) -> str:

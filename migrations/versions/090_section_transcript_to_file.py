@@ -18,7 +18,14 @@ def upgrade() -> None:
     op.add_column("conversation_sections", sa.Column("transcript_path", sa.Text(), nullable=True))
     op.drop_column("conversation_sections", "transcript")
 
+    # Default history_mode for new bots: summary -> file
+    op.alter_column("bots", "history_mode", server_default=sa.text("'file'"))
+    op.execute("UPDATE bots SET history_mode = 'file' WHERE history_mode = 'summary' OR history_mode IS NULL")
+
 
 def downgrade() -> None:
     op.add_column("conversation_sections", sa.Column("transcript", sa.Text(), nullable=False, server_default=sa.text("''")))
     op.drop_column("conversation_sections", "transcript_path")
+
+    op.alter_column("bots", "history_mode", server_default=sa.text("'summary'"))
+    op.execute("UPDATE bots SET history_mode = 'summary' WHERE history_mode = 'file'")

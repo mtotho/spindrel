@@ -13,9 +13,13 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
 COPY app/ app/
-COPY bots/ bots/
+COPY integrations/ integrations/
 COPY alembic.ini .
 COPY migrations/ migrations/
+
+# bots/ and skills/ are volume-mounted (see docker-compose.yml).
+# Create empty dirs as fallback if not mounted.
+RUN mkdir -p bots skills tools
 
 EXPOSE 8000
 

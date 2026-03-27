@@ -682,7 +682,7 @@ class Bot(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'summary'"))
+    history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

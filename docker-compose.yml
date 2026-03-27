@@ -1,4 +1,4 @@
-name: "agent-server" #temporary name so i dont have to rename my dockers
+name: "agent-server"
 services:
   agent-server:
     build: .
@@ -8,7 +8,10 @@ services:
     volumes:
       - ./bots:/app/bots
       - ./skills:/app/skills
+      - ./tools:/app/tools
       - ./mcp.yaml:/app/mcp.yaml:ro
+      # External integrations (uncomment and adjust path):
+      # - /path/to/my-integrations:/app/ext-integrations:ro
     depends_on:
       postgres:
         condition: service_healthy

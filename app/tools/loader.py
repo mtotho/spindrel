@@ -33,13 +33,30 @@ def _import_tool_file(path: Path) -> None:
         _registry._current_load_source_file = None
 
 
+def _scan_integration_tools(base_dir: Path) -> None:
+    """Scan base_dir/*/tools/*.py for integration tools."""
+    import app.tools.registry as _registry
+
+    if not base_dir.is_dir():
+        return
+    for intg_tools_dir in sorted(base_dir.glob("*/tools")):
+        if not intg_tools_dir.is_dir():
+            continue
+        integration_id = intg_tools_dir.parent.name
+        _registry._current_source_integration = integration_id
+        try:
+            for py_file in sorted(intg_tools_dir.glob("*.py")):
+                if not py_file.name.startswith("_"):
+                    _import_tool_file(py_file)
+        finally:
+            _registry._current_source_integration = None
+
+
 def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
     """Import `*.py` from each directory (non-recursive). Underscore-prefixed files skipped.
 
-    Also discovers tools from integrations/*/tools/*.py, attributing source_integration.
+    Also discovers tools from integrations/*/tools/*.py (in-repo and INTEGRATION_DIRS).
     """
-    import app.tools.registry as _registry
-
     root = _project_root()
     dirs: list[Path] = [root / "tools"]
     if extra_dirs:
@@ -53,17 +70,17 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
                 continue
             _import_tool_file(py_file)
 
-    # Auto-discover integrations/*/tools/*.py
-    integrations_dir = root / "integrations"
-    if integrations_dir.is_dir():
-        for intg_tools_dir in sorted(integrations_dir.glob("*/tools")):
-            if not intg_tools_dir.is_dir():
-                continue
-            integration_id = intg_tools_dir.parent.name
-            _registry._current_source_integration = integration_id
-            try:
-                for py_file in sorted(intg_tools_dir.glob("*.py")):
-                    if not py_file.name.startswith("_"):
-                        _import_tool_file(py_file)
-            finally:
-                _registry._current_source_integration = None
+    # Auto-discover integrations/*/tools/*.py (in-repo)
+    _scan_integration_tools(root / "integrations")
+
+    # Auto-discover INTEGRATION_DIRS/*/tools/*.py (external)
+    try:
+        from app.config import settings
+        extra = settings.INTEGRATION_DIRS
+    except Exception:
+        extra = ""
+    if extra:
+        for p in extra.split(":"):
+            p = p.strip()
+            if p:
+                _scan_integration_tools(Path(p).expanduser().resolve())

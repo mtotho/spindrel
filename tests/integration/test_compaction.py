@@ -26,6 +26,7 @@ def _bot(**overrides) -> BotConfig:
         compaction_keep_turns=1,
         memory=MemoryConfig(enabled=False),
         knowledge=KnowledgeConfig(enabled=False),
+        history_mode="summary",
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

@@ -56,14 +56,14 @@ class TestGetHistoryMode:
         bot = _make_bot(history_mode="file")
         assert _get_history_mode(bot, None) == "file"
 
-    def test_both_none_defaults_summary(self):
+    def test_both_none_defaults_file(self):
         bot = _make_bot(history_mode=None)
         ch = _make_channel(history_mode=None)
-        assert _get_history_mode(bot, ch) == "summary"
+        assert _get_history_mode(bot, ch) == "file"
 
-    def test_bot_default_is_summary(self):
-        bot = _make_bot()  # no history_mode override — defaults to "summary"
-        assert _get_history_mode(bot) == "summary"
+    def test_bot_default_is_file(self):
+        bot = _make_bot()  # no history_mode override — defaults to "file"
+        assert _get_history_mode(bot) == "file"
 
     def test_empty_string_channel_falls_through(self):
         """Empty string is falsy, should fall through to bot."""
