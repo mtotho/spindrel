@@ -15,14 +15,15 @@ _SCHEMA = {
         "name": "read_conversation_history",
         "description": (
             "Read archived conversation history. Pass section='index' to see a table of contents "
-            "of all archived sections, or pass a section UUID to read the full transcript of that section."
+            "of all archived sections, a section number (e.g. '12') to read by sequence, "
+            "or a section UUID to read the full transcript of that section."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "section": {
                     "type": "string",
-                    "description": "Either 'index' to list all sections, or a section UUID to read its full content.",
+                    "description": "Either 'index' to list all sections, a section number (e.g. '12'), or a section UUID.",
                 },
             },
             "required": ["section"],
@@ -31,58 +32,8 @@ _SCHEMA = {
 }
 
 
-@register(_SCHEMA)
-async def read_conversation_history(section: str) -> str:
-    channel_id = current_channel_id.get()
-    if not channel_id:
-        return "No channel context available. This tool requires a channel-based conversation."
-
-    if section == "index":
-        async with async_session() as db:
-            result = await db.execute(
-                select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
-                .order_by(ConversationSection.sequence)
-            )
-            sections = result.scalars().all()
-
-        if not sections:
-            return "No archived conversation sections found for this channel."
-
-        lines = ["Archived conversation sections:\n"]
-        for s in sections:
-            date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
-            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
-            lines.append(
-                f"- [{s.id}] Section {s.sequence}: {s.title} "
-                f"({s.message_count} msgs, {date_str}){tag_str}\n"
-                f"  {s.summary}"
-            )
-        return "\n".join(lines)
-
-    # Try to parse as UUID
-    try:
-        section_id = uuid.UUID(section)
-    except ValueError:
-        return f"Invalid section ID: '{section}'. Pass 'index' or a valid UUID."
-
-    async with async_session() as db:
-        sec = await db.get(ConversationSection, section_id)
-        if sec and sec.channel_id == channel_id:
-            await db.execute(
-                update(ConversationSection)
-                .where(ConversationSection.id == section_id)
-                .values(
-                    view_count=ConversationSection.view_count + 1,
-                    last_viewed_at=datetime.now(timezone.utc),
-                )
-            )
-            await db.commit()
-
-    if not sec or sec.channel_id != channel_id:
-        return f"Section not found: {section}"
-
-    # Read full transcript from filesystem if available
+def _read_section_transcript(sec: ConversationSection) -> str:
+    """Read the transcript for a section from filesystem or return summary fallback."""
     if sec.transcript_path:
         import os
         from app.agent.context import current_bot_id
@@ -115,3 +66,76 @@ async def read_conversation_history(section: str) -> str:
         f"---\n\n"
         f"Transcript file not available for this section."
     )
+
+
+async def _track_view(section_id: uuid.UUID) -> None:
+    """Increment view_count and update last_viewed_at."""
+    async with async_session() as db:
+        await db.execute(
+            update(ConversationSection)
+            .where(ConversationSection.id == section_id)
+            .values(
+                view_count=ConversationSection.view_count + 1,
+                last_viewed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+
+@register(_SCHEMA)
+async def read_conversation_history(section: str) -> str:
+    channel_id = current_channel_id.get()
+    if not channel_id:
+        return "No channel context available. This tool requires a channel-based conversation."
+
+    if section == "index":
+        async with async_session() as db:
+            result = await db.execute(
+                select(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+                .order_by(ConversationSection.sequence)
+            )
+            sections = result.scalars().all()
+
+        if not sections:
+            return "No archived conversation sections found for this channel."
+
+        lines = ["Archived conversation sections:\n"]
+        for s in sections:
+            date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
+            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+            lines.append(
+                f"- [{s.id}] Section {s.sequence}: {s.title} "
+                f"({s.message_count} msgs, {date_str}){tag_str}\n"
+                f"  {s.summary}"
+            )
+        return "\n".join(lines)
+
+    # Try sequence number (bare integer)
+    if section.isdigit():
+        seq_num = int(section)
+        async with async_session() as db:
+            result = await db.execute(
+                select(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id, ConversationSection.sequence == seq_num)
+            )
+            sec = result.scalar_one_or_none()
+        if not sec:
+            return f"Section #{seq_num} not found."
+        await _track_view(sec.id)
+        return _read_section_transcript(sec)
+
+    # Try to parse as UUID
+    try:
+        section_id = uuid.UUID(section)
+    except ValueError:
+        return f"Invalid section ID: '{section}'. Pass 'index', a section number, or a valid UUID."
+
+    async with async_session() as db:
+        sec = await db.get(ConversationSection, section_id)
+
+    if not sec or sec.channel_id != channel_id:
+        return f"Section not found: {section}"
+
+    await _track_view(sec.id)
+    return _read_section_transcript(sec)

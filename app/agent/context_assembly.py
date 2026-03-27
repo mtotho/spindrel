@@ -584,6 +584,28 @@ async def assemble_context(
                     pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["read_conversation_history"])),
                 )
 
+                # Inject section index so the bot knows what's in the archive
+                _si_count = getattr(_sec_ch, "section_index_count", None)
+                _si_count = _si_count if _si_count is not None else 10  # default 10
+                if _si_count > 0:
+                    _si_verbosity = getattr(_sec_ch, "section_index_verbosity", None) or "standard"
+                    from app.db.models import ConversationSection as _SISection
+                    from sqlalchemy import select as _si_select
+                    async with _sec_async_session() as _si_db:
+                        _si_rows = (await _si_db.execute(
+                            _si_select(_SISection)
+                            .where(_SISection.channel_id == channel_id)
+                            .order_by(_SISection.sequence.desc())
+                            .limit(_si_count)
+                        )).scalars().all()
+                    if _si_rows:
+                        from app.services.compaction import format_section_index
+                        _si_text = format_section_index(_si_rows, verbosity=_si_verbosity)
+                        _si_chars = len(_si_text)
+                        _inject_chars["section_index"] = _si_chars
+                        messages.append({"role": "system", "content": _si_text})
+                        yield {"type": "section_index_context", "count": len(_si_rows), "chars": _si_chars}
+
     # --- workspace filesystem context ---
     _do_workspace_rag = False
     if bot.workspace.enabled and bot.workspace.indexing.enabled:

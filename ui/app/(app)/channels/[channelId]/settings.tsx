@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, Check, RotateCw, Play, ExternalLink, Plus, Search, X, Trash2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -70,6 +71,7 @@ const BASE_TABS = [
 // ---------------------------------------------------------------------------
 export default function ChannelSettingsScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
+  const insets = useSafeAreaInsets();
   const goBack = useGoBack(`/channels/${channelId}`);
   const queryClient = useQueryClient();
   const { data: channel } = useChannel(channelId);
@@ -115,6 +117,8 @@ export default function ChannelSettingsScreen() {
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
         compaction_skip_memory_phase: settings.compaction_skip_memory_phase,
+        section_index_count: settings.section_index_count,
+        section_index_verbosity: settings.section_index_verbosity,
         context_compression: settings.context_compression,
         compression_model: settings.compression_model,
         compression_threshold: settings.compression_threshold,
@@ -158,16 +162,16 @@ export default function ChannelSettingsScreen() {
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0 }}>
+      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0, paddingTop: Math.max(insets.top, 12) }}>
         <Pressable
           onPress={goBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
           style={{ width: 44, height: 44 }}
         >
           <ArrowLeft size={20} color="#999" />
         </Pressable>
         <View className="flex-1 min-w-0">
-          <Text className="text-text font-semibold text-sm" numberOfLines={1}>
+          <Text className="text-text font-semibold" style={{ fontSize: 16 }} numberOfLines={1}>
             {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
           </Text>
           <Text className="text-text-dim text-xs" numberOfLines={1}>
@@ -211,7 +215,7 @@ export default function ChannelSettingsScreen() {
       {/* Tab content */}
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ padding: 20, gap: 20, maxWidth: 680 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: 20, maxWidth: 680 }}
         key={tab}
       >
         {tab === "general" && (
@@ -523,7 +527,7 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
             {running ? "Backfilling..." : "Backfill Sections"}
           </button>
         )}
-        <span style={{ fontSize: 11, color: "#666", flex: 1, minWidth: 180 }}>
+        <span style={{ fontSize: 11, color: "#666", flex: 1, minWidth: 0 }}>
           {existingSections > 0 && stats && stats.estimated_remaining > 0
             ? "Resume adds new sections for uncovered messages. Re-chunk deletes everything and starts fresh."
             : existingSections > 0
@@ -594,7 +598,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
         Archived Sections ({data.total})
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 600, minHeight: 0, overflowY: "auto" }}>
-        {data.sections.map((s) => {
+        {[...data.sections].reverse().map((s) => {
           const isOpen = expandedId === s.id;
           const dateStr = s.period_start
             ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
@@ -707,6 +711,91 @@ function SectionsViewer({ channelId }: { channelId: string }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Section Index Settings — controls + live preview
+// ===========================================================================
+const VERBOSITY_OPTIONS = [
+  { label: "Compact", value: "compact" },
+  { label: "Standard", value: "standard" },
+  { label: "Detailed", value: "detailed" },
+];
+
+function SectionIndexSettings({ form, patch, channelId }: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  channelId: string;
+}) {
+  const count = form.section_index_count ?? 10;
+  const verbosity = form.section_index_verbosity ?? "standard";
+
+  const { data: preview } = useQuery({
+    queryKey: ["section-index-preview", channelId, count, verbosity],
+    queryFn: () => apiFetch<{ content: string; section_count: number; chars: number }>(
+      `/api/v1/admin/channels/${channelId}/section-index-preview?count=${count}&verbosity=${verbosity}`,
+    ),
+    enabled: count > 0,
+  });
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e5e5", marginBottom: 8 }}>Section Index</div>
+      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, lineHeight: "1.5" }}>
+        Injects a lightweight section index into the bot's context each turn so it knows what's in the archive
+        without spending a tool call. The bot can then use <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> with a section number to read full transcripts.
+      </div>
+      <Row>
+        <Col>
+          <FormRow label="Index Sections" description="Recent sections injected into context each turn. 0 = disabled.">
+            <TextInput
+              value={count === 10 && form.section_index_count == null ? "" : count.toString()}
+              onChangeText={(v) => patch("section_index_count", v ? parseInt(v) || 0 : undefined)}
+              placeholder="10"
+              type="number"
+            />
+          </FormRow>
+        </Col>
+        <Col>
+          <FormRow label="Verbosity" description="How much detail to show per section.">
+            <SelectInput
+              value={verbosity}
+              onChange={(v) => patch("section_index_verbosity", v || undefined)}
+              options={VERBOSITY_OPTIONS}
+            />
+          </FormRow>
+        </Col>
+      </Row>
+
+      {/* Live preview */}
+      {count > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {preview && preview.section_count > 0 ? (
+            <>
+              <div style={{
+                background: "#0d1117", border: "1px solid #1e3a5f", borderRadius: 8,
+                padding: "12px 14px", fontFamily: "monospace", fontSize: 11,
+                color: "#c9d1d9", whiteSpace: "pre-wrap", lineHeight: "1.5",
+                maxHeight: 300, overflow: "auto",
+              }}>
+                {preview.content}
+              </div>
+              <div style={{ fontSize: 10, color: "#666", marginTop: 4 }}>
+                ~{preview.chars.toLocaleString()} chars per turn
+              </div>
+            </>
+          ) : (
+            <div style={{
+              padding: "12px 14px", background: "#111", border: "1px solid #333",
+              borderRadius: 8, fontSize: 11, color: "#666", fontStyle: "italic",
+            }}>
+              No sections to preview — run backfill first.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -825,6 +914,9 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
               )}
             </>
           )}
+
+          {/* Section index injection */}
+          <SectionIndexSettings form={form} patch={patch} channelId={channelId} />
 
           {/* Backfill subsection */}
           <div style={{
@@ -1136,8 +1228,8 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
         {elevationData && (
           <>
             <div style={{
-              display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12,
-              background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 14,
+              display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12,
+              background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 6, padding: 12,
             }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>Stats</div>
               <div style={{ fontSize: 11, color: "#888" }}>
@@ -1169,20 +1261,20 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
                     borderRadius: 6, padding: 10,
                     display: "flex", flexDirection: "column", gap: 4,
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
                         <span style={{
-                          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+                          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, flexShrink: 0,
                           background: entry.was_elevated ? "#f59e0b22" : "#33333366",
                           color: entry.was_elevated ? "#f59e0b" : "#888",
                         }}>
                           {entry.was_elevated ? "ELEVATED" : "BASE"}
                         </span>
-                        <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>
+                        <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {entry.model_chosen}
                         </span>
                       </div>
-                      <span style={{ fontSize: 10, color: "#666" }}>
+                      <span style={{ fontSize: 10, color: "#666", flexShrink: 0 }}>
                         {new Date(entry.created_at).toLocaleString()}
                       </span>
                     </div>
@@ -1208,7 +1300,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
       </Section>
 
       {/* Metadata */}
-      <div style={{ opacity: 0.4, fontSize: 11, color: "#666", display: "flex", gap: 16 }}>
+      <div style={{ opacity: 0.4, fontSize: 11, color: "#666", display: "flex", gap: 8, flexWrap: "wrap" }}>
         <span>ID: {settings.id}</span>
         {settings.client_id && <span>client_id: {settings.client_id}</span>}
         {settings.integration && <span>integration: {settings.integration}</span>}
@@ -1230,8 +1322,8 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
         </div>
         <div style={{ padding: 16 }}>
           {!showDeleteConfirm ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
                 <Text style={{ fontSize: 13, color: "#e5e5e5", fontWeight: "600" }}>Delete this channel</Text>
                 <Text style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
                   Permanently removes the channel, its integrations, and heartbeat config. Sessions and tasks will be unlinked.
@@ -1244,7 +1336,7 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
                   padding: "8px 16px", fontSize: 12, fontWeight: 600,
                   border: "1px solid #991b1b", borderRadius: 6,
                   background: "transparent", color: "#fca5a5", cursor: "pointer",
-                  flexShrink: 0, marginLeft: 16,
+                  flexShrink: 0,
                 }}
               >
                 <Trash2 size={13} color="#fca5a5" />
@@ -1516,12 +1608,12 @@ function SessionsTab({ channelId }: { channelId: string }) {
               borderRadius: 8, border: `1px solid ${s.is_active ? "#1a3a1a" : "#2a2a2a"}`,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
-                    {s.id?.substring(0, 12)}...
+                    {s.id?.substring(0, 8)}
                   </span>
                   {s.title && (
-                    <span style={{ fontSize: 12, color: "#999", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 12, color: "#999", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
                       {s.title}
                     </span>
                   )}
@@ -1541,7 +1633,7 @@ function SessionsTab({ channelId }: { channelId: string }) {
                     </span>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#666", marginTop: 3 }}>
+                <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#666", marginTop: 3, flexWrap: "wrap" }}>
                   <span>{s.message_count ?? 0} msgs</span>
                   {s.last_active && <span>{new Date(s.last_active).toLocaleString()}</span>}
                   {s.created_at && <span>created {new Date(s.created_at).toLocaleDateString()}</span>}

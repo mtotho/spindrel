@@ -184,6 +184,8 @@ export interface ChannelSettings {
   history_mode?: string | null;
   compaction_model?: string;
   compaction_skip_memory_phase?: boolean | null;
+  section_index_count?: number | null;
+  section_index_verbosity?: string | null;
   context_compression?: boolean;
   compression_model?: string;
   compression_threshold?: number;
