@@ -10,9 +10,6 @@ cp .env.example .env         # edit this first — see "Configuration" below
 ./scripts/dev-client.sh      # starts the CLI chat client (terminal 2)
 ```
 
-psql -U agent -d agentdb -h localhost -p 5432
-
-
 The dev-server script starts three Docker containers (postgres, searxng, playwright) and then runs the FastAPI server locally with `--reload`.
 
 ## Configuration
@@ -42,7 +39,7 @@ PLAYWRIGHT_WS_URL=ws://playwright:3000
 
 ### Bots (bots/*.yaml)
 
-A bot is a named configuration that tells the server which model to use, what system prompt to send, and which tools are available. Bot YAML files live in `bots/` and are loaded once at server startup.
+A bot is a named configuration that tells the server which model to use, what system prompt to send, and which tools are available. Create your bot YAML files in `bots/` (this directory is gitignored — create your own). Bots are seeded from YAML on first startup and then managed via the admin UI.
 
 ```yaml
 # bots/default.yaml
@@ -95,7 +92,7 @@ Then restart the server. Uvicorn `--reload` watches `.py` and `.yaml` files, but
 
 ### Skills (skills/*.md)
 
-Skills are curated knowledge files that give bots domain expertise. Drop a `.md` file in `skills/` and list it in a bot's config — the bot will automatically pull in relevant sections when the user asks about that topic.
+Skills are curated knowledge files that give bots domain expertise. Drop a `.md` file in `skills/` (gitignored — create your own) and list it in a bot's config — the bot will automatically pull in relevant sections when the user asks about that topic.
 
 **How it works:**
 
@@ -637,7 +634,7 @@ AGENT_BASE_URL=http://localhost:8000  # Agent-server URL
 SLACK_DEFAULT_BOT=default         # Fallback bot when no channel mapping exists
 ```
 
-When both Slack tokens are set, `./scripts/dev-server.sh` starts the bot automatically. To run standalone: `cd slack-integration && python slack_bot.py`.
+When both Slack tokens are set, `./scripts/dev-server.sh` starts the bot automatically. To run standalone: `python integrations/slack/slack_bot.py`.
 
 **Slack app scopes** (Bot token): `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`, `commands`, `files:read`, `files:write`. Optional: `chat:write.customize` for per-bot display names.
 
@@ -898,7 +895,9 @@ The `Dockerfile` and `dockerfiles/agent-python` both include Node.js + `@anthrop
 
 ## Integration Framework
 
-External services (Gmail, GitHub, webhooks, etc.) can connect to the agent server without touching core code. Each integration lives in `integrations/<name>/` and is auto-discovered at startup.
+External services (Gmail, GitHub, webhooks, etc.) can connect to the agent server without touching core code. Each integration lives in `integrations/<name>/` and is auto-discovered at startup. The repo ships with `slack/` and `example/` integrations.
+
+**External integrations** can live outside the repo — set `INTEGRATION_DIRS` in `.env` to point to directories containing your integration folders. See [docs/integrations/README.md](docs/integrations/README.md) for the full plugin model.
 
 **Integration API** — `/api/v1/` — REST endpoints for injecting messages and ingesting documents from external services. All require `Authorization: Bearer <API_KEY>`.
 
@@ -938,31 +937,16 @@ RCLONE_REMOTE=:s3:your-bucket-name
 **Cron (daily at 2 AM):**
 
 ```cron
-0 2 * * * /path/to/scripts/backup.sh >> /var/log/thoth-backup.log 2>&1
+0 2 * * * /path/to/scripts/backup.sh >> /var/log/agent-backup.log 2>&1
 ```
 
 **What's backed up:** Postgres database, `.env`, `bots/`, `skills/`, `mcp.yaml`, `config/searxng/settings.yml`.
 
 > Full details: [docs/BACKUP.md](docs/BACKUP.md)
 
-## Thoth CLI
+## Production CLI
 
-`thoth` is a shell dispatcher for managing the production server (native app on host + Docker backing services).
-
-```bash
-thoth start              # start backing services + app (systemd)
-thoth stop               # graceful shutdown
-thoth restart            # restart app service
-thoth pull               # git pull + pip install + alembic upgrade + restart
-thoth backup             # run scripts/backup.sh
-thoth restore [archive]  # run scripts/restore.sh
-thoth status             # show service status
-thoth logs [--follow]    # tail app logs (journalctl) or service logs (docker compose)
-```
-
-**Install:** Run `./install-service.sh` to create the systemd unit, thoth user, and symlink the CLI to `/usr/local/bin/thoth`.
-
-> Architecture and install guide: [PLANS/THOTH_CLI.md](PLANS/THOTH_CLI.md)
+The `thoth` script in the repo root is a shell dispatcher for managing a production deployment (systemd service + Docker backing services). Run `./install-service.sh` to install. Commands: `start`, `stop`, `restart`, `pull`, `backup`, `restore`, `status`, `logs`.
 
 ## API
 
@@ -1105,33 +1089,21 @@ app/              Server application
   stt/            Speech-to-text provider abstraction (local whisper, future cloud)
   tools/          Tool registry, MCP proxy, local tools
     local/        Python tool implementations (web_search, delegation, exec_tool, etc.)
-bots/             Bot YAML configs
-skills/           Skill knowledge files (*.md)
+bots/             Bot YAML configs (gitignored — create your own)
+skills/           Skill knowledge files *.md (gitignored — create your own)
+tools/            Drop-in Python tools (gitignored *.py — create your own)
 mcp.yaml          MCP server connection config
-thoth             CLI dispatcher (shell script) for production server management
+integrations/     Service integrations (auto-discovered at startup)
+  slack/          Slack Socket Mode integration (ships with repo)
+  example/        Minimal scaffold for reference
 scripts/          Dev + ops scripts
-  backup.sh       Postgres dump + config bundle + S3 upload
-  restore.sh      Pull from S3 + restore DB + restart stack
   dev-server.sh   Start Docker services + uvicorn with --reload
   dev-client.sh   Start the CLI chat client
-  install-service.sh  Create systemd unit for thoth.service
+  backup.sh       Postgres dump + config bundle + S3 upload
+  restore.sh      Pull from S3 + restore DB + restart stack
 client/           CLI client (separate installable package)
-  agent_client/   Client source (cli, http client, audio, config, state)
-android-client/   React Native (Expo bare workflow) Android client
-  app/            Expo Router screens (chat, sessions, settings)
-  src/agent.ts    Server API client (chat, transcribe, SSE)
-  src/config.ts   AsyncStorage config with build-time .env defaults
-  src/service/    VoiceService state machine (idle → listen → process → respond)
-  src/voice/      Wake word (Porcupine), recorder (expo-av), TTS (expo-speech)
-  src/native/     TypeScript bridge to native foreground service module
-  android/        Native Android project (foreground service, native modules)
-integrations/     External service integrations (auto-discovered at startup)
+ui/               React Native/Expo admin UI
 migrations/       Alembic migrations
 docs/             Feature documentation
-  BACKUP.md       Backup & restore procedures (S3/rclone setup)
-  delegation.md   Bot-to-bot delegation (delegate_to_agent)
-  harness.md      External CLI harness execution (delegate_to_harness, claude-code setup)
-  slack.md        Slack integration (session model, passive messages, channel config)
-  integrations/   Integration framework docs (design, creating integrations, debt)
-PLANS/            Active and archived multi-session plans
+  integrations/   Integration framework docs (design, plugin model, examples)
 ```
