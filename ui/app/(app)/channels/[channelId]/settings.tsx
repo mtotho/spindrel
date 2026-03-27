@@ -1886,11 +1886,10 @@ function WorkspaceOverrideTab({
             <button
               onClick={async () => {
                 try {
-                  const resp = await fetch(
-                    `${process.env.EXPO_PUBLIC_API_URL || ""}/api/v1/workspaces/${workspaceId}/reindex-skills`,
-                    { method: "POST", headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_API_KEY || ""}` } },
+                  const data = await apiFetch<{ embedded?: number; unchanged?: number; errors?: number }>(
+                    `/api/v1/workspaces/${workspaceId}/reindex-skills`,
+                    { method: "POST" },
                   );
-                  const data = await resp.json();
                   alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
                 } catch (e) {
                   alert("Failed to reindex skills");
