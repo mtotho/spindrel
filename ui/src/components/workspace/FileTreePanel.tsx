@@ -18,10 +18,10 @@ export function FileTreePanel({ workspaceId }: FileTreePanelProps) {
   const { data, isLoading } = useWorkspaceFiles(workspaceId, "/");
 
   const activePaths = useMemo(() => {
-    const s = new Set<string>();
-    if (leftActive) s.add(leftActive);
-    if (rightActive) s.add(rightActive);
-    return s;
+    const m: Record<string, boolean> = {};
+    if (leftActive) m[leftActive] = true;
+    if (rightActive) m[rightActive] = true;
+    return m;
   }, [leftActive, rightActive]);
 
   const sortedEntries = useMemo(() => {

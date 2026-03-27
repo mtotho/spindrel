@@ -485,6 +485,7 @@ export interface WorkspaceFileEntry {
   is_dir: boolean;
   size?: number | null;
   path: string;
+  modified_at?: number | null; // unix timestamp (seconds)
 }
 
 // Context breakdown types
