@@ -1,4 +1,6 @@
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
 import { Plus, Play, Square, Container, RefreshCw } from "lucide-react";
 import { useWorkspaces, useStartWorkspace, useStopWorkspace } from "@/src/api/hooks/useWorkspaces";
@@ -93,6 +95,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
 export default function WorkspacesScreen() {
   const router = useRouter();
   const { data: workspaces, isLoading } = useWorkspaces();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -125,7 +128,7 @@ export default function WorkspacesScreen() {
       />
 
       {/* Cards */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: isWide ? 20 : 12,
         gap: isWide ? 12 : 10,
       }}>
@@ -156,7 +159,7 @@ export default function WorkspacesScreen() {
             ))}
           </div>
         )}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

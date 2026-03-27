@@ -406,27 +406,41 @@ async def _generate_summary(
     return (title, summary)
 
 
+def _build_transcript(conversation: list[dict]) -> str:
+    """Build a plain-text transcript from raw messages. Deterministic, no LLM needed."""
+    lines = []
+    for m in conversation:
+        role = (m.get("role") or "unknown").upper()
+        content = m.get("content") or ""
+        if isinstance(content, list):
+            # Multi-part content (e.g. vision messages) — extract text parts
+            content = "\n".join(
+                p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+            )
+        lines.append(f"[{role}]: {content}")
+    return "\n".join(lines)
+
+
 async def _generate_section(
     conversation: list[dict],
     model: str,
     provider_id: str | None = None,
 ) -> tuple[str, str, str, list[str]]:
-    """Call the LLM to produce a section title, summary, formatted transcript, and tags."""
-    prompt_messages: list[dict] = [{"role": "system", "content": settings.SECTION_COMPACTION_PROMPT}]
+    """LLM generates title/summary/tags; transcript is built deterministically."""
+    transcript = _build_transcript(conversation)
 
-    transcript = "\n".join(
-        f"[{m['role'].upper()}]: {m['content']}" for m in conversation
-    )
-    prompt_messages.append({
-        "role": "user",
-        "content": f"Conversation segment to archive:\n\n{transcript}",
-    })
+    prompt_messages: list[dict] = [
+        {"role": "system", "content": settings.SECTION_COMPACTION_PROMPT},
+        {"role": "user", "content": f"Conversation segment to archive:\n\n{transcript}"},
+    ]
 
     from app.services.providers import get_llm_client
     response = await get_llm_client(provider_id).chat.completions.create(
         model=model,
         messages=prompt_messages,
         temperature=0.3,
+        max_tokens=1024,
+        timeout=180.0,
     )
 
     raw = response.choices[0].message.content or "{}"
@@ -439,15 +453,14 @@ async def _generate_section(
         data = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("Section LLM returned non-JSON: %s", raw[:200])
-        return ("Conversation", raw[:200], raw, [])
+        return ("Conversation", raw[:200], transcript, [])
 
     title = data.get("title", "Conversation")
     summary = data.get("summary", "")
-    section_transcript = data.get("transcript", raw)
     tags = data.get("tags", [])
     if not isinstance(tags, list):
         tags = []
-    return (title, summary, section_transcript, tags)
+    return (title, summary, transcript, tags)
 
 
 async def _regenerate_executive_summary(
@@ -481,6 +494,8 @@ async def _regenerate_executive_summary(
         model=model,
         messages=prompt_messages,
         temperature=0.3,
+        max_tokens=2048,
+        timeout=300.0,
     )
 
     return (response.choices[0].message.content or "").strip()

@@ -9,9 +9,16 @@ import {
   Switch,
   useWindowDimensions,
 } from "react-native";
-import { Save, RotateCcw, Check } from "lucide-react";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { Link } from "expo-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Save, RotateCcw, Check, Eye } from "lucide-react";
+import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { FallbackModelList, type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
+import { Section } from "@/src/components/shared/FormControls";
 import {
   useSettings,
   useUpdateSettings,
@@ -320,18 +327,159 @@ function GroupNav({
 }
 
 // ---------------------------------------------------------------------------
+// Global Fallback Models hooks
+// ---------------------------------------------------------------------------
+
+function useGlobalFallbackModels() {
+  return useQuery({
+    queryKey: ["global-fallback-models"],
+    queryFn: () =>
+      apiFetch<{ models: FallbackModelEntry[] }>("/api/v1/admin/global-fallback-models"),
+  });
+}
+
+function useUpdateGlobalFallbackModels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (models: FallbackModelEntry[]) =>
+      apiFetch("/api/v1/admin/global-fallback-models", {
+        method: "PUT",
+        body: JSON.stringify({ models }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["global-fallback-models"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Global Fallback Models section
+// ---------------------------------------------------------------------------
+
+const GLOBAL_GROUP = "Global";
+
+function GlobalSection({
+  fbModels,
+  onFbChange,
+  onFbSave,
+  fbDirty,
+  fbSaving,
+  fbSaved,
+  fbError,
+  fbLoading,
+}: {
+  fbModels: FallbackModelEntry[];
+  onFbChange: (v: FallbackModelEntry[]) => void;
+  onFbSave: () => void;
+  fbDirty: boolean;
+  fbSaving: boolean;
+  fbSaved: boolean;
+  fbError: boolean;
+  fbLoading: boolean;
+}) {
+  return (
+    <View>
+      <Link href={"/admin/config-state" as any} asChild>
+        <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 mb-4 hover:bg-surface-overlay active:bg-surface-overlay" style={{ alignSelf: "flex-start" }}>
+          <Eye size={14} color="#3b82f6" />
+          <Text style={{ fontSize: 13, color: "#3b82f6" }}>View full config state</Text>
+        </Pressable>
+      </Link>
+
+      <Section title="Global Fallback Models">
+        <Text className="text-text-dim text-xs" style={{ marginBottom: 12 }}>
+          Catch-all fallback chain appended after channel/bot fallbacks. When all per-channel
+          and per-bot fallbacks are exhausted, these models are tried in order.
+        </Text>
+
+        {fbLoading ? (
+          <ActivityIndicator color="#3b82f6" />
+        ) : (
+          <FallbackModelList value={fbModels} onChange={onFbChange} />
+        )}
+      </Section>
+
+      <View style={{ marginTop: 20, flexDirection: "row", gap: 12, alignItems: "center" }}>
+        <Pressable
+          onPress={onFbSave}
+          disabled={!fbDirty || fbSaving}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            backgroundColor: fbDirty ? "#3b82f6" : "#333",
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderRadius: 8,
+            opacity: fbDirty ? 1 : 0.5,
+          }}
+        >
+          {fbSaving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : fbSaved ? (
+            <Check size={14} color="#fff" />
+          ) : (
+            <Save size={14} color="#fff" />
+          )}
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {fbSaved ? "Saved" : "Save"}
+          </Text>
+        </Pressable>
+        {fbError && (
+          <Text style={{ color: "#ef4444", fontSize: 12 }}>Failed to save</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Settings screen
 // ---------------------------------------------------------------------------
 
 export default function SettingsScreen() {
   const { data, isLoading, error } = useSettings();
+  const { refreshing, onRefresh } = usePageRefresh();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSetting();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
 
+  // Fallback models state
+  const fbQuery = useGlobalFallbackModels();
+  const fbUpdateMut = useUpdateGlobalFallbackModels();
+  const [fbModels, setFbModels] = useState<FallbackModelEntry[]>([]);
+  const [fbDirty, setFbDirty] = useState(false);
+  const [fbSaved, setFbSaved] = useState(false);
+
+  useEffect(() => {
+    if (fbQuery.data?.models) {
+      setFbModels(fbQuery.data.models);
+      setFbDirty(false);
+    }
+  }, [fbQuery.data]);
+
+  const handleFbChange = useCallback((v: FallbackModelEntry[]) => {
+    setFbModels(v);
+    setFbDirty(true);
+    setFbSaved(false);
+  }, []);
+
+  const handleFbSave = useCallback(async () => {
+    const clean = fbModels.filter((m) => m.model);
+    await fbUpdateMut.mutateAsync(clean);
+    setFbDirty(false);
+    setFbSaved(true);
+    setTimeout(() => setFbSaved(false), 2000);
+  }, [fbModels, fbUpdateMut]);
+
+  // Settings state
   const groups = data?.groups ?? [];
-  const [activeGroup, setActiveGroup] = useState<string>("");
+  const allGroups = useMemo(
+    () => [{ group: GLOBAL_GROUP, settings: [] as SettingItem[] }, ...groups],
+    [groups]
+  );
+  const [activeGroup, setActiveGroup] = useState<string>(GLOBAL_GROUP);
   const [localValues, setLocalValues] = useState<Record<string, any>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState(false);
@@ -340,7 +488,6 @@ export default function SettingsScreen() {
   // Initialize local values from server data
   useEffect(() => {
     if (!groups.length) return;
-    if (!activeGroup) setActiveGroup(groups[0].group);
     const vals: Record<string, any> = {};
     for (const g of groups) {
       for (const s of g.settings) {
@@ -410,6 +557,7 @@ export default function SettingsScreen() {
     [resetMutation]
   );
 
+  const isGlobal = activeGroup === GLOBAL_GROUP;
   const activeSettings = groups.find((g) => g.group === activeGroup)?.settings ?? [];
 
   if (isLoading) {
@@ -468,14 +616,14 @@ export default function SettingsScreen() {
             style={{ width: 200 }}
           >
             <GroupNav
-              groups={groups}
+              groups={allGroups}
               activeGroup={activeGroup}
               onSelect={setActiveGroup}
             />
           </View>
         )}
 
-        <ScrollView className="flex-1 p-4" contentContainerStyle={{ maxWidth: 640 }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4" contentContainerStyle={{ maxWidth: 640 }}>
           {/* Mobile group selector */}
           {!isDesktop && (
             <ScrollView
@@ -484,7 +632,7 @@ export default function SettingsScreen() {
               className="mb-4"
               contentContainerStyle={{ gap: 6 }}
             >
-              {groups.map((g) => (
+              {allGroups.map((g) => (
                 <Pressable
                   key={g.group}
                   onPress={() => setActiveGroup(g.group)}
@@ -513,8 +661,22 @@ export default function SettingsScreen() {
             {activeGroup}
           </Text>
 
+          {/* Global section (fallback models + config state link) */}
+          {isGlobal && (
+            <GlobalSection
+              fbModels={fbModels}
+              onFbChange={handleFbChange}
+              onFbSave={handleFbSave}
+              fbDirty={fbDirty}
+              fbSaving={fbUpdateMut.isPending}
+              fbSaved={fbSaved}
+              fbError={fbUpdateMut.isError}
+              fbLoading={fbQuery.isLoading}
+            />
+          )}
+
           {/* Settings */}
-          {activeSettings.map((item, idx) => (
+          {!isGlobal && activeSettings.map((item, idx) => (
             <View key={item.key}>
               {idx > 0 && <View className="h-px bg-surface-border" />}
               <SettingRow
@@ -526,7 +688,7 @@ export default function SettingsScreen() {
               />
             </View>
           ))}
-        </ScrollView>
+        </RefreshableScrollView>
       </View>
     </View>
   );

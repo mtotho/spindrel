@@ -1,4 +1,6 @@
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
 import { Plus, RefreshCw, BookOpen, FileText, Plug } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem } from "@/src/api/hooks/useSkills";
@@ -118,6 +120,7 @@ export default function SkillsScreen() {
   const router = useRouter();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -181,7 +184,7 @@ export default function SkillsScreen() {
       )}
 
       {/* List */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: isWide ? 0 : 12,
         gap: isWide ? 0 : 8,
       }}>
@@ -201,7 +204,7 @@ export default function SkillsScreen() {
             onPress={() => router.push(`/admin/skills/${skill.id}` as any)}
           />
         ))}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

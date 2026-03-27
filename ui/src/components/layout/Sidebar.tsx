@@ -56,7 +56,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
-      { label: "Settings", href: "/admin/settings", icon: Settings },
+      { label: "Settings", href: "/settings", icon: Settings },
       { label: "Config State", href: "/admin/config-state", icon: Eye },
     ],
   },
@@ -225,16 +225,6 @@ export function Sidebar() {
                   {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
                 </Text>
               </View>
-            </Pressable>
-          </Link>
-          <Link href={"/(app)/settings" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-              style={{ width: 44, height: 44 }}
-              accessibilityLabel="Settings"
-            >
-              <Settings size={18} color="#666666" />
             </Pressable>
           </Link>
         </View>
@@ -408,7 +398,7 @@ export function Sidebar() {
         ))}
       </ScrollView>
 
-      {/* Footer — profile + settings */}
+      {/* Footer — profile */}
       <View className="border-t border-surface-border p-2.5 gap-0.5">
         <Link href={"/(app)/profile" as any} asChild>
           <Pressable
@@ -430,15 +420,6 @@ export function Sidebar() {
             >
               {user?.display_name || "Profile"}
             </Text>
-          </Pressable>
-        </Link>
-        <Link href={"/(app)/settings" as any} asChild>
-          <Pressable
-            onPress={closeMobile}
-            className="flex-row items-center gap-3 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
-          >
-            <Settings size={16} color="#666666" />
-            <Text className="text-sm text-text-muted">Settings</Text>
           </Pressable>
         </Link>
       </View>

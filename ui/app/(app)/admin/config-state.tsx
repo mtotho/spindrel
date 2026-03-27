@@ -1,5 +1,7 @@
 import { useState, useCallback } from "react";
-import { View, Text, ScrollView, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, ActivityIndicator, Pressable } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery } from "@tanstack/react-query";
 import { Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
@@ -339,6 +341,7 @@ function UsersSection({ data }: { data: any[] }) {
 
 export default function ConfigStatePage() {
   const { data, isLoading, error } = useConfigState();
+  const { refreshing, onRefresh } = usePageRefresh();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -369,7 +372,9 @@ export default function ConfigStatePage() {
   return (
     <View style={{ flex: 1, backgroundColor: "#0a0a0a" }}>
       <MobileHeader title="Config State" right={CopyButton} />
-      <ScrollView
+      <RefreshableScrollView
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, maxWidth: 960 }}
       >
@@ -438,7 +443,7 @@ export default function ConfigStatePage() {
             </CollapsibleSection>
           </View>
         ) : null}
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

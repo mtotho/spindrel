@@ -1,11 +1,14 @@
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Link } from "expo-router";
 import { Bot, ChevronRight, Plus } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
 export default function BotsScreen() {
   const { data, isLoading } = useBots();
+  const { refreshing, onRefresh } = usePageRefresh();
 
   return (
     <View className="flex-1 bg-surface">
@@ -27,7 +30,7 @@ export default function BotsScreen() {
           <ActivityIndicator color="#3b82f6" />
         </View>
       ) : (
-        <ScrollView className="flex-1 p-4">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4">
           <View className="gap-2 max-w-3xl">
             {data?.map((bot) => (
               <Link
@@ -50,7 +53,7 @@ export default function BotsScreen() {
               </Link>
             ))}
           </View>
-        </ScrollView>
+        </RefreshableScrollView>
       )}
     </View>
   );

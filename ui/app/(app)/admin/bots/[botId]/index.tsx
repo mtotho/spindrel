@@ -661,9 +661,9 @@ function ToolsSection({
           </Col>
           <Col>
             <FormRow label="Summarizer model">
-              <TextInput
+              <LlmModelDropdown
                 value={(draft.tool_result_config as any)?.model ?? ""}
-                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
+                onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
                 placeholder="global model"
               />
             </FormRow>
@@ -713,9 +713,9 @@ function ToolsSection({
           </Col>
           <Col>
             <FormRow label="Compression model">
-              <TextInput
+              <LlmModelDropdown
                 value={(draft.compression_config as any)?.model ?? ""}
-                onChangeText={(v) => update({ compression_config: { ...draft.compression_config, model: v || undefined } })}
+                onChange={(v) => update({ compression_config: { ...draft.compression_config, model: v || undefined } })}
                 placeholder="global model"
               />
             </FormRow>
@@ -1212,7 +1212,7 @@ function WorkspaceSection({
                   <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
                   <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
                   <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Embedding Model"><TextInput value={indexing.embedding_model ?? ""} onChangeText={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
+                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
                 </Row>
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>
@@ -1643,7 +1643,18 @@ export default function BotEditorScreen() {
           {activeSection === "memory" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Memory</div>
-              <div style={{ fontSize: 11, color: "#555" }}>Short facts stored between turns. Relevant memories retrieved by semantic similarity.</div>
+              <div style={{
+                background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+                borderRadius: 6, padding: "10px 14px", marginBottom: 4,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd", marginBottom: 4 }}>Built-in Memory System</div>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+                  Stores short facts in the database via pgvector embeddings. Relevant memories are
+                  automatically injected into context each turn via semantic similarity, and the bot
+                  can search/save/purge/merge memories via dedicated tools. You are encouraged to use
+                  your own memory workflow if it suits your needs better — this is a sensible default.
+                </div>
+              </div>
               <Toggle value={draft.memory?.enabled ?? false} onChange={(v) => update({ memory: { ...draft.memory, enabled: v } })} label="Enable Memory" />
               <Toggle value={draft.memory?.cross_channel ?? false} onChange={(v) => update({ memory: { ...draft.memory, cross_channel: v } })}
                 label="Cross-Channel" description="Share memories across all channels for this client+bot" />
@@ -1676,7 +1687,19 @@ export default function BotEditorScreen() {
           {activeSection === "knowledge" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Knowledge</div>
-              <div style={{ fontSize: 11, color: "#555" }}>Longer-form documents written by the bot. Retrieved by semantic similarity per turn.</div>
+              <div style={{
+                background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+                borderRadius: 6, padding: "10px 14px", marginBottom: 4,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd", marginBottom: 4 }}>Built-in Knowledge System</div>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+                  Stores longer-form documents in the database via pgvector embeddings. The bot can
+                  create, update, append to, and search knowledge documents via dedicated tools.
+                  Relevant documents are automatically injected into context each turn via semantic
+                  similarity. You are encouraged to use your own knowledge workflow if it suits your
+                  needs better — this is a sensible default.
+                </div>
+              </div>
               <Toggle value={draft.knowledge?.enabled ?? false} onChange={(v) => update({ knowledge: { ...draft.knowledge, enabled: v } })} label="Enable Knowledge" />
               <div style={{ maxWidth: 300 }}>
                 <FormRow label="Max Inject Chars">

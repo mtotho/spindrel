@@ -402,13 +402,11 @@ async def estimate_bot_context(
             )
         )
 
-    lines.append(
-        EstimateLine(
-            "sys:plans",
-            900,
-            "injected when session has active plans — order-of-magnitude guess",
-        )
-    )
+    # Section index (file history mode) — heuristic based on default 10 sections
+    history_mode = draft.get("history_mode")
+    if history_mode == "file":
+        _est_si = 100 + 10 * 120  # header + 10 standard sections
+        lines.append(EstimateLine("sys:section_index (typical)", _est_si, "~10 sections in standard verbosity; channel-configurable"))
 
     if audio_input == "native":
         from app.agent.message_utils import _AUDIO_TRANSCRIPT_INSTRUCTION
