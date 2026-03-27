@@ -249,8 +249,8 @@ export default function TaskDetailScreen() {
     setTaskType(task.task_type || "scheduled");
     setScheduledAt(task.scheduled_at ? new Date(task.scheduled_at).toISOString().slice(0, 16) : "");
     setRecurrence(task.recurrence || "");
-    setTriggerRagLoop(task.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(task.callback_config?.model_override || "");
+    setTriggerRagLoop(task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(task.model_override || task.callback_config?.model_override || "");
     setInitialized(true);
   }
 

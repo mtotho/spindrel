@@ -45,10 +45,11 @@ async def condense_response(
 
     model = _resolve_model(channel)
 
-    # Prompt priority: channel > global setting > built-in default
-    base_prompt = settings.RESPONSE_CONDENSING_PROMPT or _DEFAULT_PROMPT
-    channel_prompt = channel.response_condensing_prompt or ""
-    system_prompt = channel_prompt if channel_prompt else base_prompt
+    custom_prompt = channel.response_condensing_prompt or ""
+
+    system_prompt = _DEFAULT_PROMPT
+    if custom_prompt:
+        system_prompt = f"{_DEFAULT_PROMPT}\n{custom_prompt}"
 
     prompt_messages = [
         {"role": "system", "content": system_prompt},

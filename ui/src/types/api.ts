@@ -173,6 +173,7 @@ export interface ChannelSettings {
   allow_bot_messages: boolean;
   workspace_rag: boolean;
   max_iterations?: number;
+  task_max_run_seconds?: number | null;
   channel_prompt?: string;
   context_compaction: boolean;
   compaction_interval?: number;

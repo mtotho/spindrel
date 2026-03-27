@@ -258,6 +258,7 @@ class TestRunTask:
         task.recurrence = overrides.get("recurrence", None)
         task.retry_count = overrides.get("retry_count", 0)
         task.status = overrides.get("status", "pending")
+        task.max_run_seconds = overrides.get("max_run_seconds", None)
         return task
 
     def _mock_db_session(self, task_obj):
@@ -392,6 +393,7 @@ class TestRunTask:
             mock_locks.acquire.return_value = True
             mock_settings.TASK_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 65
+            mock_settings.TASK_MAX_RUN_SECONDS = 1200
 
             await run_task(task)
 

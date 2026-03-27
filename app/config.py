@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     LLM_FALLBACK_MODEL: str = ""             # if set, try this model once after all retries exhaust
     # Rate limit retry (task level — reschedules entire task on rate limit failure)
     TASK_RATE_LIMIT_RETRIES: int = 3         # max reschedule attempts before marking failed
+    # Max run time for tasks/heartbeats (seconds). Per-task > per-channel > this global default.
+    TASK_MAX_RUN_SECONDS: int = 1200         # 20 minutes
 
     # Web tools
     SEARXNG_URL: str = "http://searxng:8080"
@@ -145,7 +147,6 @@ class Settings(BaseSettings):
     RESPONSE_CONDENSING_THRESHOLD: int = 1500    # chars — responses above this get condensed
     RESPONSE_CONDENSING_KEEP_EXACT: int = 6      # N most recent messages shown at full fidelity
     RESPONSE_CONDENSING_MODEL: str = ""          # empty = use compaction model chain
-    RESPONSE_CONDENSING_PROMPT: str = ""          # empty = use built-in default prompt
 
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True

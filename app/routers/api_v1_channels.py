@@ -153,6 +153,7 @@ class ChannelConfigOut(BaseModel):
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
     # Model
     model_override: Optional[str] = None
@@ -207,6 +208,7 @@ class ChannelConfigOut(BaseModel):
     heartbeat_quiet_start: Optional[str] = None
     heartbeat_quiet_end: Optional[str] = None
     heartbeat_timezone: Optional[str] = None
+    heartbeat_max_run_seconds: Optional[int] = None
     heartbeat_last_run_at: Optional[datetime] = None
     heartbeat_next_run_at: Optional[datetime] = None
     # Timestamps
@@ -224,6 +226,7 @@ class ChannelConfigUpdate(BaseModel):
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
     # Model
     model_override: Optional[str] = None
@@ -278,6 +281,7 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_quiet_start: Optional[str] = None
     heartbeat_quiet_end: Optional[str] = None
     heartbeat_timezone: Optional[str] = None
+    heartbeat_max_run_seconds: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +486,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
         "max_iterations": channel.max_iterations,
+        "task_max_run_seconds": channel.task_max_run_seconds,
         "channel_prompt": channel.channel_prompt,
         "model_override": channel.model_override,
         "model_provider_id_override": channel.model_provider_id_override,
@@ -534,6 +539,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
             "heartbeat_quiet_start": heartbeat.quiet_start.strftime("%H:%M") if heartbeat.quiet_start else None,
             "heartbeat_quiet_end": heartbeat.quiet_end.strftime("%H:%M") if heartbeat.quiet_end else None,
             "heartbeat_timezone": heartbeat.timezone,
+            "heartbeat_max_run_seconds": heartbeat.max_run_seconds,
             "heartbeat_last_run_at": heartbeat.last_run_at,
             "heartbeat_next_run_at": heartbeat.next_run_at,
         })

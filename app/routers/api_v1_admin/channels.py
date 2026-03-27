@@ -133,6 +133,7 @@ class HeartbeatConfigOut(BaseModel):
     quiet_start: Optional[str] = None
     quiet_end: Optional[str] = None
     timezone: Optional[str] = None
+    max_run_seconds: Optional[int] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -147,7 +148,8 @@ class HeartbeatConfigOut(BaseModel):
             "model_provider_id", "prompt", "prompt_template_id",
             "workspace_file_path", "workspace_id",
             "dispatch_results", "trigger_response",
-            "timezone", "last_run_at", "next_run_at", "created_at", "updated_at",
+            "timezone", "max_run_seconds",
+            "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
         data["quiet_end"] = hb.quiet_end.strftime("%H:%M") if hb.quiet_end else None
@@ -185,6 +187,7 @@ class HeartbeatUpdate(BaseModel):
     quiet_start: Optional[str] = None  # "HH:MM" or null
     quiet_end: Optional[str] = None    # "HH:MM" or null
     timezone: Optional[str] = None
+    max_run_seconds: Optional[int] = None
 
 
 class TaskOut(BaseModel):
@@ -280,6 +283,7 @@ class ChannelSettingsOut(BaseModel):
     allow_bot_messages: bool = False
     workspace_rag: bool = True
     max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
@@ -332,6 +336,7 @@ class ChannelSettingsUpdate(BaseModel):
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
     max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None

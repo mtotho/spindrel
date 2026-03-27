@@ -50,6 +50,7 @@ class TaskDetailOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     trigger_rag_loop: bool = False
+    max_run_seconds: Optional[int] = None
     retry_count: int = 0
     run_count: int = 0
     created_at: datetime
@@ -87,6 +88,7 @@ class TaskCreateIn(BaseModel):
     trigger_rag_loop: bool = False
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    max_run_seconds: Optional[int] = None
 
 
 class TaskUpdateIn(BaseModel):
@@ -103,6 +105,7 @@ class TaskUpdateIn(BaseModel):
     trigger_rag_loop: Optional[bool] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    max_run_seconds: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +204,7 @@ async def admin_list_tasks(
             "model_override": ec.get("model_override") or cb.get("model_override"),
             "model_provider_id_override": ec.get("model_provider_id_override") or cb.get("model_provider_id_override"),
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
+            "max_run_seconds": t.max_run_seconds,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
@@ -327,6 +331,7 @@ async def admin_create_task(
         client_id=client_id,
         session_id=session_id,
         channel_id=channel_id,
+        max_run_seconds=body.max_run_seconds,
     )
     db.add(task)
     await db.commit()
@@ -350,7 +355,7 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
-    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title"):
+    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds"):
         if field in updates:
             setattr(task, field, updates[field])
     if "recurrence" in updates:

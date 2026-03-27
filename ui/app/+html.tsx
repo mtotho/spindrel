@@ -27,6 +27,7 @@ export default function Root({ children }: PropsWithChildren) {
 const rootStyle = `
 html, body {
   height: 100%;
+  height: 100dvh;
 }
 body {
   overflow: hidden;
@@ -34,6 +35,7 @@ body {
 #root {
   display: flex;
   height: 100%;
+  height: 100dvh;
   flex: 1;
 }
 `;

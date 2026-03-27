@@ -66,6 +66,7 @@ class Channel(Base):
     allow_bot_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    task_max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_max_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_types_allowed: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -827,6 +828,7 @@ class ChannelHeartbeat(Base):
     last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 
@@ -907,6 +909,7 @@ class Task(Base):
         ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
+    max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Plan(Base):

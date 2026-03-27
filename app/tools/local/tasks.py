@@ -135,6 +135,14 @@ _SCHEDULE_TASK_SCHEMA = {
                         "any needed follow-up action. Default false."
                     ),
                 },
+                "max_run_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Maximum time in seconds this task is allowed to run before being "
+                        "terminated. Overrides channel and global defaults. "
+                        "Default: inherit from channel setting or global (1200s / 20min)."
+                    ),
+                },
             },
             "required": ["prompt"],
         },
@@ -169,6 +177,7 @@ async def schedule_task(
     reply_in_thread: bool = False,
     recurrence: str | None = None,
     trigger_rag_loop: bool = False,
+    max_run_seconds: int | None = None,
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
 
@@ -240,6 +249,7 @@ async def schedule_task(
             recurrence=recurrence or None,
             workspace_file_path=ws_file_path,
             workspace_id=ws_id,
+            max_run_seconds=max_run_seconds,
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)
@@ -531,6 +541,10 @@ async def cancel_task(task_id: str) -> str:
                     "type": "string",
                     "description": "Change the bot that will run this task. Omit to leave unchanged.",
                 },
+                "max_run_seconds": {
+                    "type": "integer",
+                    "description": "Max run time in seconds. Pass null to clear (inherit from channel/global). Omit to leave unchanged.",
+                },
             },
             "required": ["task_id"],
         },
@@ -546,6 +560,7 @@ async def update_task(
     bot_id: str | object = _UNSET,
     reply_in_thread: bool | object = _UNSET,
     trigger_rag_loop: bool | object = _UNSET,
+    max_run_seconds: int | None | object = _UNSET,
 ) -> str:
     try:
         tid = uuid.UUID(task_id)
@@ -628,6 +643,10 @@ async def update_task(
         if trigger_rag_loop is not _UNSET:
             task.callback_config = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop}
             changes.append(f"trigger_rag_loop → {trigger_rag_loop}")
+
+        if max_run_seconds is not _UNSET:
+            task.max_run_seconds = max_run_seconds
+            changes.append(f"max_run_seconds → {max_run_seconds}")
 
         if not changes:
             return json.dumps({"error": "Provide at least one field to change."})
