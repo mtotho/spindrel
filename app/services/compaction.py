@@ -1253,3 +1253,51 @@ async def backfill_sections(
         "sections_created": sections_created,
         "executive_summary": exec_summary,
     }
+
+
+# ---------------------------------------------------------------------------
+# Section index formatter (for context injection in file mode)
+# ---------------------------------------------------------------------------
+
+def format_section_index(sections: list, verbosity: str = "standard") -> str:
+    """Format a section index for injection into the system prompt.
+
+    Sections are expected in **most-recent-first** order; output preserves that.
+
+    Verbosity levels:
+      compact  — title + date + tags only
+      standard — adds one-line summary
+      detailed — adds message count + full period
+    """
+    header = "Archived conversation history (use read_conversation_history with a section number to read full transcripts):"
+
+    if verbosity == "compact":
+        lines = [header]
+        for s in sections:
+            date_str = s.period_start.strftime("%b %-d") if s.period_start else "?"
+            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+            lines.append(f"- #{s.sequence}: {s.title} ({date_str}){tag_str}")
+        return "\n".join(lines)
+
+    if verbosity == "detailed":
+        lines = [header, ""]
+        for s in sections:
+            start_str = s.period_start.strftime("%b %-d %H:%M") if s.period_start else "?"
+            end_str = s.period_end.strftime("%b %-d %H:%M") if s.period_end else "?"
+            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+            lines.append(
+                f"#{s.sequence}: {s.title} ({s.message_count} msgs, {start_str} — {end_str}){tag_str}"
+            )
+            lines.append(f"  {s.summary}")
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    # standard (default)
+    lines = [header, ""]
+    for s in sections:
+        date_str = s.period_start.strftime("%b %-d") if s.period_start else "?"
+        tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+        lines.append(f"#{s.sequence}: {s.title} ({date_str}){tag_str}")
+        lines.append(f"  {s.summary}")
+        lines.append("")
+    return "\n".join(lines).rstrip()

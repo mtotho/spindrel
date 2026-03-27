@@ -65,6 +65,15 @@ body {
   scrollbar-color: #333 transparent;
 }
 
+/* Hide scrollbar for horizontal scroll containers */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* ── Chat ───────────────────────────────────────────────── */
 
 /* Message hover effect (Slack-style, pointer devices only) */

@@ -299,6 +299,8 @@ class ChannelSettingsOut(BaseModel):
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     compaction_skip_memory_phase: Optional[bool] = None
+    section_index_count: Optional[int] = None
+    section_index_verbosity: Optional[str] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -346,6 +348,8 @@ class ChannelSettingsUpdate(BaseModel):
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
     compaction_skip_memory_phase: Optional[bool] = None
+    section_index_count: Optional[int] = None
+    section_index_verbosity: Optional[str] = None
     context_compression: Optional[bool] = None
     compression_model: Optional[str] = None
     compression_threshold: Optional[int] = None
@@ -1232,6 +1236,37 @@ async def admin_channel_sections(
             "files_none": files_none,
         },
     }
+
+
+@router.get("/channels/{channel_id}/section-index-preview")
+async def admin_section_index_preview(
+    channel_id: uuid.UUID,
+    count: int = Query(10, ge=0, le=100),
+    verbosity: str = Query("standard"),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Preview the section index that would be injected into context."""
+    from app.db.models import ConversationSection
+    from app.services.compaction import format_section_index
+
+    if verbosity not in ("compact", "standard", "detailed"):
+        raise HTTPException(status_code=400, detail="verbosity must be compact, standard, or detailed")
+
+    rows = (
+        await db.execute(
+            select(ConversationSection)
+            .where(ConversationSection.channel_id == channel_id)
+            .order_by(ConversationSection.sequence.desc())
+            .limit(count)
+        )
+    ).scalars().all()
+
+    if not rows:
+        return {"content": "", "section_count": 0, "chars": 0}
+
+    content = format_section_index(rows, verbosity=verbosity)
+    return {"content": content, "section_count": len(rows), "chars": len(content)}
 
 
 # ---------------------------------------------------------------------------

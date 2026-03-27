@@ -82,6 +82,8 @@ class Channel(Base):
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     compaction_skip_memory_phase: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     channel_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    section_index_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")

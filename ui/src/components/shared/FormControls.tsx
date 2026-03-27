@@ -222,12 +222,12 @@ export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: n
 
 export function Col({ children, flex = 1 }: { children: React.ReactNode; flex?: number }) {
   return (
-    <div style={{ flex, minWidth: 200 }}>{children}</div>
+    <div style={{ flex, minWidth: 180 }}>{children}</div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Tab bar
+// Tab bar (horizontally scrollable for many tabs on mobile)
 // ---------------------------------------------------------------------------
 export function TabBar({ tabs, active, onChange }: {
   tabs: { key: string; label: string }[];
@@ -235,7 +235,17 @@ export function TabBar({ tabs, active, onChange }: {
   onChange: (key: string) => void;
 }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        overflowX: "auto",
+        WebkitOverflowScrolling: "touch",
+        scrollbarWidth: "none",
+        paddingBottom: 4,
+      }}
+      className="hide-scrollbar"
+    >
       {tabs.map((tab) => {
         const isActive = tab.key === active;
         return (
@@ -243,9 +253,9 @@ export function TabBar({ tabs, active, onChange }: {
             key={tab.key}
             onClick={() => onChange(tab.key)}
             style={{
-              padding: "5px 12px",
-              fontSize: 12,
-              fontWeight: 500,
+              padding: "7px 14px",
+              fontSize: 13,
+              fontWeight: isActive ? 600 : 500,
               border: "1px solid",
               borderColor: isActive ? "#3b82f6" : "#333",
               borderRadius: 6,
@@ -254,6 +264,7 @@ export function TabBar({ tabs, active, onChange }: {
               cursor: "pointer",
               whiteSpace: "nowrap",
               transition: "all 0.15s",
+              flexShrink: 0,
             }}
           >
             {tab.label}
