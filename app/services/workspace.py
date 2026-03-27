@@ -12,6 +12,7 @@ from app.agent.bots import (
     WorkspaceConfig,
 )
 from app.config import settings
+from app.services.paths import local_workspace_base, local_to_host
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class WorkspaceService:
             if bot.shared_workspace_role == "orchestrator":
                 return sw_root
             return os.path.join(sw_root, "bots", bot_id)
-        base = os.path.expanduser(settings.WORKSPACE_BASE_DIR)
+        base = local_workspace_base()
         return os.path.join(base, bot_id)
 
     def ensure_host_dir(self, bot_id: str, bot: BotConfig | None = None) -> str:
@@ -127,7 +128,7 @@ class WorkspaceService:
         docker = workspace.docker
         # Ensure the workspace volume mount is included
         workspace_mount = {
-            "host_path": host_root,
+            "host_path": local_to_host(host_root),
             "container_path": "/workspace",
             "mode": "rw",
         }

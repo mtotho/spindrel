@@ -679,6 +679,7 @@ async def run_compaction_stream(
                     summary=sec_summary,
                     transcript_path=transcript_path,
                     message_count=msg_count,
+                    chunk_size=msg_count,
                     embedding=sec_embedding,
                     tags=sec_tags or None,
                 )
@@ -910,6 +911,7 @@ async def run_compaction_forced(
             summary=sec_summary,
             transcript_path=transcript_path,
             message_count=msg_count,
+            chunk_size=msg_count,
             embedding=sec_embedding,
             tags=sec_tags or None,
         )
@@ -942,6 +944,51 @@ async def run_compaction_forced(
         data={"forced": True, "title": title, "summary_len": len(summary), "history_mode": history_mode},
     ))
     return (title, summary)
+
+
+# ---------------------------------------------------------------------------
+# Eligible message counting (used by backfill + admin API)
+# ---------------------------------------------------------------------------
+
+async def count_eligible_messages(channel_id: uuid.UUID) -> int:
+    """Count user+assistant messages eligible for sectioning (up to watermark).
+
+    This mirrors the message loading logic in backfill_sections — loads all
+    non-system messages across all sessions up to the active session's watermark,
+    then counts only user+assistant (non-passive) messages.
+    """
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if not channel or not channel.active_session_id:
+            return 0
+
+        session = await db.get(Session, channel.active_session_id)
+        if not session:
+            return 0
+
+        watermark_filter = True  # type: ignore[assignment]
+        if session.summary_message_id:
+            watermark_msg = await db.get(Message, session.summary_message_id)
+            if watermark_msg:
+                watermark_filter = Message.created_at <= watermark_msg.created_at
+
+        result = await db.execute(
+            select(Message)
+            .join(Session, Message.session_id == Session.id)
+            .where(Session.channel_id == channel_id)
+            .where(watermark_filter)
+            .where(Message.role.in_(["user", "assistant"]))
+            .order_by(Message.created_at)
+        )
+        all_msgs = result.scalars().all()
+
+    count = 0
+    for m in all_msgs:
+        is_passive = (m.metadata_ or {}).get("passive", False)
+        if m.role == "user" and is_passive:
+            continue
+        count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -1061,24 +1108,7 @@ async def backfill_sections(
     if not conversation:
         raise ValueError("No conversation content to backfill")
 
-    # 4. Chunk into groups of chunk_size user+assistant messages
-    chunks: list[list[dict]] = []
-    current_chunk: list[dict] = []
-    msg_count_in_chunk = 0
-    for m in conversation:
-        current_chunk.append(m)
-        if m.get("role") in ("user", "assistant"):
-            msg_count_in_chunk += 1
-        if msg_count_in_chunk >= chunk_size:
-            chunks.append(current_chunk)
-            current_chunk = []
-            msg_count_in_chunk = 0
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    total_chunks = len(chunks)
-
-    # 5. Clear existing sections if requested, then determine starting sequence
+    # 4. Clear existing sections or skip already-covered messages for resume
     if clear_existing:
         async with async_session() as db:
             from sqlalchemy import delete as sa_delete
@@ -1095,12 +1125,48 @@ async def backfill_sections(
             os.makedirs(history_dir, exist_ok=True)
         start_seq = 1
     else:
+        # Resume: query existing sections to find how many messages are already covered
         async with async_session() as db:
-            max_seq_result = await db.execute(
-                select(func.max(ConversationSection.sequence))
+            existing = (await db.execute(
+                select(ConversationSection)
                 .where(ConversationSection.channel_id == channel_id)
-            )
-            start_seq = (max_seq_result.scalar() or 0) + 1
+                .order_by(ConversationSection.sequence)
+            )).scalars().all()
+
+        if existing:
+            covered_ua = sum(s.message_count for s in existing)
+            start_seq = existing[-1].sequence + 1
+
+            # Skip covered_ua user+assistant messages in the conversation
+            skipped = 0
+            skip_idx = 0
+            for idx, m in enumerate(conversation):
+                if m.get("role") in ("user", "assistant"):
+                    skipped += 1
+                if skipped >= covered_ua:
+                    skip_idx = idx + 1
+                    break
+            conversation = conversation[skip_idx:]
+            active_timestamps = active_timestamps[covered_ua:]
+        else:
+            start_seq = 1
+
+    # 5. Chunk into groups of chunk_size user+assistant messages
+    chunks: list[list[dict]] = []
+    current_chunk: list[dict] = []
+    msg_count_in_chunk = 0
+    for m in conversation:
+        current_chunk.append(m)
+        if m.get("role") in ("user", "assistant"):
+            msg_count_in_chunk += 1
+        if msg_count_in_chunk >= chunk_size:
+            chunks.append(current_chunk)
+            current_chunk = []
+            msg_count_in_chunk = 0
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    total_chunks = len(chunks)
 
     # 6. Process each chunk
     sections_created = 0
@@ -1151,6 +1217,7 @@ async def backfill_sections(
                 summary=summary,
                 transcript_path=transcript_path,
                 message_count=msg_count,
+                chunk_size=chunk_size,
                 period_start=period_start,
                 period_end=period_end,
                 embedding=embedding,

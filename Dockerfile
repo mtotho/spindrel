@@ -7,6 +7,12 @@ RUN apt-get update -qq && \
     npm install -g @anthropic-ai/claude-code && \
     rm -rf /var/lib/apt/lists/*
 
+# Docker CLI — needed for sibling container management (workspaces, sandboxes).
+# Only the CLI binary; the daemon runs on the host via mounted socket.
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends docker.io && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY pyproject.toml .

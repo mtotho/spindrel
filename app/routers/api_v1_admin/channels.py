@@ -1154,7 +1154,10 @@ async def admin_channel_sections(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """List all conversation sections for a channel, ordered by sequence."""
+    import math
+    import os
     from app.db.models import ConversationSection
+    from app.services.compaction import count_eligible_messages, _get_workspace_root
 
     rows = (
         await db.execute(
@@ -1164,25 +1167,70 @@ async def admin_channel_sections(
         )
     ).scalars().all()
 
+    # Resolve workspace root for file existence checks
+    ws_root = None
+    channel = await db.get(Channel, channel_id)
+    if channel:
+        try:
+            bot = get_bot(channel.bot_id)
+            ws_root = _get_workspace_root(bot)
+        except Exception:
+            pass
+
+    def _file_exists(s) -> bool | None:
+        if not s.transcript_path:
+            return None
+        if not ws_root:
+            return None
+        return os.path.isfile(os.path.join(ws_root, s.transcript_path))
+
+    sections_out = []
+    files_ok = 0
+    files_missing = 0
+    files_none = 0
+    for s in rows:
+        fe = _file_exists(s)
+        if fe is True:
+            files_ok += 1
+        elif fe is False:
+            files_missing += 1
+        else:
+            files_none += 1
+        sections_out.append({
+            "id": str(s.id),
+            "sequence": s.sequence,
+            "title": s.title,
+            "summary": s.summary,
+            "transcript_path": s.transcript_path,
+            "message_count": s.message_count,
+            "chunk_size": s.chunk_size,
+            "period_start": s.period_start.isoformat() if s.period_start else None,
+            "period_end": s.period_end.isoformat() if s.period_end else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "view_count": s.view_count,
+            "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
+            "tags": s.tags or [],
+            "file_exists": fe,
+        })
+
+    # Coverage stats
+    total_messages = await count_eligible_messages(channel_id)
+    covered_messages = sum(s.message_count for s in rows)
+    remaining_messages = max(0, total_messages - covered_messages)
+    last_chunk = rows[-1].chunk_size if rows else 50
+    estimated_remaining = math.ceil(remaining_messages / last_chunk) if remaining_messages > 0 else 0
+
     return {
-        "sections": [
-            {
-                "id": str(s.id),
-                "sequence": s.sequence,
-                "title": s.title,
-                "summary": s.summary,
-                "transcript_path": s.transcript_path,
-                "message_count": s.message_count,
-                "period_start": s.period_start.isoformat() if s.period_start else None,
-                "period_end": s.period_end.isoformat() if s.period_end else None,
-                "created_at": s.created_at.isoformat() if s.created_at else None,
-                "view_count": s.view_count,
-                "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
-                "tags": s.tags or [],
-            }
-            for s in rows
-        ],
+        "sections": sections_out,
         "total": len(rows),
+        "stats": {
+            "total_messages": total_messages,
+            "covered_messages": covered_messages,
+            "estimated_remaining": estimated_remaining,
+            "files_ok": files_ok,
+            "files_missing": files_missing,
+            "files_none": files_none,
+        },
     }
 
 

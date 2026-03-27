@@ -11,6 +11,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from app.config import settings
+from app.services.paths import local_workspace_base, local_to_host
 from app.db.engine import async_session
 from app.db.models import SharedWorkspace, SharedWorkspaceBot
 
@@ -41,8 +42,8 @@ class SharedWorkspaceService:
     # ── Path management ──────────────────────────────────────────
 
     def get_host_root(self, workspace_id: str) -> str:
-        """Host-side root: ~/.agent-workspaces/shared/<workspace_id>/"""
-        base = os.path.expanduser(settings.WORKSPACE_BASE_DIR)
+        """Local-side root for file I/O: ~/.agent-workspaces/shared/<workspace_id>/"""
+        base = local_workspace_base()
         return os.path.join(base, "shared", workspace_id)
 
     def ensure_host_dirs(self, workspace_id: str) -> str:
@@ -114,8 +115,8 @@ class SharedWorkspaceService:
         for k, v in env.items():
             if k:
                 cmd += ["-e", f"{k}={v}"]
-        # Workspace volume
-        cmd += ["-v", f"{host_root}:/workspace"]
+        # Workspace volume (translate to host path for docker -v)
+        cmd += ["-v", f"{local_to_host(host_root)}:/workspace"]
         # Extra mounts
         for mount in (ws.mounts or []):
             host = mount.get("host_path", "")

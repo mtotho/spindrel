@@ -279,8 +279,6 @@ class TestBackfillSections:
             "transcript": "[USER]: hello",
         })
 
-        db_calls = []
-
         async def mock_get(cls, id_val):
             if id_val == channel_id:
                 return channel
@@ -291,8 +289,9 @@ class TestBackfillSections:
         async def mock_execute(stmt):
             result = MagicMock()
             stmt_str = str(stmt)
-            if "conversation_sections" in stmt_str.lower() or "max" in stmt_str.lower():
-                result.scalar.return_value = 0
+            if "conversation_sections" in stmt_str.lower():
+                # Resume path: return empty list (no existing sections)
+                result.scalars.return_value.all.return_value = []
                 return result
             # Messages query
             result.scalars.return_value.all.return_value = messages
@@ -336,7 +335,7 @@ class TestBackfillSections:
 
     @pytest.mark.asyncio
     async def test_sequence_starts_after_existing(self):
-        """Backfill sections should start sequence after existing sections."""
+        """Resume backfill should start sequence after existing sections."""
         channel_id = uuid.uuid4()
         session_id = uuid.uuid4()
         channel = _make_channel(
@@ -347,9 +346,22 @@ class TestBackfillSections:
         )
 
         base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        messages = [
-            _make_message(role="user", content="hello", created_at=base_time, session_id=session_id),
-            _make_message(role="assistant", content="hi", created_at=base_time + timedelta(minutes=1), session_id=session_id),
+        # 8 messages total: 3 existing sections cover 6 messages, 2 remaining
+        messages = []
+        for i in range(8):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append(_make_message(
+                role=role,
+                content=f"msg {i}",
+                created_at=base_time + timedelta(minutes=i),
+                session_id=session_id,
+            ))
+
+        # 3 existing sections, each covering 2 u+a messages
+        existing_sections = [
+            MagicMock(sequence=1, message_count=2, chunk_size=2),
+            MagicMock(sequence=2, message_count=2, chunk_size=2),
+            MagicMock(sequence=3, message_count=2, chunk_size=2),
         ]
 
         section_json = json.dumps({
@@ -368,9 +380,9 @@ class TestBackfillSections:
         async def mock_execute(stmt):
             result = MagicMock()
             stmt_str = str(stmt)
-            if "conversation_sections" in stmt_str.lower() or "max" in stmt_str.lower():
-                # Existing sections go up to sequence 3
-                result.scalar.return_value = 3
+            if "conversation_sections" in stmt_str.lower():
+                # Resume path: return existing sections
+                result.scalars.return_value.all.return_value = existing_sections
                 return result
             result.scalars.return_value.all.return_value = messages
             return result
@@ -454,8 +466,8 @@ class TestBackfillSections:
         async def mock_execute(stmt):
             result = MagicMock()
             stmt_str = str(stmt)
-            if "conversation_sections" in stmt_str.lower() or "max" in stmt_str.lower():
-                result.scalar.return_value = 0
+            if "conversation_sections" in stmt_str.lower():
+                result.scalars.return_value.all.return_value = []
                 return result
             # Messages query — only return pre-watermark (the real DB would filter by created_at <= watermark)
             result.scalars.return_value.all.return_value = pre_watermark
@@ -563,8 +575,8 @@ class TestBackfillSections:
         async def mock_execute(stmt):
             result = MagicMock()
             stmt_str = str(stmt)
-            if "conversation_sections" in stmt_str.lower() or "max" in stmt_str.lower():
-                result.scalar.return_value = 0
+            if "conversation_sections" in stmt_str.lower():
+                result.scalars.return_value.all.return_value = []
                 return result
             result.scalars.return_value.all.return_value = messages
             return result

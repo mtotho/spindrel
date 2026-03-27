@@ -119,6 +119,7 @@ class ConversationSection(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     transcript_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("50"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     embedding: Mapped[list | None] = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS), nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))

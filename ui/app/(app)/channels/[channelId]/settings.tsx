@@ -285,10 +285,11 @@ const HISTORY_MODES: ReadonlyArray<{
     border: "#3b0764",
     summary: "Semantic retrieval — automatically surfaces relevant history.",
     detail:
-      "Conversation is archived into titled sections with embeddings. Each turn, the system automatically " +
-      "retrieves sections most relevant to the current query via cosine similarity and injects them into context. " +
-      "The bot doesn't need to do anything — relevant history appears automatically. Best for long-running " +
-      "channels where past context matters but you don't want the bot spending tool calls to find it.",
+      "Conversation is archived into titled sections with embeddings, also written as .md files in the bot's " +
+      "workspace. Each turn, the system automatically retrieves sections most relevant to the current query " +
+      "via cosine similarity and injects them into context. The bot doesn't need to do anything — relevant " +
+      "history appears automatically. Best for long-running channels where past context matters but you " +
+      "don't want the bot spending tool calls to find it.",
   },
   {
     value: "file",
@@ -299,10 +300,11 @@ const HISTORY_MODES: ReadonlyArray<{
     border: "#92400e",
     summary: "Tool-based navigation — the bot browses history on demand.",
     detail:
-      "Conversation is archived into titled sections. The bot gets an executive summary plus a section " +
-      "index, and can use the read_conversation_history tool to open any section and read its full transcript. " +
-      "This gives the bot agency to decide what to look up. Best for knowledge-heavy channels where the bot " +
-      "needs to reference specific past discussions.",
+      "Conversation is archived into titled sections, each written as a .md file in the bot's workspace " +
+      "(.history/<channel>/ directory). The bot gets an executive summary plus a section index, and can use " +
+      "the read_conversation_history tool to open any section. Transcripts are real files — readable via " +
+      "read_file too, and visible to orchestrators browsing the workspace. " +
+      "Best for knowledge-heavy channels where the bot needs to reference specific past discussions.",
     recommended: true,
   },
 ];
@@ -370,8 +372,17 @@ function HistoryModeSection({ form, patch }: {
 }
 
 // ===========================================================================
-// Backfill sections button
+// Backfill sections — coverage bar + Resume / Re-chunk buttons
 // ===========================================================================
+type SectionsStats = {
+  total_messages: number;
+  covered_messages: number;
+  estimated_remaining: number;
+  files_ok: number;
+  files_missing: number;
+  files_none: number;
+};
+
 function BackfillButton({ channelId, historyMode }: { channelId: string; historyMode: string }) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ section: number; total: number; title?: string } | null>(null);
@@ -379,49 +390,46 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
   const queryClient = useQueryClient();
   const { data: sectionsData } = useQuery({
     queryKey: ["channel-sections", channelId],
-    queryFn: () => apiFetch<{ total: number }>(`/api/v1/admin/channels/${channelId}/sections`),
+    queryFn: () => apiFetch<{ total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
   const existingSections = sectionsData?.total ?? 0;
+  const stats = sectionsData?.stats;
 
-  const handleBackfill = useCallback(async () => {
-    if (existingSections > 0 && !window.confirm(
-      `This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} and re-chunk everything from scratch using the compaction model. Continue?`
+  const runBackfill = useCallback(async (clearExisting: boolean) => {
+    if (clearExisting && existingSections > 0 && !window.confirm(
+      `This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} (DB + .history files) and re-chunk everything from scratch. Continue?`
     )) return;
 
     setRunning(true);
     setProgress(null);
     setResult(null);
     try {
-      // Fire-and-forget: POST returns a task_id, then we poll
       const { task_id } = await apiFetch<{ task_id: string }>(
         `/api/v1/admin/channels/${channelId}/backfill-sections`,
         { method: "POST", body: JSON.stringify({
           history_mode: historyMode,
-          clear_existing: existingSections > 0,
+          clear_existing: clearExisting,
         }) },
       );
 
       // Poll every 2s until complete or failed
-      const poll = async () => {
-        while (true) {
-          await new Promise((r) => setTimeout(r, 2000));
-          const job = await apiFetch<{
-            status: string; sections_created: number; total_chunks: number;
-            current_title?: string; error?: string;
-          }>(`/api/v1/admin/channels/${channelId}/backfill-status/${task_id}`);
+      while (true) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const job = await apiFetch<{
+          status: string; sections_created: number; total_chunks: number;
+          current_title?: string; error?: string;
+        }>(`/api/v1/admin/channels/${channelId}/backfill-status/${task_id}`);
 
-          if (job.status === "running") {
-            setProgress({ section: job.sections_created, total: job.total_chunks, title: job.current_title });
-          } else if (job.status === "complete") {
-            setResult({ sections: job.sections_created });
-            break;
-          } else if (job.status === "failed") {
-            setResult({ sections: job.sections_created, error: job.error || "Backfill failed" });
-            break;
-          }
+        if (job.status === "running") {
+          setProgress({ section: job.sections_created, total: job.total_chunks, title: job.current_title });
+        } else if (job.status === "complete") {
+          setResult({ sections: job.sections_created });
+          break;
+        } else if (job.status === "failed") {
+          setResult({ sections: job.sections_created, error: job.error || "Backfill failed" });
+          break;
         }
-      };
-      await poll();
+      }
     } catch (e) {
       setResult({ sections: 0, error: e instanceof Error ? e.message : "Unknown error" });
     } finally {
@@ -430,34 +438,115 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
     }
   }, [channelId, historyMode, queryClient, existingSections]);
 
+  const pct = stats && stats.total_messages > 0
+    ? Math.round((stats.covered_messages / stats.total_messages) * 100) : 0;
+  const progressPct = progress && progress.total > 0
+    ? Math.round((progress.section / progress.total) * 100) : 0;
+
   return (
     <div style={{ padding: "10px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button
-          onClick={handleBackfill}
-          disabled={running}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "6px 14px", fontSize: 12, fontWeight: 600,
-            border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
-            background: running ? "#333" : "#92400e",
-            color: running ? "#666" : "#fcd34d",
-            opacity: running ? 0.7 : 1,
-          }}
-        >
-          <Play size={12} color={running ? "#666" : "#fcd34d"} />
-          {running ? "Backfilling..." : existingSections > 0 ? "Re-chunk Sections" : "Backfill Sections"}
-        </button>
-        <span style={{ fontSize: 11, color: "#777", flex: 1, minWidth: 200 }}>
-          {existingSections > 0
-            ? "Deletes all existing sections and re-chunks everything through the compaction model. Use if you switched modes, changed models, or sections are low quality."
-            : "Run initial backfill to chunk existing messages into navigable sections via the compaction model. Only needed once when switching to file/structured mode."
+      {/* Coverage bar — shown when sections exist and stats are available */}
+      {stats && existingSections > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{
+            height: 6, borderRadius: 3, background: "#1a1a2e", overflow: "hidden", marginBottom: 4,
+          }}>
+            <div style={{
+              height: "100%", borderRadius: 3, transition: "width 0.3s",
+              width: `${pct}%`,
+              background: pct >= 100 ? "#22c55e" : "#f59e0b",
+            }} />
+          </div>
+          <div style={{ fontSize: 11, color: "#888" }}>
+            {stats.covered_messages}/{stats.total_messages} messages
+            {" · "}{existingSections} section{existingSections !== 1 ? "s" : ""}
+            {stats.estimated_remaining > 0 && ` · ~${stats.estimated_remaining} remaining`}
+          </div>
+          {stats.files_missing > 0 && (
+            <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 2 }}>
+              <AlertTriangle size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
+              {stats.files_missing} section{stats.files_missing !== 1 ? "s" : ""} missing transcript files — re-run backfill to regenerate
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Buttons */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {existingSections > 0 && stats && stats.estimated_remaining > 0 && (
+          <button
+            onClick={() => runBackfill(false)}
+            disabled={running}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
+              background: running ? "#333" : "#92400e",
+              color: running ? "#666" : "#fcd34d",
+              opacity: running ? 0.7 : 1,
+            }}
+          >
+            <Play size={12} color={running ? "#666" : "#fcd34d"} />
+            {running ? "Resuming..." : "Resume Backfill"}
+          </button>
+        )}
+        {existingSections > 0 ? (
+          <button
+            onClick={() => runBackfill(true)}
+            disabled={running}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "1px solid #333", cursor: running ? "default" : "pointer", borderRadius: 6,
+              background: "transparent",
+              color: running ? "#555" : "#888",
+              opacity: running ? 0.7 : 1,
+            }}
+          >
+            <RotateCw size={12} color={running ? "#555" : "#888"} />
+            Re-chunk from Scratch
+          </button>
+        ) : (
+          <button
+            onClick={() => runBackfill(false)}
+            disabled={running}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
+              background: running ? "#333" : "#92400e",
+              color: running ? "#666" : "#fcd34d",
+              opacity: running ? 0.7 : 1,
+            }}
+          >
+            <Play size={12} color={running ? "#666" : "#fcd34d"} />
+            {running ? "Backfilling..." : "Backfill Sections"}
+          </button>
+        )}
+        <span style={{ fontSize: 11, color: "#666", flex: 1, minWidth: 180 }}>
+          {existingSections > 0 && stats && stats.estimated_remaining > 0
+            ? "Resume adds new sections for uncovered messages. Re-chunk deletes everything and starts fresh."
+            : existingSections > 0
+            ? "All messages covered. Re-chunk to regenerate with different settings."
+            : "Chunk existing messages into navigable sections with .md transcripts."
           }
         </span>
       </div>
-      {progress && (
-        <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
-          Section {progress.section}/{progress.total}: {progress.title}
+
+      {/* Progress bar during backfill */}
+      {progress && progress.total > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "#999", marginBottom: 4 }}>
+            Section {progress.section}/{progress.total}{progress.title ? `: "${progress.title}"` : ""}
+          </div>
+          <div style={{
+            height: 4, borderRadius: 2, background: "#1a1a2e", overflow: "hidden",
+          }}>
+            <div style={{
+              height: "100%", borderRadius: 2, transition: "width 0.3s",
+              width: `${progressPct}%`, background: "#60a5fa",
+            }} />
+          </div>
         </div>
       )}
       {result && !result.error && (
@@ -475,7 +564,7 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
 }
 
 // ===========================================================================
-// Sections viewer — shows existing conversation sections
+// Sections viewer — shows existing conversation sections with file badges
 // ===========================================================================
 function SectionsViewer({ channelId }: { channelId: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -484,11 +573,12 @@ function SectionsViewer({ channelId }: { channelId: string }) {
     queryKey: ["channel-sections", channelId],
     queryFn: () => apiFetch<{ sections: Array<{
       id: string; sequence: number; title: string; summary: string;
-      transcript_path: string | null; message_count: number;
+      transcript_path: string | null; message_count: number; chunk_size: number;
       period_start: string | null; period_end: string | null;
       created_at: string | null; view_count: number;
       last_viewed_at: string | null; tags: string[];
-    }>; total: number }>(`/api/v1/admin/channels/${channelId}/sections`),
+      file_exists: boolean | null;
+    }>; total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
 
   if (isLoading) return <ActivityIndicator size="small" color="#666" style={{ marginTop: 8 }} />;
@@ -509,6 +599,8 @@ function SectionsViewer({ channelId }: { channelId: string }) {
           const dateStr = s.period_start
             ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
             : "";
+          // File integrity dot: green = exists, red = missing, gray = no path
+          const dotColor = s.file_exists === true ? "#22c55e" : s.file_exists === false ? "#ef4444" : "#555";
           return (
             <div key={s.id} style={{
               background: "#111", border: "1px solid #2a2a2a", borderRadius: 6,
@@ -523,6 +615,10 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                 }}
               >
                 <span style={{ fontSize: 10, color: "#555", minWidth: 20 }}>#{s.sequence}</span>
+                <span style={{
+                  width: 6, height: 6, borderRadius: 3, flexShrink: 0,
+                  background: dotColor,
+                }} />
                 <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{s.title}</span>
                 {s.tags?.length > 0 && (
                   <span style={{ display: "flex", gap: 3, flexShrink: 0 }}>
@@ -546,7 +642,16 @@ function SectionsViewer({ channelId }: { channelId: string }) {
               </button>
               {isOpen && (
                 <div style={{ padding: "0 12px 10px", borderTop: "1px solid #222" }}>
-                  <div style={{ fontSize: 11, color: "#999", padding: "8px 0 4px", fontWeight: 600 }}>Summary</div>
+                  {/* Period + message count */}
+                  {(s.period_start || s.period_end) && (
+                    <div style={{ fontSize: 10, color: "#666", padding: "6px 0 2px" }}>
+                      {s.period_start && new Date(s.period_start).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {s.period_start && s.period_end && " — "}
+                      {s.period_end && new Date(s.period_end).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {" · "}{s.message_count} messages
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: "#999", padding: "6px 0 4px", fontWeight: 600 }}>Summary</div>
                   <div style={{ fontSize: 11, color: "#888", lineHeight: "1.5", whiteSpace: "pre-wrap" }}>{s.summary}</div>
                   {s.tags?.length > 0 && (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
@@ -558,14 +663,42 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                       ))}
                     </div>
                   )}
-                  {s.transcript_path && (
-                    <div style={{ marginTop: 8, fontSize: 10, color: "#666", fontFamily: "monospace" }}>
-                      File: {s.transcript_path}
+                  {s.transcript_path ? (
+                    <div style={{
+                      marginTop: 8, padding: "6px 10px", background: "#0d1117",
+                      border: `1px solid ${s.file_exists === false ? "#5b2333" : "#1e3a5f"}`,
+                      borderRadius: 6,
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}>
+                      <span style={{ fontSize: 12 }}>📄</span>
+                      <span style={{ fontSize: 10, color: "#8b949e", fontFamily: "monospace", flex: 1, wordBreak: "break-all" }}>
+                        {s.transcript_path}
+                      </span>
+                      {s.file_exists === true && (
+                        <span style={{
+                          fontSize: 9, color: "#22c55e", background: "#052e16",
+                          padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                        }}>File OK</span>
+                      )}
+                      {s.file_exists === false && (
+                        <span style={{
+                          fontSize: 9, color: "#ef4444", background: "#450a0a",
+                          padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                        }}>File Missing</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{
+                      marginTop: 8, padding: "6px 10px", background: "#1a1117",
+                      border: "1px solid #5b2333", borderRadius: 6,
+                      fontSize: 10, color: "#d4a0a0", fontStyle: "italic",
+                    }}>
+                      No transcript file — re-run backfill to generate .md files.
                     </div>
                   )}
-                  {!s.transcript_path && (
-                    <div style={{ marginTop: 8, fontSize: 10, color: "#555", fontStyle: "italic" }}>
-                      No transcript file — re-run backfill to generate.
+                  {s.view_count > 0 && s.last_viewed_at && (
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>
+                      Viewed {s.view_count}x · last {new Date(s.last_viewed_at).toLocaleDateString()}
                     </div>
                   )}
                 </div>
@@ -702,7 +835,7 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
             <AlertTriangle size={12} color="#f59e0b" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
             Backfill makes one LLM call per chunk of messages plus one for the executive summary. For example,
             500 messages at chunk size 50 = ~11 LLM calls using your compaction model. Set your interval and keep
-            turns first. Re-running will delete existing sections and re-chunk from scratch.
+            turns first. Resume only processes uncovered messages; re-chunk deletes everything and starts fresh.
           </div>
           <BackfillButton channelId={channelId} historyMode={selected} />
           <SectionsViewer channelId={channelId} />
@@ -878,6 +1011,21 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
             </FormRow>
           </Col>
         </Row>
+        {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
+          <div style={{
+            padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
+            borderRadius: 8, fontSize: 11, color: "#fcd34d", lineHeight: "1.5",
+            display: "flex", gap: 8, alignItems: "flex-start",
+          }}>
+            <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <strong>Switching bots.</strong> Existing conversation history sections (transcripts on disk)
+              belong to the previous bot's workspace and won't be accessible to the new bot. The new bot
+              will only see recent messages still in the context window. To rebuild history for the new bot,
+              go to the <strong>History</strong> tab and re-run <strong>Backfill Sections</strong> after saving.
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">

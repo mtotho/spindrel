@@ -43,6 +43,7 @@ def _make_channel(**overrides):
     )
     ch.history_mode = overrides.get("history_mode", None)
     ch.id = overrides.get("id", uuid.uuid4())
+    ch.name = overrides.get("name", "default-channel")
     return ch
 
 
@@ -168,7 +169,7 @@ class TestGetHistoryDir:
         from app.services.compaction import _get_history_dir
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="member")
         ch = _make_channel(name="dev-channel")
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             result = _get_history_dir(bot, ch)
         assert result is not None
@@ -182,7 +183,7 @@ class TestGetHistoryDir:
         from app.services.compaction import _get_history_dir
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="dev-channel")
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             result = _get_history_dir(bot, ch)
         assert result is not None
@@ -194,7 +195,7 @@ class TestGetHistoryDir:
         bot_a = _make_bot(id="orch-a", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         bot_b = _make_bot(id="orch-b", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="same-channel")
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             dir_a = _get_history_dir(bot_a, ch)
             dir_b = _get_history_dir(bot_b, ch)
@@ -207,7 +208,7 @@ class TestGetHistoryDir:
         from app.services.compaction import _get_history_dir
         bot = _make_bot()  # no shared_workspace_id
         ch = _make_channel(name="my-channel")
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             result = _get_history_dir(bot, ch)
         assert result is not None
@@ -218,7 +219,7 @@ class TestGetHistoryDir:
         from app.services.compaction import _get_history_dir
         bot = _make_bot()
         ch = _make_channel(name="My Channel — Special (Chars)!")
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             result = _get_history_dir(bot, ch)
         assert result is not None
@@ -228,7 +229,7 @@ class TestGetHistoryDir:
         """No channel: .history at bot root (no channel subdir)."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot()
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = str(tmp_path)
             result = _get_history_dir(bot, None)
         assert result == str(tmp_path / ".history")
@@ -237,10 +238,207 @@ class TestGetHistoryDir:
         """If workspace_service throws, returns None and logs."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot()
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.side_effect = RuntimeError("no workspace")
             result = _get_history_dir(bot, None)
         assert result is None
+
+
+class TestBackfillResume:
+    """Test backfill_sections resume logic (clear_existing=False)."""
+
+    @pytest.mark.asyncio
+    async def test_resume_skips_covered_messages(self):
+        """Resume should skip messages covered by existing sections and only chunk remaining."""
+        from app.services.compaction import backfill_sections
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+
+        # Create mock existing sections: 2 sections covering 20 u+a messages total
+        existing_sections = [
+            MagicMock(sequence=1, message_count=10, chunk_size=10),
+            MagicMock(sequence=2, message_count=10, chunk_size=10),
+        ]
+
+        # Build 15 user+assistant pairs = 30 u+a messages.
+        # Sections cover 20, so 10 remain = 2 chunks of 5.
+        def _make_msg(role, content, idx):
+            m = MagicMock()
+            m.role = role
+            m.content = content
+            m.tool_calls = None
+            m.tool_call_id = None
+            m.metadata_ = {}
+            m.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=idx)
+            return m
+
+        all_msgs = []
+        for i in range(15):
+            all_msgs.append(_make_msg("user", f"user message {i}", i * 2))
+            all_msgs.append(_make_msg("assistant", f"assistant response {i}", i * 2 + 1))
+
+        mock_channel = _make_channel(history_mode=None, name="test")
+        mock_channel.bot_id = "test"
+        mock_channel.active_session_id = session_id
+
+        mock_session_obj = MagicMock()
+        mock_session_obj.id = session_id
+        mock_session_obj.summary_message_id = None
+        mock_session_obj.channel_id = channel_id
+
+        bot = _make_bot()
+
+        generated_chunks = []
+
+        async def mock_generate_section(chunk, model, **kwargs):
+            msg_count = sum(1 for m in chunk if m.get("role") in ("user", "assistant"))
+            generated_chunks.append(msg_count)
+            return "Title", "Summary", "Transcript", ["tag"]
+
+        # Build fake DB context managers for each async_session() call
+        session_calls = [0]
+
+        def make_db(idx):
+            """Create a FakeDB for the Nth async_session() call."""
+            class FakeDB:
+                async def get(self, cls, id_val):
+                    name = cls.__name__
+                    if name == "Channel":
+                        return mock_channel
+                    if name == "Session":
+                        return mock_session_obj
+                    return None
+
+                async def execute(self, stmt):
+                    # idx=1: message query; idx=2: sections query; rest: section creation/update
+                    if idx == 1:
+                        result = MagicMock()
+                        result.scalars.return_value.all.return_value = all_msgs
+                        return result
+                    elif idx == 2:
+                        result = MagicMock()
+                        result.scalars.return_value.all.return_value = existing_sections
+                        return result
+                    return MagicMock()
+
+                async def commit(self):
+                    pass
+
+                def add(self, obj):
+                    pass
+
+            return FakeDB()
+
+        class FakeSessionCtx:
+            async def __aenter__(self_inner):
+                session_calls[0] += 1
+                return make_db(session_calls[0])
+            async def __aexit__(self_inner, *args):
+                return False
+
+        with patch("app.services.compaction.async_session", side_effect=lambda: FakeSessionCtx()), \
+             patch("app.services.compaction._generate_section", side_effect=mock_generate_section), \
+             patch("app.services.compaction._regenerate_executive_summary", new_callable=AsyncMock, return_value="exec summary"), \
+             patch("app.services.compaction._get_history_dir", return_value=None), \
+             patch("app.services.compaction._get_workspace_root", return_value=None), \
+             patch("app.agent.bots.get_bot", return_value=bot):
+
+            events = []
+            async for event in backfill_sections(
+                channel_id, chunk_size=5, clear_existing=False,
+            ):
+                events.append(event)
+
+        # 30 ua messages total, 20 covered, 10 remaining = 2 chunks of 5
+        assert len(generated_chunks) == 2
+        assert all(c == 5 for c in generated_chunks)
+
+        # Verify events: 2 progress + 1 done
+        progress_events = [e for e in events if e["type"] == "backfill_progress"]
+        done_events = [e for e in events if e["type"] == "backfill_done"]
+        assert len(progress_events) == 2
+        assert progress_events[0]["section"] == 1
+        assert progress_events[1]["section"] == 2
+        assert len(done_events) == 1
+        assert done_events[0]["sections_created"] == 2
+
+
+class TestCountEligibleMessages:
+    """Test count_eligible_messages helper."""
+
+    @pytest.mark.asyncio
+    async def test_counts_only_active_ua_messages(self):
+        """Should count user+assistant but not passive user messages."""
+        from app.services.compaction import count_eligible_messages
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+
+        mock_channel = MagicMock()
+        mock_channel.active_session_id = session_id
+
+        mock_session = MagicMock()
+        mock_session.summary_message_id = None
+
+        # 3 user msgs (1 passive), 2 assistant msgs = 4 eligible
+        msgs = []
+        for i in range(3):
+            m = MagicMock()
+            m.role = "user"
+            m.metadata_ = {"passive": True} if i == 0 else {}
+            msgs.append(m)
+        for i in range(2):
+            m = MagicMock()
+            m.role = "assistant"
+            m.metadata_ = {}
+            msgs.append(m)
+
+        class FakeDB:
+            async def get(self, cls, id_val):
+                name = cls.__name__
+                if name == "Channel":
+                    return mock_channel
+                if name == "Session":
+                    return mock_session
+                return None
+
+            async def execute(self, stmt):
+                result = MagicMock()
+                result.scalars.return_value.all.return_value = msgs
+                return result
+
+        class FakeSessionCtx:
+            async def __aenter__(self):
+                return FakeDB()
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.services.compaction.async_session", return_value=FakeSessionCtx()):
+            count = await count_eligible_messages(channel_id)
+
+        # 2 active users + 2 assistants = 4
+        assert count == 4
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_for_missing_channel(self):
+        """Should return 0 if channel not found."""
+        from app.services.compaction import count_eligible_messages
+
+        class FakeDB:
+            async def get(self, cls, id_val):
+                return None
+
+        class FakeSessionCtx:
+            async def __aenter__(self):
+                return FakeDB()
+            async def __aexit__(self, *args):
+                return False
+
+        with patch("app.services.compaction.async_session", return_value=FakeSessionCtx()):
+            count = await count_eligible_messages(uuid.uuid4())
+
+        assert count == 0
 
 
 class TestWriteSectionFileRelpath:
@@ -253,7 +451,7 @@ class TestWriteSectionFileRelpath:
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="member")
         ch = _make_channel(name="test-ch")
         ws_root = str(tmp_path)
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = ws_root
             history_dir = _get_history_dir(bot, ch)
         rel = _write_section_file(
@@ -271,7 +469,7 @@ class TestWriteSectionFileRelpath:
         bot = _make_bot(id="orch", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="test-ch")
         ws_root = str(tmp_path)  # orchestrator's ws_root = shared root
-        with patch("app.services.compaction.workspace_service") as mock_ws:
+        with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.return_value = ws_root
             history_dir = _get_history_dir(bot, ch)
         rel = _write_section_file(

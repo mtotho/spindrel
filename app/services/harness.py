@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from app.config import settings
+from app.services.paths import local_to_host
 
 if TYPE_CHECKING:
     from app.agent.bots import BotConfig, BotSandboxConfig
@@ -167,7 +168,7 @@ class HarnessService:
         host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
 
         workspace_mount = {
-            "host_path": host_root,
+            "host_path": local_to_host(host_root),
             "container_path": "/workspace",
             "mode": "rw",
         }
