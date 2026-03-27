@@ -1,49 +1,72 @@
 import { useState, useRef } from "react";
 import { FolderOpen, Unlink, Save, X, Edit3, FileText } from "lucide-react";
-import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
+import { useWorkspaces, useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { WorkspaceFilePicker } from "./WorkspaceFilePicker";
 
 interface Props {
-  workspaceId: string | null | undefined;
+  /** Default workspace id (e.g. from the bot). Null/undefined = let user pick. */
+  workspaceId?: string | null;
   filePath: string | null;
-  onLink: (path: string) => void;
+  /** Called with (path, workspaceId) when a file is selected. */
+  onLink: (path: string, workspaceId: string) => void;
   onUnlink: () => void;
 }
 
 export function WorkspaceFilePrompt({ workspaceId, filePath, onLink, onUnlink }: Props) {
-  if (!workspaceId) {
+  const { data: workspaces } = useWorkspaces();
+  const hasAnyWorkspace = (workspaces?.length ?? 0) > 0;
+
+  if (filePath && workspaceId) {
     return (
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", fontSize: 11, color: "#555" }}>
-        <FolderOpen size={11} />
-        <span>Bot has no workspace — link a workspace to use file prompts</span>
-      </div>
+      <InlineViewer
+        workspaceId={workspaceId}
+        filePath={filePath}
+        onUnlink={onUnlink}
+      />
     );
   }
-  if (!filePath) {
-    return <BrowseButton workspaceId={workspaceId} onLink={onLink} />;
-  }
+
   return (
-    <InlineViewer
-      workspaceId={workspaceId}
-      filePath={filePath}
-      onUnlink={onUnlink}
+    <BrowseButton
+      defaultWorkspaceId={workspaceId}
+      workspaces={workspaces ?? []}
+      hasAnyWorkspace={hasAnyWorkspace}
+      onLink={onLink}
     />
   );
 }
 
 // ---------------------------------------------------------------------------
-// Browse button (when no file is linked)
+// Browse button (when no file is linked) — always visible
 // ---------------------------------------------------------------------------
-function BrowseButton({ workspaceId, onLink }: { workspaceId: string; onLink: (path: string) => void }) {
+interface WorkspaceSummary {
+  id: string;
+  name: string;
+}
+
+function BrowseButton({
+  defaultWorkspaceId,
+  workspaces,
+  hasAnyWorkspace,
+  onLink,
+}: {
+  defaultWorkspaceId?: string | null;
+  workspaces: WorkspaceSummary[];
+  hasAnyWorkspace: boolean;
+  onLink: (path: string, workspaceId: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
+  const [pickerWsId, setPickerWsId] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  const effectiveWsId = pickerWsId ?? defaultWorkspaceId ?? workspaces[0]?.id ?? null;
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
         ref={btnRef}
-        onClick={() => { setOpen(!open); setSelected(""); }}
+        onClick={() => { setOpen(!open); setSelected(""); setPickerWsId(null); }}
         style={{
           display: "inline-flex", alignItems: "center", gap: 4,
           padding: "3px 8px", fontSize: 11, fontWeight: 600,
@@ -69,7 +92,7 @@ function BrowseButton({ workspaceId, onLink }: { workspaceId: string; onLink: (p
                 position: "fixed",
                 top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
                 left: btnRef.current?.getBoundingClientRect().left ?? 0,
-                width: 380,
+                width: 400,
                 zIndex: 10011,
                 background: "#1a1a1a",
                 border: "1px solid #333",
@@ -84,11 +107,44 @@ function BrowseButton({ workspaceId, onLink }: { workspaceId: string; onLink: (p
               <div style={{ fontSize: 11, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Select workspace file
               </div>
-              <WorkspaceFilePicker
-                workspaceId={workspaceId}
-                value={selected}
-                onChange={setSelected}
-              />
+
+              {!hasAnyWorkspace ? (
+                <div style={{ padding: "16px 8px", textAlign: "center", color: "#555", fontSize: 12 }}>
+                  No workspaces available. Create a workspace first.
+                </div>
+              ) : (
+                <>
+                  {/* Workspace selector (show when multiple workspaces exist) */}
+                  {workspaces.length > 1 && (
+                    <select
+                      value={effectiveWsId ?? ""}
+                      onChange={(e) => { setPickerWsId(e.target.value); setSelected(""); }}
+                      style={{
+                        background: "#111",
+                        border: "1px solid #333",
+                        borderRadius: 4,
+                        padding: "5px 8px",
+                        fontSize: 11,
+                        color: "#e5e5e5",
+                        outline: "none",
+                      }}
+                    >
+                      {workspaces.map((ws) => (
+                        <option key={ws.id} value={ws.id}>{ws.name}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {effectiveWsId && (
+                    <WorkspaceFilePicker
+                      workspaceId={effectiveWsId}
+                      value={selected}
+                      onChange={setSelected}
+                    />
+                  )}
+                </>
+              )}
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
                 <button
                   onClick={() => { setOpen(false); setSelected(""); }}
@@ -101,11 +157,17 @@ function BrowseButton({ workspaceId, onLink }: { workspaceId: string; onLink: (p
                   Cancel
                 </button>
                 <button
-                  onClick={() => { if (selected) { onLink(selected); setOpen(false); setSelected(""); } }}
+                  onClick={() => {
+                    if (selected && effectiveWsId) {
+                      onLink(selected, effectiveWsId);
+                      setOpen(false);
+                      setSelected("");
+                    }
+                  }}
                   disabled={!selected}
                   style={{
                     padding: "4px 12px", fontSize: 11, fontWeight: 600,
-                    background: selected ? "#3b82f6" : "#333",
+                    background: selected ? "#22c55e" : "#333",
                     color: selected ? "#fff" : "#666",
                     border: "none", borderRadius: 4,
                     cursor: selected ? "pointer" : "not-allowed",

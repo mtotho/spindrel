@@ -74,7 +74,7 @@ class TestCreateTask:
 
     @pytest.mark.asyncio
     async def test_basic_create(self):
-        from app.tools.local.tasks import create_task
+        from app.tools.local.tasks import schedule_task as create_task
 
         db = AsyncMock()
         db.add = MagicMock()
@@ -101,7 +101,7 @@ class TestCreateTask:
 
     @pytest.mark.asyncio
     async def test_create_with_template_link(self):
-        from app.tools.local.tasks import create_task
+        from app.tools.local.tasks import schedule_task as create_task
 
         tpl = MagicMock()
         tpl.id = uuid.uuid4()
@@ -141,7 +141,7 @@ class TestCreateTask:
 
     @pytest.mark.asyncio
     async def test_create_duplicate_detection(self):
-        from app.tools.local.tasks import create_task
+        from app.tools.local.tasks import schedule_task as create_task
 
         tpl = MagicMock()
         tpl.id = uuid.uuid4()
