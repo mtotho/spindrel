@@ -50,19 +50,12 @@ class Channel(Base):
     compression_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compression_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compression_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Response condensing (condense verbose assistant replies between compactions)
-    response_condensing_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), default=False)
-    response_condensing_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    response_condensing_keep_exact: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    response_condensing_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    response_condensing_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fallback_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fallback_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     allow_bot_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -124,7 +117,7 @@ class ConversationSection(Base):
     period_start: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     period_end: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    transcript: Mapped[str] = mapped_column(Text, nullable=False)
+    transcript_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     embedding: Mapped[list | None] = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS), nullable=True)
@@ -218,7 +211,6 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    condensed: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_calls: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tool_call_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -622,6 +614,7 @@ class ProviderModel(Base):
     max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
+    no_system_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     provider: Mapped["ProviderConfig"] = relationship(back_populates="models")
@@ -683,12 +676,7 @@ class Bot(Base):
         ForeignKey("provider_configs.id", ondelete="SET NULL"),
         nullable=True,
     )
-    fallback_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fallback_model_provider_id: Mapped[str | None] = mapped_column(
-        Text,
-        ForeignKey("provider_configs.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -803,6 +791,7 @@ class ChannelHeartbeat(Base):
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("60"))
     model: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     dispatch_results: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     trigger_response: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
@@ -1033,4 +1022,12 @@ class ServerSetting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class ServerConfig(Base):
+    __tablename__ = "server_config"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, server_default=text("'default'"))
+    global_fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

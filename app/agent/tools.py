@@ -255,7 +255,7 @@ async def retrieve_tools(
     *,
     top_k: int | None = None,
     threshold: float | None = None,
-) -> tuple[list[dict[str, Any]], float]:
+) -> tuple[list[dict[str, Any]], float, list[dict[str, Any]]]:
     """Return (tool_dicts, best_similarity) for local + MCP tools above threshold."""
     top_k = settings.TOOL_RETRIEVAL_TOP_K if top_k is None else top_k
     threshold = settings.TOOL_RETRIEVAL_THRESHOLD if threshold is None else threshold

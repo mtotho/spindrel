@@ -759,6 +759,7 @@ async def run_task(task: Task) -> None:
         _ecfg_pre = task.execution_config or task.callback_config or {}
         _model_override = _ecfg_pre.get("model_override") or None
         _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
+        _fallback_models = _ecfg_pre.get("fallback_models") or None
 
         _task_timeout = resolve_task_timeout(task, _task_channel)
 
@@ -773,6 +774,7 @@ async def run_task(task: Task) -> None:
                 channel_id=task.channel_id,
                 model_override=_model_override,
                 provider_id_override=_provider_id_override,
+                fallback_models=_fallback_models,
             ),
             timeout=_task_timeout,
         )

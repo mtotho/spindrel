@@ -24,8 +24,7 @@ export interface BotConfig {
   model: string;
   system_prompt?: string;
   model_provider_id?: string;
-  fallback_model?: string | null;
-  fallback_model_provider_id?: string | null;
+  fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   display_name?: string;
   avatar_url?: string;
   local_tools?: string[];
@@ -190,19 +189,12 @@ export interface ChannelSettings {
   compression_threshold?: number;
   compression_keep_turns?: number;
   compression_prompt?: string;
-  // Response condensing
-  response_condensing_enabled?: boolean;
-  response_condensing_threshold?: number;
-  response_condensing_keep_exact?: number;
-  response_condensing_model?: string;
-  response_condensing_prompt?: string;
   elevation_enabled?: boolean;
   elevation_threshold?: number;
   elevated_model?: string;
   model_override?: string;
   model_provider_id_override?: string;
-  fallback_model?: string | null;
-  fallback_model_provider_id?: string | null;
+  fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   // Tool / skill overrides
   local_tools_override?: string[] | null;
   local_tools_disabled?: string[] | null;

@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Mobile-native feel ─────────────────────────────────── */
+
+/* Kill the blue/grey tap highlight on iOS/Android browsers */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text selection on interactive elements */
+button, [role="button"], nav, a {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Prevent horizontal overflow on mobile browsers */
 html, body, #root {
   overflow-x: hidden;
@@ -26,7 +39,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar styling */
+/* ── Scrollbars ─────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -51,12 +65,16 @@ body {
   scrollbar-color: #333 transparent;
 }
 
-/* Message hover effect (Slack-style) */
+/* ── Chat ───────────────────────────────────────────────── */
+
+/* Message hover effect (Slack-style, pointer devices only) */
 .msg-hover {
   transition: background-color 0.08s ease;
 }
-.msg-hover:hover {
-  background-color: rgba(255, 255, 255, 0.02);
+@media (hover: hover) {
+  .msg-hover:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
 }
 
 /* Blinking cursor for streaming */

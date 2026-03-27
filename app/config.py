@@ -143,11 +143,6 @@ class Settings(BaseSettings):
     CONTEXT_COMPRESSION_KEEP_TURNS: int = 2      # recent user turns kept verbatim
     CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS: int = 2000
 
-    # Response condensing (condense verbose assistant replies between compactions)
-    RESPONSE_CONDENSING_THRESHOLD: int = 1500    # chars — responses above this get condensed
-    RESPONSE_CONDENSING_KEEP_EXACT: int = 6      # N most recent messages shown at full fidelity
-    RESPONSE_CONDENSING_MODEL: str = ""          # empty = use compaction model chain
-
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this

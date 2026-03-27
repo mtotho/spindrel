@@ -100,6 +100,9 @@ async def lifespan(app: FastAPI):
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()
+    logger.info("Loading server config (global fallback models)...")
+    from app.services.server_config import load_server_config
+    await load_server_config()
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")

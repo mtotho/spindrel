@@ -30,7 +30,7 @@ _SKIP_EXTENSIONS = {
     ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
     ".lock", ".sum", ".mod",
 }
-_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next"}
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next", ".history"}
 
 # Workspace convention files that are auto-injected via dedicated mechanisms
 # (persona, skills, base prompt).  Indexing them would cause double-injection.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "react-native";
 import { useLocalSearchParams, Link } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash } from "lucide-react";
@@ -36,6 +37,7 @@ export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
   const flatListRef = useRef<FlatList>(null);
+  const insets = useSafeAreaInsets();
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -187,13 +189,14 @@ export default function ChatScreen() {
           flexShrink: 0,
           zIndex: 10,
           minHeight: 52,
+          paddingTop: insets.top,
           backgroundColor: "#111111",
         }}
       >
         {columns === "single" && (
           <Pressable
             onPress={goBack}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 36, height: 36 }}
           >
             <ArrowLeft size={20} color="#9ca3af" />
@@ -202,7 +205,7 @@ export default function ChatScreen() {
         {showHamburger && columns !== "single" && (
           <Pressable
             onPress={toggleSidebar}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 36, height: 36 }}
           >
             <Menu size={20} color="#9ca3af" />
@@ -227,7 +230,7 @@ export default function ChatScreen() {
         {channelId && (
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
-              className="items-center justify-center rounded-md hover:bg-surface-overlay"
+              className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
               style={{ width: 36, height: 36 }}
             >
               <Settings size={18} color="#666666" />
@@ -253,6 +256,8 @@ export default function ChatScreen() {
           scrollEventThrottle={100}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             chatState.isStreaming ? (
               <StreamingIndicator

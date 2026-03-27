@@ -16,6 +16,10 @@ class SettingsUpdateIn(BaseModel):
     settings: dict[str, Any]
 
 
+class GlobalFallbackModelsIn(BaseModel):
+    models: list[dict]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -65,3 +69,19 @@ async def admin_reset_setting(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return {"ok": True, "default": default_value}
+
+
+@router.get("/global-fallback-models")
+async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
+    from app.services.server_config import get_global_fallback_models
+    return {"models": get_global_fallback_models()}
+
+
+@router.put("/global-fallback-models")
+async def update_global_fallback_models(
+    body: GlobalFallbackModelsIn,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    from app.services.server_config import update_global_fallback_models
+    await update_global_fallback_models(body.models)
+    return {"ok": True, "models": body.models}

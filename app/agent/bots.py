@@ -196,9 +196,8 @@ class BotConfig:
     model_params: dict = field(default_factory=dict)
     # Provider
     model_provider_id: str | None = None  # DB provider_configs.id; None = use .env fallback
-    # Fallback model (used when primary model fails after retries)
-    fallback_model: str | None = None
-    fallback_model_provider_id: str | None = None
+    # Ordered fallback models (tried in sequence when primary model fails)
+    fallback_models: list[dict] = field(default_factory=list)
     # Bot-local execution sandbox
     bot_sandbox: BotSandboxConfig = field(default_factory=BotSandboxConfig)
     # Unified workspace config
@@ -412,8 +411,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         elevation_threshold=row.elevation_threshold,
         elevated_model=row.elevated_model,
         model_provider_id=row.model_provider_id,
-        fallback_model=row.fallback_model,
-        fallback_model_provider_id=row.fallback_model_provider_id,
+        fallback_models=row.fallback_models or [],
         bot_sandbox=bot_sandbox_cfg,
         workspace=workspace_cfg,
         user_id=_user_id,
@@ -498,8 +496,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
             "delegate_bots": data.get("delegate_bots", []),
             "harness_access": data.get("harness_access", []),
         },
-        "fallback_model": data.get("fallback_model"),
-        "fallback_model_provider_id": data.get("fallback_model_provider_id"),
+        "fallback_models": data.get("fallback_models", []),
         "workspace": data.get("workspace", {"enabled": False}),
         "history_mode": data.get("history_mode", "summary"),
         "created_at": datetime.now(timezone.utc),

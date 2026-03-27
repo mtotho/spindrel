@@ -306,7 +306,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       {/* Content */}
       <View style={{ flex: 1, minWidth: 0 }}>
         {/* Name + timestamp header */}
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+        <View className="select-none" style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <Text
             style={{
               fontSize: 15,

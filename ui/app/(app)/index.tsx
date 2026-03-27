@@ -66,7 +66,7 @@ export default function HomeScreen() {
                   href={`/channels/${channel.id}` as any}
                   asChild
                 >
-                  <Pressable className="bg-surface-raised border border-surface-border rounded-lg flex-row items-center gap-4 hover:border-accent/40 cursor-pointer" style={{ padding: 16 }}>
+                  <Pressable className="bg-surface-raised border border-surface-border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer" style={{ padding: 16 }}>
                     <View style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: "rgba(59,130,246,0.12)", alignItems: "center", justifyContent: "center" }}>
                       <Hash size={22} color="#3b82f6" />
                     </View>

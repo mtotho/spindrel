@@ -2,12 +2,28 @@
 
 import asyncio
 import logging
+from contextvars import ContextVar
+from dataclasses import dataclass
 
 import openai
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FallbackInfo:
+    """Metadata about a fallback that occurred during _llm_call."""
+    original_model: str
+    fallback_model: str
+    reason: str  # e.g. "EmptyChoicesError" or "RateLimitError"
+    original_error: str  # truncated error message
+
+
+# Set by _llm_call when a fallback is used; cleared before each call.
+# The loop reads this after _llm_call returns to emit trace events.
+last_fallback_info: ContextVar[FallbackInfo | None] = ContextVar("last_fallback_info", default=None)
 
 
 class EmptyChoicesError(Exception):
@@ -32,37 +48,61 @@ async def _llm_call(
     tool_choice: str | None,
     provider_id: str | None = None,
     model_params: dict | None = None,
-    fallback_model: str | None = None,
-    fallback_provider_id: str | None = None,
+    fallback_models: list[dict] | None = None,
 ):
-    """Call the LLM with retry logic for transient errors and optional model fallback.
+    """Call the LLM with retry logic for transient errors and ordered fallback chain.
 
     Retry strategy:
     - Rate limits (429): longer backoff via LLM_RATE_LIMIT_INITIAL_WAIT (default 90s).
     - Timeouts, connection errors, 5xx: shorter backoff via LLM_RETRY_INITIAL_WAIT (default 2s).
-    - After all retries exhausted, if a fallback model is configured, attempt once
-      with the fallback model before raising.
+    - After all retries exhausted on primary, try each fallback in order.
+    - Global fallback list is appended after the caller's list.
 
-    Fallback resolution (caller should resolve before passing):
-      channel > bot > global (settings.LLM_FALLBACK_MODEL).
+    Resolution order: channel list > bot list > global list (override, not merge).
+    Global list is always appended as a catch-all.
     """
+    # Clear any previous fallback info
+    last_fallback_info.set(None)
     try:
         return await _llm_call_with_retries(
             model, messages, tools_param, tool_choice, provider_id, model_params,
         )
-    except _RETRYABLE_ERRORS as exc:
-        effective_fallback = fallback_model or settings.LLM_FALLBACK_MODEL
-        if not effective_fallback or effective_fallback == model:
-            raise
-        fb_provider = fallback_provider_id if fallback_model else None
-        logger.warning(
-            "Primary model %s failed after retries (%s: %s), attempting fallback model %s",
-            model, type(exc).__name__, exc, effective_fallback,
-        )
-        return await _llm_call_with_retries(
-            effective_fallback, messages, tools_param, tool_choice,
-            fb_provider or provider_id, model_params,
-        )
+    except _RETRYABLE_ERRORS as primary_exc:
+        from app.services.server_config import get_global_fallback_models
+
+        effective_fallbacks = list(fallback_models or [])
+        # Append global catch-all list
+        for gfb in get_global_fallback_models():
+            effective_fallbacks.append(gfb)
+
+        tried = {model}
+        last_exc = primary_exc
+        for fb in effective_fallbacks:
+            fb_model = fb.get("model", "")
+            if not fb_model or fb_model in tried:
+                continue
+            tried.add(fb_model)
+            fb_provider = fb.get("provider_id") or provider_id
+            logger.warning(
+                "Model %s failed (%s: %s), attempting fallback %s",
+                model, type(last_exc).__name__, last_exc, fb_model,
+            )
+            try:
+                resp = await _llm_call_with_retries(
+                    fb_model, messages, tools_param, tool_choice,
+                    fb_provider, model_params,
+                )
+                last_fallback_info.set(FallbackInfo(
+                    original_model=model,
+                    fallback_model=fb_model,
+                    reason=type(primary_exc).__name__,
+                    original_error=str(primary_exc)[:500],
+                ))
+                return resp
+            except _RETRYABLE_ERRORS as fb_exc:
+                last_exc = fb_exc
+                continue
+        raise last_exc
 
 
 def _fold_system_messages(messages: list) -> list:
@@ -82,6 +122,15 @@ def _fold_system_messages(messages: list) -> list:
             content = msg.get("content", "")
             if isinstance(content, str) and content:
                 system_parts.append(content)
+            elif isinstance(content, list):
+                # Multimodal/list content — flatten to string to preserve it
+                text = " ".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p)
+                    for p in content
+                )
+                if text.strip():
+                    system_parts.append(text)
+            # Empty/None content is intentionally skipped (no useful data)
         else:
             non_system.append(msg)
 
@@ -115,13 +164,13 @@ async def _llm_call_with_retries(
     model_params: dict | None = None,
 ):
     """Execute LLM call with exponential backoff on transient errors."""
-    from app.agent.model_params import filter_model_params, get_provider_family, NO_SYSTEM_MESSAGE_PROVIDERS
-    from app.services.providers import get_llm_client, record_usage
+    from app.agent.model_params import filter_model_params
+    from app.services.providers import get_llm_client, record_usage, requires_system_message_folding
 
     client = get_llm_client(provider_id)
     filtered_params = filter_model_params(model, model_params or {})
 
-    if get_provider_family(model) in NO_SYSTEM_MESSAGE_PROVIDERS:
+    if requires_system_message_folding(model):
         messages = _fold_system_messages(messages)
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):

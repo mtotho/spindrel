@@ -16,7 +16,7 @@ def _mock_section(**kwargs):
     s.sequence = kwargs.get("sequence", 1)
     s.title = kwargs.get("title", "Test Section")
     s.summary = kwargs.get("summary", "A test section summary.")
-    s.transcript = kwargs.get("transcript", "[USER]: hello\n[ASSISTANT]: hi")
+    s.transcript_path = kwargs.get("transcript_path", None)
     s.message_count = kwargs.get("message_count", 5)
     s.period_start = kwargs.get("period_start", datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc))
     s.period_end = kwargs.get("period_end", datetime(2026, 3, 20, 11, 30, tzinfo=timezone.utc))
@@ -89,12 +89,40 @@ class TestReadConversationHistoryIndex:
 
 class TestReadConversationHistorySection:
     @pytest.mark.asyncio
-    async def test_returns_full_section_content(self):
+    async def test_returns_full_section_content_from_file(self):
+        channel_id = uuid.uuid4()
+        section_id = uuid.uuid4()
+        file_content = "# Slack Setup\nFrom: 2026-03-20 10:00  To: 2026-03-20 11:30\nMessages: 10\n\nSummary: Setup.\n\n---\n\n[USER]: hello\n[ASSISTANT]: hi"
+        section = _mock_section(
+            id=section_id, channel_id=channel_id,
+            title="Slack Setup", transcript_path=".history/001_slack_setup.md",
+            message_count=10,
+            period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
+            period_end=datetime(2026, 3, 20, 11, 30, tzinfo=timezone.utc),
+        )
+        mock_bot = MagicMock()
+        mock_bot.id = "test_bot"
+        with patch_channel_id(channel_id), patch_db_get(section), \
+             patch("app.agent.context.current_bot_id") as mock_bot_id, \
+             patch("app.agent.bots.get_bot", return_value=mock_bot), \
+             patch("app.services.workspace.workspace_service") as mock_ws, \
+             patch("builtins.open", MagicMock(return_value=MagicMock(
+                 __enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value=file_content))),
+                 __exit__=MagicMock(return_value=False),
+             ))):
+            mock_bot_id.get.return_value = "test_bot"
+            mock_ws.get_workspace_root.return_value = "/workspace"
+            result = await read_conversation_history(str(section_id))
+        assert "Slack Setup" in result
+        assert "[USER]: hello" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_fallback_when_no_transcript_path(self):
         channel_id = uuid.uuid4()
         section_id = uuid.uuid4()
         section = _mock_section(
             id=section_id, channel_id=channel_id,
-            title="Slack Setup", transcript="[USER]: hello\n[ASSISTANT]: hi",
+            title="Slack Setup", transcript_path=None,
             message_count=10,
             period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
             period_end=datetime(2026, 3, 20, 11, 30, tzinfo=timezone.utc),
@@ -102,8 +130,7 @@ class TestReadConversationHistorySection:
         with patch_channel_id(channel_id), patch_db_get(section):
             result = await read_conversation_history(str(section_id))
         assert "Slack Setup" in result
-        assert "[USER]: hello" in result
-        assert "2026-03-20" in result
+        assert "Transcript file not available" in result
 
     @pytest.mark.asyncio
     async def test_invalid_uuid_returns_error(self):

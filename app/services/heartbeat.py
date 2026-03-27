@@ -205,6 +205,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         channel_id = channel.id
         model_override = hb.model or None
         provider_id_override = hb.model_provider_id or None
+        _hb_fallback_models = hb.fallback_models or None
         trigger_rag_loop = hb.trigger_response
 
     logger.info(
@@ -242,6 +243,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 channel_id=channel_id,
                 model_override=model_override,
                 provider_id_override=provider_id_override,
+                fallback_models=_hb_fallback_models,
             ),
             timeout=_hb_timeout,
         )
@@ -310,6 +312,9 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         await db.commit()
 
 
+_heartbeat_semaphore = asyncio.Semaphore(3)
+
+
 async def heartbeat_worker() -> None:
     """Background worker loop: polls for due heartbeats every 30 seconds."""
     logger.info("Heartbeat worker started")
@@ -328,7 +333,8 @@ async def heartbeat_worker() -> None:
 
 async def _safe_fire_heartbeat(hb: ChannelHeartbeat) -> None:
     """Wrapper to catch exceptions from fire_heartbeat in asyncio.create_task."""
-    try:
-        await fire_heartbeat(hb)
-    except Exception:
-        logger.exception("Failed to fire heartbeat %s", hb.id)
+    async with _heartbeat_semaphore:
+        try:
+            await fire_heartbeat(hb)
+        except Exception:
+            logger.exception("Failed to fire heartbeat %s", hb.id)
