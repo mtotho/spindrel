@@ -467,6 +467,13 @@ async def admin_channel_settings_update(
     for field, value in updates.items():
         setattr(channel, field, value)
 
+    # When heartbeat trigger is enabled, clear the memory phase prompt fields
+    if updates.get("trigger_heartbeat_before_compaction"):
+        channel.memory_knowledge_compaction_prompt = None
+        channel.compaction_workspace_file_path = None
+        channel.compaction_workspace_id = None
+        channel.compaction_prompt_template_id = None
+
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(channel)

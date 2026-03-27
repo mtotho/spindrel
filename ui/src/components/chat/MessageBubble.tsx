@@ -14,33 +14,42 @@ interface Props {
 // Metadata-aware display name resolution
 // ---------------------------------------------------------------------------
 
-const SLACK_PREFIX_RE = /^\[Slack channel:\S+ user:\S+\]\s*/;
+const SLACK_PREFIX_RE = /^\[Slack channel:\S+ user:(\S+)\]\s*/;
 
-function resolveDisplay(message: Message, botName?: string): { name: string; isCurrentUser: boolean } {
+/** Extract Slack user ID from content prefix (for legacy messages without metadata). */
+function parseSlackPrefix(content: string): { slackUserId: string | null; cleaned: string } {
+  const m = SLACK_PREFIX_RE.exec(content);
+  if (m) {
+    return { slackUserId: m[1], cleaned: content.replace(SLACK_PREFIX_RE, "") };
+  }
+  return { slackUserId: null, cleaned: content };
+}
+
+function resolveDisplay(
+  message: Message,
+  botName?: string,
+  contentSlackUserId?: string | null,
+): { name: string; isCurrentUser: boolean; isSlack: boolean } {
   const meta = message.metadata || {};
   if (message.role === "assistant") {
-    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false };
+    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false, isSlack: false };
   }
-  // User messages
+  // User messages with metadata
   if (meta.sender_type === "bot") {
-    return { name: meta.sender_display_name || "Bot", isCurrentUser: false };
+    return { name: meta.sender_display_name || "Bot", isCurrentUser: false, isSlack: false };
   }
   if (meta.source === "slack") {
     const slackId = (meta.sender_id || "").replace("slack:", "");
-    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false };
+    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false, isSlack: true };
   }
   if (meta.source === "web" && meta.sender_display_name) {
-    return { name: meta.sender_display_name, isCurrentUser: true };
+    return { name: meta.sender_display_name, isCurrentUser: true, isSlack: false };
   }
-  // Legacy messages without metadata
-  return { name: "You", isCurrentUser: true };
-}
-
-function cleanContent(content: string, meta: Record<string, any>): string {
-  if (meta.source === "slack" && content) {
-    return content.replace(SLACK_PREFIX_RE, "");
+  // Legacy fallback: detect Slack prefix in content
+  if (contentSlackUserId) {
+    return { name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, isSlack: true };
   }
-  return content;
+  return { name: "You", isCurrentUser: true, isSlack: false };
 }
 
 // Deterministic color from string hash
@@ -274,11 +283,12 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
 export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isWeb = Platform.OS === "web";
   const meta = message.metadata || {};
-  const { name: displayName, isCurrentUser } = resolveDisplay(message, botName);
+  // Always strip Slack prefix from content (handles both new and legacy messages)
+  const { slackUserId, cleaned: displayContent } = parseSlackPrefix(message.content || "");
+  const { name: displayName, isCurrentUser, isSlack } = resolveDisplay(message, botName, slackUserId);
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
-  const displayContent = cleanContent(message.content || "", meta);
-  const sourceLabel = meta.source === "slack" ? "via Slack" : null;
+  const sourceLabel = isSlack ? "via Slack" : null;
 
   const messageContent = isWeb ? (
     <>
