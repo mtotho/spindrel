@@ -141,12 +141,14 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             dispatch_config.pop("thread_ts", None)
             dispatch_config["reply_in_thread"] = False
 
-        # Resolve prompt from linked template (falls back to inline prompt)
-        from app.services.prompt_resolution import resolve_prompt_template
-        prompt = await resolve_prompt_template(
-            str(hb.prompt_template_id) if hb.prompt_template_id else None,
-            hb.prompt,
-            db,
+        # Resolve prompt: workspace file > template > inline
+        from app.services.prompt_resolution import resolve_prompt
+        prompt = await resolve_prompt(
+            workspace_id=str(hb.workspace_id) if hb.workspace_id else None,
+            workspace_file_path=hb.workspace_file_path,
+            template_id=str(hb.prompt_template_id) if hb.prompt_template_id else None,
+            inline_prompt=hb.prompt,
+            db=db,
         )
 
         # Inject previous heartbeat result from heartbeat_runs history

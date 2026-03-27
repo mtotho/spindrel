@@ -182,11 +182,11 @@ export default function ChatScreen() {
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-2 px-3 border-b border-surface-border"
+        className="flex-row items-center gap-3 px-4 border-b border-surface-border"
         style={{
           flexShrink: 0,
           zIndex: 10,
-          minHeight: 48,
+          minHeight: 52,
           backgroundColor: "#111111",
           ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
         }}
@@ -197,7 +197,7 @@ export default function ChatScreen() {
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
             style={{ width: 36, height: 36 }}
           >
-            <ArrowLeft size={18} color="#9ca3af" />
+            <ArrowLeft size={20} color="#9ca3af" />
           </Pressable>
         )}
         {showHamburger && columns !== "single" && (
@@ -206,20 +206,20 @@ export default function ChatScreen() {
             className="items-center justify-center rounded-md hover:bg-surface-overlay"
             style={{ width: 36, height: 36 }}
           >
-            <Menu size={18} color="#9ca3af" />
+            <Menu size={20} color="#9ca3af" />
           </Pressable>
         )}
-        <Hash size={16} color="#666666" style={{ marginLeft: 2 }} />
-        <View className="flex-1 min-w-0 py-1.5">
-          <Text className="text-text font-semibold text-sm" numberOfLines={1}>
+        <Hash size={18} color="#666666" style={{ marginLeft: 2 }} />
+        <View className="flex-1 min-w-0 py-2">
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#e5e5e5" }} numberOfLines={1}>
             {displayName}
           </Text>
           {bot && (
-            <View className="flex-row items-center gap-1.5">
+            <View className="flex-row items-center gap-1.5 mt-0.5">
               <Link href={`/admin/bots/${bot.id}` as any}>
-                <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
+                <Text style={{ fontSize: 12, color: "#999" }}>{bot.name}</Text>
               </Link>
-              <Text className="text-text-dim text-[10px]">
+              <Text style={{ fontSize: 11, color: "#555" }}>
                 {channel?.model_override || bot?.model}
               </Text>
             </View>
@@ -231,7 +231,7 @@ export default function ChatScreen() {
               className="items-center justify-center rounded-md hover:bg-surface-overlay"
               style={{ width: 36, height: 36 }}
             >
-              <Settings size={16} color="#666666" />
+              <Settings size={18} color="#666666" />
             </Pressable>
           </Link>
         )}

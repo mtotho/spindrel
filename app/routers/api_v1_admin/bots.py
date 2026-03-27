@@ -309,6 +309,8 @@ class BotUpdateIn(BaseModel):
     model: Optional[str] = None
     system_prompt: Optional[str] = None
     model_provider_id: Optional[str] = None
+    fallback_model: Optional[str] = None
+    fallback_model_provider_id: Optional[str] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     local_tools: Optional[list[str]] = None
@@ -407,6 +409,8 @@ class BotCreateIn(BaseModel):
     model: str
     system_prompt: Optional[str] = ""
     model_provider_id: Optional[str] = None
+    fallback_model: Optional[str] = None
+    fallback_model_provider_id: Optional[str] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     local_tools: Optional[list[str]] = None

@@ -30,14 +30,14 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
 
   return (
     <View
-      className="flex-row items-center gap-3 px-4 py-2 border-b border-surface-border bg-surface"
-      style={{ flexShrink: 0 }}
+      className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
+      style={{ flexShrink: 0, minHeight: 52 }}
     >
       {onBack ? (
         <Pressable
           onPress={onBack}
           className="items-center justify-center rounded-md hover:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
+          style={{ width: 36, height: 36 }}
           accessibilityLabel="Go back"
         >
           <ArrowLeft size={20} color="#9ca3af" />
@@ -46,19 +46,19 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
         <Pressable
           onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
           className="items-center justify-center rounded-md hover:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
+          style={{ width: 36, height: 36 }}
           accessibilityLabel="Open menu"
         >
           <Menu size={20} color="#9ca3af" />
         </Pressable>
       ) : null}
 
-      <View className="flex-1 min-w-0">
-        <Text className="text-text font-semibold" numberOfLines={1}>
+      <View className="flex-1 min-w-0 py-2">
+        <Text style={{ fontSize: 16, fontWeight: "700", color: "#e5e5e5" }} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
-          <Text className="text-text-muted text-xs" numberOfLines={1}>
+          <Text className="text-text-muted text-xs mt-0.5" numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}

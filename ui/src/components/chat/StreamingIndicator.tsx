@@ -26,13 +26,13 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
   const bg = avatarColor(name);
 
   return (
-    <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
+    <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
       {/* Bot avatar */}
       <View style={{ paddingTop: 2 }}>
         <View
           style={{
-            width: 32,
-            height: 32,
+            width: 36,
+            height: 36,
             borderRadius: 6,
             backgroundColor: bg,
             alignItems: "center",
@@ -40,7 +40,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
             flexShrink: 0,
           }}
         >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>
             {letter}
           </Text>
         </View>
@@ -49,7 +49,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
       <View style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
         <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <Text style={{ fontSize: 14, fontWeight: "700", color: bg }}>
+          <Text style={{ fontSize: 15, fontWeight: "700", color: bg }}>
             {name}
           </Text>
         </View>
@@ -92,13 +92,13 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
         {content ? (
           <View>
             {Platform.OS === "web" ? (
-              <div style={{ fontSize: 14, lineHeight: "1.55", color: "#d1d5db" }}>
+              <div style={{ fontSize: 15, lineHeight: "1.6", color: "#d1d5db" }}>
                 {content}
                 <span
                   style={{
                     display: "inline-block",
                     width: 2,
-                    height: 16,
+                    height: 17,
                     backgroundColor: "#8b5cf6",
                     marginLeft: 2,
                     verticalAlign: "text-bottom",
@@ -108,7 +108,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
                 />
               </div>
             ) : (
-              <Text style={{ fontSize: 14, lineHeight: 21, color: "#d1d5db" }}>{content}</Text>
+              <Text style={{ fontSize: 15, lineHeight: 22, color: "#d1d5db" }}>{content}</Text>
             )}
           </View>
         ) : toolCalls.length === 0 ? (

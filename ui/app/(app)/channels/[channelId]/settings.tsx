@@ -31,6 +31,7 @@ import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useChannelElevation } from "@/src/api/hooks/useElevation";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -108,6 +109,8 @@ export default function ChannelSettingsScreen() {
         compaction_keep_turns: settings.compaction_keep_turns,
         memory_knowledge_compaction_prompt: settings.memory_knowledge_compaction_prompt,
         compaction_prompt_template_id: settings.compaction_prompt_template_id,
+        compaction_workspace_file_path: settings.compaction_workspace_file_path,
+        compaction_workspace_id: settings.compaction_workspace_id,
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
         compaction_skip_memory_phase: settings.compaction_skip_memory_phase,
@@ -126,6 +129,8 @@ export default function ChannelSettingsScreen() {
         elevated_model: settings.elevated_model,
         model_override: settings.model_override,
         model_provider_id_override: settings.model_provider_id_override,
+        fallback_model: settings.fallback_model,
+        fallback_model_provider_id: settings.fallback_model_provider_id,
         channel_prompt: settings.channel_prompt,
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
@@ -667,21 +672,32 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
           {!form.compaction_skip_memory_phase && (
             <>
-              <PromptTemplateLink
-                templateId={form.compaction_prompt_template_id ?? null}
-                onLink={(id) => patch("compaction_prompt_template_id", id)}
-                onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-                workspaceId={workspaceId ?? undefined}
-              />
-              <LlmPrompt
-                value={form.memory_knowledge_compaction_prompt ?? ""}
-                onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                label="Memory Phase Prompt"
-                placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-                helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-                rows={5}
-                generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
-              />
+              {workspaceId && (
+                <WorkspaceFilePrompt
+                  workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
+                  filePath={form.compaction_workspace_file_path ?? null}
+                  onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
+                  onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
+                />
+              )}
+              {!form.compaction_workspace_file_path && (
+                <>
+                  <PromptTemplateLink
+                    templateId={form.compaction_prompt_template_id ?? null}
+                    onLink={(id) => patch("compaction_prompt_template_id", id)}
+                    onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+                  />
+                  <LlmPrompt
+                    value={form.memory_knowledge_compaction_prompt ?? ""}
+                    onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+                    label="Memory Phase Prompt"
+                    placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+                    helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt with the conversation and can use tools (save_memory, save_knowledge, etc.) to preserve important info before archival. Tags like @tool:save_memory auto-pin tools. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
+                    rows={5}
+                    generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
+                  />
+                </>
+              )}
             </>
           )}
 
@@ -790,21 +806,32 @@ function HistoryTab({ form, patch, channelId, workspaceId }: {
 
               {!form.compaction_skip_memory_phase && (
                 <>
-                  <PromptTemplateLink
-                    templateId={form.compaction_prompt_template_id ?? null}
-                    onLink={(id) => patch("compaction_prompt_template_id", id)}
-                    onUnlink={() => patch("compaction_prompt_template_id", undefined)}
-                    workspaceId={workspaceId ?? undefined}
-                  />
-                  <LlmPrompt
-                    value={form.memory_knowledge_compaction_prompt ?? ""}
-                    onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
-                    label="Memory Phase Prompt"
-                    placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
-                    helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
-                    rows={5}
-                    generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
-                  />
+                  {workspaceId && (
+                    <WorkspaceFilePrompt
+                      workspaceId={(form.compaction_workspace_id as string) ?? workspaceId}
+                      filePath={form.compaction_workspace_file_path ?? null}
+                      onLink={(path) => { patch("compaction_workspace_file_path", path); patch("compaction_workspace_id", workspaceId); }}
+                      onUnlink={() => { patch("compaction_workspace_file_path", undefined); patch("compaction_workspace_id", undefined); }}
+                    />
+                  )}
+                  {!form.compaction_workspace_file_path && (
+                    <>
+                      <PromptTemplateLink
+                        templateId={form.compaction_prompt_template_id ?? null}
+                        onLink={(id) => patch("compaction_prompt_template_id", id)}
+                        onUnlink={() => patch("compaction_prompt_template_id", undefined)}
+                      />
+                      <LlmPrompt
+                        value={form.memory_knowledge_compaction_prompt ?? ""}
+                        onChange={(v) => patch("memory_knowledge_compaction_prompt", v || undefined)}
+                        label="Memory Phase Prompt"
+                        placeholder={form.compaction_prompt_template_id ? "Using linked template..." : "Leave blank to use the global default..."}
+                        helpText="REPLACES the default prompt. Before each compaction, the bot gets this prompt and can use tools to preserve important info before summarization. Default: 'Decide if there is anything to store in memory, knowledge, or persona.'"
+                        rows={5}
+                        generateContext="A prompt that runs before context compaction. The AI reviews the conversation and decides what to save to long-term memory, knowledge base, or persona using tools (save_memory, save_knowledge, etc.) before old messages are archived."
+                      />
+                    </>
+                  )}
                 </>
               )}
             </>
@@ -930,6 +957,17 @@ function GeneralTab({ form, patch, bots, settings, elevationData, workspaceId, c
               if (!v) patch("model_provider_id_override", undefined);
             }}
             placeholder={`inherit (${bots?.find((b) => b.id === settings.bot_id)?.model ?? "bot default"})`}
+            allowClear
+          />
+        </FormRow>
+        <FormRow label="Fallback Model" description="Used when the primary model fails after retries. Leave empty to inherit from bot.">
+          <LlmModelDropdown
+            value={form.fallback_model ?? ""}
+            onChange={(v) => {
+              patch("fallback_model", v || undefined);
+              if (!v) patch("fallback_model_provider_id", undefined);
+            }}
+            placeholder="inherit (from bot)"
             allowClear
           />
         </FormRow>
@@ -1473,6 +1511,8 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         dispatch_results: data.config.dispatch_results ?? true,
         trigger_response: data.config.trigger_response ?? false,
         prompt_template_id: data.config.prompt_template_id ?? null,
+        workspace_file_path: data.config.workspace_file_path ?? null,
+        workspace_id: data.config.workspace_id ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -1483,6 +1523,8 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         dispatch_results: true,
         trigger_response: false,
         prompt_template_id: null,
+        workspace_file_path: null,
+        workspace_id: null,
       });
     }
   }, [data]);
@@ -1561,21 +1603,32 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
         </Row>
 
         <div style={{ marginTop: 16 }}>
-          <PromptTemplateLink
-            templateId={hbForm.prompt_template_id ?? null}
-            onLink={(id) => setHbForm((f: any) => ({ ...f, prompt_template_id: id }))}
-            onUnlink={() => setHbForm((f: any) => ({ ...f, prompt_template_id: null }))}
-            workspaceId={workspaceId ?? undefined}
-          />
-          <LlmPrompt
-            value={hbForm.prompt ?? ""}
-            onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
-            label="Heartbeat Prompt"
-            placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
-            helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
-            rows={10}
-            generateContext="A prompt for a scheduled/periodic AI task. Runs on a timer. The AI can check on things, perform maintenance, proactively engage, or run recurring workflows. Supports @-tags for tools and skills."
-          />
+          {workspaceId && (
+            <WorkspaceFilePrompt
+              workspaceId={hbForm.workspace_id ?? workspaceId}
+              filePath={hbForm.workspace_file_path}
+              onLink={(path) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: workspaceId }))}
+              onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
+            />
+          )}
+          {!hbForm.workspace_file_path && (
+            <>
+              <PromptTemplateLink
+                templateId={hbForm.prompt_template_id ?? null}
+                onLink={(id) => setHbForm((f: any) => ({ ...f, prompt_template_id: id }))}
+                onUnlink={() => setHbForm((f: any) => ({ ...f, prompt_template_id: null }))}
+              />
+              <LlmPrompt
+                value={hbForm.prompt ?? ""}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
+                label="Heartbeat Prompt"
+                placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
+                helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
+                rows={10}
+                generateContext="A prompt for a scheduled/periodic AI task. Runs on a timer. The AI can check on things, perform maintenance, proactively engage, or run recurring workflows. Supports @-tags for tools and skills."
+              />
+            </>
+          )}
         </div>
 
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1606,16 +1659,16 @@ function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspace
           </button>
           <button
             onClick={() => fireMutation.mutate()}
-            disabled={!hbForm.prompt}
+            disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
             style={{
               padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: hbForm.prompt ? "#92400e" : "#333",
-              color: hbForm.prompt ? "#fcd34d" : "#666",
+              background: (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#92400e" : "#333",
+              color: (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666",
               fontSize: 13, fontWeight: 500,
               display: "flex", alignItems: "center", gap: 6,
             }}
           >
-            <Play size={12} color={hbForm.prompt ? "#fcd34d" : "#666"} />
+            <Play size={12} color={(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : "#666"} />
             Run Now
           </button>
         </div>

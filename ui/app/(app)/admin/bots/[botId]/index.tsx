@@ -1486,6 +1486,17 @@ export default function BotEditorScreen() {
               <FormRow label="Model">
                 <LlmModelDropdown value={draft.model} onChange={(v) => update({ model: v })} />
               </FormRow>
+              <FormRow label="Fallback Model" description="Used when the primary model fails after retries.">
+                <LlmModelDropdown
+                  value={draft.fallback_model ?? ""}
+                  onChange={(v) => {
+                    update({ fallback_model: v || null });
+                    if (!v) update({ fallback_model_provider_id: null });
+                  }}
+                  placeholder="inherit (global)"
+                  allowClear
+                />
+              </FormRow>
               {editorData.model_param_definitions?.length > 0 && (
                 <ModelParamsSection
                   definitions={editorData.model_param_definitions}

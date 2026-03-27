@@ -39,6 +39,12 @@ class Channel(Base):
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    compaction_workspace_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compaction_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     context_compression: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     compression_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     compression_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -55,6 +61,8 @@ class Channel(Base):
     elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     allow_bot_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -674,6 +682,12 @@ class Bot(Base):
         ForeignKey("provider_configs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    fallback_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_model_provider_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("provider_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -804,6 +818,12 @@ class ChannelHeartbeat(Base):
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    workspace_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
@@ -879,6 +899,12 @@ class Task(Base):
     prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    workspace_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
 

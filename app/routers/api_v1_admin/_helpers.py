@@ -77,6 +77,8 @@ def _bot_to_out(
         delegate_bots=bot.delegate_bots,
         harness_access=bot.harness_access,
         model_provider_id=bot.model_provider_id,
+        fallback_model=getattr(bot, "fallback_model", None),
+        fallback_model_provider_id=getattr(bot, "fallback_model_provider_id", None),
         integration_config=getattr(bot, "integration_config", {}),
         workspace=_to_dict(getattr(bot, "workspace", {"enabled": False})),
         docker_sandbox_profiles=getattr(bot, "docker_sandbox_profiles", []),

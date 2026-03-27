@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -759,6 +759,28 @@ async def delete_workspace_file(
         raise HTTPException(404)
     try:
         return shared_workspace_service.delete_path(workspace_id, path)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ── File upload ─────────────────────────────────────────────────
+
+@router.post("/{workspace_id}/files/upload")
+async def upload_workspace_file(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    target_dir: str = Form("/"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    content = await file.read()
+    filename = file.filename or "upload"
+    path = f"{target_dir.rstrip('/')}/{filename}"
+    try:
+        return shared_workspace_service.write_binary_file(workspace_id, path, content)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
 

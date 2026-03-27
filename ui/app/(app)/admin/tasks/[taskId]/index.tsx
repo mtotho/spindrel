@@ -9,6 +9,8 @@ import { useChannels } from "@/src/api/hooks/useChannels";
 import { useState } from "react";
 import { ChevronLeft, Trash2 } from "lucide-react";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
@@ -224,6 +226,9 @@ export default function TaskDetailScreen() {
 
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
+  const [workspaceFilePath, setWorkspaceFilePath] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
   const [status, setStatus] = useState("pending");
   const [taskType, setTaskType] = useState("scheduled");
@@ -236,6 +241,9 @@ export default function TaskDetailScreen() {
   if (task && !initialized) {
     setTitle(task.title || "");
     setPrompt(task.prompt || "");
+    setPromptTemplateId(task.prompt_template_id || null);
+    setWorkspaceFilePath(task.workspace_file_path ?? null);
+    setWorkspaceId(task.workspace_id ?? null);
     setBotId(task.bot_id || "");
     setStatus(task.status || "pending");
     setTaskType(task.task_type || "scheduled");
@@ -246,11 +254,16 @@ export default function TaskDetailScreen() {
     setInitialized(true);
   }
 
+  const hasPrompt = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath;
+
   const handleSave = useCallback(async () => {
-    if (!prompt.trim() || !botId) return;
+    if (!hasPrompt || !botId) return;
     await updateMut.mutateAsync({
       prompt,
       title: title || null,
+      prompt_template_id: promptTemplateId,
+      workspace_file_path: workspaceFilePath,
+      workspace_id: workspaceId,
       bot_id: botId,
       status,
       scheduled_at: scheduledAt || null,
@@ -260,7 +273,7 @@ export default function TaskDetailScreen() {
       model_override: modelOverride || null,
     });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-  }, [prompt, title, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, updateMut, qc]);
+  }, [prompt, title, promptTemplateId, workspaceFilePath, workspaceId, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, hasPrompt, updateMut, qc]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -330,13 +343,13 @@ export default function TaskDetailScreen() {
         />
         <button
           onClick={handleSave}
-          disabled={updateMut.isPending || !prompt.trim() || !botId}
+          disabled={updateMut.isPending || !hasPrompt || !botId}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
-            color: (!prompt.trim() || !botId) ? "#666" : "#fff",
-            cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+            background: (!hasPrompt || !botId) ? "#333" : "#3b82f6",
+            color: (!hasPrompt || !botId) ? "#666" : "#fff",
+            cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
           }}
         >
           {updateMut.isPending ? "..." : "Save"}
@@ -367,14 +380,39 @@ export default function TaskDetailScreen() {
                 placeholder="Short task title (optional)"
               />
             </FormRow>
-            <LlmPrompt
-              value={prompt}
-              onChange={setPrompt}
-              label="Prompt"
-              placeholder="Task prompt..."
-              rows={isWide ? 12 : 6}
-              generateContext="A prompt for an AI agent task that runs asynchronously. Should describe what the agent should accomplish, any constraints, and expected output format."
-            />
+            {(() => {
+              const selectedBot = bots?.find((b: any) => b.id === botId);
+              const botWsId = selectedBot?.shared_workspace_id;
+              return (
+                <>
+                  {botWsId && (
+                    <WorkspaceFilePrompt
+                      workspaceId={workspaceId ?? botWsId}
+                      filePath={workspaceFilePath}
+                      onLink={(path) => { setWorkspaceFilePath(path); setWorkspaceId(botWsId); }}
+                      onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
+                    />
+                  )}
+                  {!workspaceFilePath && (
+                    <>
+                      <PromptTemplateLink
+                        templateId={promptTemplateId}
+                        onLink={(id) => setPromptTemplateId(id)}
+                        onUnlink={() => setPromptTemplateId(null)}
+                      />
+                      <LlmPrompt
+                        value={prompt}
+                        onChange={setPrompt}
+                        label="Prompt"
+                        placeholder={promptTemplateId ? "Using linked template..." : "Task prompt..."}
+                        rows={isWide ? 12 : 6}
+                        generateContext="A prompt for an AI agent task that runs asynchronously. Should describe what the agent should accomplish, any constraints, and expected output format."
+                      />
+                    </>
+                  )}
+                </>
+              );
+            })()}
 
             {task?.result && (
               <div>

@@ -259,6 +259,42 @@ export function useDeleteWorkspaceFile(workspaceId: string) {
   });
 }
 
+// File upload (multipart — cannot use apiFetch which sets JSON content-type)
+
+export function useUploadWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, targetDir }: { file: File; targetDir: string }) => {
+      const { useAuthStore } = await import("../../stores/auth");
+      const { serverUrl } = useAuthStore.getState();
+      const { getAuthToken } = await import("../../stores/auth");
+      if (!serverUrl) throw new Error("Server not configured");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("target_dir", targetDir);
+
+      const token = getAuthToken();
+      const res = await fetch(
+        `${serverUrl}/api/v1/workspaces/${workspaceId}/files/upload`,
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => null);
+        throw new Error(`Upload failed (${res.status}): ${body}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+    },
+  });
+}
+
 // Reindex
 
 export function useReindexWorkspace(workspaceId: string) {

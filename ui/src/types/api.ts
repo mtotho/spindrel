@@ -24,6 +24,8 @@ export interface BotConfig {
   model: string;
   system_prompt?: string;
   model_provider_id?: string;
+  fallback_model?: string | null;
+  fallback_model_provider_id?: string | null;
   display_name?: string;
   avatar_url?: string;
   local_tools?: string[];
@@ -177,6 +179,8 @@ export interface ChannelSettings {
   compaction_keep_turns?: number;
   memory_knowledge_compaction_prompt?: string;
   compaction_prompt_template_id?: string | null;
+  compaction_workspace_file_path?: string | null;
+  compaction_workspace_id?: string | null;
   history_mode?: string | null;
   compaction_model?: string;
   compaction_skip_memory_phase?: boolean | null;
@@ -196,6 +200,8 @@ export interface ChannelSettings {
   elevated_model?: string;
   model_override?: string;
   model_provider_id_override?: string;
+  fallback_model?: string | null;
+  fallback_model_provider_id?: string | null;
   // Tool / skill overrides
   local_tools_override?: string[] | null;
   local_tools_disabled?: string[] | null;

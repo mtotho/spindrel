@@ -418,6 +418,17 @@ class SharedWorkspaceService:
         size = os.path.getsize(target)
         return {"path": path, "size": size}
 
+    def write_binary_file(self, workspace_id: str, path: str, content: bytes) -> dict:
+        """Write binary content to a file in the workspace. Creates parent dirs if needed."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as f:
+            f.write(content)
+        size = os.path.getsize(target)
+        return {"path": path, "size": size}
+
     def mkdir(self, workspace_id: str, path: str) -> dict:
         """Create a directory (and parents) in the workspace."""
         target = self._resolve_path(workspace_id, path)

@@ -32,29 +32,36 @@ async def _llm_call(
     tool_choice: str | None,
     provider_id: str | None = None,
     model_params: dict | None = None,
+    fallback_model: str | None = None,
+    fallback_provider_id: str | None = None,
 ):
     """Call the LLM with retry logic for transient errors and optional model fallback.
 
     Retry strategy:
     - Rate limits (429): longer backoff via LLM_RATE_LIMIT_INITIAL_WAIT (default 90s).
     - Timeouts, connection errors, 5xx: shorter backoff via LLM_RETRY_INITIAL_WAIT (default 2s).
-    - After all retries exhausted, if LLM_FALLBACK_MODEL is configured, attempt once
+    - After all retries exhausted, if a fallback model is configured, attempt once
       with the fallback model before raising.
+
+    Fallback resolution (caller should resolve before passing):
+      channel > bot > global (settings.LLM_FALLBACK_MODEL).
     """
     try:
         return await _llm_call_with_retries(
             model, messages, tools_param, tool_choice, provider_id, model_params,
         )
     except _RETRYABLE_ERRORS as exc:
-        fallback_model = settings.LLM_FALLBACK_MODEL
-        if not fallback_model or fallback_model == model:
+        effective_fallback = fallback_model or settings.LLM_FALLBACK_MODEL
+        if not effective_fallback or effective_fallback == model:
             raise
+        fb_provider = fallback_provider_id if fallback_model else None
         logger.warning(
             "Primary model %s failed after retries (%s: %s), attempting fallback model %s",
-            model, type(exc).__name__, exc, fallback_model,
+            model, type(exc).__name__, exc, effective_fallback,
         )
         return await _llm_call_with_retries(
-            fallback_model, messages, tools_param, tool_choice, provider_id, model_params,
+            effective_fallback, messages, tools_param, tool_choice,
+            fb_provider or provider_id, model_params,
         )
 
 
