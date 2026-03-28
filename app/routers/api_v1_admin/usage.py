@@ -5,6 +5,7 @@ with ProviderModel pricing data at read time.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -17,6 +18,8 @@ from app.db.models import Channel, ProviderConfig, ProviderModel, Session, Trace
 from app.dependencies import get_db
 
 from ._helpers import _parse_time
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/usage", tags=["Usage"])
 
@@ -66,6 +69,7 @@ async def _load_pricing_map(
 
     # Seed from LiteLLM model info cache (auto-fetched from /model/info at startup)
     from app.services.providers import _model_info_cache
+    litellm_entries = 0
     for provider_id, models in _model_info_cache.items():
         pid = provider_id or "__env__"
         for model_id, info in models.items():
@@ -73,6 +77,7 @@ async def _load_pricing_map(
             out = info.get("output_cost_per_1m")
             if inp or out:
                 result[(pid, model_id)] = (inp, out)
+                litellm_entries += 1
 
     # DB rows override LiteLLM cache
     rows = (await db.execute(
@@ -83,9 +88,19 @@ async def _load_pricing_map(
             ProviderModel.output_cost_per_1m,
         )
     )).all()
+    db_entries = 0
     for r in rows:
         if r.input_cost_per_1m or r.output_cost_per_1m:
             result[(r.provider_id, r.model_id)] = (r.input_cost_per_1m, r.output_cost_per_1m)
+            db_entries += 1
+
+    logger.info(
+        "Pricing map: %d LiteLLM cache providers, %d LiteLLM entries with cost, %d DB entries, %d total keys",
+        len(_model_info_cache), litellm_entries, db_entries, len(result),
+    )
+    if result:
+        sample = next(iter(result.items()))
+        logger.info("Pricing map sample: %s → %s", sample[0], sample[1])
     return result
 
 
@@ -668,3 +683,39 @@ async def usage_timeseries(
         bucket_size=bucket,
         points=sorted(buckets.values(), key=lambda x: x.bucket),
     )
+
+
+@router.get("/debug-pricing")
+async def debug_pricing(
+    db: AsyncSession = Depends(get_db),
+):
+    """Debug endpoint: show what pricing data is available."""
+    from app.services.providers import _model_info_cache
+
+    pricing_map = await _load_pricing_map(db)
+
+    # Show cache structure
+    cache_summary: dict[str, list[dict]] = {}
+    for provider_id, models in _model_info_cache.items():
+        pid = str(provider_id) if provider_id else "__env__"
+        entries = []
+        for model_id, info in models.items():
+            entries.append({
+                "model": model_id,
+                "input_cost_per_1m": info.get("input_cost_per_1m"),
+                "output_cost_per_1m": info.get("output_cost_per_1m"),
+            })
+        cache_summary[pid] = entries
+
+    # Show pricing map
+    pricing_list = [
+        {"provider_id": pid, "model": mid, "input": inp, "output": out}
+        for (pid, mid), (inp, out) in pricing_map.items()
+    ]
+
+    return {
+        "litellm_cache_providers": list(cache_summary.keys()),
+        "litellm_cache_entries": cache_summary,
+        "pricing_map_size": len(pricing_map),
+        "pricing_map": pricing_list,
+    }

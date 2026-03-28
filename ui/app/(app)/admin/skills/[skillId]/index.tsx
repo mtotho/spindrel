@@ -6,6 +6,7 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -15,15 +16,17 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
-      <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>{value}</span>
+      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
   );
 }
 
 export default function SkillDetailScreen() {
+  const t = useThemeTokens();
   const { skillId } = useLocalSearchParams<{ skillId: string }>();
   const isNew = skillId === "new";
   const goBack = useGoBack("/admin/skills");
@@ -76,7 +79,7 @@ export default function SkillDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -87,16 +90,16 @@ export default function SkillDetailScreen() {
       <div style={{
         display: "flex", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
+        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
           {isNew ? "New Skill" : "Edit Skill"}
         </span>
         {!isNew && isWide && (
-          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>{skillId}</span>
+          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>{skillId}</span>
         )}
         <div style={{ flex: 1 }} />
         {!isNew && !isFileManaged && (
@@ -121,8 +124,8 @@ export default function SkillDetailScreen() {
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!canSave || isFileManaged) ? "#333" : "#3b82f6",
-            color: (!canSave || isFileManaged) ? "#666" : "#fff",
+            background: (!canSave || isFileManaged) ? t.surfaceBorder : t.accent,
+            color: (!canSave || isFileManaged) ? t.textDim : "#fff",
             cursor: (!canSave || isFileManaged) ? "not-allowed" : "pointer",
           }}
         >
@@ -160,11 +163,11 @@ export default function SkillDetailScreen() {
       }}>
         {/* Content editor */}
         <div style={{
-          ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
           display: "flex", flexDirection: "column",
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>
             Content (Markdown)
           </div>
           <textarea
@@ -174,17 +177,17 @@ export default function SkillDetailScreen() {
             placeholder="Write skill content in Markdown. Chunks are split by ## headings."
             style={{
               flex: 1, minHeight: isWide ? 400 : 250,
-              background: isFileManaged ? "#0a0a0a" : "#111",
-              border: "1px solid #222", borderRadius: 8,
+              background: isFileManaged ? t.surface : t.inputBg,
+              border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
               padding: 12, fontSize: 13, lineHeight: 1.6,
-              color: isFileManaged ? "#666" : "#e5e5e5",
+              color: isFileManaged ? t.textDim : t.text,
               fontFamily: "monospace", resize: "vertical",
               outline: "none",
               opacity: isFileManaged ? 0.6 : 1,
             }}
           />
-          <div style={{ fontSize: 10, color: "#555", marginTop: 6 }}>
-            Chunks are split by <code style={{ color: "#666" }}>## </code> headings and re-embedded on save.
+          <div style={{ fontSize: 10, color: t.textDim, marginTop: 6 }}>
+            Chunks are split by <code style={{ color: t.textDim }}>## </code> headings and re-embedded on save.
           </div>
         </div>
 
@@ -192,7 +195,7 @@ export default function SkillDetailScreen() {
         <div style={{
           ...(isWide ? { flex: 1.5, minWidth: 260 } : {}),
           padding: isWide ? "16px 20px" : "12px 12px",
-          borderTop: isWide ? "none" : "1px solid #2a2a2a",
+          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
         }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {isNew && (

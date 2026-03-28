@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Check, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function useConfigState() {
   return useQuery({
@@ -25,6 +26,7 @@ function CollapsibleSection({
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {
+  const t = useThemeTokens();
   const [open, setOpen] = useState(defaultOpen);
   const Icon = open ? ChevronDown : ChevronRight;
   return (
@@ -33,12 +35,12 @@ function CollapsibleSection({
         onPress={() => setOpen((p) => !p)}
         className="flex-row items-center gap-2 rounded-md px-3 py-2.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
-        <Icon size={14} color="#888" />
-        <Text style={{ fontSize: 13, fontWeight: "600", color: "#e5e5e5" }}>
+        <Icon size={14} color={t.textMuted} />
+        <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
           {title}
         </Text>
         {badge ? (
-          <Text style={{ fontSize: 11, color: "#666", marginLeft: 4 }}>
+          <Text style={{ fontSize: 11, color: t.textDim, marginLeft: 4 }}>
             {badge}
           </Text>
         ) : null}
@@ -51,6 +53,7 @@ function CollapsibleSection({
 }
 
 function KV({ k, v }: { k: string; v: any }) {
+  const t = useThemeTokens();
   const display =
     v === null || v === undefined
       ? "null"
@@ -66,7 +69,7 @@ function KV({ k, v }: { k: string; v: any }) {
       <Text
         style={{
           fontSize: 12,
-          color: "#888",
+          color: t.textMuted,
           fontFamily: "monospace",
           minWidth: 200,
         }}
@@ -77,7 +80,7 @@ function KV({ k, v }: { k: string; v: any }) {
       <Text
         style={{
           fontSize: 12,
-          color: "#ccc",
+          color: t.text,
           fontFamily: "monospace",
           flex: 1,
         }}
@@ -90,11 +93,12 @@ function KV({ k, v }: { k: string; v: any }) {
 }
 
 function DetailJSON({ data }: { data: any }) {
+  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   if (!expanded) {
     return (
       <Pressable onPress={() => setExpanded(true)}>
-        <Text style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>
+        <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
           {"{ ... }"}
         </Text>
       </Pressable>
@@ -137,21 +141,22 @@ function SettingsSection({ data }: { data: Record<string, Record<string, any>> }
 }
 
 function ProvidersSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((p) => (
         <View key={p.id} style={{ marginBottom: 4 }}>
           <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {p.display_name}
             </Text>
-            <Text style={{ fontSize: 11, color: "#666", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {p.provider_type}
             </Text>
             <Text style={{ fontSize: 11, color: p.is_enabled ? "#22c55e" : "#ef4444", fontFamily: "monospace" }}>
               {p.is_enabled ? "enabled" : "disabled"}
             </Text>
-            <Text style={{ fontSize: 11, color: "#666", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {p.models.length} models
             </Text>
           </View>
@@ -163,15 +168,16 @@ function ProvidersSection({ data }: { data: any[] }) {
 }
 
 function BotsSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((b) => (
         <View key={b.id} style={{ marginBottom: 6 }}>
           <View className="flex-row items-center gap-2 flex-wrap" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {b.name}
             </Text>
-            <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               {b.model}
             </Text>
           </View>
@@ -192,27 +198,29 @@ function BotsSection({ data }: { data: any[] }) {
 }
 
 function Tag({ label, value, on }: { label: string; value: any; on?: boolean }) {
+  const t = useThemeTokens();
   return (
-    <Text style={{ fontSize: 11, color: on ? "#3b82f6" : "#666", fontFamily: "monospace" }}>
+    <Text style={{ fontSize: 11, color: on ? t.accent : t.textDim, fontFamily: "monospace" }}>
       {label}:{String(value)}
     </Text>
   );
 }
 
 function ChannelsSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((ch) => (
         <View key={ch.id} style={{ marginBottom: 4 }}>
           <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ch.name}
             </Text>
-            <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               bot:{ch.bot_id}
             </Text>
             {ch.integration && (
-              <Text style={{ fontSize: 11, color: "#666", fontFamily: "monospace" }}>
+              <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
                 {ch.integration}
               </Text>
             )}
@@ -225,27 +233,28 @@ function ChannelsSection({ data }: { data: any[] }) {
 }
 
 function WorkspacesSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((ws) => (
         <View key={ws.id} style={{ marginBottom: 4 }}>
           <View className="flex-row items-center gap-2" style={{ paddingVertical: 2 }}>
-            <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+            <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
               {ws.name}
             </Text>
-            <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
               {ws.image}
             </Text>
             <Text
               style={{
                 fontSize: 11,
-                color: ws.status === "running" ? "#22c55e" : "#666",
+                color: ws.status === "running" ? "#22c55e" : t.textDim,
                 fontFamily: "monospace",
               }}
             >
               {ws.status}
             </Text>
-            <Text style={{ fontSize: 11, color: "#666", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {ws.bots?.length ?? 0} bots
             </Text>
           </View>
@@ -257,17 +266,18 @@ function WorkspacesSection({ data }: { data: any[] }) {
 }
 
 function SkillsSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((s) => (
         <View key={s.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600", minWidth: 160 }}>
+          <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600", minWidth: 160 }}>
             {s.name}
           </Text>
-          <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
             {s.source_type}
           </Text>
-          <Text style={{ fontSize: 11, color: "#666", fontFamily: "monospace" }}>
+          <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
             {s.chunk_count} chunks
           </Text>
         </View>
@@ -277,28 +287,29 @@ function SkillsSection({ data }: { data: any[] }) {
 }
 
 function TasksSection({ data }: { data: any[] }) {
+  const tk = useThemeTokens();
   if (data.length === 0) {
-    return <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>No recurring tasks</Text>;
+    return <Text style={{ fontSize: 12, color: tk.textDim, fontFamily: "monospace" }}>No recurring tasks</Text>;
   }
   return (
     <>
       {data.map((t) => (
         <View key={t.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+          <Text style={{ fontSize: 12, color: tk.text, fontFamily: "monospace", fontWeight: "600" }}>
             {t.title || t.bot_id}
           </Text>
-          <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+          <Text style={{ fontSize: 11, color: tk.textMuted, fontFamily: "monospace" }}>
             {t.task_type}
           </Text>
           {t.recurrence && (
-            <Text style={{ fontSize: 11, color: "#3b82f6", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: tk.accent, fontFamily: "monospace" }}>
               every {t.recurrence}
             </Text>
           )}
           <Text
             style={{
               fontSize: 11,
-              color: t.status === "running" ? "#22c55e" : t.status === "pending" ? "#eab308" : "#666",
+              color: t.status === "running" ? "#22c55e" : t.status === "pending" ? "#eab308" : tk.textDim,
               fontFamily: "monospace",
             }}
           >
@@ -311,17 +322,18 @@ function TasksSection({ data }: { data: any[] }) {
 }
 
 function UsersSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   return (
     <>
       {data.map((u) => (
         <View key={u.id} className="flex-row items-center gap-3" style={{ paddingVertical: 2 }}>
-          <Text style={{ fontSize: 12, color: "#e5e5e5", fontFamily: "monospace", fontWeight: "600" }}>
+          <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace", fontWeight: "600" }}>
             {u.display_name}
           </Text>
-          <Text style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
             {u.email}
           </Text>
-          <Text style={{ fontSize: 11, color: u.is_admin ? "#3b82f6" : "#666", fontFamily: "monospace" }}>
+          <Text style={{ fontSize: 11, color: u.is_admin ? t.accent : t.textDim, fontFamily: "monospace" }}>
             {u.is_admin ? "admin" : "user"}
           </Text>
           {!u.is_active && (
@@ -336,8 +348,9 @@ function UsersSection({ data }: { data: any[] }) {
 }
 
 function GenericListSection({ data }: { data: any[] }) {
+  const t = useThemeTokens();
   if (data.length === 0) {
-    return <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>None</Text>;
+    return <Text style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>None</Text>;
   }
   return (
     <>
@@ -364,6 +377,7 @@ function downloadJson(data: any, filename: string) {
 }
 
 export default function ConfigStatePage() {
+  const t = useThemeTokens();
   const { data, isLoading, error } = useConfigState();
   const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -446,8 +460,8 @@ export default function ConfigStatePage() {
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
-        <Download size={14} color="#3b82f6" />
-        <Text style={{ fontSize: 12, color: "#3b82f6" }}>Backup</Text>
+        <Download size={14} color={t.accent} />
+        <Text style={{ fontSize: 12, color: t.accent }}>Backup</Text>
       </Pressable>
       <Pressable
         onPress={handleFileSelect}
@@ -462,8 +476,8 @@ export default function ConfigStatePage() {
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
-        {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color="#888" />}
-        <Text style={{ fontSize: 12, color: copied ? "#22c55e" : "#888" }}>
+        {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color={t.textMuted} />}
+        <Text style={{ fontSize: 12, color: copied ? "#22c55e" : t.textMuted }}>
           {copied ? "Copied" : "Copy"}
         </Text>
       </Pressable>
@@ -478,7 +492,7 @@ export default function ConfigStatePage() {
     : [];
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0a0a0a" }}>
+    <View style={{ flex: 1, backgroundColor: t.surface }}>
       {/* Hidden file input for restore */}
       {Platform.OS === "web" && (
         <input
@@ -512,11 +526,11 @@ export default function ConfigStatePage() {
             <Text style={{ fontSize: 14, fontWeight: "600", color: "#eab308", marginBottom: 8 }}>
               Confirm Restore
             </Text>
-            <Text style={{ fontSize: 12, color: "#ccc", marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, color: t.text, marginBottom: 8 }}>
               This will upsert the following sections:
             </Text>
             {confirmSections.map((s) => (
-              <Text key={s} style={{ fontSize: 11, color: "#888", fontFamily: "monospace", paddingLeft: 8 }}>
+              <Text key={s} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
                 {s}
               </Text>
             ))}
@@ -544,10 +558,10 @@ export default function ConfigStatePage() {
                   paddingVertical: 6,
                   borderRadius: 6,
                   borderWidth: 1,
-                  borderColor: "#555",
+                  borderColor: t.textDim,
                 }}
               >
-                <Text style={{ fontSize: 12, color: "#888" }}>Cancel</Text>
+                <Text style={{ fontSize: 12, color: t.textMuted }}>Cancel</Text>
               </Pressable>
             </View>
           </View>
@@ -569,12 +583,12 @@ export default function ConfigStatePage() {
               Restore Complete
             </Text>
             {Object.entries(restoreResult.summary).map(([section, counts]) => (
-              <Text key={section} style={{ fontSize: 11, color: "#888", fontFamily: "monospace", paddingLeft: 8 }}>
+              <Text key={section} style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace", paddingLeft: 8 }}>
                 {section}: {(counts as any).updated ?? 0} upserted
               </Text>
             ))}
             <Pressable onPress={() => setRestoreResult(null)} style={{ marginTop: 8 }}>
-              <Text style={{ fontSize: 11, color: "#555" }}>Dismiss</Text>
+              <Text style={{ fontSize: 11, color: t.textDim }}>Dismiss</Text>
             </Pressable>
           </View>
         )}
@@ -593,14 +607,14 @@ export default function ConfigStatePage() {
           >
             <Text style={{ fontSize: 12, color: "#ef4444" }}>{restoreError}</Text>
             <Pressable onPress={() => setRestoreError(null)} style={{ marginTop: 4 }}>
-              <Text style={{ fontSize: 11, color: "#555" }}>Dismiss</Text>
+              <Text style={{ fontSize: 11, color: t.textDim }}>Dismiss</Text>
             </Pressable>
           </View>
         )}
 
         {isLoading ? (
           <View style={{ padding: 40, alignItems: "center" }}>
-            <ActivityIndicator color="#3b82f6" />
+            <ActivityIndicator color={t.accent} />
           </View>
         ) : error ? (
           <Text style={{ color: "#ef4444", fontSize: 13 }}>
@@ -617,7 +631,7 @@ export default function ConfigStatePage() {
               badge={`${data.global_fallback_models?.length ?? 0}`}
             >
               {(data.global_fallback_models || []).length === 0 ? (
-                <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>
+                <Text style={{ fontSize: 12, color: t.textDim, fontFamily: "monospace" }}>
                   None configured
                 </Text>
               ) : (

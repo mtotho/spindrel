@@ -1,4 +1,4 @@
-"""Local tools for file-based memory scheme: search_memory, get_memory_file."""
+"""Local tools for file-based memory scheme: search_memory, get_memory_file, search_bot_memory."""
 from __future__ import annotations
 
 import logging
@@ -184,3 +184,72 @@ async def get_memory_file(name: str) -> str:
         return f"# memory/{rel}\n\n{content}"
     except Exception as e:
         return f"Error reading file: {e}"
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "search_bot_memory",
+        "description": (
+            "Search another bot's memory files. "
+            "Use this to look up what a specific bot knows or has recorded. "
+            "Searches across their MEMORY.md, daily logs, and reference documents."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bot_id": {
+                    "type": "string",
+                    "description": "The bot ID whose memory to search.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query (e.g. 'user preferences', 'deployment steps').",
+                },
+            },
+            "required": ["bot_id", "query"],
+        },
+    },
+})
+async def search_bot_memory(bot_id: str, query: str) -> str:
+    """Search another bot's memory files (for orchestrators)."""
+    bot_id = (bot_id or "").strip()
+    query = (query or "").strip()
+    if not bot_id:
+        return "No bot_id provided."
+    if not query:
+        return "No search query provided."
+
+    from app.agent.bots import get_bot
+    target_bot = get_bot(bot_id)
+    if not target_bot:
+        return f"Bot not found: {bot_id}"
+    if target_bot.memory_scheme != "workspace-files":
+        return f"Bot {bot_id} does not use workspace-files memory scheme."
+
+    from app.services.workspace import workspace_service
+    ws_root = workspace_service.get_workspace_root(bot_id, target_bot)
+
+    from app.services.memory_scheme import get_memory_rel_path
+    from app.services.memory_search import hybrid_memory_search
+    results = await hybrid_memory_search(
+        query=query,
+        bot_id=bot_id,
+        root=str(Path(ws_root).resolve()),
+        memory_prefix=get_memory_rel_path(target_bot),
+        top_k=10,
+    )
+
+    if not results:
+        return f"No matching memory content found for bot {bot_id}."
+
+    lines = [f"**Memory search results for bot `{bot_id}`:**\n"]
+    for r in results:
+        content = r.content
+        if content.startswith("# "):
+            first_nl = content.find("\n")
+            if first_nl > 0:
+                content = content[first_nl + 1:]
+        lines.append(f"**{r.file_path}** (score: {r.score:.3f})\n{content.strip()}")
+
+    return "\n\n---\n\n".join(lines)

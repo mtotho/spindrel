@@ -25,6 +25,11 @@ export interface ToolApproval {
 export interface DecideRequest {
   approved: boolean;
   decided_by?: string;
+  create_rule?: {
+    tool_name: string;
+    conditions: Record<string, any>;
+    priority?: number;
+  };
 }
 
 export interface DecideResponse {
@@ -32,6 +37,14 @@ export interface DecideResponse {
   status: string;
   decided_by: string;
   decided_at: string;
+  rule_created: string | null;
+}
+
+export interface RuleSuggestion {
+  label: string;
+  tool_name: string;
+  conditions: Record<string, any>;
+  description: string;
 }
 
 export function useApprovals(botId?: string, status?: string) {
@@ -71,6 +84,18 @@ export function useDecideApproval() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
+      qc.invalidateQueries({ queryKey: ["tool-policies"] });
     },
+  });
+}
+
+export function useApprovalSuggestions(approvalId: string | undefined) {
+  return useQuery({
+    queryKey: ["approval-suggestions", approvalId],
+    queryFn: () =>
+      apiFetch<RuleSuggestion[]>(
+        `/api/v1/approvals/${approvalId}/suggestions`
+      ),
+    enabled: !!approvalId,
   });
 }

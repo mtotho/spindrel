@@ -11,6 +11,7 @@ import {
 } from "@/src/api/hooks/useToolPolicies";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { Toggle } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function ActionBadge({ action }: { action: string }) {
   const config: Record<string, { bg: string; color: string; label: string }> = {
@@ -55,6 +56,7 @@ function PolicyCard({
   rule: ToolPolicyRule;
   onPress: () => void;
 }) {
+  const t = useThemeTokens();
   const Icon =
     rule.action === "allow"
       ? ShieldCheck
@@ -82,9 +84,9 @@ function PolicyCard({
         flexDirection: "column",
         gap: 8,
         padding: "16px 20px",
-        background: "#111",
+        background: t.inputBg,
         borderRadius: 10,
-        border: "1px solid #222",
+        border: `1px solid ${t.surfaceOverlay}`,
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
@@ -97,7 +99,7 @@ function PolicyCard({
           style={{
             fontSize: 14,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
             flex: 1,
             fontFamily: "monospace",
           }}
@@ -108,7 +110,7 @@ function PolicyCard({
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: "#666" }}>
+        <span style={{ fontSize: 11, color: t.textDim }}>
           Priority: {rule.priority}
         </span>
         {rule.bot_id ? (
@@ -139,19 +141,19 @@ function PolicyCard({
           </span>
         )}
         {!rule.enabled && (
-          <span style={{ fontSize: 10, color: "#555" }}>disabled</span>
+          <span style={{ fontSize: 10, color: t.textDim }}>disabled</span>
         )}
       </div>
 
       {rule.reason && (
-        <div style={{ fontSize: 12, color: "#888" }}>{rule.reason}</div>
+        <div style={{ fontSize: 12, color: t.textMuted }}>{rule.reason}</div>
       )}
 
       {hasConditions && (
         <div
           style={{
             fontSize: 11,
-            color: "#555",
+            color: t.textDim,
             fontFamily: "monospace",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -166,6 +168,7 @@ function PolicyCard({
 }
 
 function SettingsPanel() {
+  const t = useThemeTokens();
   const { data: policySettings, isLoading } = usePolicySettings();
   const updateMut = useUpdatePolicySettings();
 
@@ -181,7 +184,7 @@ function SettingsPanel() {
     : action === "require_approval" ? "rgba(251,191,36,0.04)"
     : "rgba(34,197,94,0.04)";
   const iconColor =
-    !policySettings.enabled ? "#555"
+    !policySettings.enabled ? t.textDim
     : action === "deny" ? "#ef4444"
     : action === "require_approval" ? "#fbbf24"
     : "#22c55e";
@@ -216,10 +219,10 @@ function SettingsPanel() {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Shield size={18} color={iconColor} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
             Policy Engine {policySettings.enabled ? "Active" : "Disabled"}
           </div>
-          <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
             {description}
           </div>
         </div>
@@ -233,7 +236,7 @@ function SettingsPanel() {
         />
         {policySettings.enabled && (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#888" }}>Default action:</span>
+            <span style={{ fontSize: 12, color: t.textMuted }}>Default action:</span>
             {actions.map((a) => {
               const isActive = action === a.key;
               return (
@@ -248,8 +251,8 @@ function SettingsPanel() {
                     border: "1px solid",
                     cursor: "pointer",
                     background: isActive ? a.activeColor : "transparent",
-                    borderColor: isActive ? a.borderActive : "#333",
-                    color: isActive ? a.color : "#666",
+                    borderColor: isActive ? a.borderActive : t.surfaceBorder,
+                    color: isActive ? a.color : t.textDim,
                   }}
                 >
                   {a.label}
@@ -264,6 +267,7 @@ function SettingsPanel() {
 }
 
 export default function ToolPoliciesScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: rules, isLoading } = useToolPolicies();
   const { data: policySettings } = usePolicySettings();
@@ -292,7 +296,7 @@ export default function ToolPoliciesScreen() {
               gap: 6,
               padding: "6px 14px",
               borderRadius: 6,
-              background: "#3b82f6",
+              background: t.accent,
               border: "none",
               cursor: "pointer",
               fontSize: 13,
@@ -319,15 +323,15 @@ export default function ToolPoliciesScreen() {
               border: "1px solid rgba(59,130,246,0.1)",
               marginBottom: 16,
               fontSize: 12,
-              color: "#888",
+              color: t.textMuted,
               lineHeight: 1.6,
             }}
           >
             <div style={{ fontWeight: 700, color: "#93c5fd", marginBottom: 4 }}>How it works</div>
             When a bot tries to call a tool, the policy engine evaluates rules in priority order
-            (lowest number first). The <strong style={{ color: "#e5e5e5" }}>first matching rule wins</strong>.
+            (lowest number first). The <strong style={{ color: t.text }}>first matching rule wins</strong>.
             Bot-specific rules take precedence over global rules at the same priority.
-            If no rule matches, the <strong style={{ color: "#e5e5e5" }}>default action</strong> above applies.
+            If no rule matches, the <strong style={{ color: t.text }}>default action</strong> above applies.
             <div style={{ marginTop: 8 }}>
               <strong style={{ color: "#86efac" }}>Allow</strong> — tool call proceeds normally.{" "}
               <strong style={{ color: "#fca5a5" }}>Deny</strong> — blocked, bot sees an error.{" "}
@@ -345,7 +349,7 @@ export default function ToolPoliciesScreen() {
                 <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
                 <strong>Default is {defaultAction === "deny" ? "DENY" : "REQUIRE APPROVAL"} and you have no rules.</strong>{" "}
                 {defaultAction === "deny" ? "All bot tool calls will be blocked." : "All bot tool calls will require human approval."}
-                {" "}Create an <strong>allow</strong> rule (e.g. tool name <code style={{ background: "#222", padding: "1px 4px", borderRadius: 3 }}>*</code> for a specific bot) to unblock.
+                {" "}Create an <strong>allow</strong> rule (e.g. tool name <code style={{ background: t.surfaceOverlay, padding: "1px 4px", borderRadius: 3 }}>*</code> for a specific bot) to unblock.
               </div>
             )}
           </div>
@@ -362,7 +366,7 @@ export default function ToolPoliciesScreen() {
               <span style={{ fontSize: 12, color: "#fde68a" }}>
                 {approvalRules.length} require approval
               </span>
-              <span style={{ fontSize: 12, color: "#555" }}>
+              <span style={{ fontSize: 12, color: t.textDim }}>
                 {rules.length} total rules
               </span>
             </div>
@@ -370,7 +374,7 @@ export default function ToolPoliciesScreen() {
 
           {isLoading ? (
             <View className="items-center justify-center py-20">
-              <ActivityIndicator color="#3b82f6" />
+              <ActivityIndicator color={t.accent} />
             </View>
           ) : (
             <div
@@ -396,7 +400,7 @@ export default function ToolPoliciesScreen() {
                   style={{
                     padding: 40,
                     textAlign: "center",
-                    color: "#555",
+                    color: t.textDim,
                     fontSize: 14,
                   }}
                 >

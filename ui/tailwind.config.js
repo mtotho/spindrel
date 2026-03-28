@@ -11,20 +11,20 @@ module.exports = {
     extend: {
       colors: {
         surface: {
-          DEFAULT: "#111111",
-          raised: "#1a1a1a",
-          overlay: "#222222",
-          border: "#333333",
+          DEFAULT: "rgb(var(--color-surface) / <alpha-value>)",
+          raised: "rgb(var(--color-surface-raised) / <alpha-value>)",
+          overlay: "rgb(var(--color-surface-overlay) / <alpha-value>)",
+          border: "rgb(var(--color-surface-border) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#3b82f6",
-          hover: "#2563eb",
-          muted: "#1e3a5f",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
+          muted: "rgb(var(--color-accent-muted) / <alpha-value>)",
         },
         text: {
-          DEFAULT: "#e5e5e5",
-          muted: "#999999",
-          dim: "#666666",
+          DEFAULT: "rgb(var(--color-text) / <alpha-value>)",
+          muted: "rgb(var(--color-text-muted) / <alpha-value>)",
+          dim: "rgb(var(--color-text-dim) / <alpha-value>)",
         },
       },
     },

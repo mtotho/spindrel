@@ -1,5 +1,6 @@
 import { View, Text, Platform } from "react-native";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
+import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import type { Message, AttachmentBrief } from "../../types/api";
 
@@ -114,62 +115,66 @@ function parseInline(text: string): InlineNode[] {
   return nodes;
 }
 
-function renderInlineNodes(nodes: InlineNode[]) {
-  return nodes.map((n, i) => {
-    if (typeof n === "string") {
-      const parts = n.split("\n");
-      return parts.map((p, j) => (
-        <span key={`${i}-${j}`}>
-          {p}
-          {j < parts.length - 1 && <br />}
-        </span>
-      ));
-    }
-    switch (n.tag) {
-      case "code":
-        return (
-          <code
-            key={i}
-            style={{
-              fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-              fontSize: "0.85em",
-              background: "rgba(255,255,255,0.06)",
-              padding: "2px 6px",
-              borderRadius: 4,
-              color: "#e06c75",
-              border: "1px solid rgba(255,255,255,0.06)",
-            }}
-          >
-            {n.content}
-          </code>
-        );
-      case "bold":
-        return <strong key={i}>{n.content}</strong>;
-      case "italic":
-        return <em key={i}>{n.content}</em>;
-      case "strike":
-        return <s key={i}>{n.content}</s>;
-      case "link":
-        return (
-          <a
-            key={i}
-            href={n.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#5b9bd5", textDecoration: "none" }}
-            onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
-            onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
-          >
-            {n.content}
-          </a>
-        );
-      default:
-        return <span key={i}>{n.content}</span>;
-    }
-  });
+function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ReturnType<typeof useThemeTokens> }) {
+  return (
+    <>
+      {nodes.map((n, i) => {
+        if (typeof n === "string") {
+          const parts = n.split("\n");
+          return parts.map((p, j) => (
+            <span key={`${i}-${j}`}>
+              {p}
+              {j < parts.length - 1 && <br />}
+            </span>
+          ));
+        }
+        switch (n.tag) {
+          case "code":
+            return (
+              <code
+                key={i}
+                style={{
+                  fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                  fontSize: "0.85em",
+                  background: t.codeBg,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  color: t.codeText,
+                  border: `1px solid ${t.codeBorder}`,
+                }}
+              >
+                {n.content}
+              </code>
+            );
+          case "bold":
+            return <strong key={i}>{n.content}</strong>;
+          case "italic":
+            return <em key={i}>{n.content}</em>;
+          case "strike":
+            return <s key={i}>{n.content}</s>;
+          case "link":
+            return (
+              <a
+                key={i}
+                href={n.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: t.linkColor, textDecoration: "none" }}
+                onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
+                onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
+              >
+                {n.content}
+              </a>
+            );
+          default:
+            return <span key={i}>{n.content}</span>;
+        }
+      })}
+    </>
+  );
 }
 
-function MarkdownContent({ text }: { text: string }) {
+function MarkdownContent({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
   const blocks: { type: "code" | "text"; content: string; lang?: string }[] = [];
   const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
   let last = 0;
@@ -184,7 +189,7 @@ function MarkdownContent({ text }: { text: string }) {
   if (last < text.length) blocks.push({ type: "text", content: text.slice(last) });
 
   return (
-    <div style={{ fontSize: 15, lineHeight: "1.6", color: "#d1d5db" }}>
+    <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
           return (
@@ -193,10 +198,10 @@ function MarkdownContent({ text }: { text: string }) {
               style={{
                 fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
                 fontSize: 13,
-                background: "#1a1a1e",
+                background: t.codeBg,
                 padding: "12px 16px",
                 borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.06)",
+                border: `1px solid ${t.codeBorder}`,
                 overflowX: "auto",
                 margin: "8px 0",
                 whiteSpace: "pre-wrap",
@@ -210,7 +215,7 @@ function MarkdownContent({ text }: { text: string }) {
         }
         const nodes = parseInline(block.content);
         return (
-          <span key={i}>{renderInlineNodes(nodes)}</span>
+          <span key={i}><InlineRenderer nodes={nodes} t={t} /></span>
         );
       })}
     </div>
@@ -221,7 +226,7 @@ function MarkdownContent({ text }: { text: string }) {
 // Attachment rendering (web only)
 // ---------------------------------------------------------------------------
 
-function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
+function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; t: ReturnType<typeof useThemeTokens> }) {
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const token = getAuthToken();
   const images = attachments.filter(
@@ -262,12 +267,12 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
             alignItems: "center",
             gap: 8,
             fontSize: 13,
-            color: "#999",
+            color: t.textMuted,
           }}
         >
           <span style={{ fontSize: 14 }}>📎</span>
           <span>{f.filename}</span>
-          <span style={{ color: "#666" }}>
+          <span style={{ color: t.textDim }}>
             ({(f.size_bytes / 1024).toFixed(1)} KB)
           </span>
         </div>
@@ -282,6 +287,7 @@ function AttachmentImages({ attachments }: { attachments: AttachmentBrief[] }) {
 
 export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isWeb = Platform.OS === "web";
+  const t = useThemeTokens();
   const meta = message.metadata || {};
   // Always strip Slack prefix from content (handles both new and legacy messages)
   const { slackUserId, cleaned: displayContent } = parseSlackPrefix(message.content || "");
@@ -293,16 +299,16 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const messageContent = isWeb ? (
     <>
       {displayContent.length > 0 && (
-        <MarkdownContent text={displayContent} />
+        <MarkdownContent text={displayContent} t={t} />
       )}
       {message.attachments && message.attachments.length > 0 && (
-        <AttachmentImages attachments={message.attachments} />
+        <AttachmentImages attachments={message.attachments} t={t} />
       )}
     </>
   ) : (
     <Text
       className="text-[15px] leading-relaxed"
-      style={{ color: "#d1d5db" }}
+      style={{ color: t.contentText }}
       selectable
     >
       {displayContent}
@@ -357,16 +363,16 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
             style={{
               fontSize: 15,
               fontWeight: "700",
-              color: isUser ? "#e5e5e5" : avatarColor(displayName),
+              color: isUser ? t.text : avatarColor(displayName),
             }}
           >
             {displayName}
           </Text>
-          <Text style={{ fontSize: 12, color: "#555555" }}>
+          <Text style={{ fontSize: 12, color: t.textDim }}>
             {timestamp}
           </Text>
           {sourceLabel && (
-            <Text style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+            <Text style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
               {sourceLabel}
             </Text>
           )}

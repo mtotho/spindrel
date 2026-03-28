@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useTrace, type TraceEvent } from "@/src/api/hooks/useLogs";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Colors
@@ -117,6 +118,7 @@ function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailR
 // Main
 // ---------------------------------------------------------------------------
 export default function TraceScreen() {
+  const t = useThemeTokens();
   const { correlationId } = useLocalSearchParams<{ correlationId: string }>();
   const goBack = useGoBack("/admin/logs");
   const { width } = useWindowDimensions();
@@ -147,7 +149,7 @@ export default function TraceScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -166,14 +168,14 @@ export default function TraceScreen() {
       <div style={{
         display: "flex", alignItems: "center", gap: 12,
         padding: isMobile ? "10px 12px" : "12px 20px",
-        borderBottom: "1px solid #2a2a2a",
+        borderBottom: `1px solid ${t.surfaceOverlay}`,
       }}>
         <Pressable onPress={goBack} style={{ padding: 4 }}>
-          <ArrowLeft size={18} color="#999" />
+          <ArrowLeft size={18} color={t.textMuted} />
         </Pressable>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Request Trace</div>
-          <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Request Trace</div>
+          <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
             {correlationId}
           </div>
         </div>
@@ -182,8 +184,8 @@ export default function TraceScreen() {
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
-            background: copied ? "rgba(34,197,94,0.15)" : "#1a1a1a",
-            color: copied ? "#22c55e" : "#999", fontSize: 12,
+            background: copied ? "rgba(34,197,94,0.15)" : t.surfaceRaised,
+            color: copied ? "#22c55e" : t.textMuted, fontSize: 12,
           }}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -194,19 +196,19 @@ export default function TraceScreen() {
       {/* Metadata bar */}
       <div style={{
         display: "flex", gap: 16, padding: isMobile ? "8px 12px" : "8px 20px",
-        borderBottom: "1px solid #1a1a1a", flexWrap: "wrap", fontSize: 12,
+        borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", fontSize: 12,
       }}>
         {data.bot_id && (
-          <span><span style={{ color: "#555" }}>Bot: </span><span style={{ color: "#999" }}>{data.bot_id}</span></span>
+          <span><span style={{ color: t.textDim }}>Bot: </span><span style={{ color: t.textMuted }}>{data.bot_id}</span></span>
         )}
         {data.session_id && (
-          <span><span style={{ color: "#555" }}>Session: </span><span style={{ color: "#999", fontFamily: "monospace", fontSize: 11 }}>{data.session_id.substring(0, 12)}...</span></span>
+          <span><span style={{ color: t.textDim }}>Session: </span><span style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>{data.session_id.substring(0, 12)}...</span></span>
         )}
         {data.client_id && (
-          <span><span style={{ color: "#555" }}>Client: </span><span style={{ color: "#999" }}>{data.client_id}</span></span>
+          <span><span style={{ color: t.textDim }}>Client: </span><span style={{ color: t.textMuted }}>{data.client_id}</span></span>
         )}
         {data.time_range_start && data.time_range_end && (
-          <span><span style={{ color: "#555" }}>Duration: </span><span style={{ color: "#999" }}>
+          <span><span style={{ color: t.textDim }}>Duration: </span><span style={{ color: t.textMuted }}>
             {fmtTime(data.time_range_start)} — {fmtTime(data.time_range_end)}
           </span></span>
         )}
@@ -216,7 +218,7 @@ export default function TraceScreen() {
       <ScrollView className="flex-1" contentContainerStyle={{ padding: isMobile ? 12 : 20 }}>
         <div style={{
           position: "relative", paddingLeft: 24,
-          borderLeft: "2px solid #2a2a2a", marginLeft: 8,
+          borderLeft: `2px solid ${t.surfaceOverlay}`, marginLeft: 8,
         }}>
           {data.events.map((ev, i) => (
             <TimelineEvent key={i} event={ev} isMobile={isMobile} />
@@ -231,11 +233,12 @@ export default function TraceScreen() {
 // Timeline event card
 // ---------------------------------------------------------------------------
 function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: boolean }) {
+  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   const evType = getEventType(ev);
   const label = getEventLabel(ev);
-  const dotColor = DOT_COLORS[evType] ?? "#666";
-  const badge = BADGE_COLORS[evType] ?? { bg: "#333", fg: "#999" };
+  const dotColor = DOT_COLORS[evType] ?? t.textDim;
+  const badge = BADGE_COLORS[evType] ?? { bg: t.surfaceBorder, fg: t.textMuted };
   const isMessage = ev.kind === "message";
   const isExpandable = !isMessage && !!(ev.arguments || ev.result || ev.error || ev.data);
 
@@ -249,7 +252,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           position: "absolute", left: -30, top: 10,
           width: 10, height: 10, borderRadius: 5,
           background: isUser ? "#818cf8" : "#86efac",
-          border: "2px solid #0a0a0a",
+          border: `2px solid ${t.surface}`,
         }} />
         <div style={{
           background: isUser ? "rgba(99,102,241,0.08)" : "rgba(34,197,94,0.06)",
@@ -260,7 +263,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
             <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? "#a5b4fc" : "#86efac" }}>
               {isUser ? "User" : "Assistant"}
             </span>
-            <span style={{ fontSize: 10, color: "#555" }}>{fmtTime(ev.created_at)}</span>
+            <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
           </div>
           <div style={{
             fontSize: 13, color: "#d4d4d4", whiteSpace: "pre-wrap", wordBreak: "break-word",
@@ -271,7 +274,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           {(ev.content?.length ?? 0) > 400 && (
             <button
               onClick={() => setExpanded(!expanded)}
-              style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 11, marginTop: 4 }}
+              style={{ background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 11, marginTop: 4 }}
             >
               {expanded ? "Show less" : "Show more..."}
             </button>
@@ -288,11 +291,11 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
       <div style={{
         position: "absolute", left: -30, top: 10,
         width: 10, height: 10, borderRadius: 5,
-        background: dotColor, border: "2px solid #0a0a0a",
+        background: dotColor, border: `2px solid ${t.surface}`,
       }} />
 
       <div style={{
-        background: "#111", border: "1px solid #2a2a2a", borderRadius: 8,
+        background: t.inputBg, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
         overflow: "hidden",
       }}>
         {/* Header row */}
@@ -312,19 +315,19 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           </span>
 
           {/* Label + inline metadata */}
-          <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#e5e5e5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {label}
-            {ev.count != null && <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>({ev.count} items)</span>}
+            {ev.count != null && <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>({ev.count} items)</span>}
             {ev.kind === "tool_call" && ev.tool_type && (
-              <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>[{ev.tool_type}]</span>
+              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>[{ev.tool_type}]</span>
             )}
             {evType === "context_compressed" && ev.data && (
-              <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>
+              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>
                 {ev.data.original_chars ?? "?"}→{ev.data.compressed_chars ?? "?"} chars
               </span>
             )}
             {evType === "token_usage" && ev.data && (
-              <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>
+              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>
                 {ev.data.prompt_tokens ?? "?"}+{ev.data.completion_tokens ?? "?"}={ev.data.total_tokens ?? "?"}
               </span>
             )}
@@ -333,13 +336,13 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           {/* Duration + time */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             {ev.duration_ms != null && (
-              <span style={{ fontSize: 10, color: "#666" }}>{fmtDuration(ev.duration_ms)}</span>
+              <span style={{ fontSize: 10, color: t.textDim }}>{fmtDuration(ev.duration_ms)}</span>
             )}
-            <span style={{ fontSize: 10, color: "#555" }}>{fmtTime(ev.created_at)}</span>
+            <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
             {isExpandable && (
               expanded
-                ? <ChevronDown size={14} color="#555" />
-                : <ChevronRight size={14} color="#555" />
+                ? <ChevronDown size={14} color={t.textDim} />
+                : <ChevronRight size={14} color={t.textDim} />
             )}
           </div>
         </div>
@@ -348,7 +351,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         {ev.error && (
           <div style={{
             background: "rgba(127,29,29,0.2)", padding: "6px 12px",
-            fontSize: 12, color: "#fca5a5", borderTop: "1px solid #2a2a2a",
+            fontSize: 12, color: "#fca5a5", borderTop: `1px solid ${t.surfaceOverlay}`,
           }}>
             {ev.error}
           </div>
@@ -359,26 +362,26 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           <div style={{ borderTop: "1px solid #2a2a2a" }}>
             {ev.arguments && Object.keys(ev.arguments).length > 0 && (
               <DetailSection title="Arguments">
-                <pre style={{ fontSize: 11, color: "#999", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
+                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
                   {JSON.stringify(ev.arguments, null, 2)}
                 </pre>
               </DetailSection>
             )}
             {ev.result && (
               <DetailSection title="Result">
-                <pre style={{ fontSize: 11, color: "#999", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
+                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
                   {ev.result}
                 </pre>
               </DetailSection>
             )}
             {ev.data && evType === "context_breakdown" && Array.isArray(ev.data.breakdown) ? (
               <DetailSection title="Context Breakdown">
-                <table style={{ fontSize: 11, color: "#999", borderCollapse: "collapse", width: "100%" }}>
+                <table style={{ fontSize: 11, color: t.textMuted, borderCollapse: "collapse", width: "100%" }}>
                   <thead>
                     <tr>
-                      <th style={{ textAlign: "left", padding: "2px 8px", color: "#666", fontWeight: 600 }}>Role</th>
-                      <th style={{ textAlign: "right", padding: "2px 8px", color: "#666", fontWeight: 600 }}>Msgs</th>
-                      <th style={{ textAlign: "right", padding: "2px 8px", color: "#666", fontWeight: 600 }}>Chars</th>
+                      <th style={{ textAlign: "left", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Role</th>
+                      <th style={{ textAlign: "right", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Msgs</th>
+                      <th style={{ textAlign: "right", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Chars</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -394,7 +397,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
               </DetailSection>
             ) : ev.data && (
               <DetailSection title="Data">
-                <pre style={{ fontSize: 11, color: "#999", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
+                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
                   {JSON.stringify(ev.data, null, 2)}
                 </pre>
               </DetailSection>
@@ -407,9 +410,10 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
 }
 
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const t = useThemeTokens();
   return (
-    <div style={{ padding: "8px 12px", borderBottom: "1px solid #1a1a1a" }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+    <div style={{ padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}` }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
         {title}
       </div>
       {children}

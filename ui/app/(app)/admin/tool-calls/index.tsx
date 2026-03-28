@@ -18,6 +18,7 @@ import {
   Toggle,
   TabBar,
 } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function ToolTypeBadge({ type }: { type: string }) {
   const config: Record<string, { bg: string; color: string }> = {
@@ -43,6 +44,7 @@ function ToolTypeBadge({ type }: { type: string }) {
 }
 
 function ToolCallRow({ call }: { call: ToolCallItem }) {
+  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   const hasError = !!call.error;
   const createdAt = new Date(call.created_at).toLocaleString();
@@ -55,9 +57,9 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         flexDirection: "column",
         gap: 6,
         padding: "12px 16px",
-        background: "#111",
+        background: t.inputBg,
         borderRadius: 8,
-        border: hasError ? "1px solid rgba(239,68,68,0.2)" : "1px solid #222",
+        border: hasError ? "1px solid rgba(239,68,68,0.2)" : `1px solid ${t.surfaceOverlay}`,
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
@@ -67,13 +69,13 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         {hasError ? (
           <AlertTriangle size={14} color="#ef4444" />
         ) : (
-          <Wrench size={14} color="#666" />
+          <Wrench size={14} color={t.textDim} />
         )}
         <span
           style={{
             fontSize: 13,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
             fontFamily: "monospace",
             flex: 1,
           }}
@@ -82,7 +84,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         </span>
         <ToolTypeBadge type={call.tool_type} />
         {call.duration_ms != null && (
-          <span style={{ fontSize: 11, color: "#555", display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ fontSize: 11, color: t.textDim, display: "flex", alignItems: "center", gap: 3 }}>
             <Clock size={10} /> {call.duration_ms}ms
           </span>
         )}
@@ -97,11 +99,11 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         }}
       >
         {call.bot_id && (
-          <span style={{ fontSize: 11, color: "#888" }}>
+          <span style={{ fontSize: 11, color: t.textMuted }}>
             bot:{call.bot_id}
           </span>
         )}
-        <span style={{ fontSize: 11, color: "#555" }}>{createdAt}</span>
+        <span style={{ fontSize: 11, color: t.textDim }}>{createdAt}</span>
         {hasError && (
           <span style={{ fontSize: 11, color: "#fca5a5" }}>
             {call.error}
@@ -119,17 +121,17 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
           }}
         >
           <div>
-            <div style={{ fontSize: 10, color: "#666", marginBottom: 2 }}>
+            <div style={{ fontSize: 10, color: t.textDim, marginBottom: 2 }}>
               Arguments
             </div>
             <pre
               style={{
                 padding: "8px 12px",
                 borderRadius: 6,
-                background: "#0a0a0a",
-                border: "1px solid #1a1a1a",
+                background: t.surface,
+                border: `1px solid ${t.surfaceRaised}`,
                 fontSize: 11,
-                color: "#888",
+                color: t.textMuted,
                 fontFamily: "monospace",
                 overflow: "auto",
                 maxHeight: 150,
@@ -143,17 +145,17 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
           </div>
           {call.result && (
             <div>
-              <div style={{ fontSize: 10, color: "#666", marginBottom: 2 }}>
+              <div style={{ fontSize: 10, color: t.textDim, marginBottom: 2 }}>
                 Result
               </div>
               <pre
                 style={{
                   padding: "8px 12px",
                   borderRadius: 6,
-                  background: "#0a0a0a",
-                  border: "1px solid #1a1a1a",
+                  background: t.surface,
+                  border: `1px solid ${t.surfaceRaised}`,
                   fontSize: 11,
-                  color: hasError ? "#fca5a5" : "#888",
+                  color: hasError ? "#fca5a5" : t.textMuted,
                   fontFamily: "monospace",
                   overflow: "auto",
                   maxHeight: 200,
@@ -166,7 +168,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
               </pre>
             </div>
           )}
-          <div style={{ fontSize: 10, color: "#555" }}>
+          <div style={{ fontSize: 10, color: t.textDim }}>
             ID: {call.id}
             {call.session_id && ` | Session: ${call.session_id}`}
             {call.correlation_id && ` | Correlation: ${call.correlation_id}`}
@@ -184,6 +186,7 @@ function StatsPanel({
   botId?: string;
   onDrillDown: (filters: { toolName?: string; botId?: string; errorOnly: boolean }) => void;
 }) {
+  const t = useThemeTokens();
   const [groupBy, setGroupBy] = useState<"tool_name" | "bot_id" | "tool_type">(
     "tool_name"
   );
@@ -206,7 +209,7 @@ function StatsPanel({
       </div>
 
       {isLoading ? (
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {stats?.stats.map((s) => (
@@ -217,15 +220,15 @@ function StatsPanel({
                 alignItems: "center",
                 gap: 12,
                 padding: "8px 12px",
-                background: "#111",
+                background: t.inputBg,
                 borderRadius: 6,
-                border: "1px solid #1a1a1a",
+                border: `1px solid ${t.surfaceRaised}`,
               }}
             >
               <span
                 style={{
                   fontSize: 13,
-                  color: "#e5e5e5",
+                  color: t.text,
                   fontFamily: "monospace",
                   flex: 1,
                 }}
@@ -254,7 +257,7 @@ function StatsPanel({
               >
                 {s.count} calls <ExternalLink size={10} />
               </button>
-              <span style={{ fontSize: 12, color: "#666" }}>
+              <span style={{ fontSize: 12, color: t.textDim }}>
                 avg {s.avg_duration_ms}ms
               </span>
               {s.error_count > 0 && (
@@ -285,7 +288,7 @@ function StatsPanel({
             </div>
           ))}
           {stats?.stats.length === 0 && (
-            <div style={{ padding: 20, textAlign: "center", color: "#555", fontSize: 13 }}>
+            <div style={{ padding: 20, textAlign: "center", color: t.textDim, fontSize: 13 }}>
               No data yet.
             </div>
           )}
@@ -296,6 +299,7 @@ function StatsPanel({
 }
 
 export default function ToolCallsScreen() {
+  const t = useThemeTokens();
   const [tab, setTab] = useState("calls");
   const [botId, setBotId] = useState("");
   const [toolName, setToolName] = useState("");
@@ -383,9 +387,9 @@ export default function ToolCallsScreen() {
                     }}
                     style={{
                       fontSize: 12,
-                      color: "#888",
-                      background: "#1a1a1a",
-                      border: "1px solid #333",
+                      color: t.textMuted,
+                      background: t.surfaceRaised,
+                      border: `1px solid ${t.surfaceBorder}`,
                       borderRadius: 5,
                       padding: "6px 12px",
                       cursor: "pointer",
@@ -417,7 +421,7 @@ export default function ToolCallsScreen() {
               {/* Results */}
               {isLoading ? (
                 <View className="items-center justify-center py-20">
-                  <ActivityIndicator color="#3b82f6" />
+                  <ActivityIndicator color={t.accent} />
                 </View>
               ) : (
                 <div
@@ -435,7 +439,7 @@ export default function ToolCallsScreen() {
                       style={{
                         padding: 40,
                         textAlign: "center",
-                        color: "#555",
+                        color: t.textDim,
                         fontSize: 14,
                       }}
                     >

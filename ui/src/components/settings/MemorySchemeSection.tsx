@@ -9,6 +9,7 @@ import { Check, ChevronDown, HelpCircle, Save, X } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSettings, useUpdateSettings } from "@/src/api/hooks/useSettings";
 import { apiFetch } from "@/src/api/client";
+import { useThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Constants (shared with MemoryKnowledgeSections.tsx in bot editor)
@@ -130,6 +131,7 @@ HOW IT WORKS
 // ---------------------------------------------------------------------------
 
 function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
+  const t = useThemeTokens();
   return (
     <div
       onClick={onClose}
@@ -143,23 +145,23 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
       <div
         onClick={(e: any) => e.stopPropagation()}
         style={{
-          background: "#0a0a0a", border: "1px solid #2a2a2a",
+          background: t.surface, border: `1px solid ${t.surfaceOverlay}`,
           borderRadius: 12, maxWidth: 780, width: "100%",
           maxHeight: "90vh", overflow: "auto",
         }}
       >
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 18px", borderBottom: "1px solid #1a1a1a",
+          padding: "14px 18px", borderBottom: `1px solid ${t.surfaceRaised}`,
         }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
             Workspace Files Memory — Architecture
           </span>
           <button
             onClick={onClose}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              color: "#666", padding: 4,
+              color: t.textDim, padding: 4,
             }}
           >
             <X size={16} />
@@ -167,7 +169,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
         </div>
         <pre style={{
           margin: 0, padding: "16px 20px",
-          fontSize: 11, lineHeight: 1.6, color: "#999",
+          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
           fontFamily: "monospace", whiteSpace: "pre",
           overflowX: "auto",
         }}>{ARCHITECTURE_DIAGRAM}</pre>
@@ -223,6 +225,7 @@ function useDisableAllMemoryScheme() {
 // ---------------------------------------------------------------------------
 
 export function MemorySchemeSection() {
+  const t = useThemeTokens();
   const { data: bots, isLoading } = useAdminBots();
   const enableAll = useEnableAllMemoryScheme();
   const disableAll = useDisableAllMemoryScheme();
@@ -299,14 +302,14 @@ export function MemorySchemeSection() {
       {/* Header with help button */}
       <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontSize: 14, fontWeight: "700", color: "#e5e5e5" }}>
+          <Text style={{ fontSize: 14, fontWeight: "700", color: t.text }}>
             Workspace Files Memory
           </Text>
           <Pressable onPress={() => setShowHelp(true)} style={{ padding: 2 }}>
-            <HelpCircle size={15} color="#555" />
+            <HelpCircle size={15} color={t.textDim} />
           </Pressable>
         </View>
-        <Text style={{ fontSize: 12, color: "#666" }}>
+        <Text style={{ fontSize: 12, color: t.textDim }}>
           File-based memory with daily logs, curated MEMORY.md, and reference docs.
           Replaces DB memory/knowledge tools when active.
         </Text>
@@ -314,14 +317,14 @@ export function MemorySchemeSection() {
       {showHelp && <ArchitectureOverlay onClose={() => setShowHelp(false)} />}
 
       {isLoading ? (
-        <ActivityIndicator color="#3b82f6" style={{ alignSelf: "flex-start" }} />
+        <ActivityIndicator color={t.accent} style={{ alignSelf: "flex-start" }} />
       ) : (
         <View style={{ gap: 14 }}>
             {/* Status summary */}
             <View style={{
               flexDirection: "row", alignItems: "center", gap: 12,
-              backgroundColor: "#111", borderRadius: 8,
-              borderWidth: 1, borderColor: "#222",
+              backgroundColor: t.inputBg, borderRadius: 8,
+              borderWidth: 1, borderColor: t.surfaceOverlay,
               padding: 14,
             }}>
               <View style={{
@@ -331,20 +334,20 @@ export function MemorySchemeSection() {
               }}>
                 <Text style={{
                   fontSize: 16, fontWeight: "700",
-                  color: allEnabled ? "#c4b5fd" : noneEnabled ? "#666" : "#a78bfa",
+                  color: allEnabled ? "#c4b5fd" : noneEnabled ? t.textDim : "#a78bfa",
                 }}>
                   {enabledCount}
                 </Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, color: "#e5e5e5", fontWeight: "500" }}>
+                <Text style={{ fontSize: 13, color: t.text, fontWeight: "500" }}>
                   {allEnabled
                     ? "All bots using workspace files"
                     : noneEnabled
                     ? "No bots using workspace files"
                     : `${enabledCount} of ${totalCount} bots using workspace files`}
                 </Text>
-                <Text style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                <Text style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
                   {allEnabled
                     ? "DB memory and knowledge tools are hidden for all bots"
                     : noneEnabled
@@ -357,8 +360,8 @@ export function MemorySchemeSection() {
             {/* Per-bot status list */}
             {bots && bots.length > 0 && (
               <View style={{
-                backgroundColor: "#0d0d0d", borderRadius: 8,
-                borderWidth: 1, borderColor: "#1a1a1a",
+                backgroundColor: t.surface, borderRadius: 8,
+                borderWidth: 1, borderColor: t.surfaceRaised,
                 overflow: "hidden",
               }}>
                 {bots.map((bot, i) => {
@@ -370,23 +373,23 @@ export function MemorySchemeSection() {
                         flexDirection: "row", alignItems: "center",
                         paddingVertical: 8, paddingHorizontal: 14,
                         borderTopWidth: i > 0 ? 1 : 0,
-                        borderTopColor: "#1a1a1a",
+                        borderTopColor: t.surfaceRaised,
                       }}
                     >
                       <View style={{
                         width: 8, height: 8, borderRadius: 4,
-                        backgroundColor: enabled ? "#a855f7" : "#333",
+                        backgroundColor: enabled ? "#a855f7" : t.surfaceBorder,
                         marginRight: 10,
                       }} />
                       <Text style={{
                         flex: 1, fontSize: 12,
-                        color: enabled ? "#ccc" : "#666",
+                        color: enabled ? t.text : t.textDim,
                       }}>
                         {bot.name}
                       </Text>
                       <Text style={{
                         fontSize: 10, fontWeight: "600",
-                        color: enabled ? "#a78bfa" : "#444",
+                        color: enabled ? "#a78bfa" : t.surfaceBorder,
                       }}>
                         {enabled ? "workspace-files" : "database"}
                       </Text>
@@ -403,10 +406,10 @@ export function MemorySchemeSection() {
                 disabled={isBusy || allEnabled}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: allEnabled ? "#1a1a1a" : "rgba(168,85,247,0.15)",
+                  backgroundColor: allEnabled ? t.surfaceRaised : "rgba(168,85,247,0.15)",
                   paddingHorizontal: 14, paddingVertical: 8,
                   borderRadius: 8, borderWidth: 1,
-                  borderColor: allEnabled ? "#222" : "rgba(168,85,247,0.3)",
+                  borderColor: allEnabled ? t.surfaceOverlay : "rgba(168,85,247,0.3)",
                   opacity: isBusy || allEnabled ? 0.5 : 1,
                 }}
               >
@@ -417,7 +420,7 @@ export function MemorySchemeSection() {
                 ) : null}
                 <Text style={{
                   fontSize: 12, fontWeight: "600",
-                  color: allEnabled ? "#555" : "#c4b5fd",
+                  color: allEnabled ? t.textDim : "#c4b5fd",
                 }}>
                   {justEnabled ? "Enabled" : "Enable All Bots"}
                 </Text>
@@ -428,19 +431,19 @@ export function MemorySchemeSection() {
                 disabled={isBusy || noneEnabled}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: t.surfaceRaised,
                   paddingHorizontal: 14, paddingVertical: 8,
-                  borderRadius: 8, borderWidth: 1, borderColor: "#333",
+                  borderRadius: 8, borderWidth: 1, borderColor: t.surfaceBorder,
                   opacity: isBusy || noneEnabled ? 0.5 : 1,
                 }}
               >
                 {disableAll.isPending ? (
-                  <ActivityIndicator size="small" color="#888" />
+                  <ActivityIndicator size="small" color={t.textMuted} />
                 ) : justDisabled ? (
-                  <Check size={14} color="#888" />
+                  <Check size={14} color={t.textMuted} />
                 ) : null}
                 <Text style={{
-                  fontSize: 12, fontWeight: "600", color: noneEnabled ? "#444" : "#999",
+                  fontSize: 12, fontWeight: "600", color: noneEnabled ? t.surfaceBorder : t.textMuted,
                 }}>
                   {justDisabled ? "Disabled" : "Disable All"}
                 </Text>
@@ -449,8 +452,8 @@ export function MemorySchemeSection() {
 
             {/* System prompt — view built-in or edit custom override */}
             <View style={{
-              backgroundColor: "#0a0a0a", borderRadius: 8,
-              borderWidth: 1, borderColor: "#1a1a1a",
+              backgroundColor: t.surface, borderRadius: 8,
+              borderWidth: 1, borderColor: t.surfaceRaised,
               overflow: "hidden",
             }}>
               <Pressable
@@ -462,10 +465,10 @@ export function MemorySchemeSection() {
               >
                 <ChevronDown
                   size={14}
-                  color="#888"
+                  color={t.textMuted}
                   style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
                 />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: "#888" }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: t.textMuted }}>
                   System Prompt
                 </Text>
                 <View style={{
@@ -489,9 +492,9 @@ export function MemorySchemeSection() {
                       value={useCustomPrompt}
                       onValueChange={handleToggleCustom}
                       trackColor={{ false: "#374151", true: "#92400e" }}
-                      thumbColor="#e5e5e5"
+                      thumbColor={t.text}
                     />
-                    <Text style={{ fontSize: 11, color: useCustomPrompt ? "#f59e0b" : "#666" }}>
+                    <Text style={{ fontSize: 11, color: useCustomPrompt ? "#f59e0b" : t.textDim }}>
                       Use custom prompt (not recommended)
                     </Text>
                   </Pressable>
@@ -503,10 +506,10 @@ export function MemorySchemeSection() {
                         onChange={(e: any) => { setCustomPrompt(e.target.value); setPromptDirty(true); setPromptSaved(false); }}
                         style={{
                           width: "100%", minHeight: 280,
-                          fontSize: 11, lineHeight: "1.7", color: "#ccc",
+                          fontSize: 11, lineHeight: "1.7", color: t.text,
                           fontFamily: "monospace", whiteSpace: "pre-wrap",
-                          background: "#111", borderRadius: 6, padding: 12,
-                          border: "1px solid #2a2a2a", resize: "vertical",
+                          background: t.inputBg, borderRadius: 6, padding: 12,
+                          border: `1px solid ${t.surfaceOverlay}`, resize: "vertical",
                         }}
                       />
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -515,7 +518,7 @@ export function MemorySchemeSection() {
                           disabled={!promptDirty || updateSettings.isPending}
                           style={{
                             flexDirection: "row", alignItems: "center", gap: 6,
-                            backgroundColor: promptDirty ? "#92400e" : "#1a1a1a",
+                            backgroundColor: promptDirty ? "#92400e" : t.surfaceRaised,
                             paddingHorizontal: 12, paddingVertical: 6,
                             borderRadius: 6, opacity: promptDirty ? 1 : 0.5,
                           }}
@@ -535,15 +538,15 @@ export function MemorySchemeSection() {
                           onPress={() => { setCustomPrompt(BUILT_IN_PROMPT); setPromptDirty(true); }}
                           style={{ paddingHorizontal: 8, paddingVertical: 4 }}
                         >
-                          <Text style={{ fontSize: 10, color: "#555" }}>Reset to default</Text>
+                          <Text style={{ fontSize: 10, color: t.textDim }}>Reset to default</Text>
                         </Pressable>
                       </View>
                     </>
                   ) : (
                     <pre style={{
-                      margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
+                      margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                       fontFamily: "monospace", whiteSpace: "pre-wrap",
-                      background: "#111", borderRadius: 6, padding: 12,
+                      background: t.inputBg, borderRadius: 6, padding: 12,
                     }}>{BUILT_IN_PROMPT}</pre>
                   )}
                 </View>
@@ -552,8 +555,8 @@ export function MemorySchemeSection() {
 
             {/* Flush prompt override notice */}
             <View style={{
-              backgroundColor: "#0a0a0a", borderRadius: 8,
-              borderWidth: 1, borderColor: "#1a1a1a",
+              backgroundColor: t.surface, borderRadius: 8,
+              borderWidth: 1, borderColor: t.surfaceRaised,
               overflow: "hidden",
             }}>
               <Pressable
@@ -565,10 +568,10 @@ export function MemorySchemeSection() {
               >
                 <ChevronDown
                   size={14}
-                  color="#888"
+                  color={t.textMuted}
                   style={{ transform: showFlush ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
                 />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: "#888" }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: t.textMuted }}>
                   Memory Flush Prompt
                 </Text>
                 <View style={{
@@ -588,9 +591,9 @@ export function MemorySchemeSection() {
                     workspace-files enabled. This prompt is used instead:
                   </Text>
                   <pre style={{
-                    margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
+                    margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                     fontFamily: "monospace", whiteSpace: "pre-wrap",
-                    background: "#111", borderRadius: 6, padding: 12,
+                    background: t.inputBg, borderRadius: 6, padding: 12,
                   }}>{BUILT_IN_FLUSH_PROMPT}</pre>
                 </View>
               )}

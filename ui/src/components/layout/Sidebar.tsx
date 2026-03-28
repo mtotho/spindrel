@@ -19,12 +19,17 @@ import {
   Shield,
   ShieldCheck,
   Activity,
+  HardDrive,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
+import { useThemeStore } from "../../stores/theme";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useWorkspaces } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface NavItem {
   label: string;
@@ -67,6 +72,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
+      { label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },
@@ -77,6 +83,7 @@ const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
 function NavLink({ item, active, mobile }: { item: NavItem; active: boolean; mobile?: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const t = useThemeTokens();
   return (
     <Link href={item.href as any} asChild>
       <Pressable
@@ -85,7 +92,7 @@ function NavLink({ item, active, mobile }: { item: NavItem; active: boolean; mob
           active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
         }`}
       >
-        <Icon size={mobile ? 20 : 16} color={active ? "#3b82f6" : "#666666"} />
+        <Icon size={mobile ? 20 : 16} color={active ? t.accent : t.textDim} />
         <Text
           style={mobile ? { fontSize: 15 } : undefined}
           className={`${mobile ? "" : "text-sm"} ${active ? "text-accent font-medium" : "text-text-muted"}`}
@@ -102,6 +109,7 @@ function NavLink({ item, active, mobile }: { item: NavItem; active: boolean; mob
 function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const t = useThemeTokens();
   return (
     <Link href={item.href as any} asChild>
       <Pressable
@@ -112,7 +120,7 @@ function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
         style={{ width: 44, height: 44 }}
         accessibilityLabel={item.label}
       >
-        <Icon size={18} color={active ? "#3b82f6" : "#666666"} />
+        <Icon size={18} color={active ? t.accent : t.textDim} />
       </Pressable>
     </Link>
   );
@@ -120,13 +128,14 @@ function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
 
 /** Skeleton loading rows for channels */
 function ChannelSkeletons() {
+  const t = useThemeTokens();
   return (
     <View className="gap-1">
       {[1, 2, 3, 4].map((i) => (
         <View key={i} className="flex-row items-center gap-3 px-3 py-2.5">
           <View
             className="rounded animate-pulse"
-            style={{ width: 18, height: 18, backgroundColor: "rgba(255,255,255,0.04)" }}
+            style={{ width: 18, height: 18, backgroundColor: t.skeletonBg }}
           />
           <View className="flex-1 gap-1.5">
             <View
@@ -134,7 +143,7 @@ function ChannelSkeletons() {
               style={{
                 height: 13,
                 width: `${50 + i * 10}%`,
-                backgroundColor: "rgba(255,255,255,0.04)",
+                backgroundColor: t.skeletonBg,
               }}
             />
             <View
@@ -142,13 +151,48 @@ function ChannelSkeletons() {
               style={{
                 height: 10,
                 width: `${30 + i * 8}%`,
-                backgroundColor: "rgba(255,255,255,0.03)",
+                backgroundColor: t.skeletonBg,
               }}
             />
           </View>
         </View>
       ))}
     </View>
+  );
+}
+
+/** Collapsed rail: icon-only theme toggle */
+function ThemeToggleIcon() {
+  const mode = useThemeStore((s) => s.mode);
+  const toggle = useThemeStore((s) => s.toggle);
+  const t = useThemeTokens();
+  return (
+    <Pressable
+      onPress={toggle}
+      className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+      style={{ width: 44, height: 44 }}
+      accessibilityLabel="Toggle theme"
+    >
+      {mode === "dark" ? <Sun size={16} color={t.textDim} /> : <Moon size={16} color={t.textDim} />}
+    </Pressable>
+  );
+}
+
+/** Expanded sidebar: full row with label */
+function ThemeToggleRow() {
+  const mode = useThemeStore((s) => s.mode);
+  const toggle = useThemeStore((s) => s.toggle);
+  const t = useThemeTokens();
+  return (
+    <Pressable
+      onPress={toggle}
+      className="flex-row items-center gap-3 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
+    >
+      {mode === "dark" ? <Sun size={16} color={t.textDim} /> : <Moon size={16} color={t.textDim} />}
+      <Text className="text-sm text-text-muted">
+        {mode === "dark" ? "Light mode" : "Dark mode"}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -161,6 +205,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { data: channels, isLoading: channelsLoading } = useChannels();
   const { data: bots } = useBots();
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
+  const t = useThemeTokens();
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
@@ -178,7 +223,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             style={{ width: 44, height: 44 }}
             accessibilityLabel="Expand sidebar"
           >
-            <ChevronRight size={16} color="#666666" />
+            <ChevronRight size={16} color={t.textDim} />
           </Pressable>
 
           {/* Channels icon */}
@@ -191,7 +236,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Channels"
             >
-              <MessageSquare size={18} color={pathname === "/" ? "#3b82f6" : "#666666"} />
+              <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
             </Pressable>
           </Link>
 
@@ -205,7 +250,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Workspaces"
             >
-              <Container size={18} color={pathname.startsWith("/admin/workspaces") ? "#3b82f6" : "#666666"} />
+              <Container size={18} color={pathname.startsWith("/admin/workspaces") ? t.accent : t.textDim} />
             </Pressable>
           </Link>
 
@@ -224,6 +269,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
         {/* Footer icons */}
         <View className="border-t border-surface-border items-center py-2.5 gap-1">
+          <ThemeToggleIcon />
           <Link href={"/(app)/profile" as any} asChild>
             <Pressable
               onPress={closeMobile}
@@ -246,9 +292,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   // -----------------------------------------------------------------------
   // Expanded sidebar (260px desktop, flex on mobile)
   // -----------------------------------------------------------------------
-  const navPy = mobile ? "py-3" : "py-2";
-  const navIconSize = mobile ? 20 : 16;
-  const channelIconSize = mobile ? 20 : 16;
   const channelPy = mobile ? "py-3" : "py-2";
 
   return (
@@ -258,8 +301,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         <View className="flex-row items-center justify-between px-4 py-4">
           <Link href="/" asChild>
             <Pressable className="flex-row items-center gap-2">
-              <Text style={{ fontSize: 18, lineHeight: 22, color: "#e5e5e5" }}>{"\u{130C5}"}</Text>
-              <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: "#e5e5e5" }}>THOTH</Text>
+              <Text style={{ fontSize: 18, lineHeight: 22, color: t.text }}>{"\u{130C5}"}</Text>
+              <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: t.text }}>THOTH</Text>
             </Pressable>
           </Link>
           <Pressable
@@ -267,7 +310,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 32, height: 32 }}
           >
-            <ChevronLeft size={16} color="#666666" />
+            <ChevronLeft size={16} color={t.textDim} />
           </Pressable>
         </View>
 
@@ -283,7 +326,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                 className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 28, height: 28 }}
               >
-                <Plus size={14} color="#666666" />
+                <Plus size={14} color={t.textDim} />
               </Pressable>
             </Link>
           </View>
@@ -308,9 +351,9 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                     }`}
                   >
                     {channel.private ? (
-                      <Lock size={channelIconSize} color={isActive ? "#3b82f6" : "#555555"} />
+                      <Lock size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
                     ) : (
-                      <Hash size={channelIconSize} color={isActive ? "#3b82f6" : "#555555"} />
+                      <Hash size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
                     )}
                     <View className="flex-1 min-w-0">
                       <Text
@@ -347,7 +390,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                 className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 28, height: 28 }}
               >
-                <Plus size={14} color="#666666" />
+                <Plus size={14} color={t.textDim} />
               </Pressable>
             </Link>
           </View>
@@ -359,7 +402,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               const isActive = pathname.includes(ws.id);
               const statusColor =
                 ws.status === "running" ? "#22c55e" :
-                ws.status === "creating" ? "#3b82f6" : "#555555";
+                ws.status === "creating" ? t.accent : t.textDim;
               return (
                 <Link
                   key={ws.id}
@@ -373,8 +416,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                     }`}
                   >
                     <Container
-                      size={channelIconSize}
-                      color={isActive ? "#3b82f6" : "#555555"}
+                      size={mobile ? 20 : 16}
+                      color={isActive ? t.accent : t.textDim}
                     />
                     <View className="flex-1 min-w-0">
                       <Text
@@ -418,8 +461,9 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         ))}
       </ScrollView>
 
-      {/* Footer — profile */}
+      {/* Footer — theme toggle + profile */}
       <View className="border-t border-surface-border p-2.5 gap-0.5">
+        <ThemeToggleRow />
         <Link href={"/(app)/profile" as any} asChild>
           <Pressable
             onPress={closeMobile}

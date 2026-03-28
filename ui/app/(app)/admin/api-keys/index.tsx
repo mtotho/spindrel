@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Plus, Key } from "lucide-react";
 import { useApiKeys, type ApiKeyItem } from "@/src/api/hooks/useApiKeys";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function ScopeBadge({ scope }: { scope: string }) {
   const isAdmin = scope === "admin";
@@ -32,6 +33,7 @@ function ApiKeyCard({
   apiKey: ApiKeyItem;
   onPress: () => void;
 }) {
+  const t = useThemeTokens();
   const lastUsed = apiKey.last_used_at
     ? new Date(apiKey.last_used_at).toLocaleDateString()
     : "Never";
@@ -44,9 +46,9 @@ function ApiKeyCard({
         flexDirection: "column",
         gap: 8,
         padding: "16px 20px",
-        background: "#111",
+        background: t.inputBg,
         borderRadius: 10,
-        border: "1px solid #222",
+        border: `1px solid ${t.surfaceOverlay}`,
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
@@ -58,7 +60,7 @@ function ApiKeyCard({
           style={{
             fontSize: 14,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
             flex: 1,
           }}
         >
@@ -69,7 +71,7 @@ function ApiKeyCard({
             width: 8,
             height: 8,
             borderRadius: 4,
-            background: apiKey.is_active ? "#22c55e" : "#555",
+            background: apiKey.is_active ? "#22c55e" : t.textDim,
           }}
         />
       </div>
@@ -78,7 +80,7 @@ function ApiKeyCard({
         style={{
           fontFamily: "monospace",
           fontSize: 12,
-          color: "#666",
+          color: t.textDim,
           letterSpacing: 0.5,
         }}
       >
@@ -96,18 +98,19 @@ function ApiKeyCard({
           <ScopeBadge key={s} scope={s} />
         ))}
         {apiKey.scopes.length > 6 && (
-          <span style={{ fontSize: 10, color: "#666" }}>
+          <span style={{ fontSize: 10, color: t.textDim }}>
             +{apiKey.scopes.length - 6} more
           </span>
         )}
       </div>
 
-      <div style={{ fontSize: 11, color: "#555" }}>Last used: {lastUsed}</div>
+      <div style={{ fontSize: 11, color: t.textDim }}>Last used: {lastUsed}</div>
     </button>
   );
 }
 
 export default function ApiKeysScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: apiKeys, isLoading } = useApiKeys();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -127,7 +130,7 @@ export default function ApiKeysScreen() {
               gap: 6,
               padding: "6px 14px",
               borderRadius: 6,
-              background: "#3b82f6",
+              background: t.accent,
               border: "none",
               cursor: "pointer",
               fontSize: 13,
@@ -144,7 +147,7 @@ export default function ApiKeysScreen() {
         <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
           {isLoading ? (
             <View className="items-center justify-center py-20">
-              <ActivityIndicator color="#3b82f6" />
+              <ActivityIndicator color={t.accent} />
             </View>
           ) : (
             <div
@@ -170,7 +173,7 @@ export default function ApiKeysScreen() {
                   style={{
                     padding: 40,
                     textAlign: "center",
-                    color: "#555",
+                    color: t.textDim,
                     fontSize: 14,
                   }}
                 >

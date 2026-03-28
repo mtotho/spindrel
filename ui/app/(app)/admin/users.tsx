@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 interface UserRecord {
   id: string;
@@ -163,6 +164,7 @@ function IntegrationFieldInput({
 // UserRow
 // ---------------------------------------------------------------------------
 function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void }) {
+  const t = useThemeTokens();
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(user.display_name);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || "");
@@ -236,10 +238,10 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
           <Text className="text-text font-medium">{user.email}</Text>
           <View className="flex-row gap-2">
             <Pressable onPress={handleSave} className="p-1.5 rounded bg-accent/20">
-              <Check size={14} color="#3b82f6" />
+              <Check size={14} color={t.accent} />
             </Pressable>
             <Pressable onPress={() => setEditing(false)} className="p-1.5 rounded bg-surface-overlay">
-              <X size={14} color="#999999" />
+              <X size={14} color={t.textMuted} />
             </Pressable>
           </View>
         </View>
@@ -279,7 +281,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
         {user.avatar_url ? (
           <Image source={{ uri: user.avatar_url }} style={{ width: 40, height: 40 }} />
         ) : (
-          <Users size={20} color="#3b82f6" />
+          <Users size={20} color={t.accent} />
         )}
       </View>
       <View className="flex-1 min-w-0">
@@ -303,13 +305,13 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
       </View>
       <View className="flex-row gap-2">
         <Pressable onPress={() => setEditing(true)} className="p-2 rounded hover:bg-surface-overlay">
-          <Pencil size={14} color="#999999" />
+          <Pencil size={14} color={t.textMuted} />
         </Pressable>
         <Pressable onPress={toggleAdmin} className="p-2 rounded hover:bg-surface-overlay">
           {user.is_admin ? (
             <ShieldOff size={14} color="#f59e0b" />
           ) : (
-            <Shield size={14} color="#999999" />
+            <Shield size={14} color={t.textMuted} />
           )}
         </Pressable>
       </View>
@@ -318,6 +320,7 @@ function UserRow({ user, onRefresh }: { user: UserRecord; onRefresh: () => void 
 }
 
 export default function UsersScreen() {
+  const t = useThemeTokens();
   const { data, isLoading, refetch } = useUsers();
   const { refreshing, onRefresh } = usePageRefresh();
   const queryClient = useQueryClient();
@@ -368,7 +371,7 @@ export default function UsersScreen() {
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         </View>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1 p-4">

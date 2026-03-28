@@ -13,9 +13,11 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { Link, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound } from "lucide-react";
+import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound, Sun, Moon } from "lucide-react";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
 import { apiFetch } from "@/src/api/client";
+import { useThemeStore } from "@/src/stores/theme";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList, type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
@@ -104,7 +106,7 @@ function NumberField({
       editable={!item.read_only}
       keyboardType="numeric"
       placeholder={item.nullable ? "(none)" : undefined}
-      placeholderTextColor="#666666"
+      placeholderTextColor="#737373"
     />
   );
 }
@@ -125,7 +127,7 @@ function StringField({
       onChangeText={onChange}
       editable={!item.read_only}
       placeholder="(empty)"
-      placeholderTextColor="#666666"
+      placeholderTextColor="#737373"
     />
   );
 }
@@ -146,7 +148,7 @@ function TextareaField({
       onChangeText={onChange}
       editable={!item.read_only}
       placeholder="(empty)"
-      placeholderTextColor="#666666"
+      placeholderTextColor="#737373"
       multiline
       numberOfLines={16}
       style={{
@@ -387,19 +389,19 @@ function GlobalSection({
         <Link href={"/admin/providers" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
             <Server size={14} color="#3b82f6" />
-            <Text style={{ fontSize: 13, color: "#3b82f6" }}>Providers</Text>
+            <Text className="text-accent" style={{ fontSize: 13 }}>Providers</Text>
           </Pressable>
         </Link>
         <Link href={"/admin/api-keys" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
             <KeyRound size={14} color="#3b82f6" />
-            <Text style={{ fontSize: 13, color: "#3b82f6" }}>API Keys</Text>
+            <Text className="text-accent" style={{ fontSize: 13 }}>API Keys</Text>
           </Pressable>
         </Link>
         <Link href={"/admin/config-state" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
             <Eye size={14} color="#3b82f6" />
-            <Text style={{ fontSize: 13, color: "#3b82f6" }}>Config State</Text>
+            <Text className="text-accent" style={{ fontSize: 13 }}>Config State</Text>
           </Pressable>
         </Link>
       </View>
@@ -425,7 +427,7 @@ function GlobalSection({
             flexDirection: "row",
             alignItems: "center",
             gap: 6,
-            backgroundColor: fbDirty ? "#3b82f6" : "#333",
+            backgroundColor: fbDirty ? "#3b82f6" : "rgba(128,128,128,0.3)",
             paddingHorizontal: 16,
             paddingVertical: 8,
             borderRadius: 8,
@@ -448,6 +450,46 @@ function GlobalSection({
         )}
       </View>
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Appearance section
+// ---------------------------------------------------------------------------
+
+function AppearanceSection() {
+  const mode = useThemeStore((s) => s.mode);
+  const toggle = useThemeStore((s) => s.toggle);
+  const t = useThemeTokens();
+  return (
+    <Section title="Appearance" description="UI theme and display preferences">
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 8,
+          paddingHorizontal: 4,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {mode === "dark" ? (
+            <Moon size={18} color={t.textMuted} />
+          ) : (
+            <Sun size={18} color={t.textMuted} />
+          )}
+          <Text className="text-text text-sm">
+            {mode === "dark" ? "Dark mode" : "Light mode"}
+          </Text>
+        </View>
+        <Switch
+          value={mode === "dark"}
+          onValueChange={toggle}
+          trackColor={{ false: "#d1d5db", true: "#3b82f6" }}
+          thumbColor="#fff"
+        />
+      </View>
+    </Section>
   );
 }
 
@@ -482,6 +524,7 @@ interface ChatHistoryDeviation {
 
 function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
   const router = useRouter();
+  const t = useThemeTokens();
   const [showDeviations, setShowDeviations] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["chat-history-deviations"],
@@ -496,16 +539,16 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
       {/* Section Index Preview */}
       <Section title="Section Index Preview" description={`Example of what the section index looks like in "${verbosity}" mode`}>
         <View style={{
-          backgroundColor: "#0d0d0d",
+          backgroundColor: t.surface,
           borderRadius: 8,
-          border: "1px solid #2a2a2a",
+          border: `1px solid ${t.surfaceOverlay}`,
           padding: 14,
         }}>
           <Text style={{
             fontFamily: "monospace",
             fontSize: 11,
             lineHeight: 18,
-            color: "#888",
+            color: t.textMuted,
             whiteSpace: "pre-wrap",
           }}>
             {preview}
@@ -522,21 +565,21 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: t.surfaceRaised,
               paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 8,
-              border: "1px solid #333",
+              border: `1px solid ${t.surfaceBorder}`,
               alignSelf: "flex-start",
             }}
           >
-            <Eye size={14} color="#3b82f6" />
-            <Text style={{ color: "#3b82f6", fontSize: 13 }}>Show Deviations</Text>
+            <Eye size={14} color={t.accent} />
+            <Text style={{ color: t.accent, fontSize: 13 }}>Show Deviations</Text>
           </Pressable>
         ) : isLoading ? (
           <ActivityIndicator color="#3b82f6" />
         ) : !data?.channels?.length ? (
-          <Text style={{ color: "#666", fontSize: 12 }}>All channels use global defaults.</Text>
+          <Text style={{ color: t.textDim, fontSize: 12 }}>All channels use global defaults.</Text>
         ) : (
           <View style={{ gap: 8 }}>
             {data.channels.map((ch) => (
@@ -544,9 +587,9 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
                 key={ch.channel_id}
                 onPress={() => router.push(`/channels/${ch.channel_id}/settings` as any)}
                 style={{
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: t.surfaceRaised,
                   borderRadius: 8,
-                  border: "1px solid #2a2a2a",
+                  border: `1px solid ${t.surfaceOverlay}`,
                   padding: 12,
                   flexDirection: "row",
                   alignItems: "center",
@@ -554,19 +597,19 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
                 }}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: "#e5e5e5", fontSize: 13, fontWeight: "500", marginBottom: 4 }}>
+                  <Text style={{ color: t.text, fontSize: 13, fontWeight: "500", marginBottom: 4 }}>
                     {ch.channel_name}
                   </Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                     {ch.deviations.map((d) => (
-                      <Text key={d.field} style={{ fontSize: 11, color: "#888" }}>
+                      <Text key={d.field} style={{ fontSize: 11, color: t.textMuted }}>
                         {d.field}: <Text style={{ color: "#f59e0b" }}>{String(d.channel_value)}</Text>
                         {" "}(global: {String(d.global_value)})
                       </Text>
                     ))}
                   </View>
                 </View>
-                <ChevronRight size={14} color="#666" />
+                <ChevronRight size={14} color={t.textDim} />
               </Pressable>
             ))}
           </View>
@@ -803,6 +846,9 @@ export default function SettingsScreen() {
           <Text className="text-text font-semibold text-lg mb-2">
             {activeGroup}
           </Text>
+
+          {/* Appearance section — shown in Global group */}
+          {isGlobal && <AppearanceSection />}
 
           {/* Global section (fallback models + config state link) */}
           {isGlobal && (

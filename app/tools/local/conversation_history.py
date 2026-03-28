@@ -16,14 +16,18 @@ _SCHEMA = {
         "description": (
             "Read archived conversation history. Pass section='index' to see a table of contents "
             "of all archived sections, a section number (e.g. '12') to read by sequence, "
-            "or a section UUID to read the full transcript of that section."
+            "a section UUID to read the full transcript, or 'search:query' to semantically "
+            "search all sections (e.g. 'search:database migration issue')."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "section": {
                     "type": "string",
-                    "description": "Either 'index' to list all sections, a section number (e.g. '12'), or a section UUID.",
+                    "description": (
+                        "Either 'index' to list all sections, a section number (e.g. '12'), "
+                        "a section UUID, or 'search:<query>' to find sections by topic."
+                    ),
                 },
             },
             "required": ["section"],
@@ -109,6 +113,51 @@ async def read_conversation_history(section: str) -> str:
                 f"({s.message_count} msgs, {date_str}){tag_str}\n"
                 f"  {s.summary}"
             )
+        return "\n".join(lines)
+
+    # Keyword search across archived sections
+    if section.lower().startswith("search:"):
+        query = section[7:].strip()
+        if not query:
+            return "Please provide a search query, e.g. 'search:database migration'."
+
+        # Build ILIKE filter: every word must appear in title, summary, or tags
+        from sqlalchemy import or_, cast, String
+        keywords = query.split()
+        filters = []
+        for kw in keywords:
+            pattern = f"%{kw}%"
+            filters.append(or_(
+                ConversationSection.title.ilike(pattern),
+                ConversationSection.summary.ilike(pattern),
+                cast(ConversationSection.tags, String).ilike(pattern),
+            ))
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(ConversationSection)
+                .where(
+                    ConversationSection.channel_id == channel_id,
+                    *filters,
+                )
+                .order_by(ConversationSection.sequence.desc())
+                .limit(10)
+            )
+            matches = result.scalars().all()
+
+        if not matches:
+            return f"No sections found matching '{query}'."
+
+        lines = [f"Sections matching '{query}':\n"]
+        for s in matches:
+            date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
+            tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+            lines.append(
+                f"- Section #{s.sequence}: {s.title} "
+                f"({s.message_count} msgs, {date_str}){tag_str}\n"
+                f"  {s.summary}"
+            )
+        lines.append("\nUse read_conversation_history with a section number to read the full transcript.")
         return "\n".join(lines)
 
     # Try sequence number (bare integer)

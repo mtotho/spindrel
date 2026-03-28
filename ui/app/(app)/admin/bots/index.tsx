@@ -17,6 +17,7 @@ import {
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 import type { BotConfig } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,7 @@ function SortHeader({
   align?: "left" | "right";
   width?: number | string;
 }) {
+  const t = useThemeTokens();
   const isActive = currentKey === sortKey;
   return (
     <button
@@ -149,7 +151,7 @@ function SortHeader({
         cursor: "pointer",
         fontSize: 10,
         fontWeight: 600,
-        color: isActive ? "#e5e5e5" : "#555",
+        color: isActive ? t.text : t.textDim,
         textTransform: "uppercase",
         letterSpacing: "0.05em",
         padding: "0 2px",
@@ -180,6 +182,7 @@ function BotCard({
   usage: CostByDimension | null;
   onPress: () => void;
 }) {
+  const t = useThemeTokens();
   const mc = getModelColor(bot.model);
   const badges = featureBadges(bot);
   const caps = capSummary(bot);
@@ -192,7 +195,7 @@ function BotCard({
         flexDirection: "column",
         gap: 10,
         padding: "18px 20px",
-        background: "#111",
+        background: t.inputBg,
         borderRadius: 12,
         border: "1px solid #1e1e1e",
         cursor: "pointer",
@@ -201,7 +204,7 @@ function BotCard({
         transition: "border-color 0.15s, box-shadow 0.15s",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "#333";
+        e.currentTarget.style.borderColor = t.surfaceBorder;
         e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.3)";
       }}
       onMouseLeave={(e) => {
@@ -245,7 +248,7 @@ function BotCard({
         <div
           style={{
             fontSize: 12,
-            color: "#666",
+            color: t.textDim,
             lineHeight: 1.45,
             display: "-webkit-box",
             WebkitLineClamp: 2,
@@ -284,12 +287,12 @@ function BotCard({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          borderTop: "1px solid #1a1a1a",
+          borderTop: `1px solid ${t.surfaceRaised}`,
           paddingTop: 10,
           marginTop: 2,
         }}
       >
-        <span style={{ fontSize: 11, color: "#555" }}>{caps}</span>
+        <span style={{ fontSize: 11, color: t.textDim }}>{caps}</span>
 
         {/* Usage stats */}
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -299,14 +302,14 @@ function BotCard({
                 style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#777" }}
                 title="Total calls"
               >
-                <MessageSquare size={10} color="#555" />
+                <MessageSquare size={10} color={t.textDim} />
                 {usage.calls.toLocaleString()}
               </span>
               <span
                 style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#777" }}
                 title="Total tokens"
               >
-                <Zap size={10} color="#555" />
+                <Zap size={10} color={t.textDim} />
                 {fmtTokens(usage.total_tokens)}
               </span>
               {usage.cost != null && usage.cost > 0 && (
@@ -329,7 +332,7 @@ function BotCard({
             </>
           )}
           {(!usage || usage.calls === 0) && (
-            <span style={{ fontSize: 11, color: "#444" }}>No usage data</span>
+            <span style={{ fontSize: 11, color: t.surfaceBorder }}>No usage data</span>
           )}
         </div>
       </div>
@@ -341,6 +344,7 @@ function BotCard({
 // Main page
 // ---------------------------------------------------------------------------
 export default function BotsScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: bots, isLoading } = useAdminBots();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -423,7 +427,7 @@ export default function BotsScreen() {
               fontWeight: 600,
               border: "none",
               borderRadius: 6,
-              background: "#3b82f6",
+              background: t.accent,
               color: "#fff",
               cursor: "pointer",
             }}
@@ -440,7 +444,7 @@ export default function BotsScreen() {
           display: "flex",
           gap: 10,
           padding: isWide ? "10px 20px" : "8px 12px",
-          borderBottom: "1px solid #1a1a1a",
+          borderBottom: `1px solid ${t.surfaceRaised}`,
           flexWrap: "wrap",
           alignItems: "center",
         }}
@@ -451,14 +455,14 @@ export default function BotsScreen() {
             display: "flex",
             alignItems: "center",
             gap: 6,
-            background: "#1a1a1a",
-            border: "1px solid #333",
+            background: t.surfaceRaised,
+            border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6,
             padding: "5px 10px",
             flex: isWide ? "0 1 260px" : "1 1 100%",
           }}
         >
-          <Search size={13} color="#555" />
+          <Search size={13} color={t.textDim} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -467,7 +471,7 @@ export default function BotsScreen() {
               background: "none",
               border: "none",
               outline: "none",
-              color: "#ccc",
+              color: t.text,
               fontSize: 12,
               flex: 1,
               width: "100%",
@@ -495,17 +499,17 @@ export default function BotsScreen() {
               gap: 14,
               alignItems: "center",
               fontSize: 11,
-              color: "#666",
+              color: t.textDim,
             }}
           >
-            <span title="30-day totals" style={{ color: "#444", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
+            <span title="30-day totals" style={{ color: t.surfaceBorder, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
               30d
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <MessageSquare size={11} color="#555" /> {totalCalls.toLocaleString()} calls
+              <MessageSquare size={11} color={t.textDim} /> {totalCalls.toLocaleString()} calls
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <Zap size={11} color="#555" /> {fmtTokens(totalTokens)} tokens
+              <Zap size={11} color={t.textDim} /> {fmtTokens(totalTokens)} tokens
             </span>
             {totalCost != null && totalCost > 0 && (
               <span
@@ -533,15 +537,15 @@ export default function BotsScreen() {
         contentContainerStyle={{ padding: isWide ? 20 : 12 }}
       >
         {displayBots.length === 0 && bots && bots.length > 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
             No bots match "{search}"
           </div>
         )}
 
         {(!bots || bots.length === 0) && (
           <div style={{ padding: 40, textAlign: "center", fontSize: 13 }}>
-            <div style={{ color: "#555", marginBottom: 8 }}>No bots configured yet.</div>
-            <div style={{ color: "#444", fontSize: 12 }}>Create a bot to get started.</div>
+            <div style={{ color: t.textDim, marginBottom: 8 }}>No bots configured yet.</div>
+            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>Create a bot to get started.</div>
           </div>
         )}
 

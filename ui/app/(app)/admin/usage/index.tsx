@@ -14,6 +14,7 @@ import {
   type CostByDimension,
 } from "@/src/api/hooks/useUsage";
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,38 +69,42 @@ function fmtBucketLabel(iso: string): string {
 // ---------------------------------------------------------------------------
 // Shared filter bar styles
 // ---------------------------------------------------------------------------
-const selectStyle: React.CSSProperties = {
-  background: "#1a1a1a",
-  color: "#999",
-  border: "1px solid #333",
-  borderRadius: 6,
-  padding: "5px 10px",
-  fontSize: 12,
-  outline: "none",
-};
+function useSelectStyle(): React.CSSProperties {
+  const t = useThemeTokens();
+  return {
+    background: t.surfaceRaised,
+    color: t.textMuted,
+    border: `1px solid ${t.surfaceBorder}`,
+    borderRadius: 6,
+    padding: "5px 10px",
+    fontSize: 12,
+    outline: "none",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Stat card
 // ---------------------------------------------------------------------------
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  const t = useThemeTokens();
   return (
     <div
       style={{
         flex: 1,
         minWidth: 140,
-        background: "#1a1a1a",
+        background: t.surfaceRaised,
         borderRadius: 8,
         padding: "14px 16px",
-        border: "1px solid #2a2a2a",
+        border: `1px solid ${t.surfaceOverlay}`,
       }}
     >
-      <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+      <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: "#e5e5e5", fontFamily: "monospace" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: "monospace" }}>
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
@@ -108,11 +113,12 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 // Cost dimension table
 // ---------------------------------------------------------------------------
 function CostTable({ title, items }: { title: string; items: CostByDimension[] }) {
+  const t = useThemeTokens();
   if (items.length === 0) return null;
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginBottom: 8 }}>{title}</div>
-      <div style={{ border: "1px solid #2a2a2a", borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>{title}</div>
+      <div style={{ border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8, overflow: "hidden" }}>
         {/* Header */}
         <div
           style={{
@@ -121,9 +127,9 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
             padding: "8px 12px",
             fontSize: 10,
             fontWeight: 600,
-            color: "#555",
+            color: t.textDim,
             textTransform: "uppercase",
-            borderBottom: "1px solid #2a2a2a",
+            borderBottom: `1px solid ${t.surfaceOverlay}`,
             background: "#151515",
           }}
         >
@@ -141,7 +147,7 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
               gap: 12,
               padding: "7px 12px",
               fontSize: 12,
-              borderBottom: i < items.length - 1 ? "1px solid #1a1a1a" : "none",
+              borderBottom: i < items.length - 1 ? `1px solid ${t.surfaceRaised}` : "none",
               alignItems: "center",
             }}
           >
@@ -149,7 +155,7 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
               style={{
                 flex: 1,
                 minWidth: 0,
-                color: "#e5e5e5",
+                color: t.text,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -160,16 +166,16 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
                 <span style={{ color: "#ca8a04", fontSize: 10, marginLeft: 6 }}>no pricing</span>
               )}
             </span>
-            <span style={{ width: 60, textAlign: "right", color: "#999", fontFamily: "monospace" }}>
+            <span style={{ width: 60, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
               {item.calls}
             </span>
-            <span style={{ width: 90, textAlign: "right", color: "#999", fontFamily: "monospace" }}>
+            <span style={{ width: 90, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
               {fmtTokens(item.prompt_tokens)}
             </span>
-            <span style={{ width: 90, textAlign: "right", color: "#999", fontFamily: "monospace" }}>
+            <span style={{ width: 90, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
               {fmtTokens(item.completion_tokens)}
             </span>
-            <span style={{ width: 80, textAlign: "right", color: "#ccc", fontFamily: "monospace" }}>
+            <span style={{ width: 80, textAlign: "right", color: t.text, fontFamily: "monospace" }}>
               {fmtCost(item.cost)}
             </span>
           </div>
@@ -252,6 +258,7 @@ function OverviewTab({ params }: { params: UsageParams }) {
 // Logs tab
 // ---------------------------------------------------------------------------
 function LogsTab({ params }: { params: UsageParams }) {
+  const t = useThemeTokens();
   const [page, setPage] = useState(1);
   const { data, isLoading } = useUsageLogs({ ...params, page, page_size: 50 });
   const { data: bots } = useBots();
@@ -276,9 +283,9 @@ function LogsTab({ params }: { params: UsageParams }) {
           padding: "6px 12px",
           fontSize: 10,
           fontWeight: 600,
-          color: "#555",
+          color: t.textDim,
           textTransform: "uppercase",
-          borderBottom: "1px solid #2a2a2a",
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
         }}
       >
         <span style={{ width: 120 }}>Time</span>
@@ -301,19 +308,19 @@ function LogsTab({ params }: { params: UsageParams }) {
               gap: 8,
               padding: "6px 12px",
               fontSize: 12,
-              borderBottom: "1px solid #1a1a1a",
+              borderBottom: `1px solid ${t.surfaceRaised}`,
               alignItems: "center",
             }}
           >
-            <span style={{ width: 120, color: "#666", fontSize: 11 }}>
-              <span style={{ color: "#555" }}>{fmtDate(entry.created_at)} </span>
+            <span style={{ width: 120, color: t.textDim, fontSize: 11 }}>
+              <span style={{ color: t.textDim }}>{fmtDate(entry.created_at)} </span>
               {fmtTime(entry.created_at)}
             </span>
             <span
               style={{
                 flex: 1,
                 minWidth: 0,
-                color: "#e5e5e5",
+                color: t.text,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -321,7 +328,7 @@ function LogsTab({ params }: { params: UsageParams }) {
             >
               {entry.model || "--"}
               {entry.provider_name && (
-                <span style={{ color: "#555", fontSize: 10, marginLeft: 6 }}>
+                <span style={{ color: t.textDim, fontSize: 10, marginLeft: 6 }}>
                   ({entry.provider_name})
                 </span>
               )}
@@ -329,7 +336,7 @@ function LogsTab({ params }: { params: UsageParams }) {
             <span
               style={{
                 width: 80,
-                color: "#999",
+                color: t.textMuted,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -340,7 +347,7 @@ function LogsTab({ params }: { params: UsageParams }) {
             <span
               style={{
                 width: 100,
-                color: "#999",
+                color: t.textMuted,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -348,10 +355,10 @@ function LogsTab({ params }: { params: UsageParams }) {
             >
               {entry.channel_name || "--"}
             </span>
-            <span style={{ width: 80, textAlign: "right", color: "#999", fontFamily: "monospace" }}>
+            <span style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
               {fmtTokens(entry.prompt_tokens)}
             </span>
-            <span style={{ width: 80, textAlign: "right", color: "#999", fontFamily: "monospace" }}>
+            <span style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
               {fmtTokens(entry.completion_tokens)}
             </span>
             <span
@@ -359,12 +366,12 @@ function LogsTab({ params }: { params: UsageParams }) {
                 width: 80,
                 textAlign: "right",
                 fontFamily: "monospace",
-                color: entry.has_cost_data ? "#ccc" : "#ca8a04",
+                color: entry.has_cost_data ? t.text : "#ca8a04",
               }}
             >
               {entry.has_cost_data ? fmtCost(entry.cost) : "--"}
             </span>
-            <span style={{ width: 70, textAlign: "right", color: "#666", fontFamily: "monospace" }}>
+            <span style={{ width: 70, textAlign: "right", color: t.textDim, fontFamily: "monospace" }}>
               {fmtDuration(entry.duration_ms)}
             </span>
           </div>
@@ -372,7 +379,7 @@ function LogsTab({ params }: { params: UsageParams }) {
       })}
 
       {data?.entries.length === 0 && (
-        <div style={{ padding: 40, textAlign: "center", color: "#666", fontSize: 13 }}>
+        <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
           No usage data found.
         </div>
       )}
@@ -386,7 +393,7 @@ function LogsTab({ params }: { params: UsageParams }) {
             alignItems: "center",
             gap: 12,
             padding: "10px 20px",
-            borderTop: "1px solid #2a2a2a",
+            borderTop: `1px solid ${t.surfaceOverlay}`,
           }}
         >
           <button
@@ -396,13 +403,13 @@ function LogsTab({ params }: { params: UsageParams }) {
               background: "none",
               border: "none",
               cursor: page <= 1 ? "default" : "pointer",
-              color: page <= 1 ? "#333" : "#999",
+              color: page <= 1 ? t.surfaceBorder : t.textMuted,
               padding: 4,
             }}
           >
             <ChevronLeft size={16} />
           </button>
-          <span style={{ fontSize: 12, color: "#666" }}>
+          <span style={{ fontSize: 12, color: t.textDim }}>
             Page {page} of {totalPages}
           </span>
           <button
@@ -412,7 +419,7 @@ function LogsTab({ params }: { params: UsageParams }) {
               background: "none",
               border: "none",
               cursor: page >= totalPages ? "default" : "pointer",
-              color: page >= totalPages ? "#333" : "#999",
+              color: page >= totalPages ? t.surfaceBorder : t.textMuted,
               padding: 4,
             }}
           >
@@ -428,6 +435,7 @@ function LogsTab({ params }: { params: UsageParams }) {
 // Charts tab
 // ---------------------------------------------------------------------------
 function ChartsTab({ params }: { params: UsageParams }) {
+  const t = useThemeTokens();
   const { data: breakdown, isLoading: breakdownLoading } = useUsageBreakdown({
     ...params,
     group_by: "model",
@@ -446,7 +454,7 @@ function ChartsTab({ params }: { params: UsageParams }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Cost by Model bar chart */}
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
           Cost by Model
         </div>
         <BarChart
@@ -459,7 +467,7 @@ function ChartsTab({ params }: { params: UsageParams }) {
 
       {/* Cost over Time line chart */}
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
           Cost over Time
         </div>
         <LineChart
@@ -473,7 +481,7 @@ function ChartsTab({ params }: { params: UsageParams }) {
 
       {/* Calls over Time line chart */}
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
           Calls over Time
         </div>
         <LineChart
@@ -494,6 +502,8 @@ function ChartsTab({ params }: { params: UsageParams }) {
 // Main page
 // ---------------------------------------------------------------------------
 export default function UsageScreen() {
+  const t = useThemeTokens();
+  const selectStyle = useSelectStyle();
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
@@ -536,7 +546,7 @@ export default function UsageScreen() {
           display: "flex",
           gap: 8,
           padding: isMobile ? "8px 12px" : "10px 20px",
-          borderBottom: "1px solid #1a1a1a",
+          borderBottom: `1px solid ${t.surfaceRaised}`,
           flexWrap: "wrap",
           alignItems: "center",
         }}
@@ -551,9 +561,9 @@ export default function UsageScreen() {
                 padding: "4px 10px",
                 fontSize: 12,
                 fontWeight: timePreset === p.value ? 600 : 400,
-                background: timePreset === p.value ? "#3b82f6" : "#1a1a1a",
-                color: timePreset === p.value ? "#fff" : "#999",
-                border: `1px solid ${timePreset === p.value ? "#3b82f6" : "#333"}`,
+                background: timePreset === p.value ? t.accent : t.surfaceRaised,
+                color: timePreset === p.value ? "#fff" : t.textMuted,
+                border: `1px solid ${timePreset === p.value ? t.accent : t.surfaceBorder}`,
                 borderRadius: 4,
                 cursor: "pointer",
               }}
@@ -611,26 +621,26 @@ export default function UsageScreen() {
         style={{
           display: "flex",
           gap: 0,
-          borderBottom: "1px solid #2a2a2a",
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
           padding: isMobile ? "0 12px" : "0 20px",
         }}
       >
-        {TABS.map((t) => (
+        {TABS.map((tabName) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabName}
+            onClick={() => setTab(tabName)}
             style={{
               padding: "10px 16px",
               fontSize: 13,
-              fontWeight: tab === t ? 600 : 400,
-              color: tab === t ? "#3b82f6" : "#999",
+              fontWeight: tab === tabName ? 600 : 400,
+              color: tab === tabName ? t.accent : t.textMuted,
               background: "none",
               border: "none",
-              borderBottom: tab === t ? "2px solid #3b82f6" : "2px solid transparent",
+              borderBottom: tab === tabName ? `2px solid ${t.accent}` : "2px solid transparent",
               cursor: "pointer",
             }}
           >
-            {t}
+            {tabName}
           </button>
         ))}
       </div>

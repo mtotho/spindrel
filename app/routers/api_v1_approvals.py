@@ -47,6 +47,8 @@ class ApprovalOut(BaseModel):
 class DecideRequest(BaseModel):
     approved: bool
     decided_by: str = "api:admin"
+    # Optional: create an allow rule along with the approval
+    create_rule: Optional[dict] = None  # {tool_name, conditions, ...}
 
 
 class DecideResponse(BaseModel):
@@ -54,6 +56,14 @@ class DecideResponse(BaseModel):
     status: str
     decided_by: str
     decided_at: datetime
+    rule_created: Optional[uuid.UUID] = None  # ID of the created rule, if any
+
+
+class SuggestionOut(BaseModel):
+    label: str
+    tool_name: str
+    conditions: dict
+    description: str
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +87,24 @@ async def list_approvals(
     stmt = stmt.offset(offset).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return [ApprovalOut.model_validate(r) for r in rows]
+
+
+@router.get("/{approval_id}/suggestions", response_model=list[SuggestionOut])
+async def get_approval_suggestions(
+    approval_id: uuid.UUID,
+    _auth=Depends(verify_admin_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return smart allow-rule suggestions based on the approval's tool + arguments."""
+    row = await db.get(ToolApproval, approval_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    from app.services.approval_suggestions import build_suggestions
+    suggestions = build_suggestions(row.tool_name, row.arguments or {})
+    return [SuggestionOut(
+        label=s.label, tool_name=s.tool_name,
+        conditions=s.conditions, description=s.description,
+    ) for s in suggestions]
 
 
 @router.get("/{approval_id}", response_model=ApprovalOut)
@@ -109,6 +137,25 @@ async def decide_approval(
     row.status = verdict
     row.decided_by = body.decided_by
     row.decided_at = now
+
+    # Optionally create an allow rule
+    rule_id = None
+    if body.create_rule and body.approved:
+        from app.db.models import ToolPolicyRule
+        from app.services.tool_policies import invalidate_cache
+        rule = ToolPolicyRule(
+            bot_id=row.bot_id,
+            tool_name=body.create_rule.get("tool_name", row.tool_name),
+            action="allow",
+            conditions=body.create_rule.get("conditions", {}),
+            priority=body.create_rule.get("priority", 50),
+            reason=f"Allowed by {body.decided_by}",
+        )
+        db.add(rule)
+        await db.flush()
+        rule_id = rule.id
+        invalidate_cache()
+
     await db.commit()
     await db.refresh(row)
 
@@ -123,4 +170,5 @@ async def decide_approval(
         status=row.status,
         decided_by=row.decided_by,
         decided_at=row.decided_at,
+        rule_created=rule_id,
     )

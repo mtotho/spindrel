@@ -8,9 +8,11 @@ import {
 } from "react-native";
 import { User, Mail, Lock, ArrowRight } from "lucide-react";
 import { useAuthStore } from "@/src/stores/auth";
+import { useThemeTokens } from "@/src/theme/tokens";
 import type { TokenResponse } from "@/src/types/api";
 
 export default function SetupScreen() {
+  const t = useThemeTokens();
   const { serverUrl } = useAuthStore.getState();
   const setAuth = useAuthStore((s) => s.setAuth);
 
@@ -67,13 +69,13 @@ export default function SetupScreen() {
         {/* Display Name */}
         <View className="gap-2">
           <View className="flex-row items-center gap-2">
-            <User size={16} color="#999999" />
+            <User size={16} color={t.textMuted} />
             <Text className="text-text-muted text-sm">Display Name</Text>
           </View>
           <TextInput
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Alice"
-            placeholderTextColor="#666666"
+            placeholderTextColor={t.textDim}
             value={displayName}
             onChangeText={setDisplayName}
             autoCapitalize="words"
@@ -83,13 +85,13 @@ export default function SetupScreen() {
         {/* Email */}
         <View className="gap-2">
           <View className="flex-row items-center gap-2">
-            <Mail size={16} color="#999999" />
+            <Mail size={16} color={t.textMuted} />
             <Text className="text-text-muted text-sm">Email</Text>
           </View>
           <TextInput
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="admin@example.com"
-            placeholderTextColor="#666666"
+            placeholderTextColor={t.textDim}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -101,13 +103,13 @@ export default function SetupScreen() {
         {/* Password */}
         <View className="gap-2">
           <View className="flex-row items-center gap-2">
-            <Lock size={16} color="#999999" />
+            <Lock size={16} color={t.textMuted} />
             <Text className="text-text-muted text-sm">Password</Text>
           </View>
           <TextInput
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Choose a password"
-            placeholderTextColor="#666666"
+            placeholderTextColor={t.textDim}
             value={password}
             onChangeText={setPassword}
             secureTextEntry

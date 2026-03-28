@@ -10,6 +10,7 @@ import {
   type ProviderModelItem,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 const PROVIDER_TYPE_OPTIONS = [
   { label: "LiteLLM", value: "litellm" },
@@ -20,6 +21,7 @@ const PROVIDER_TYPE_OPTIONS = [
 ];
 
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
+  const t = useThemeTokens();
   return (
     <button
       onClick={() => onChange(!enabled)}
@@ -34,7 +36,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
     >
       <div style={{
         width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? "#22c55e" : "#555",
+        background: enabled ? "#22c55e" : t.textDim,
         transition: "background 0.2s",
       }}>
         <div style={{
@@ -50,6 +52,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 }
 
 export default function ProviderDetailScreen() {
+  const t = useThemeTokens();
   const { providerId } = useLocalSearchParams<{ providerId: string }>();
   const isNew = providerId === "new";
   const goBack = useGoBack("/admin/providers");
@@ -156,7 +159,7 @@ export default function ProviderDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -167,16 +170,16 @@ export default function ProviderDetailScreen() {
       <div style={{
         display: "flex", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
+        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
           {isNew ? "New Provider" : "Edit Provider"}
         </span>
         {!isNew && isWide && (
-          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>{providerId}</span>
+          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>{providerId}</span>
         )}
         <div style={{ flex: 1 }} />
         <button
@@ -185,8 +188,8 @@ export default function ProviderDetailScreen() {
           style={{
             display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
             padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: "1px solid #333", borderRadius: 6,
-            background: "transparent", color: "#999", cursor: "pointer", flexShrink: 0,
+            border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+            background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
           }}
         >
           <Zap size={13} />
@@ -215,8 +218,8 @@ export default function ProviderDetailScreen() {
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: !canSave ? "#333" : "#3b82f6",
-            color: !canSave ? "#666" : "#fff",
+            background: !canSave ? t.surfaceBorder : t.accent,
+            color: !canSave ? t.textDim : "#fff",
             cursor: !canSave ? "not-allowed" : "pointer",
           }}
         >
@@ -237,7 +240,7 @@ export default function ProviderDetailScreen() {
           padding: "8px 20px", fontSize: 12, fontWeight: 600,
           background: testResult.ok ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
           color: testResult.ok ? "#86efac" : "#fca5a5",
-          borderBottom: "1px solid #222",
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
         }}>
           {testResult.ok ? "\u2713" : "\u2717"} {testResult.message}
         </div>
@@ -315,7 +318,7 @@ export default function ProviderDetailScreen() {
             <Section title="Models" description="Manually defined models for providers without a /models API endpoint">
               {/* Existing models list */}
               {modelsLoading ? (
-                <div style={{ color: "#666", fontSize: 12, padding: "8px 0" }}>Loading...</div>
+                <div style={{ color: t.textDim, fontSize: 12, padding: "8px 0" }}>Loading...</div>
               ) : providerModels && providerModels.length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {providerModels.map((m: ProviderModelItem) => (
@@ -323,21 +326,21 @@ export default function ProviderDetailScreen() {
                       key={m.id}
                       style={{
                         display: "flex", alignItems: "center", gap: 8,
-                        padding: "6px 8px", background: "#1a1a1a", borderRadius: 6,
+                        padding: "6px 8px", background: t.surfaceRaised, borderRadius: 6,
                         fontSize: 12,
                       }}
                     >
-                      <span style={{ color: "#e5e5e5", fontFamily: "monospace", flex: 1 }}>
+                      <span style={{ color: t.text, fontFamily: "monospace", flex: 1 }}>
                         {m.model_id}
                       </span>
                       {m.display_name && (
-                        <span style={{ color: "#888", fontSize: 11 }}>{m.display_name}</span>
+                        <span style={{ color: t.textMuted, fontSize: 11 }}>{m.display_name}</span>
                       )}
                       {m.max_tokens && (
-                        <span style={{ color: "#666", fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
+                        <span style={{ color: t.textDim, fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
                       )}
                       {(m.input_cost_per_1m || m.output_cost_per_1m) && (
-                        <span style={{ color: "#666", fontSize: 11 }}>
+                        <span style={{ color: t.textDim, fontSize: 11 }}>
                           {m.input_cost_per_1m || "?"}/{m.output_cost_per_1m || "?"}
                         </span>
                       )}
@@ -353,7 +356,7 @@ export default function ProviderDetailScreen() {
                         disabled={deleteModelMut.isPending}
                         style={{
                           background: "none", border: "none", cursor: "pointer",
-                          padding: 2, color: "#666", flexShrink: 0,
+                          padding: 2, color: t.textDim, flexShrink: 0,
                         }}
                         title="Remove model"
                       >
@@ -363,7 +366,7 @@ export default function ProviderDetailScreen() {
                   ))}
                 </div>
               ) : (
-                <div style={{ color: "#555", fontSize: 12, padding: "4px 0" }}>
+                <div style={{ color: t.textDim, fontSize: 12, padding: "4px 0" }}>
                   No models defined. Add models below if this provider doesn't support the /models API.
                 </div>
               )}
@@ -371,7 +374,7 @@ export default function ProviderDetailScreen() {
               {/* Add model form */}
               <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
                 <div style={{ flex: 2, minWidth: 160 }}>
-                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Model ID *</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Model ID *</div>
                   <input
                     value={newModelId}
                     onChange={(e) => {
@@ -382,26 +385,26 @@ export default function ProviderDetailScreen() {
                     placeholder="e.g. gpt-4o"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      color: "#e5e5e5", fontFamily: "monospace",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text, fontFamily: "monospace",
                     }}
                   />
                 </div>
                 <div style={{ flex: 2, minWidth: 120 }}>
-                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Display Name</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Display Name</div>
                   <input
                     value={newModelDisplay}
                     onChange={(e) => setNewModelDisplay(e.target.value)}
                     placeholder="Optional"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      color: "#e5e5e5",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text,
                     }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
-                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Max Tokens</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Max Tokens</div>
                   <input
                     value={newModelMaxTokens}
                     onChange={(e) => setNewModelMaxTokens(e.target.value)}
@@ -409,40 +412,40 @@ export default function ProviderDetailScreen() {
                     type="number"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      color: "#e5e5e5",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text,
                     }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
-                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Input $/1M</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Input $/1M</div>
                   <input
                     value={newModelInputCost}
                     onChange={(e) => setNewModelInputCost(e.target.value)}
                     placeholder="e.g. $3.00"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      color: "#e5e5e5",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text,
                     }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 80 }}>
-                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Output $/1M</div>
+                  <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Output $/1M</div>
                   <input
                     value={newModelOutputCost}
                     onChange={(e) => setNewModelOutputCost(e.target.value)}
                     placeholder="e.g. $15.00"
                     style={{
                       width: "100%", padding: "6px 8px", fontSize: 12,
-                      background: "#111", border: "1px solid #333", borderRadius: 4,
-                      color: "#e5e5e5",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                      color: t.text,
                     }}
                   />
                 </div>
                 <label style={{
                   display: "flex", alignItems: "center", gap: 4,
-                  fontSize: 10, color: "#888", cursor: "pointer",
+                  fontSize: 10, color: t.textMuted, cursor: "pointer",
                   flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
                 }}>
                   <input
@@ -476,8 +479,8 @@ export default function ProviderDetailScreen() {
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "6px 12px", fontSize: 12, fontWeight: 600,
                     border: "none", borderRadius: 4, flexShrink: 0,
-                    background: !newModelId.trim() ? "#222" : "#3b82f6",
-                    color: !newModelId.trim() ? "#555" : "#fff",
+                    background: !newModelId.trim() ? t.surfaceOverlay : t.accent,
+                    color: !newModelId.trim() ? t.textDim : "#fff",
                     cursor: !newModelId.trim() ? "not-allowed" : "pointer",
                   }}
                 >
@@ -492,24 +495,24 @@ export default function ProviderDetailScreen() {
             <Section title="Info">
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>ID</span>
-                  <span style={{ color: "#ccc", fontFamily: "monospace" }}>{provider.id}</span>
+                  <span style={{ color: t.textDim }}>ID</span>
+                  <span style={{ color: t.text, fontFamily: "monospace" }}>{provider.id}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>API Key</span>
-                  <span style={{ color: provider.has_api_key ? "#86efac" : "#666" }}>
+                  <span style={{ color: t.textDim }}>API Key</span>
+                  <span style={{ color: provider.has_api_key ? "#86efac" : t.textDim }}>
                     {provider.has_api_key ? "Set" : "Not set"}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>Created</span>
-                  <span style={{ color: "#888" }}>
+                  <span style={{ color: t.textDim }}>Created</span>
+                  <span style={{ color: t.textMuted }}>
                     {new Date(provider.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>Updated</span>
-                  <span style={{ color: "#888" }}>
+                  <span style={{ color: t.textDim }}>Updated</span>
+                  <span style={{ color: t.textMuted }}>
                     {new Date(provider.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>

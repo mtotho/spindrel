@@ -37,10 +37,18 @@ export interface ScopeGroupInfo {
   scopes: string[];
 }
 
+export interface ScopePreset {
+  name: string;
+  description: string;
+  scopes: string[];
+  instructions: string;
+}
+
 export interface ScopeGroupsResponse {
   groups: Record<string, ScopeGroupInfo>;
   all_scopes: string[];
   descriptions: Record<string, string>;
+  presets: Record<string, ScopePreset>;
 }
 
 export function useApiKeys() {

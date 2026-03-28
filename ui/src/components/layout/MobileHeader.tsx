@@ -3,6 +3,7 @@ import { ArrowLeft, Menu } from "lucide-react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface MobileHeaderProps {
   title: string;
@@ -27,6 +28,7 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const t = useThemeTokens();
 
   const sidebarHidden = columns === "single" || sidebarCollapsed;
 
@@ -39,24 +41,24 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
         <Pressable
           onPress={onBack}
           className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 36, height: 36 }}
+          style={{ width: 44, height: 44 }}
           accessibilityLabel="Go back"
         >
-          <ArrowLeft size={20} color="#9ca3af" />
+          <ArrowLeft size={20} color={t.textMuted} />
         </Pressable>
       ) : sidebarHidden ? (
         <Pressable
           onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
           className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 36, height: 36 }}
+          style={{ width: 44, height: 44 }}
           accessibilityLabel="Open menu"
         >
-          <Menu size={20} color="#9ca3af" />
+          <Menu size={20} color={t.textMuted} />
         </Pressable>
       ) : null}
 
       <View className="flex-1 min-w-0 py-2">
-        <Text style={{ fontSize: 16, fontWeight: "700", color: "#e5e5e5" }} numberOfLines={1}>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: t.text }} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (

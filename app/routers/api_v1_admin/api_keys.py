@@ -15,6 +15,7 @@ from app.services.api_keys import (
     ALL_SCOPES,
     SCOPE_DESCRIPTIONS,
     SCOPE_GROUPS,
+    SCOPE_PRESETS,
     create_api_key,
 )
 
@@ -63,10 +64,18 @@ class ScopeGroupOut(BaseModel):
     scopes: list[str]
 
 
+class PresetOut(BaseModel):
+    name: str
+    description: str
+    scopes: list[str]
+    instructions: str
+
+
 class ScopeGroupsOut(BaseModel):
     groups: dict[str, ScopeGroupOut]
     all_scopes: list[str]
     descriptions: dict[str, str]
+    presets: dict[str, PresetOut]
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +115,15 @@ async def admin_api_key_scopes(
         },
         all_scopes=ALL_SCOPES,
         descriptions=SCOPE_DESCRIPTIONS,
+        presets={
+            key: PresetOut(
+                name=preset["name"],
+                description=preset["description"],
+                scopes=preset["scopes"],
+                instructions=preset["instructions"],
+            )
+            for key, preset in SCOPE_PRESETS.items()
+        },
     )
 
 

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
+import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem } from "../../types/api";
 
 export interface PendingFile {
@@ -25,6 +26,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
+  const t = useThemeTokens();
   const [text, setText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -210,7 +212,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
-      <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
+      <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
@@ -228,7 +230,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                   position: "relative",
                   borderRadius: 8,
                   overflow: "hidden",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: `1px solid ${t.overlayBorder}`,
                 }}
               >
                 {pf.preview ? (
@@ -250,9 +252,9 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: "#1a1a1a",
+                      background: t.surfaceRaised,
                       fontSize: 10,
-                      color: "#999",
+                      color: t.textMuted,
                       padding: 4,
                       textAlign: "center",
                       wordBreak: "break-all",
@@ -292,9 +294,9 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             onPress={() => fileInputRef.current?.click()}
             disabled={disabled}
             className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 40, height: 40 }}
+            style={{ width: 44, height: 44 }}
           >
-            <Paperclip size={20} color="#555555" />
+            <Paperclip size={20} color={t.textDim} />
           </Pressable>
           <input
             ref={fileInputRef}
@@ -327,9 +329,9 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                 lineHeight: "1.5",
                 padding: "10px 16px",
                 borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "#1a1a1e",
-                color: "#e5e5e5",
+                border: `1px solid ${t.overlayLight}`,
+                background: t.surfaceRaised,
+                color: t.text,
                 resize: "none",
                 outline: "none",
                 minHeight: 44,
@@ -337,10 +339,10 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                 overflow: "auto",
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = "rgba(255,255,255,0.18)";
+                e.target.style.borderColor = t.overlayBorder;
               }}
               onBlurCapture={(e) => {
-                e.target.style.borderColor = "rgba(255,255,255,0.1)";
+                e.target.style.borderColor = t.overlayLight;
               }}
             />
           </div>
@@ -381,9 +383,9 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                 <Pressable
                   onPress={() => setShowModelPicker(true)}
                   className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-                  style={{ width: 40, height: 40, opacity: 0.6 }}
+                  style={{ width: 44, height: 44, opacity: 0.6 }}
                 >
-                  <Cpu size={16} color="#666666" />
+                  <Cpu size={16} color={t.textDim} />
                 </Pressable>
               )}
               {showModelPicker && (() => {
@@ -421,13 +423,13 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             disabled={!canSend}
             className="items-center justify-center rounded-lg"
             style={{
-              width: 40,
-              height: 40,
+              width: 44,
+              height: 44,
               backgroundColor: canSend ? "#4f46e5" : "transparent",
               opacity: canSend ? 1 : 0.4,
             }}
           >
-            <Send size={18} color={canSend ? "white" : "#666666"} />
+            <Send size={18} color={canSend ? "white" : t.textDim} />
           </Pressable>
           <AutocompleteMenu
             show={showMenu}
@@ -450,13 +452,13 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
 
   // Native: keep RN TextInput
   return (
-    <View className="flex-row items-end gap-2 px-4 py-3" style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", backgroundColor: "#111111" }}>
+    <View className="flex-row items-end gap-2 px-4 py-3" style={{ borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
       <TextInput
         ref={inputRef}
         className="flex-1 bg-surface-raised rounded-xl px-4 py-3 text-text text-[15px] min-h-[44px] max-h-[140px]"
-        style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" }}
+        style={{ borderWidth: 1, borderColor: t.overlayLight }}
         placeholder="Type a message..."
-        placeholderTextColor="#555555"
+        placeholderTextColor={t.textDim}
         value={text}
         onChangeText={setText}
         onKeyPress={handleKeyPress}
@@ -468,15 +470,15 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
         disabled={!text.trim() || disabled}
         className="items-center justify-center rounded-lg"
         style={{
-          width: 40,
-          height: 40,
+          width: 44,
+          height: 44,
           backgroundColor: text.trim() && !disabled ? "#4f46e5" : "transparent",
           opacity: text.trim() && !disabled ? 1 : 0.4,
         }}
       >
         <Send
           size={18}
-          color={text.trim() && !disabled ? "white" : "#666666"}
+          color={text.trim() && !disabled ? "white" : t.textDim}
         />
       </Pressable>
     </View>

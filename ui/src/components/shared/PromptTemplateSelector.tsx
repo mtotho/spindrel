@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
+import { useThemeTokens } from "../../theme/tokens";
 import type { PromptTemplate } from "../../types/api";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function PromptTemplateSelector({ textareaRef, value, onChange, workspaceId }: Props) {
+  const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -44,19 +46,19 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
   const q = search.toLowerCase();
   const filtered = q
     ? templates.filter(
-        (t) =>
-          t.name.toLowerCase().includes(q) ||
-          (t.category || "").toLowerCase().includes(q) ||
-          (t.description || "").toLowerCase().includes(q)
+        (tpl) =>
+          tpl.name.toLowerCase().includes(q) ||
+          (tpl.category || "").toLowerCase().includes(q) ||
+          (tpl.description || "").toLowerCase().includes(q)
       )
     : templates;
 
   // Group by category
   const grouped = new Map<string, PromptTemplate[]>();
-  for (const t of filtered) {
-    const cat = t.category || "Uncategorized";
+  for (const tpl of filtered) {
+    const cat = tpl.category || "Uncategorized";
     if (!grouped.has(cat)) grouped.set(cat, []);
-    grouped.get(cat)!.push(t);
+    grouped.get(cat)!.push(tpl);
   }
 
   return (
@@ -72,10 +74,10 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
           padding: "3px 8px",
           fontSize: 11,
           fontWeight: 600,
-          border: "1px solid #333",
+          border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 4,
-          background: open ? "#1a1a1a" : "transparent",
-          color: "#888",
+          background: open ? t.surfaceRaised : "transparent",
+          color: t.textMuted,
           cursor: "pointer",
         }}
       >
@@ -105,8 +107,8 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                   width: 340,
                   maxHeight: 380,
                   zIndex: 10011,
-                  background: "#1a1a1a",
-                  border: "1px solid #333",
+                  background: t.surfaceRaised,
+                  border: `1px solid ${t.surfaceBorder}`,
                   borderRadius: 8,
                   boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                   display: "flex",
@@ -114,7 +116,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                 }}
               >
                 {/* Search */}
-                <div style={{ padding: "8px 10px", borderBottom: "1px solid #2a2a2a" }}>
+                <div style={{ padding: "8px 10px", borderBottom: `1px solid ${t.surfaceOverlay}` }}>
                   <input
                     type="text"
                     value={search}
@@ -123,12 +125,12 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                     autoFocus
                     style={{
                       width: "100%",
-                      background: "#111",
-                      border: "1px solid #333",
+                      background: t.inputBg,
+                      border: `1px solid ${t.surfaceBorder}`,
                       borderRadius: 4,
                       padding: "5px 8px",
                       fontSize: 12,
-                      color: "#e5e5e5",
+                      color: t.text,
                       outline: "none",
                     }}
                   />
@@ -136,7 +138,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                 {/* List */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
                   {filtered.length === 0 && (
-                    <div style={{ padding: "16px 12px", textAlign: "center", color: "#555", fontSize: 12 }}>
+                    <div style={{ padding: "16px 12px", textAlign: "center", color: t.textDim, fontSize: 12 }}>
                       No templates found
                     </div>
                   )}
@@ -147,19 +149,19 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                           padding: "6px 12px 2px",
                           fontSize: 9,
                           fontWeight: 700,
-                          color: "#555",
+                          color: t.textDim,
                           textTransform: "uppercase",
                           letterSpacing: "0.05em",
                         }}
                       >
                         {cat}
                       </div>
-                      {items.map((t) => (
+                      {items.map((tpl) => (
                         <button
-                          key={t.id}
+                          key={tpl.id}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            insertTemplate(t);
+                            insertTemplate(tpl);
                           }}
                           style={{
                             display: "flex",
@@ -172,14 +174,14 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                             cursor: "pointer",
                             textAlign: "left",
                           }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#2a2a2a")}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#e5e5e5" }}>
-                              {t.name}
+                            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                              {tpl.name}
                             </span>
-                            {t.workspace_id && (
+                            {tpl.workspace_id && (
                               <span
                                 style={{
                                   fontSize: 9,
@@ -193,30 +195,30 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                               </span>
                             )}
                           </div>
-                          {t.description && (
+                          {tpl.description && (
                             <span
                               style={{
                                 fontSize: 11,
-                                color: "#666",
+                                color: t.textDim,
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {t.description}
+                              {tpl.description}
                             </span>
                           )}
                           <span
                             style={{
                               fontSize: 10,
-                              color: "#444",
+                              color: t.surfaceBorder,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                               fontFamily: "monospace",
                             }}
                           >
-                            {t.content.slice(0, 80)}
+                            {tpl.content.slice(0, 80)}
                           </span>
                         </button>
                       ))}

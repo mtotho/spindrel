@@ -1,9 +1,9 @@
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -225,3 +225,92 @@ async def list_messages(
     )
     messages = result.scalars().all()
     return [MessageOut.from_orm(m) for m in reversed(messages)]
+
+
+# ---------------------------------------------------------------------------
+# Context debug — replay what the LLM would see
+# ---------------------------------------------------------------------------
+
+
+class ContextMessage(BaseModel):
+    role: str
+    content: str | None = None
+    tool_calls: Any | None = None
+    tool_call_id: str | None = None
+    chars: int = 0
+
+
+class ContextDebugOut(BaseModel):
+    session_id: uuid.UUID
+    bot_id: str
+    message_count: int
+    total_chars: int
+    messages: list[ContextMessage]
+
+
+@router.get("/{session_id}/context", response_model=ContextDebugOut)
+async def get_session_context(
+    session_id: uuid.UUID,
+    query: str = Query("hello", description="Simulated user query for RAG retrieval"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    """Return the full assembled context the LLM would see for a session.
+
+    Useful for debugging context injection — shows every system message,
+    memory, knowledge chunk, section index, etc. in order.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    from app.agent.bots import get_bot
+    from app.agent.context_assembly import AssemblyResult, assemble_context
+    from app.services.sessions import _load_messages
+
+    bot = get_bot(session.bot_id)
+
+    # Load messages the same way the agent loop does
+    messages = await _load_messages(db, session)
+
+    # Run context assembly (mutates messages in-place)
+    result = AssemblyResult()
+    async for _event in assemble_context(
+        messages=messages,
+        bot=bot,
+        user_message=query,
+        session_id=session_id,
+        client_id=session.client_id,
+        correlation_id=None,
+        channel_id=session.channel_id,
+        audio_data=None,
+        audio_format=None,
+        attachments=None,
+        native_audio=False,
+        result=result,
+    ):
+        pass  # drain events — we only want the final messages list
+
+    # Build response
+    out_messages = []
+    total_chars = 0
+    for m in messages:
+        content = m.get("content")
+        content_str = str(content) if content is not None else None
+        chars = len(content_str) if content_str else 0
+        total_chars += chars
+        out_messages.append(ContextMessage(
+            role=m.get("role", "unknown"),
+            content=content_str,
+            tool_calls=m.get("tool_calls"),
+            tool_call_id=m.get("tool_call_id"),
+            chars=chars,
+        ))
+
+    return ContextDebugOut(
+        session_id=session_id,
+        bot_id=session.bot_id,
+        message_count=len(out_messages),
+        total_chars=total_chars,
+        messages=out_messages,
+    )

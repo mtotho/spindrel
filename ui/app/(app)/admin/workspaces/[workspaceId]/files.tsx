@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { Play } from "lucide-react";
 import { useWorkspace, useStartWorkspace } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { BrowserToolbar } from "@/src/components/workspace/BrowserToolbar";
 import { FileTreePanel } from "@/src/components/workspace/FileTreePanel";
 import { SplitViewContainer } from "@/src/components/workspace/SplitViewContainer";
@@ -12,6 +13,7 @@ import { UploadDialog } from "@/src/components/workspace/UploadDialog";
 const MOBILE_BREAKPOINT = 768;
 
 export default function WorkspaceFileBrowser() {
+  const t = useThemeTokens();
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
   const startMutation = useStartWorkspace(workspaceId!);
@@ -41,7 +43,7 @@ export default function WorkspaceFileBrowser() {
   if (isLoading || !workspace) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0d0d0d" }}>
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -74,16 +76,16 @@ export default function WorkspaceFileBrowser() {
               justifyContent: "center",
             }}
           >
-            <Play size={28} color="#555" />
+            <Play size={28} color={t.textDim} />
           </div>
-          <span style={{ fontSize: 15, color: "#888" }}>
+          <span style={{ fontSize: 15, color: t.textMuted }}>
             Workspace is {workspace.status}
           </span>
           <button
             onClick={() => startMutation.mutate()}
             disabled={startMutation.isPending}
             style={{
-              background: "#3b82f6",
+              background: t.accent,
               color: "#fff",
               border: "none",
               borderRadius: 6,
