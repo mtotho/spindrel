@@ -38,10 +38,28 @@ _Updated: {date}_
 def get_memory_rel_path(bot: BotConfig) -> str:
     """Return the relative path to memory/ from the bot's workspace root.
 
-    Always ``memory/`` — each bot's workspace root is already scoped to
-    ``bots/{bot_id}/`` within the shared workspace.
+    Always ``memory/`` — used for physical file access (reading/writing memory
+    files on disk relative to the bot's own directory).
     """
     return MEMORY_DIR
+
+
+def get_memory_index_prefix(bot: BotConfig) -> str:
+    """Return the memory path prefix as stored in the filesystem index.
+
+    For shared workspace bots the indexing root is the workspace root
+    (not ``bots/{id}/``), so the prefix needs the full workspace-relative path.
+    For standalone bots it's the same as ``get_memory_rel_path``.
+    """
+    if bot.shared_workspace_id:
+        return f"bots/{bot.id}/{MEMORY_DIR}"
+    return MEMORY_DIR
+
+
+def get_memory_index_patterns(bot: BotConfig) -> list[str]:
+    """Return glob patterns for memory files relative to the indexing root."""
+    prefix = get_memory_index_prefix(bot)
+    return [f"{prefix}/**/*.md"]
 
 
 def bootstrap_memory_scheme(bot: BotConfig, *, ws_root: str | None = None) -> str:

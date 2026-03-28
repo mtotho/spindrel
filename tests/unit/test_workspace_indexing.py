@@ -264,71 +264,38 @@ class TestResolveSegments:
 
 
 class TestGetAllRoots:
-    """Test root directory resolution including include_bots."""
+    """Test root directory resolution for get_all_roots."""
 
-    def test_single_root_no_include_bots(self):
-        """Without include_bots, returns only the bot's own root."""
+    def test_shared_workspace_returns_workspace_root(self):
+        """Shared workspace bots return the workspace root (not bot subdirectory)."""
         bot = BotConfig(
             id="sag-bot", name="Sag", model="m", system_prompt="",
             workspace=WorkspaceConfig(enabled=True),
             shared_workspace_id="ws-123",
         )
-        mock_ws = MagicMock()
-        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
-        roots = get_all_roots(bot, mock_ws)
-        assert roots == ["/data/shared/ws-123/bots/sag-bot"]
-
-    def test_include_bots_adds_extra_roots(self):
-        """include_bots expands to additional bots/{id} roots."""
-        bot = BotConfig(
-            id="sag-bot", name="Sag", model="m", system_prompt="",
-            workspace=WorkspaceConfig(
-                enabled=True,
-                indexing=WorkspaceIndexingConfig(include_bots=["baking-bot", "olivia-bot"]),
-            ),
-            shared_workspace_id="ws-123",
-        )
-        mock_ws = MagicMock()
-        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
         with patch("app.services.shared_workspace.shared_workspace_service") as mock_sws:
             mock_sws.get_host_root.return_value = "/data/shared/ws-123"
-            roots = get_all_roots(bot, mock_ws)
-        assert roots == [
-            "/data/shared/ws-123/bots/sag-bot",
-            "/data/shared/ws-123/bots/baking-bot",
-            "/data/shared/ws-123/bots/olivia-bot",
-        ]
+            roots = get_all_roots(bot)
+        assert roots == ["/data/shared/ws-123"]
 
-    def test_include_bots_no_shared_workspace(self):
-        """include_bots is ignored when bot has no shared_workspace_id."""
+    def test_standalone_bot_returns_own_root(self):
+        """Standalone bots return their own workspace root."""
         bot = BotConfig(
             id="sag-bot", name="Sag", model="m", system_prompt="",
-            workspace=WorkspaceConfig(
-                enabled=True,
-                indexing=WorkspaceIndexingConfig(include_bots=["baking-bot"]),
-            ),
+            workspace=WorkspaceConfig(enabled=True),
         )
         mock_ws = MagicMock()
         mock_ws.get_workspace_root.return_value = "/data/sag-bot"
         roots = get_all_roots(bot, mock_ws)
         assert roots == ["/data/sag-bot"]
 
-    def test_no_duplicate_roots(self):
-        """Own root is not duplicated if it appears in include_bots."""
+    def test_workspace_service_imported_lazily(self):
+        """When workspace_service is None, it's imported lazily."""
         bot = BotConfig(
             id="sag-bot", name="Sag", model="m", system_prompt="",
-            workspace=WorkspaceConfig(
-                enabled=True,
-                indexing=WorkspaceIndexingConfig(include_bots=["sag-bot", "baking-bot"]),
-            ),
-            shared_workspace_id="ws-123",
+            workspace=WorkspaceConfig(enabled=True),
         )
-        mock_ws = MagicMock()
-        mock_ws.get_workspace_root.return_value = "/data/shared/ws-123/bots/sag-bot"
-        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sws:
-            mock_sws.get_host_root.return_value = "/data/shared/ws-123"
-            roots = get_all_roots(bot, mock_ws)
-        assert roots == [
-            "/data/shared/ws-123/bots/sag-bot",
-            "/data/shared/ws-123/bots/baking-bot",
-        ]
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/data/sag-bot"
+            roots = get_all_roots(bot, None)
+        assert roots == ["/data/sag-bot"]

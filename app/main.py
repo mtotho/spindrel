@@ -103,12 +103,18 @@ async def _index_filesystems_and_start_watchers() -> None:
         # Workspace-based indexing
         if bot.workspace.enabled and bot.workspace.indexing.enabled:
             _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+            _patterns = _resolved["patterns"]
+            _segments = _resolved.get("segments")
+            # For shared workspace bots without segments, scope patterns to the bot's
+            # own directory so blanket patterns don't crawl the entire workspace.
+            if bot.shared_workspace_id and not _segments:
+                _patterns = [f"bots/{bot.id}/{p}" for p in _patterns]
             for root in get_all_roots(bot, workspace_service):
                 try:
                     stats = await index_directory(
-                        root, bot.id, _resolved["patterns"], force=True,
+                        root, bot.id, _patterns, force=True,
                         embedding_model=_resolved["embedding_model"],
-                        segments=_resolved.get("segments"),
+                        segments=_segments,
                     )
                     logger.info("Indexed workspace root %s for bot %s: %s", root, bot.id, stats)
                 except Exception:

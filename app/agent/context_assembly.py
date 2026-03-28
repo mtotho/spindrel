@@ -34,6 +34,25 @@ from app.tools.mcp import get_mcp_server_for_tool
 logger = logging.getLogger(__name__)
 
 
+def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
+    """Build a compact usage hint like: tool_name(required, [optional]) — description."""
+    params = fn.get("parameters", {})
+    props = params.get("properties", {})
+    required = set(params.get("required", []))
+    parts: list[str] = []
+    for p in props:
+        parts.append(p if p in required else f"[{p}]")
+    sig = f"{name}({', '.join(parts)})" if parts else f"{name}()"
+    desc = fn.get("description", "")
+    # First sentence only, capped at 80 chars
+    dot = desc.find(". ")
+    if dot > 0:
+        desc = desc[:dot]
+    if len(desc) > 80:
+        desc = desc[:77] + "..."
+    return f"{sig} — {desc}" if desc else sig
+
+
 @dataclass
 class AssemblyResult:
     """Side-channel outputs from context assembly needed by the caller."""
@@ -100,7 +119,7 @@ async def _inject_workspace_skills(
         messages.append({
             "role": "system",
             "content": (
-                f"Available workspace skills (use get_workspace_skill to retrieve full content):\n{od_lines}"
+                f"Available workspace skills — call get_workspace_skill(skill_path=\"<path>\") to retrieve full content:\n{od_lines}"
             ),
         })
         yield {"type": "ws_skill_index", "count": len(ws_skills["on_demand"])}
@@ -241,12 +260,12 @@ async def assemble_context(
     if bot.memory_scheme == "workspace-files":
         import os as _mem_os
         from datetime import date as _mem_date
-        from app.services.memory_scheme import get_memory_root, get_memory_rel_path
+        from app.services.memory_scheme import get_memory_root, get_memory_index_prefix
         try:
             from app.services.workspace import workspace_service as _mem_ws
             _mem_ws_root = _mem_ws.get_workspace_root(bot.id, bot)
             _mem_root = get_memory_root(bot, ws_root=_mem_ws_root)
-            _mem_rel = get_memory_rel_path(bot)
+            _mem_rel = get_memory_index_prefix(bot)  # index-relative prefix for FS_CONTEXT exclusion
 
             # 1. MEMORY.md — always inject
             _mem_md_path = _mem_os.path.join(_mem_root, "MEMORY.md")
@@ -462,7 +481,7 @@ async def assemble_context(
                 messages.append({
                     "role": "system",
                     "content": (
-                        f"Available skills (use get_skill to retrieve full content):\n{_index_lines}"
+                        f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_index_lines}"
                     ),
                 })
                 yield {"type": "skill_index", "count": len(_rows)}
@@ -514,7 +533,7 @@ async def assemble_context(
             messages.append({
                 "role": "system",
                 "content": (
-                    f"Available skills (use get_skill to retrieve full content):\n{_api_skill_line}"
+                    f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_api_skill_line}"
                 ),
             })
 
@@ -904,19 +923,21 @@ async def assemble_context(
             else:
                 pre_selected_tools = merged
 
-            # Inject compact names index for unretrieved tools
+            # Inject compact usage index for unretrieved tools
             _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
             _unretrieved = [
-                (n, s["function"].get("description", "")[:80])
+                (n, s["function"])
                 for n, s in by_name.items()
                 if n not in _retrieved_names and n != "get_tool_info"
             ]
             if _unretrieved:
-                _index_lines = "\n".join(f"  • {n}: {d}" for n, d in _unretrieved)
+                _index_lines = "\n".join(
+                    f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
+                )
                 messages.append({
                     "role": "system",
                     "content": (
-                        "Available tools (not yet loaded — use get_tool_info(tool_name) to get full schema):\n"
+                        "Available tools not yet loaded — call get_tool_info(tool_name=\"<name>\") for full schema:\n"
                         + _index_lines
                     ),
                 })
