@@ -100,8 +100,54 @@ def _validate_action(action: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Endpoints — fixed-path routes MUST come before /{rule_id} parametric routes
 # ---------------------------------------------------------------------------
+
+@router.get("/settings", response_model=PolicySettingsOut)
+async def get_policy_settings(
+    _auth=Depends(verify_admin_auth),
+):
+    """Get current tool policy settings (default action, enabled state)."""
+    return PolicySettingsOut(
+        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
+        enabled=settings.TOOL_POLICY_ENABLED,
+    )
+
+
+@router.put("/settings", response_model=PolicySettingsOut)
+async def update_policy_settings(
+    body: PolicySettingsUpdate,
+    _auth=Depends(verify_admin_auth),
+):
+    """Update tool policy settings at runtime (persists until restart)."""
+    if body.default_action is not None:
+        if body.default_action not in ("allow", "deny"):
+            raise HTTPException(status_code=422, detail="default_action must be 'allow' or 'deny'")
+        settings.TOOL_POLICY_DEFAULT_ACTION = body.default_action
+    if body.enabled is not None:
+        settings.TOOL_POLICY_ENABLED = body.enabled
+    invalidate_cache()
+    return PolicySettingsOut(
+        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
+        enabled=settings.TOOL_POLICY_ENABLED,
+    )
+
+
+@router.post("/test", response_model=PolicyTestResponse)
+async def test_policy(
+    body: PolicyTestRequest,
+    _auth=Depends(verify_admin_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dry-run: evaluate policies for given inputs and return the decision."""
+    decision = await evaluate_tool_policy(db, body.bot_id, body.tool_name, body.arguments)
+    return PolicyTestResponse(
+        action=decision.action,
+        rule_id=decision.rule_id,
+        reason=decision.reason,
+        timeout=decision.timeout,
+    )
+
 
 @router.get("", response_model=list[PolicyRuleOut])
 async def list_policy_rules(
@@ -177,49 +223,3 @@ async def delete_policy_rule(
     await db.delete(rule)
     await db.commit()
     invalidate_cache()
-
-
-@router.post("/test", response_model=PolicyTestResponse)
-async def test_policy(
-    body: PolicyTestRequest,
-    _auth=Depends(verify_admin_auth),
-    db: AsyncSession = Depends(get_db),
-):
-    """Dry-run: evaluate policies for given inputs and return the decision."""
-    decision = await evaluate_tool_policy(db, body.bot_id, body.tool_name, body.arguments)
-    return PolicyTestResponse(
-        action=decision.action,
-        rule_id=decision.rule_id,
-        reason=decision.reason,
-        timeout=decision.timeout,
-    )
-
-
-@router.get("/settings", response_model=PolicySettingsOut)
-async def get_policy_settings(
-    _auth=Depends(verify_admin_auth),
-):
-    """Get current tool policy settings (default action, enabled state)."""
-    return PolicySettingsOut(
-        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
-        enabled=settings.TOOL_POLICY_ENABLED,
-    )
-
-
-@router.put("/settings", response_model=PolicySettingsOut)
-async def update_policy_settings(
-    body: PolicySettingsUpdate,
-    _auth=Depends(verify_admin_auth),
-):
-    """Update tool policy settings at runtime (persists until restart)."""
-    if body.default_action is not None:
-        if body.default_action not in ("allow", "deny"):
-            raise HTTPException(status_code=422, detail="default_action must be 'allow' or 'deny'")
-        settings.TOOL_POLICY_DEFAULT_ACTION = body.default_action
-    if body.enabled is not None:
-        settings.TOOL_POLICY_ENABLED = body.enabled
-    invalidate_cache()
-    return PolicySettingsOut(
-        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
-        enabled=settings.TOOL_POLICY_ENABLED,
-    )
