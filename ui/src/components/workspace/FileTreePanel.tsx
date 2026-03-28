@@ -1,9 +1,10 @@
 import { useMemo, useState, useRef, useCallback } from "react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
-import { useWorkspaceFiles, useMoveWorkspaceFile } from "../../api/hooks/useWorkspaces";
+import { useWorkspaceFiles, useMoveWorkspaceFile, useWriteWorkspaceFile, useMkdirWorkspace } from "../../api/hooks/useWorkspaces";
 import { FileTreeNode } from "./FileTreeNode";
+import { FileContextMenu } from "./FileContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
-import { Folder, Search, X } from "lucide-react";
+import { Folder, FileText, Search, X } from "lucide-react";
 
 interface FileTreePanelProps {
   workspaceId: string;
@@ -19,9 +20,47 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
   const closeFile = useFileBrowserStore((s) => s.closeFile);
   const [searchQuery, setSearchQuery] = useState("");
   const [rootDragOver, setRootDragOver] = useState(false);
+  const [rootContextMenu, setRootContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [creatingAtRoot, setCreatingAtRoot] = useState<{ type: "file" | "folder" } | null>(null);
+  const [createName, setCreateName] = useState("");
   const rootDragCounter = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  const createRef = useRef<HTMLInputElement>(null);
   const moveMutation = useMoveWorkspaceFile(workspaceId);
+  const writeMutation = useWriteWorkspaceFile(workspaceId);
+  const mkdirMutation = useMkdirWorkspace(workspaceId);
+
+  const handleRootContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setRootContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleRootCreateIn = useCallback((_dir: string, type: "file" | "folder") => {
+    setCreatingAtRoot({ type });
+    setCreateName("");
+  }, []);
+
+  const commitRootCreate = useCallback(() => {
+    const name = createName.trim();
+    const type = creatingAtRoot?.type;
+    setCreatingAtRoot(null);
+    if (!name || !type) return;
+    if (type === "folder") {
+      mkdirMutation.mutate(name);
+    } else {
+      writeMutation.mutate({ path: name, content: "" });
+    }
+  }, [createName, creatingAtRoot, mkdirMutation, writeMutation]);
+
+  const handleCreateKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRootCreate();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setCreatingAtRoot(null);
+    }
+  }, [commitRootCreate]);
 
   const { data, isLoading } = useWorkspaceFiles(workspaceId, "/");
 
@@ -139,26 +178,82 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
             },
           });
         }}
+        onContextMenu={handleRootContextMenu}
         style={{ flex: 1, overflow: "auto", padding: "4px 0", background: rootDragOver ? "rgba(20,184,166,0.06)" : undefined }}
       >
         {isLoading ? (
           <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Loading...</div>
-        ) : sortedEntries.length === 0 ? (
-          <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Empty workspace</div>
         ) : (
-          sortedEntries.map((entry) => (
-            <FileTreeNode
-              key={entry.path}
-              entry={entry}
-              workspaceId={workspaceId}
-              depth={0}
-              activePaths={activePaths}
-              searchFilter={searchQuery}
-              indexedPaths={indexedPaths}
-            />
-          ))
+          <>
+            {creatingAtRoot && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingLeft: 8,
+                  paddingRight: 8,
+                  paddingTop: 3,
+                  paddingBottom: 3,
+                }}
+              >
+                <span style={{ width: 14, display: "inline-block" }} />
+                {creatingAtRoot.type === "folder" ? (
+                  <Folder size={14} color="#e2a855" />
+                ) : (
+                  <FileText size={14} color="#888" />
+                )}
+                <input
+                  ref={createRef}
+                  autoFocus
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  onKeyDown={handleCreateKeyDown}
+                  onBlur={commitRootCreate}
+                  placeholder={creatingAtRoot.type === "folder" ? "folder name" : "file name"}
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: "#e5e5e5",
+                    background: "#0a0a0a",
+                    border: "1px solid #444",
+                    borderRadius: 3,
+                    padding: "1px 4px",
+                    outline: "none",
+                    minWidth: 0,
+                  }}
+                />
+              </div>
+            )}
+            {sortedEntries.length === 0 && !creatingAtRoot ? (
+              <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Empty workspace</div>
+            ) : (
+              sortedEntries.map((entry) => (
+                <FileTreeNode
+                  key={entry.path}
+                  entry={entry}
+                  workspaceId={workspaceId}
+                  depth={0}
+                  activePaths={activePaths}
+                  searchFilter={searchQuery}
+                  indexedPaths={indexedPaths}
+                />
+              ))
+            )}
+          </>
         )}
       </div>
+      {rootContextMenu && (
+        <FileContextMenu
+          x={rootContextMenu.x}
+          y={rootContextMenu.y}
+          entry={null}
+          workspaceId={workspaceId}
+          onClose={() => setRootContextMenu(null)}
+          onStartRename={() => {}}
+          onCreateIn={handleRootCreateIn}
+        />
+      )}
     </div>
   );
 

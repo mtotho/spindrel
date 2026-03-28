@@ -191,7 +191,7 @@ async def get_memory_file(name: str) -> str:
     "function": {
         "name": "search_bot_memory",
         "description": (
-            "Search another bot's memory files. "
+            "Search another bot's memory files (orchestrator only). "
             "Use this to look up what a specific bot knows or has recorded. "
             "Searches across their MEMORY.md, daily logs, and reference documents."
         ),
@@ -212,38 +212,50 @@ async def get_memory_file(name: str) -> str:
     },
 })
 async def search_bot_memory(bot_id: str, query: str) -> str:
-    """Search another bot's memory files (for orchestrators)."""
-    bot_id = (bot_id or "").strip()
+    """Search another bot's memory files (for orchestrators).
+
+    Uses the calling orchestrator's indexed chunks with the target bot's
+    memory path prefix, since orchestrators index the full shared workspace.
+    """
+    caller_bot, caller_bot_id, caller_ws_root = _get_bot_and_root()
+    if not caller_bot or not caller_ws_root:
+        return "search_bot_memory is not available (no workspace context)."
+
+    # Gate: only orchestrators can search other bots' memory
+    if not (caller_bot.shared_workspace_id and caller_bot.shared_workspace_role == "orchestrator"):
+        return "search_bot_memory is only available to orchestrator bots."
+
+    target_bot_id = (bot_id or "").strip()
     query = (query or "").strip()
-    if not bot_id:
+    if not target_bot_id:
         return "No bot_id provided."
     if not query:
         return "No search query provided."
 
     from app.agent.bots import get_bot
-    target_bot = get_bot(bot_id)
+    target_bot = get_bot(target_bot_id)
     if not target_bot:
-        return f"Bot not found: {bot_id}"
+        return f"Bot not found: {target_bot_id}"
     if target_bot.memory_scheme != "workspace-files":
-        return f"Bot {bot_id} does not use workspace-files memory scheme."
+        return f"Bot {target_bot_id} does not use workspace-files memory scheme."
 
-    from app.services.workspace import workspace_service
-    ws_root = workspace_service.get_workspace_root(bot_id, target_bot)
-
-    from app.services.memory_scheme import get_memory_rel_path
+    # The orchestrator indexed the full workspace under its own bot_id.
+    # Target bot's memory lives at "bots/{target_bot_id}/memory/" relative
+    # to the shared workspace root.
     from app.services.memory_search import hybrid_memory_search
+    target_mem_prefix = os.path.join("bots", target_bot_id, "memory")
     results = await hybrid_memory_search(
         query=query,
-        bot_id=bot_id,
-        root=str(Path(ws_root).resolve()),
-        memory_prefix=get_memory_rel_path(target_bot),
+        bot_id=caller_bot_id,
+        root=str(Path(caller_ws_root).resolve()),
+        memory_prefix=target_mem_prefix,
         top_k=10,
     )
 
     if not results:
-        return f"No matching memory content found for bot {bot_id}."
+        return f"No matching memory content found for bot {target_bot_id}."
 
-    lines = [f"**Memory search results for bot `{bot_id}`:**\n"]
+    lines = [f"**Memory search results for bot `{target_bot_id}`:**\n"]
     for r in results:
         content = r.content
         if content.startswith("# "):

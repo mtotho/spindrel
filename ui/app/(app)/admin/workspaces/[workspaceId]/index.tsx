@@ -22,6 +22,7 @@ import {
   FormRow, TextInput, SelectInput, Toggle, Section, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { IndexingOverview } from "./IndexingOverview";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -1249,6 +1250,16 @@ export default function WorkspaceDetailScreen() {
                 bots={workspace.bots}
                 isWide={isWide}
               />
+            </Section>
+          )}
+
+          {/* Indexing overview (all bots, only for existing workspaces) */}
+          {!isNew && workspace && (
+            <Section
+              title="Indexing Overview"
+              description="Resolved indexing configuration for each bot. Overridden values are highlighted."
+            >
+              <IndexingOverview workspaceId={workspaceId!} />
             </Section>
           )}
 

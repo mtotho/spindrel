@@ -817,6 +817,17 @@ async def assemble_context(
                 c for c in fs_chunks
                 if not any(p in c for p in _memory_scheme_injected_paths)
             ]
+        # For orchestrators in shared workspaces, filter out other bots' memory dirs
+        # from auto-RAG. Memory should only be accessed explicitly via search_bot_memory.
+        if bot.shared_workspace_id and bot.shared_workspace_role == "orchestrator":
+            import re as _mem_re
+            from app.services.memory_scheme import get_memory_rel_path as _get_mem_rel_path
+            _own_mem_prefix = _get_mem_rel_path(bot)  # e.g. "bots/sagittarius-a/memory"
+            _other_bot_mem_pattern = _mem_re.compile(r"\[File: bots/[^/]+/memory/")
+            fs_chunks = [
+                c for c in fs_chunks
+                if not _other_bot_mem_pattern.search(c) or _own_mem_prefix in c
+            ]
         if fs_chunks:
             yield {"type": "fs_context", "count": len(fs_chunks)}
             if correlation_id is not None:
