@@ -66,8 +66,6 @@ class SharedWorkspaceService:
         """Container-side cwd for a bot in a shared workspace."""
         if cwd_override:
             return cwd_override
-        if role == "orchestrator":
-            return "/workspace"
         return f"/workspace/bots/{bot_id}"
 
     def translate_path(self, workspace_id: str, container_path: str) -> str:

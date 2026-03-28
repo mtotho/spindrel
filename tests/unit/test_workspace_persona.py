@@ -110,8 +110,9 @@ class TestAutoInjectedExclusion:
     def test_persona_at_bot_root(self):
         assert _is_auto_injected(("persona.md",)) is True
 
-    def test_persona_under_bots_dir(self):
-        assert _is_auto_injected(("bots", "coder", "persona.md")) is True
+    def test_persona_under_bots_dir_not_seen(self):
+        """bots/ prefix paths never appear in practice since each bot indexes from its own root."""
+        assert _is_auto_injected(("bots", "coder", "persona.md")) is False
 
     # --- skills/ ---
     def test_skills_subtree_at_bot_root(self):
@@ -123,8 +124,9 @@ class TestAutoInjectedExclusion:
     def test_common_skills(self):
         assert _is_auto_injected(("common", "skills", "rag", "faq.md")) is True
 
-    def test_bot_skills_under_bots_dir(self):
-        assert _is_auto_injected(("bots", "coder", "skills", "on-demand", "tool.md")) is True
+    def test_bot_skills_under_bots_dir_not_seen(self):
+        """bots/ prefix paths never appear since each bot indexes from its own root."""
+        assert _is_auto_injected(("bots", "coder", "skills", "on-demand", "tool.md")) is False
 
     # --- prompts/base.md ---
     def test_base_prompt_at_bot_root(self):
@@ -133,8 +135,9 @@ class TestAutoInjectedExclusion:
     def test_common_base_prompt(self):
         assert _is_auto_injected(("common", "prompts", "base.md")) is True
 
-    def test_bot_base_prompt_under_bots_dir(self):
-        assert _is_auto_injected(("bots", "coder", "prompts", "base.md")) is True
+    def test_bot_base_prompt_under_bots_dir_not_seen(self):
+        """bots/ prefix paths never appear since each bot indexes from its own root."""
+        assert _is_auto_injected(("bots", "coder", "prompts", "base.md")) is False
 
     # --- non-convention files should NOT be excluded ---
     def test_regular_python_file(self):

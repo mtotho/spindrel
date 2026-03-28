@@ -269,9 +269,7 @@ async def list_turns(
 
         # Bot ID from session or trace events
         sess_info = session_channel_map.get(msg_row.session_id)
-        turn_bot_id = bot_id  # if filtered
-        if not turn_bot_id and sess_info:
-            turn_bot_id = sess_info[2]
+        turn_bot_id = sess_info[2] if sess_info else None
         if not turn_bot_id:
             # Fallback: get from trace events
             for te in tes:

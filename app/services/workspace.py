@@ -41,8 +41,6 @@ class WorkspaceService:
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             sw_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
-            if bot.shared_workspace_role == "orchestrator":
-                return sw_root
             return os.path.join(sw_root, "bots", bot_id)
         base = local_workspace_base()
         return os.path.join(base, bot_id)

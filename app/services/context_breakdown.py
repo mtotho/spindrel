@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -173,7 +174,7 @@ async def compute_context_breakdown(
             # MEMORY.md
             _bd_mem_md = _bd_os.path.join(_bd_mem_root, "MEMORY.md")
             if _bd_os.path.isfile(_bd_mem_md):
-                _bd_md_chars = len(open(_bd_mem_md).read())
+                _bd_md_chars = len(Path(_bd_mem_md).read_text())
                 if _bd_md_chars > 0:
                     categories.append(ContextCategory(
                         key="memory_md", label="MEMORY.md", chars=_bd_md_chars,
@@ -185,7 +186,7 @@ async def compute_context_breakdown(
             _bd_today = _bd_date.today().isoformat()
             _bd_today_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_today}.md")
             if _bd_os.path.isfile(_bd_today_path):
-                _bd_today_chars = len(open(_bd_today_path).read())
+                _bd_today_chars = len(Path(_bd_today_path).read_text())
                 if _bd_today_chars > 0:
                     categories.append(ContextCategory(
                         key="memory_today_log", label="Today's Log", chars=_bd_today_chars,
@@ -197,7 +198,7 @@ async def compute_context_breakdown(
             _bd_yest = (_bd_date.today() - __import__("datetime").timedelta(days=1)).isoformat()
             _bd_yest_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_yest}.md")
             if _bd_os.path.isfile(_bd_yest_path):
-                _bd_yest_chars = len(open(_bd_yest_path).read())
+                _bd_yest_chars = len(Path(_bd_yest_path).read_text())
                 if _bd_yest_chars > 0:
                     categories.append(ContextCategory(
                         key="memory_yesterday_log", label="Yesterday's Log", chars=_bd_yest_chars,
