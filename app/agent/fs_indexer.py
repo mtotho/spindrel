@@ -542,6 +542,15 @@ async def index_directory(
     if file_paths is None:
         disk_set = {str(PurePosixPath(p.relative_to(root_path))) for p in candidates}
         stale = set(existing_hashes.keys()) - disk_set
+        # When using segments, only remove stale files that fall WITHIN segment
+        # prefixes.  Files outside all segments (e.g. memory files indexed by a
+        # separate Phase 1) are not in our scope and must not be purged.
+        if segments and stale:
+            seg_prefixes = [s["path_prefix"].rstrip("/") + "/" for s in segments]
+            stale = {
+                fp for fp in stale
+                if any(fp.startswith(sp) for sp in seg_prefixes)
+            }
         if stale:
             async with async_session() as db:
                 await db.execute(
