@@ -122,7 +122,7 @@ export function useTestToolPolicy() {
 // --- Policy settings (default action, enabled) ---
 
 export interface PolicySettings {
-  default_action: "allow" | "deny";
+  default_action: "allow" | "deny" | "require_approval";
   enabled: boolean;
 }
 

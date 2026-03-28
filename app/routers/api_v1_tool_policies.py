@@ -121,8 +121,8 @@ async def update_policy_settings(
 ):
     """Update tool policy settings at runtime (persists until restart)."""
     if body.default_action is not None:
-        if body.default_action not in ("allow", "deny"):
-            raise HTTPException(status_code=422, detail="default_action must be 'allow' or 'deny'")
+        if body.default_action not in ("allow", "deny", "require_approval"):
+            raise HTTPException(status_code=422, detail="default_action must be 'allow', 'deny', or 'require_approval'")
         settings.TOOL_POLICY_DEFAULT_ACTION = body.default_action
     if body.enabled is not None:
         settings.TOOL_POLICY_ENABLED = body.enabled
