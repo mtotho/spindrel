@@ -30,11 +30,11 @@ function IssuesList({ issues }: { issues: string[] }) {
       border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8,
       display: "flex", flexDirection: "column", gap: 6,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#fca5a5" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#dc2626" }}>
         <AlertTriangle size={14} /> {issues.length} issue{issues.length !== 1 ? "s" : ""} detected
       </div>
       {issues.map((issue, i) => (
-        <div key={i} style={{ fontSize: 12, color: "#fca5a5", paddingLeft: 20 }}>
+        <div key={i} style={{ fontSize: 12, color: "#dc2626", paddingLeft: 20 }}>
           {issue}
         </div>
       ))}
@@ -53,7 +53,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
         <Cpu size={14} color={t.textMuted} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Embedding Service</span>
         <StatusDot ok={data.healthy} />
-        <span style={{ fontSize: 11, color: data.healthy ? "#86efac" : "#fca5a5" }}>
+        <span style={{ fontSize: 11, color: data.healthy ? "#16a34a" : "#dc2626" }}>
           {data.healthy ? "Healthy" : "DOWN"}
         </span>
       </div>
@@ -62,7 +62,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
         <span>URL: <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{data.litellm_base_url}</span></span>
       </div>
       {data.error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#fca5a5", fontFamily: "monospace" }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "monospace" }}>
           {data.error}
         </div>
       )}
@@ -93,7 +93,7 @@ function BotIndexCard({ bot }: { bot: FsIndexDiag }) {
       {/* Root path */}
       <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace", marginBottom: 10, wordBreak: "break-all" }}>
         {bot.workspace_root}
-        {!bot.root_exists && <span style={{ color: "#fca5a5", marginLeft: 6 }}>(NOT FOUND)</span>}
+        {!bot.root_exists && <span style={{ color: "#dc2626", marginLeft: 6 }}>(NOT FOUND)</span>}
       </div>
 
       {/* Stats grid */}
@@ -130,7 +130,7 @@ function StatBox({ label, value, warn }: { label: string; value: number; warn?: 
       <div style={{ fontSize: 10, color: t.textDim, marginBottom: 2 }}>{label}</div>
       <div style={{
         fontSize: 16, fontWeight: 700, fontFamily: "monospace",
-        color: warn ? "#fca5a5" : t.text,
+        color: warn ? "#dc2626" : t.text,
       }}>
         {value}
       </div>
@@ -160,7 +160,7 @@ function WorkspaceSkillsSection({ data }: { data: Array<{ workspace_id: string; 
           <span style={{
             padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
             background: ws.skills_enabled ? "rgba(34,197,94,0.15)" : "rgba(100,100,100,0.15)",
-            color: ws.skills_enabled ? "#86efac" : t.textDim,
+            color: ws.skills_enabled ? "#16a34a" : t.textDim,
           }}>
             {ws.skills_enabled ? "enabled" : "disabled"}
           </span>
@@ -190,14 +190,14 @@ function ReindexResultBanner({ result, onDismiss }: { result: ReindexResult; onD
       borderRadius: 8, fontSize: 12, lineHeight: 1.6,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ color: hasErrors ? "#fca5a5" : "#86efac" }}>
+        <div style={{ color: hasErrors ? "#dc2626" : "#16a34a" }}>
           <strong>Reindex complete:</strong> {totalIndexed} files indexed,
           {" "}{totalSkills} workspace skills embedded
           {orphansDeleted > 0 && `, ${orphansDeleted} orphans cleaned`}
           {result.filesystem.map((f, i) => (
             <div key={i} style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
               {f.bot_id}: {f.error
-                ? <span style={{ color: "#fca5a5" }}>{f.error}</span>
+                ? <span style={{ color: "#dc2626" }}>{f.error}</span>
                 : `${f.indexed} indexed, ${f.skipped} skipped, ${f.removed} removed, ${f.errors} errors`}
             </div>
           ))}
@@ -273,7 +273,7 @@ export default function DiagnosticsScreen() {
               <div style={{
                 padding: "12px 16px", background: "rgba(34,197,94,0.1)",
                 border: "1px solid rgba(34,197,94,0.2)", borderRadius: 8,
-                display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#86efac",
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#16a34a",
               }}>
                 <CheckCircle size={14} /> All indexing systems healthy
               </div>

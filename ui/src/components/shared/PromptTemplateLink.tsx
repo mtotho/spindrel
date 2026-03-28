@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { Link2, Unlink, Pencil } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface Props {
   templateId: string | null | undefined;
@@ -13,23 +14,24 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
   const { data: templates } = usePromptTemplates();
+  const t = useThemeTokens();
 
-  const linked = templates?.find((t) => t.id === templateId);
+  const linked = templates?.find((tpl) => tpl.id === templateId);
 
   const q = search.toLowerCase();
   const filtered = templates
     ? q
       ? templates.filter(
-          (t) =>
-            t.name.toLowerCase().includes(q) ||
-            (t.category || "").toLowerCase().includes(q) ||
-            (t.description || "").toLowerCase().includes(q)
+          (tpl) =>
+            tpl.name.toLowerCase().includes(q) ||
+            (tpl.category || "").toLowerCase().includes(q) ||
+            (tpl.description || "").toLowerCase().includes(q)
         )
       : templates
     : [];
 
   // Only show manual templates (not workspace_file sourced)
-  const manual = filtered.filter((t) => t.source_type !== "workspace_file");
+  const manual = filtered.filter((tpl) => tpl.source_type !== "workspace_file");
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
@@ -46,7 +48,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
               borderRadius: 4,
               background: "rgba(59,130,246,0.1)",
               border: "1px solid rgba(59,130,246,0.25)",
-              color: "#93c5fd",
+              color: t.accent,
             }}
           >
             <Pencil size={11} />
@@ -61,10 +63,10 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
               gap: 3,
               padding: "3px 6px",
               fontSize: 10,
-              border: "1px solid #333",
+              border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 4,
               background: "transparent",
-              color: "#888",
+              color: t.textDim,
               cursor: "pointer",
             }}
           >
@@ -85,10 +87,10 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
               padding: "3px 8px",
               fontSize: 11,
               fontWeight: 600,
-              border: "1px solid #333",
+              border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 4,
-              background: open ? "#1a1a1a" : "transparent",
-              color: "#888",
+              background: open ? t.surfaceOverlay : "transparent",
+              color: t.textDim,
               cursor: "pointer",
             }}
           >
@@ -117,15 +119,15 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
                       width: 340,
                       maxHeight: 380,
                       zIndex: 10011,
-                      background: "#1a1a1a",
-                      border: "1px solid #333",
+                      background: t.surfaceRaised,
+                      border: `1px solid ${t.surfaceBorder}`,
                       borderRadius: 8,
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
                       display: "flex",
                       flexDirection: "column",
                     }}
                   >
-                    <div style={{ padding: "8px 10px", borderBottom: "1px solid #2a2a2a" }}>
+                    <div style={{ padding: "8px 10px", borderBottom: `1px solid ${t.surfaceOverlay}` }}>
                       <input
                         type="text"
                         value={search}
@@ -134,12 +136,12 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
                         autoFocus
                         style={{
                           width: "100%",
-                          background: "#111",
-                          border: "1px solid #333",
+                          background: t.inputBg,
+                          border: `1px solid ${t.inputBorder}`,
                           borderRadius: 4,
                           padding: "5px 8px",
                           fontSize: 12,
-                          color: "#e5e5e5",
+                          color: t.inputText,
                           outline: "none",
                         }}
                       />
@@ -150,19 +152,19 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
                           style={{
                             padding: "16px 12px",
                             textAlign: "center",
-                            color: "#555",
+                            color: t.textDim,
                             fontSize: 12,
                           }}
                         >
                           No templates found
                         </div>
                       )}
-                      {manual.map((t) => (
+                      {manual.map((tpl) => (
                         <button
-                          key={t.id}
+                          key={tpl.id}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            onLink(t.id);
+                            onLink(tpl.id);
                             setOpen(false);
                             setSearch("");
                           }}
@@ -177,27 +179,27 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
                             cursor: "pointer",
                             textAlign: "left",
                           }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#2a2a2a")}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <Pencil size={11} color="#93c5fd" />
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#e5e5e5" }}>
-                              {t.name}
+                            <Pencil size={11} color={t.accent} />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                              {tpl.name}
                             </span>
                           </div>
-                          {t.description && (
+                          {tpl.description && (
                             <span
                               style={{
                                 fontSize: 11,
-                                color: "#666",
+                                color: t.textDim,
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
                                 paddingLeft: 17,
                               }}
                             >
-                              {t.description}
+                              {tpl.description}
                             </span>
                           )}
                         </button>

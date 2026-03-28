@@ -66,7 +66,7 @@ export function SkillsSection({
                 <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: "#3b82f6", marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? "#93c5fd" : t.textMuted }}>{skill.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? "#2563eb" : t.textMuted }}>{skill.name}</span>
                     <span style={{ fontSize: 10, color: t.surfaceBorder, fontFamily: "monospace" }}>{skill.id}</span>
                   </div>
                   {skill.description && (

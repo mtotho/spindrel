@@ -10,10 +10,10 @@ import { useState } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
-    file: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd", label: "file" },
-    integration: { bg: "rgba(249,115,22,0.15)", fg: "#fdba74", label: "integration" },
+    file: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb", label: "file" },
+    integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
     manual: { bg: "rgba(100,100,100,0.15)", fg: "#999", label: "manual" },
-    workspace: { bg: "rgba(168,85,247,0.15)", fg: "#c084fc", label: "workspace" },
+    workspace: { bg: "rgba(168,85,247,0.15)", fg: "#9333ea", label: "workspace" },
   };
   const c = cfg[type] || cfg.manual;
   return (
@@ -68,7 +68,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
           {isWs && skill.workspace_name && (
-            <span style={{ color: "#c084fc" }}>{skill.workspace_name}</span>
+            <span style={{ color: "#9333ea" }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
@@ -103,7 +103,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
             {skill.name}
           </span>
           {isWs && skill.workspace_name && (
-            <span style={{ fontSize: 10, color: "#c084fc", whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
+            <span style={{ fontSize: 10, color: "#9333ea", whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
@@ -124,7 +124,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
   const hasErrors = result.errors && result.errors.length > 0;
   const bg = hasErrors ? "rgba(127,29,29,0.3)" : "rgba(34,197,94,0.1)";
   const border = hasErrors ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.2)";
-  const color = hasErrors ? "#fca5a5" : "#86efac";
+  const color = hasErrors ? "#dc2626" : "#16a34a";
   return (
     <div style={{
       padding: "10px 16px", background: bg, border: `1px solid ${border}`,
@@ -141,7 +141,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
             </div>
           )}
           {hasErrors && result.errors.map((e, i) => (
-            <div key={i} style={{ color: "#fca5a5", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <div key={i} style={{ color: "#dc2626", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
               <AlertTriangle size={12} /> {e}
             </div>
           ))}
@@ -225,7 +225,7 @@ export default function SkillsScreen() {
         <div style={{
           padding: "10px 16px", background: "rgba(127,29,29,0.3)",
           border: "1px solid rgba(239,68,68,0.3)",
-          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: "#fca5a5",
+          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: "#dc2626",
           display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
           <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>

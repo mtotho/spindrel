@@ -9,11 +9,11 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
-  litellm: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
+  litellm: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
   openai: { bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
   "openai-compatible": { bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
-  anthropic: { bg: "rgba(249,115,22,0.15)", fg: "#fdba74" },
-  "anthropic-compatible": { bg: "rgba(249,115,22,0.15)", fg: "#fdba74" },
+  anthropic: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
+  "anthropic-compatible": { bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
 };
 
 function TypeBadge({ type }: { type: string }) {
@@ -37,17 +37,17 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
       border: "1px solid rgba(59,130,246,0.2)",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Server size={14} color="#93c5fd" />
+        <Server size={14} color="#2563eb" />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           LiteLLM (.env fallback)
         </span>
         <span style={{
           padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-          background: "rgba(59,130,246,0.15)", color: "#93c5fd",
+          background: "rgba(59,130,246,0.15)", color: "#2563eb",
         }}>
           built-in
         </span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#86efac" }}>active</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#16a34a" }}>active</span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         {baseUrl && (
@@ -138,7 +138,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
         {testResult && (
           <span style={{
             fontSize: 11, fontWeight: 600,
-            color: testResult.ok ? "#86efac" : "#fca5a5",
+            color: testResult.ok ? "#16a34a" : "#dc2626",
           }}>
             {testResult.ok ? "\u2713" : "\u2717"} {testResult.message}
           </span>

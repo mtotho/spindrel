@@ -10,33 +10,33 @@ import { useThemeTokens } from "@/src/theme/tokens";
 // Colors
 // ---------------------------------------------------------------------------
 const DOT_COLORS: Record<string, string> = {
-  tool_call:            "#a5b4fc",
-  memory_injection:     "#d8b4fe",
-  skill_context:        "#5eead4",
-  knowledge_context:    "#93c5fd",
-  tool_retrieval:       "#fde047",
-  context_compressed:   "#bef264",
-  context_breakdown:    "#67e8f9",
+  tool_call:            "#4f46e5",
+  memory_injection:     "#7c3aed",
+  skill_context:        "#0d9488",
+  knowledge_context:    "#2563eb",
+  tool_retrieval:       "#ca8a04",
+  context_compressed:   "#65a30d",
+  context_breakdown:    "#0891b2",
   token_usage:          "#999",
-  error:                "#fca5a5",
-  harness:              "#fbbf24",
-  response:             "#86efac",
-  message:              "#a5b4fc",
+  error:                "#dc2626",
+  harness:              "#d97706",
+  response:             "#16a34a",
+  message:              "#4f46e5",
 };
 
 const BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  tool_call:            { bg: "#312e81", fg: "#a5b4fc" },
-  memory_injection:     { bg: "#3b0764", fg: "#d8b4fe" },
-  skill_context:        { bg: "#134e4a", fg: "#5eead4" },
-  knowledge_context:    { bg: "#1e3a5f", fg: "#93c5fd" },
-  tool_retrieval:       { bg: "#713f12", fg: "#fde047" },
-  context_compressed:   { bg: "#365314", fg: "#bef264" },
-  context_breakdown:    { bg: "#164e63", fg: "#67e8f9" },
-  token_usage:          { bg: "#333",    fg: "#999"    },
-  error:                { bg: "#7f1d1d", fg: "#fca5a5" },
-  harness:              { bg: "#78350f", fg: "#fbbf24" },
-  response:             { bg: "#166534", fg: "#86efac" },
-  message:              { bg: "#312e81", fg: "#a5b4fc" },
+  tool_call:            { bg: "rgba(99,102,241,0.12)",  fg: "#4f46e5" },
+  memory_injection:     { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea" },
+  skill_context:        { bg: "rgba(20,184,166,0.12)",  fg: "#0d9488" },
+  knowledge_context:    { bg: "rgba(59,130,246,0.12)",  fg: "#2563eb" },
+  tool_retrieval:       { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04" },
+  context_compressed:   { bg: "rgba(132,204,22,0.12)",  fg: "#65a30d" },
+  context_breakdown:    { bg: "rgba(6,182,212,0.12)",   fg: "#0891b2" },
+  token_usage:          { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
+  error:                { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626" },
+  harness:              { bg: "rgba(234,179,8,0.12)",   fg: "#b45309" },
+  response:             { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a" },
+  message:              { bg: "rgba(99,102,241,0.12)",  fg: "#4f46e5" },
 };
 
 function fmtTime(iso: string | null | undefined): string {
@@ -251,7 +251,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         <div style={{
           position: "absolute", left: -30, top: 10,
           width: 10, height: 10, borderRadius: 5,
-          background: isUser ? "#818cf8" : "#86efac",
+          background: isUser ? "#818cf8" : "#16a34a",
           border: `2px solid ${t.surface}`,
         }} />
         <div style={{
@@ -260,13 +260,13 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
           borderRadius: 8, padding: "10px 14px",
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? "#a5b4fc" : "#86efac" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? "#6366f1" : "#16a34a" }}>
               {isUser ? "User" : "Assistant"}
             </span>
             <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
           </div>
           <div style={{
-            fontSize: 13, color: "#d4d4d4", whiteSpace: "pre-wrap", wordBreak: "break-word",
+            fontSize: 13, color: t.contentText, whiteSpace: "pre-wrap", wordBreak: "break-word",
             maxHeight: expanded ? undefined : 200, overflow: expanded ? undefined : "hidden",
           }}>
             {ev.content || "[empty]"}
@@ -351,7 +351,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         {ev.error && (
           <div style={{
             background: "rgba(127,29,29,0.2)", padding: "6px 12px",
-            fontSize: 12, color: "#fca5a5", borderTop: `1px solid ${t.surfaceOverlay}`,
+            fontSize: 12, color: "#dc2626", borderTop: `1px solid ${t.surfaceOverlay}`,
           }}>
             {ev.error}
           </div>

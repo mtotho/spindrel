@@ -78,7 +78,7 @@ function HeartbeatHistoryList({ history }: { history: any[] }) {
                 <span style={{
                   fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
                   background: hb.status === "complete" ? "#166534" : hb.status === "failed" ? "#7f1d1d" : t.surfaceBorder,
-                  color: hb.status === "complete" ? "#86efac" : hb.status === "failed" ? "#fca5a5" : t.textMuted,
+                  color: hb.status === "complete" ? "#16a34a" : hb.status === "failed" ? "#dc2626" : t.textMuted,
                 }}>
                   {hb.status}
                 </span>
@@ -91,8 +91,8 @@ function HeartbeatHistoryList({ history }: { history: any[] }) {
                 }}>
                   {hb.error && (
                     <div style={{
-                      fontSize: 12, color: "#fca5a5", marginBottom: 8,
-                      padding: "6px 8px", background: "#1a0505", borderRadius: 4, border: "1px solid #7f1d1d",
+                      fontSize: 12, color: "#dc2626", marginBottom: 8,
+                      padding: "6px 8px", background: "#1a0505", borderRadius: 4, border: "1px solid rgba(239,68,68,0.25)",
                       whiteSpace: "pre-wrap", wordBreak: "break-word",
                     }}>
                       {hb.error}
@@ -223,12 +223,12 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
               background: enabled ? "#166534" : t.surfaceBorder,
-              color: enabled ? "#86efac" : t.textMuted,
+              color: enabled ? "#16a34a" : t.textMuted,
             }}
           >
             <span style={{
               width: 8, height: 8, borderRadius: 4,
-              background: enabled ? "#86efac" : t.textDim,
+              background: enabled ? "#16a34a" : t.textDim,
             }} />
             {enabled ? "Enabled" : "Disabled"}
           </button>
@@ -333,12 +333,12 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
             style={{
               padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
               background: hbFired ? "rgba(34,197,94,0.15)" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#92400e" : t.surfaceBorder,
-              color: hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : t.textDim,
+              color: hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#ca8a04" : t.textDim,
               fontSize: 13, fontWeight: 500,
               display: "flex", alignItems: "center", gap: 6,
             }}
           >
-            <Play size={12} color={hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#fcd34d" : t.textDim} />
+            <Play size={12} color={hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#ca8a04" : t.textDim} />
             {hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
           </button>
         </div>

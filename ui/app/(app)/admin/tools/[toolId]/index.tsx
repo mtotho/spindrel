@@ -31,7 +31,7 @@ function TypeBadge({ tool }: { tool: { server_name?: string | null; source_integ
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(249,115,22,0.15)", color: "#fdba74",
+        background: "rgba(249,115,22,0.15)", color: "#ea580c",
       }}>
         mcp:{tool.server_name}
       </span>
@@ -41,7 +41,7 @@ function TypeBadge({ tool }: { tool: { server_name?: string | null; source_integ
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(168,85,247,0.15)", color: "#c4b5fd",
+        background: "rgba(168,85,247,0.15)", color: "#8b5cf6",
       }}>
         integration:{tool.source_integration}
       </span>
@@ -50,7 +50,7 @@ function TypeBadge({ tool }: { tool: { server_name?: string | null; source_integ
   return (
     <span style={{
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-      background: "rgba(59,130,246,0.15)", color: "#93c5fd",
+      background: "rgba(59,130,246,0.15)", color: "#2563eb",
     }}>
       local
     </span>
@@ -74,7 +74,7 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
           <span style={{ fontSize: 9, color: "#f87171", fontWeight: 700 }}>REQ</span>
         )}
       </div>
-      <span style={{ fontSize: 11, color: "#93c5fd", fontFamily: "monospace", flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: "#2563eb", fontFamily: "monospace", flexShrink: 0 }}>
         {type}
         {param.enum && `: ${param.enum.join(" | ")}`}
       </span>

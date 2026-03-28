@@ -74,42 +74,42 @@ const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
 ];
 
 const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  scheduled: { bg: "#1e3a5f", fg: "#93c5fd" },
-  heartbeat: { bg: "#3b2e1a", fg: "#fbbf24" },
-  delegation: { bg: "#2d1b4e", fg: "#c084fc" },
-  harness: { bg: "#1a3333", fg: "#5eead4" },
-  exec: { bg: "#333", fg: "#a3a3a3" },
-  callback: { bg: "#2e1a1a", fg: "#f87171" },
-  api: { bg: "#1a2e1a", fg: "#86efac" },
-  agent: { bg: "#222", fg: "#666" },
+  scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6" },
+  heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04" },
+  delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea" },
+  harness: { bg: "rgba(20,184,166,0.12)", fg: "#0d9488" },
+  exec: { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
+  callback: { bg: "rgba(239,68,68,0.12)", fg: "#dc2626" },
+  api: { bg: "rgba(34,197,94,0.12)", fg: "#16a34a" },
+  agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af" },
 };
 
 const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string }> = {
-  pending:   { bg: "#333",    fg: "#999",    icon: Clock,        label: "Pending" },
-  running:   { bg: "#1e3a5f", fg: "#93c5fd", icon: Loader2,      label: "Running" },
-  complete:  { bg: "#166534", fg: "#86efac", icon: CheckCircle2,  label: "Complete" },
-  failed:    { bg: "#7f1d1d", fg: "#fca5a5", icon: AlertCircle,   label: "Failed" },
-  active:    { bg: "#92400e", fg: "#fcd34d", icon: RefreshCw,     label: "Active" },
-  upcoming:  { bg: "#1a1a2e", fg: "#555",    icon: Clock,         label: "Upcoming" },
-  cancelled: { bg: "#1a1a1a", fg: "#555",    icon: XCircle,       label: "Cancelled" },
+  pending:   { bg: "rgba(107,114,128,0.12)", fg: "#6b7280",  icon: Clock,        label: "Pending" },
+  running:   { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6",  icon: Loader2,      label: "Running" },
+  complete:  { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a",  icon: CheckCircle2, label: "Complete" },
+  failed:    { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626",  icon: AlertCircle,  label: "Failed" },
+  active:    { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04",  icon: RefreshCw,    label: "Active" },
+  upcoming:  { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: Clock,        label: "Upcoming" },
+  cancelled: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: XCircle,      label: "Cancelled" },
 };
 
 // ---------------------------------------------------------------------------
 // Bot color palette — deterministic hash to 12 distinct hues
 // ---------------------------------------------------------------------------
 const BOT_COLORS = [
-  { bg: "rgba(59,130,246,0.12)", border: "#3b82f6", dot: "#3b82f6", fg: "#93c5fd" },  // blue
-  { bg: "rgba(168,85,247,0.12)", border: "#a855f7", dot: "#a855f7", fg: "#c084fc" },  // purple
-  { bg: "rgba(236,72,153,0.12)", border: "#ec4899", dot: "#ec4899", fg: "#f472b6" },  // pink
-  { bg: "rgba(239,68,68,0.12)",  border: "#ef4444", dot: "#ef4444", fg: "#fca5a5" },  // red
-  { bg: "rgba(249,115,22,0.12)", border: "#f97316", dot: "#f97316", fg: "#fdba74" },  // orange
-  { bg: "rgba(234,179,8,0.12)",  border: "#eab308", dot: "#eab308", fg: "#fde047" },  // yellow
-  { bg: "rgba(34,197,94,0.12)",  border: "#22c55e", dot: "#22c55e", fg: "#86efac" },  // green
-  { bg: "rgba(20,184,166,0.12)", border: "#14b8a6", dot: "#14b8a6", fg: "#5eead4" },  // teal
-  { bg: "rgba(6,182,212,0.12)",  border: "#06b6d4", dot: "#06b6d4", fg: "#67e8f9" },  // cyan
-  { bg: "rgba(99,102,241,0.12)", border: "#6366f1", dot: "#6366f1", fg: "#a5b4fc" },  // indigo
-  { bg: "rgba(244,63,94,0.12)",  border: "#f43f5e", dot: "#f43f5e", fg: "#fb7185" },  // rose
-  { bg: "rgba(132,204,22,0.12)", border: "#84cc16", dot: "#84cc16", fg: "#bef264" },  // lime
+  { bg: "rgba(59,130,246,0.12)", border: "#3b82f6", dot: "#3b82f6", fg: "#2563eb" },  // blue
+  { bg: "rgba(168,85,247,0.12)", border: "#a855f7", dot: "#a855f7", fg: "#9333ea" },  // purple
+  { bg: "rgba(236,72,153,0.12)", border: "#ec4899", dot: "#ec4899", fg: "#db2777" },  // pink
+  { bg: "rgba(239,68,68,0.12)",  border: "#ef4444", dot: "#ef4444", fg: "#dc2626" },  // red
+  { bg: "rgba(249,115,22,0.12)", border: "#f97316", dot: "#f97316", fg: "#ea580c" },  // orange
+  { bg: "rgba(234,179,8,0.12)",  border: "#eab308", dot: "#eab308", fg: "#ca8a04" },  // yellow
+  { bg: "rgba(34,197,94,0.12)",  border: "#22c55e", dot: "#22c55e", fg: "#16a34a" },  // green
+  { bg: "rgba(20,184,166,0.12)", border: "#14b8a6", dot: "#14b8a6", fg: "#0d9488" },  // teal
+  { bg: "rgba(6,182,212,0.12)",  border: "#06b6d4", dot: "#06b6d4", fg: "#0891b2" },  // cyan
+  { bg: "rgba(99,102,241,0.12)", border: "#6366f1", dot: "#6366f1", fg: "#4f46e5" },  // indigo
+  { bg: "rgba(244,63,94,0.12)",  border: "#f43f5e", dot: "#f43f5e", fg: "#e11d48" },  // rose
+  { bg: "rgba(132,204,22,0.12)", border: "#84cc16", dot: "#84cc16", fg: "#65a30d" },  // lime
 ];
 
 function botColor(botId: string) {
@@ -382,7 +382,7 @@ function ConflictBanner({ warnings }: { warnings: string[] }) {
     }}>
       <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 2 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#d97706", marginBottom: 2 }}>
           Schedule Overlap — Schedules fire within 2 hours of each other
         </div>
         {warnings.map((w, i) => (
@@ -450,11 +450,11 @@ function TaskCard({
         {isRecurring && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,
-            background: "#92400e", color: "#fcd34d",
+            background: "rgba(217,119,6,0.12)", color: "#ca8a04",
             padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
             flexShrink: 0,
           }}>
-            <RefreshCw size={9} color="#fcd34d" />
+            <RefreshCw size={9} color="#ca8a04" />
             {task.recurrence}
           </span>
         )}
@@ -470,7 +470,7 @@ function TaskCard({
         {task.task_type && <TypeBadge type={task.task_type} />}
       </div>
       {task.error && (
-        <div style={{ fontSize: 10, color: "#fca5a5", marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4 }}>
           {task.error.substring(0, 100)}
         </div>
       )}
@@ -724,10 +724,10 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
               {botConflicts && (
                 <span style={{
                   display: "inline-flex", alignItems: "center", gap: 4,
-                  fontSize: 10, fontWeight: 700, color: "#fbbf24",
+                  fontSize: 10, fontWeight: 700, color: "#d97706",
                   background: "rgba(245,158,11,0.15)", padding: "2px 8px", borderRadius: 4,
                 }}>
-                  <AlertTriangle size={10} color="#fbbf24" />
+                  <AlertTriangle size={10} color="#d97706" />
                   Overlap
                 </span>
               )}
@@ -800,11 +800,11 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                         <span style={{
                           display: "inline-flex", alignItems: "center", gap: 3,
                           background: isCancelled ? t.surfaceRaised : "#92400e",
-                          color: isCancelled ? t.textDim : "#fcd34d",
+                          color: isCancelled ? t.textDim : "#ca8a04",
                           padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                           flexShrink: 0,
                         }}>
-                          <RefreshCw size={9} color={isCancelled ? t.textDim : "#fcd34d"} />
+                          <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
                           {tk.recurrence}
                         </span>
                       )}
@@ -875,7 +875,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
       {/* Active schedules section */}
       {activeSchedules.length > 0 && (
         <>
-          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: "#fcd34d", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: "#ca8a04", textTransform: "uppercase", letterSpacing: 0.5 }}>
             Schedules
           </div>
           {activeSchedules.map((tk) => {
@@ -910,10 +910,10 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 3,
                     background: isCancelled ? t.surfaceRaised : "#92400e",
-                    color: isCancelled ? t.textDim : "#fcd34d",
+                    color: isCancelled ? t.textDim : "#ca8a04",
                     padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                   }}>
-                    <RefreshCw size={9} color={isCancelled ? t.textDim : "#fcd34d"} />
+                    <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
                     {tk.recurrence}
                   </span>
                 )}
@@ -1228,7 +1228,7 @@ export default function TasksScreen() {
                   ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? "#7f1d1d" : t.accent)
                   : t.surfaceRaised,
                 color: statusFilter === f.key
-                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? "#fca5a5" : "#fff")
+                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? "#dc2626" : "#fff")
                   : t.textMuted,
                 whiteSpace: "nowrap",
               }}
@@ -1244,10 +1244,10 @@ export default function TasksScreen() {
             <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 11, fontWeight: 700, color: "#fbbf24",
+              fontSize: 11, fontWeight: 700, color: "#d97706",
               background: "rgba(245,158,11,0.12)", padding: "3px 10px", borderRadius: 12,
             }}>
-              <AlertTriangle size={11} color="#fbbf24" />
+              <AlertTriangle size={11} color="#d97706" />
               {conflictCount} bot{conflictCount !== 1 ? "s" : ""} with overlapping schedules
             </span>
           </>

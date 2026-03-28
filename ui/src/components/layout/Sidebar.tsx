@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   Activity,
   HardDrive,
+  Key,
+  Code2,
   Sun,
   Moon,
 } from "lucide-react";
@@ -60,6 +62,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "SECURITY",
     items: [
+      { label: "API Keys", href: "/admin/api-keys", icon: Key },
       { label: "Policies", href: "/admin/tool-policies", icon: Shield },
       { label: "Approvals", href: "/admin/approvals", icon: ShieldCheck },
       { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },
@@ -73,6 +76,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
       { label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive },
+      { label: "Config", href: "/admin/config-state", icon: Code2 },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },
@@ -359,7 +363,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                       <Text
                         style={mobile ? { fontSize: 15 } : undefined}
                         className={`${mobile ? "" : "text-sm"} ${
-                          isActive ? "text-white font-medium" : "text-text-muted"
+                          isActive ? "text-accent font-medium" : "text-text-muted"
                         }`}
                         numberOfLines={1}
                       >
@@ -423,7 +427,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                       <Text
                         style={mobile ? { fontSize: 15 } : undefined}
                         className={`${mobile ? "" : "text-sm"} ${
-                          isActive ? "text-white font-medium" : "text-text-muted"
+                          isActive ? "text-accent font-medium" : "text-text-muted"
                         }`}
                         numberOfLines={1}
                       >

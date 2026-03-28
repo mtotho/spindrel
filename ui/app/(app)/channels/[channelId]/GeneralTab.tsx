@@ -84,7 +84,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
         {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
           <div style={{
             padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
-            borderRadius: 8, fontSize: 11, color: "#fcd34d", lineHeight: "1.5",
+            borderRadius: 8, fontSize: 11, color: "#ca8a04", lineHeight: "1.5",
             display: "flex", gap: 8, alignItems: "flex-start",
           }}>
             <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -204,7 +204,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       {/* Danger Zone */}
       <div style={{
         marginTop: 32,
-        border: "1px solid #7f1d1d",
+        border: "1px solid rgba(239,68,68,0.25)",
         borderRadius: 8,
         overflow: "hidden",
       }}>
@@ -213,7 +213,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           background: "#7f1d1d33",
           borderBottom: "1px solid #7f1d1d",
         }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: "#fca5a5" }}>Danger Zone</Text>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: "#dc2626" }}>Danger Zone</Text>
         </div>
         <div style={{ padding: 16 }}>
           {!showDeleteConfirm ? (
@@ -230,11 +230,11 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 16px", fontSize: 12, fontWeight: 600,
                   border: "1px solid #991b1b", borderRadius: 6,
-                  background: "transparent", color: "#fca5a5", cursor: "pointer",
+                  background: "transparent", color: "#dc2626", cursor: "pointer",
                   flexShrink: 0,
                 }}
               >
-                <Trash2 size={13} color="#fca5a5" />
+                <Trash2 size={13} color="#dc2626" />
                 Delete Channel
               </button>
             </div>
@@ -244,13 +244,13 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "10px 14px", background: "#7f1d1d44", borderRadius: 6,
               }}>
-                <AlertTriangle size={16} color="#fca5a5" />
-                <Text style={{ fontSize: 12, color: "#fca5a5", fontWeight: "600" }}>
+                <AlertTriangle size={16} color="#dc2626" />
+                <Text style={{ fontSize: 12, color: "#dc2626", fontWeight: "600" }}>
                   This action cannot be undone.
                 </Text>
               </div>
               <Text style={{ fontSize: 12, color: t.textMuted }}>
-                Type <Text style={{ fontFamily: "monospace", color: "#fca5a5", fontWeight: "600" }}>delete</Text> to confirm:
+                Type <Text style={{ fontFamily: "monospace", color: "#dc2626", fontWeight: "600" }}>delete</Text> to confirm:
               </Text>
               <input
                 type="text"
@@ -291,7 +291,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 </button>
               </div>
               {deleteMutation.isError && (
-                <Text style={{ fontSize: 11, color: "#fca5a5" }}>
+                <Text style={{ fontSize: 11, color: "#dc2626" }}>
                   {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete channel"}
                 </Text>
               )}

@@ -46,7 +46,7 @@ export function BotPermissionsSection({
         <div style={{
           padding: "8px 12px", borderRadius: 6,
           background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)",
-          fontSize: 12, color: "#fca5a5",
+          fontSize: 12, color: "#dc2626",
         }}>
           Warning: admin scope grants full access to all endpoints including admin panel.
         </div>
@@ -83,7 +83,7 @@ export function BotPermissionsSection({
                           ? isAdmin ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)"
                           : "transparent",
                         cursor: "pointer", fontSize: 12,
-                        color: checked ? (isAdmin ? "#fca5a5" : "#93c5fd") : t.textDim,
+                        color: checked ? (isAdmin ? "#dc2626" : "#2563eb") : t.textDim,
                         fontWeight: checked ? 600 : 400,
                       }}>
                         <span style={{
@@ -136,7 +136,7 @@ export function BotPermissionsSection({
                       padding: "5px 12px", borderRadius: 5, fontSize: 12, cursor: "pointer",
                       border: active ? "1px solid rgba(59,130,246,0.4)" : `1px solid ${t.surfaceBorder}`,
                       background: active ? "rgba(59,130,246,0.1)" : "transparent",
-                      color: active ? "#93c5fd" : t.textDim,
+                      color: active ? "#2563eb" : t.textDim,
                       fontWeight: active ? 600 : 400,
                     }}
                   >

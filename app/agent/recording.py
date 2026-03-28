@@ -186,6 +186,7 @@ async def _record_exec_completion(
 
 async def _record_tool_call(
     *,
+    id: uuid.UUID | None = None,
     session_id: uuid.UUID | None,
     client_id: str | None,
     bot_id: str | None,
@@ -198,25 +199,36 @@ async def _record_tool_call(
     error: str | None,
     duration_ms: int,
     correlation_id: uuid.UUID | None = None,
+    store_full_result: bool = False,
 ) -> None:
-    """Fire-and-forget: write a ToolCall row to the DB."""
+    """Fire-and-forget: write a ToolCall row to the DB.
+
+    If store_full_result is True, the result is stored without truncation
+    (used when summarization occurred so the full output is retrievable).
+    """
     try:
+        stored_result = result
+        if stored_result and not store_full_result:
+            stored_result = stored_result[:4000]
+        kwargs: dict = dict(
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            tool_name=tool_name,
+            tool_type=tool_type,
+            server_name=server_name,
+            iteration=iteration,
+            arguments=arguments,
+            result=stored_result,
+            error=error,
+            duration_ms=duration_ms,
+            correlation_id=correlation_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        if id is not None:
+            kwargs["id"] = id
         async with async_session() as db:
-            db.add(ToolCall(
-                session_id=session_id,
-                client_id=client_id,
-                bot_id=bot_id,
-                tool_name=tool_name,
-                tool_type=tool_type,
-                server_name=server_name,
-                iteration=iteration,
-                arguments=arguments,
-                result=result[:4000] if result else None,
-                error=error,
-                duration_ms=duration_ms,
-                correlation_id=correlation_id,
-                created_at=datetime.now(timezone.utc),
-            ))
+            db.add(ToolCall(**kwargs))
             await db.commit()
     except Exception:
         logger.exception("Failed to record tool call for %s", tool_name)

@@ -64,7 +64,7 @@ class TestGenerateSection:
 
     @pytest.mark.asyncio
     async def test_non_json_response_fallback(self):
-        """LLM returns non-JSON -> graceful fallback with deterministic transcript."""
+        """LLM returns non-JSON on both tiers -> deterministic fallback."""
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=_mock_llm_response("Just a plain text summary")
@@ -72,7 +72,11 @@ class TestGenerateSection:
         conversation = [{"role": "user", "content": "hello"}]
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             title, summary, transcript, tags = await _generate_section(conversation, "gpt-4")
-        assert title == "Conversation"  # fallback title
+        # With 3-tier escalation, both normal+aggressive fail (non-JSON),
+        # so deterministic fallback uses first user message as title
+        assert title == "hello"
+        assert summary == "Auto-archived conversation segment."
+        assert tags == ["auto-truncated"]
         # Transcript is from raw messages, not LLM
         assert "[USER]: hello" in transcript
 

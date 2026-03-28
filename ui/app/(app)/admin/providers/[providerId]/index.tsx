@@ -31,7 +31,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-        color: enabled ? "#86efac" : "#fca5a5",
+        color: enabled ? "#16a34a" : "#dc2626",
       }}
     >
       <div style={{
@@ -203,8 +203,8 @@ export default function ProviderDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #7f1d1d", borderRadius: 6,
-              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+              border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
+              background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -229,7 +229,7 @@ export default function ProviderDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -239,7 +239,7 @@ export default function ProviderDetailScreen() {
         <div style={{
           padding: "8px 20px", fontSize: 12, fontWeight: 600,
           background: testResult.ok ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-          color: testResult.ok ? "#86efac" : "#fca5a5",
+          color: testResult.ok ? "#16a34a" : "#dc2626",
           borderBottom: `1px solid ${t.surfaceOverlay}`,
         }}>
           {testResult.ok ? "\u2713" : "\u2717"} {testResult.message}
@@ -500,7 +500,7 @@ export default function ProviderDetailScreen() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: t.textDim }}>API Key</span>
-                  <span style={{ color: provider.has_api_key ? "#86efac" : t.textDim }}>
+                  <span style={{ color: provider.has_api_key ? "#16a34a" : t.textDim }}>
                     {provider.has_api_key ? "Set" : "Not set"}
                   </span>
                 </div>

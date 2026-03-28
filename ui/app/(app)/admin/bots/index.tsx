@@ -24,10 +24,10 @@ import type { BotConfig } from "@/src/types/api";
 // Styling
 // ---------------------------------------------------------------------------
 const MODEL_COLORS: Array<{ test: (m: string) => boolean; bg: string; fg: string }> = [
-  { test: (m) => m.startsWith("gemini/") || m.startsWith("gemini-"), bg: "rgba(34,197,94,0.15)", fg: "#86efac" },
-  { test: (m) => m.startsWith("anthropic/") || m.includes("claude"), bg: "rgba(249,115,22,0.15)", fg: "#fdba74" },
+  { test: (m) => m.startsWith("gemini/") || m.startsWith("gemini-"), bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
+  { test: (m) => m.startsWith("anthropic/") || m.includes("claude"), bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
   { test: (m) => m.startsWith("openai/") || m.includes("gpt"), bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
-  { test: (m) => m.includes("deepseek"), bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
+  { test: (m) => m.includes("deepseek"), bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
 ];
 const FALLBACK_COLOR = { bg: "rgba(100,100,100,0.15)", fg: "#999" };
 
@@ -108,12 +108,12 @@ function capSummary(bot: BotConfig): string {
 type Badge = { label: string; color: string };
 function featureBadges(bot: BotConfig): Badge[] {
   const badges: Badge[] = [];
-  if (bot.memory?.enabled) badges.push({ label: "Memory", color: "#c084fc" });
-  if (bot.knowledge?.enabled) badges.push({ label: "Knowledge", color: "#67e8f9" });
-  if (bot.context_compaction) badges.push({ label: "Compaction", color: "#86efac" });
-  if (bot.persona) badges.push({ label: "Persona", color: "#fbbf24" });
+  if (bot.memory?.enabled) badges.push({ label: "Memory", color: "#9333ea" });
+  if (bot.knowledge?.enabled) badges.push({ label: "Knowledge", color: "#0891b2" });
+  if (bot.context_compaction) badges.push({ label: "Compaction", color: "#16a34a" });
+  if (bot.persona) badges.push({ label: "Persona", color: "#d97706" });
   if ((bot.delegate_bots?.length ?? 0) > 0) badges.push({ label: "Delegation", color: "#fb923c" });
-  if (bot.workspace?.enabled) badges.push({ label: "Workspace", color: "#93c5fd" });
+  if (bot.workspace?.enabled) badges.push({ label: "Workspace", color: "#2563eb" });
   return badges;
 }
 
@@ -320,12 +320,12 @@ function BotCard({
                     gap: 2,
                     fontSize: 11,
                     fontWeight: 600,
-                    color: "#86efac",
+                    color: "#16a34a",
                     fontFamily: "monospace",
                   }}
                   title="Estimated cost"
                 >
-                  <DollarSign size={10} color="#86efac" />
+                  <DollarSign size={10} color="#16a34a" />
                   {usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)}
                 </span>
               )}
@@ -517,7 +517,7 @@ export default function BotsScreen() {
                   display: "flex",
                   alignItems: "center",
                   gap: 2,
-                  color: "#86efac",
+                  color: "#16a34a",
                   fontFamily: "monospace",
                   fontWeight: 600,
                 }}

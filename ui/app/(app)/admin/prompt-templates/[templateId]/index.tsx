@@ -155,8 +155,8 @@ export default function PromptTemplateDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #7f1d1d", borderRadius: 6,
-              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+              border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
+              background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -180,7 +180,7 @@ export default function PromptTemplateDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -193,8 +193,8 @@ export default function PromptTemplateDetailScreen() {
           background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <Info size={14} color="#93c5fd" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#93c5fd", lineHeight: 1.5 }}>
+          <Info size={14} color="#2563eb" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: "#2563eb", lineHeight: 1.5 }}>
             This template is managed by a file (
             <code style={{ fontSize: 11, color: "#60a5fa" }}>{template?.source_path}</code>
             ). Edit the source file to make changes.
@@ -210,8 +210,8 @@ export default function PromptTemplateDetailScreen() {
           background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <FileText size={14} color="#86efac" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#86efac", lineHeight: 1.5 }}>
+          <FileText size={14} color="#16a34a" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: "#16a34a", lineHeight: 1.5 }}>
             Content is sourced from workspace file (
             <code style={{ fontSize: 11, color: "#4ade80" }}>{sourcePath}</code>
             ). Content updates automatically when the file changes.

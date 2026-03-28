@@ -34,7 +34,7 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "summary",
     label: "Summary",
     icon: "\ud83d\udcdd",
-    color: "#93c5fd",
+    color: "#2563eb",
     bg: "#0c1929",
     border: "#1e3a5f",
     summary: "Flat rolling summary \u2014 simple and efficient.",
@@ -47,7 +47,7 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "structured",
     label: "Structured",
     icon: "\ud83d\udd0d",
-    color: "#c084fc",
+    color: "#9333ea",
     bg: "#1a0a2e",
     border: "#3b0764",
     summary: "Semantic retrieval \u2014 automatically surfaces relevant history.",
@@ -62,7 +62,7 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "file",
     label: "File",
     icon: "\ud83d\udcc2",
-    color: "#fcd34d",
+    color: "#ca8a04",
     bg: "#1a1400",
     border: "#92400e",
     summary: "Tool-based navigation \u2014 the bot browses history on demand.",
@@ -263,11 +263,11 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
               background: running ? t.surfaceBorder : "#92400e",
-              color: running ? t.textDim : "#fcd34d",
+              color: running ? t.textDim : "#ca8a04",
               opacity: running ? 0.7 : 1,
             }}
           >
-            <Play size={12} color={running ? t.textDim : "#fcd34d"} />
+            <Play size={12} color={running ? t.textDim : "#ca8a04"} />
             {running ? "Resuming..." : "Resume Backfill"}
           </button>
         )}
@@ -296,11 +296,11 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
               background: running ? t.surfaceBorder : "#92400e",
-              color: running ? t.textDim : "#fcd34d",
+              color: running ? t.textDim : "#ca8a04",
               opacity: running ? 0.7 : 1,
             }}
           >
-            <Play size={12} color={running ? t.textDim : "#fcd34d"} />
+            <Play size={12} color={running ? t.textDim : "#ca8a04"} />
             {running ? "Backfilling..." : "Backfill Sections"}
           </button>
         )}
@@ -331,12 +331,12 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
         </div>
       )}
       {result && !result.error && (
-        <div style={{ marginTop: 8, fontSize: 11, color: "#86efac" }}>
+        <div style={{ marginTop: 8, fontSize: 11, color: "#16a34a" }}>
           Done — {result.sections} section{result.sections !== 1 ? "s" : ""} created
         </div>
       )}
       {result?.error && (
-        <div style={{ marginTop: 8, fontSize: 11, color: "#fca5a5" }}>
+        <div style={{ marginTop: 8, fontSize: 11, color: "#dc2626" }}>
           {result.error}
         </div>
       )}
@@ -406,7 +406,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                   <span style={{ display: "flex", gap: 3, flexShrink: 0 }}>
                     {s.tags.slice(0, 3).map((tag, i) => (
                       <span key={i} style={{
-                        fontSize: 9, color: "#93c5fd", background: "#1e3a5f",
+                        fontSize: 9, color: "#2563eb", background: "#1e3a5f",
                         padding: "1px 5px", borderRadius: 8, whiteSpace: "nowrap",
                       }}>{tag}</span>
                     ))}
@@ -439,7 +439,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
                       {s.tags.map((tag, i) => (
                         <span key={i} style={{
-                          fontSize: 10, color: "#93c5fd", background: "#1e3a5f",
+                          fontSize: 10, color: "#2563eb", background: "#1e3a5f",
                           padding: "2px 8px", borderRadius: 10,
                         }}>{tag}</span>
                       ))}
@@ -596,7 +596,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
           {/* Locked banner */}
           <div style={{
             padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
-            borderRadius: 8, fontSize: 12, color: "#fcd34d", fontWeight: 600,
+            borderRadius: 8, fontSize: 12, color: "#ca8a04", fontWeight: 600,
           }}>
             Auto-compaction is always on in {selected} mode — it creates the archived sections the bot navigates.
           </div>
@@ -737,7 +737,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                 padding: "14px 16px", background: "#0d1117", border: "1px solid #1e3a5f",
                 borderRadius: 8, marginBottom: 4,
               }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>How Compaction Works</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", marginBottom: 8 }}>How Compaction Works</div>
                 <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6" }}>
                   After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages
                   are archived and summarized by an LLM. The most recent <strong style={{ color: t.text }}>Keep Turns</strong> are

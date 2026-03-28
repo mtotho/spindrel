@@ -31,6 +31,9 @@ export function ToolsSection({
     autoInjectedTools.add("search_memory");
     autoInjectedTools.add("get_memory_file");
   }
+  if (draft.history_mode === "file" || draft.history_mode === "structured") {
+    autoInjectedTools.add("read_conversation_history");
+  }
 
   const toggleTool = (name: string) => {
     const next = localTools.includes(name)
@@ -114,7 +117,7 @@ export function ToolsSection({
         </div>
         <span style={{ fontSize: 11, color: t.textDim }}>
           {localTools.length} selected
-          {autoInjectedTools.size > 0 && <> · <span style={{ color: "#c4b5fd" }}>{autoInjectedTools.size} auto</span></>}
+          {autoInjectedTools.size > 0 && <> · <span style={{ color: "#8b5cf6" }}>{autoInjectedTools.size} auto</span></>}
           {pinnedTools.length > 0 && <> · {pinnedTools.length} pinned</>}
         </span>
       </div>
@@ -122,7 +125,7 @@ export function ToolsSection({
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim, flexWrap: "wrap" }}>
         <span>✓ = enabled</span>
-        {autoInjectedTools.size > 0 && <span style={{ color: "#c4b5fd" }}>auto = injected by memory scheme</span>}
+        {autoInjectedTools.size > 0 && <span style={{ color: "#8b5cf6" }}>auto = injected by memory scheme</span>}
         {draft.tool_retrieval && <span style={{ color: "#eab308" }}>📌 = pinned (bypass RAG)</span>}
         <span style={{ color: "#f97316" }}>🔇 = skip summarization</span>
       </div>
@@ -142,7 +145,7 @@ export function ToolsSection({
               ) : (
                 <span style={{
                   fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3,
-                  background: "#92400e33", color: "#fbbf24", textTransform: "uppercase",
+                  background: "#92400e33", color: "#d97706", textTransform: "uppercase",
                 }}>
                   {group.integration}
                 </span>
@@ -161,7 +164,7 @@ export function ToolsSection({
                       style={{
                         background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
                         padding: "1px 6px", fontSize: 9, cursor: "pointer",
-                        color: allEnabled ? "#f87171" : "#86efac",
+                        color: allEnabled ? "#f87171" : "#16a34a",
                       }}
                       title={allEnabled ? "Deselect all in group" : "Select all in group"}
                     >
@@ -207,7 +210,7 @@ export function ToolsSection({
                         style={{
                           background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
                           padding: "1px 6px", fontSize: 9, cursor: "pointer",
-                          color: allEnabled ? "#f87171" : "#86efac",
+                          color: allEnabled ? "#f87171" : "#16a34a",
                         }}
                         title={allEnabled ? "Disable all" : "Enable all"}
                       >
@@ -244,7 +247,7 @@ export function ToolsSection({
                             />
                             <span
                               style={{
-                                fontFamily: "monospace", color: autoInj ? "#c4b5fd" : enabled ? "#93c5fd" : t.textDim,
+                                fontFamily: "monospace", color: autoInj ? "#8b5cf6" : enabled ? "#2563eb" : t.textDim,
                                 flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}
                               title={autoInj ? `${tool.name} — auto-injected by workspace-files memory scheme` : tool.name}
@@ -254,7 +257,7 @@ export function ToolsSection({
                             {autoInj && (
                               <span style={{
                                 fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 3,
-                                background: "#a855f733", color: "#c4b5fd", textTransform: "uppercase",
+                                background: "#a855f733", color: "#8b5cf6", textTransform: "uppercase",
                                 letterSpacing: "0.05em", whiteSpace: "nowrap",
                               }}>auto</span>
                             )}
@@ -305,7 +308,7 @@ export function ToolsSection({
                   border: `1px solid ${on ? "#3b82f622" : "transparent"}`,
                 }}>
                   <input type="checkbox" checked={on} onChange={() => toggleMcp(srv)} style={{ accentColor: "#3b82f6" }} />
-                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : t.textDim }}>{srv}</span>
+                  <span style={{ fontFamily: "monospace", color: on ? "#2563eb" : t.textDim }}>{srv}</span>
                 </label>
               );
             })}
@@ -328,7 +331,7 @@ export function ToolsSection({
                   border: `1px solid ${on ? "#3b82f622" : "transparent"}`,
                 }}>
                   <input type="checkbox" checked={on} onChange={() => toggleClient(tool)} style={{ accentColor: "#3b82f6" }} />
-                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : t.textDim }}>{tool}</span>
+                  <span style={{ fontFamily: "monospace", color: on ? "#2563eb" : t.textDim }}>{tool}</span>
                 </label>
               );
             })}

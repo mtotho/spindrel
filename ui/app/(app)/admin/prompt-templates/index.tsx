@@ -9,7 +9,7 @@ import type { PromptTemplate } from "@/src/types/api";
 function SourceBadge({ type }: { type: string }) {
   const tk = useThemeTokens();
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
-    file: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd", label: "file" },
+    file: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb", label: "file" },
     manual: { bg: "rgba(100,100,100,0.15)", fg: tk.textMuted, label: "manual" },
   };
   const c = cfg[type] || cfg.manual;
@@ -28,7 +28,7 @@ function ScopeBadge({ workspaceId }: { workspaceId?: string | null }) {
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(34,197,94,0.12)", color: "#86efac",
+        background: "rgba(34,197,94,0.12)", color: "#16a34a",
       }}>
         global
       </span>
@@ -37,7 +37,7 @@ function ScopeBadge({ workspaceId }: { workspaceId?: string | null }) {
   return (
     <span style={{
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-      background: "rgba(59,130,246,0.12)", color: "#93c5fd",
+      background: "rgba(59,130,246,0.12)", color: "#2563eb",
     }}>
       workspace
     </span>

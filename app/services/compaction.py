@@ -29,6 +29,69 @@ Before this conversation is compacted, save important context to your memory fil
 Use exec_command to write to the appropriate files."""
 
 
+# ---------------------------------------------------------------------------
+# Depth-aware section prompts (Phase 1)
+# ---------------------------------------------------------------------------
+
+_SECTION_PROMPT_TIER0 = """\
+You are a conversation archiver. You will receive a segment of conversation between \
+a user and an AI assistant that is being archived. The raw transcript is stored separately — \
+you only need to produce metadata.
+
+Produce a JSON object with the following fields:
+- "title": A concise heading for this conversation segment (5-12 words).
+- "summary": A detailed 3-sentence summary preserving exact errors, commands, file paths, \
+config values, and timestamps. Include what was tried and why. Preserve operational detail — \
+this is early history that may be referenced later.
+- "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
+
+IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
+
+Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+_SECTION_PROMPT_TIER1 = """\
+You are a conversation archiver. You will receive a segment of conversation between \
+a user and an AI assistant that is being archived. The raw transcript is stored separately — \
+you only need to produce metadata.
+
+Produce a JSON object with the following fields:
+- "title": A concise heading for this conversation segment (5-12 words).
+- "summary": A 2-sentence summary capturing decisions, rationale, and outcomes. \
+Drop dead-end exploration and intermediate debugging steps when the conclusion is known.
+- "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
+
+IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
+
+Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+_SECTION_PROMPT_TIER2 = """\
+You are a conversation archiver. You will receive a segment of conversation between \
+a user and an AI assistant that is being archived. The raw transcript is stored separately — \
+you only need to produce metadata.
+
+Produce a JSON object with the following fields:
+- "title": A concise heading for this conversation segment (5-12 words).
+- "summary": A 1-2 sentence high-level summary — narrative arc only. What was the goal, \
+what happened, what carries forward. Only durable facts.
+- "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
+
+Respond ONLY with the JSON object, no markdown fences or extra text."""
+
+_SECTION_PROMPT_AGGRESSIVE = """\
+Summarize this conversation segment in exactly one sentence. Only durable facts and decisions. \
+No filler. Respond with JSON: {"title": "...", "summary": "...", "tags": [...]}"""
+
+
+def _select_section_prompt(section_count: int) -> str:
+    """Select a depth-aware compaction prompt based on how many sections already exist."""
+    if section_count < 5:
+        return _SECTION_PROMPT_TIER0
+    elif section_count < 15:
+        return _SECTION_PROMPT_TIER1
+    else:
+        return _SECTION_PROMPT_TIER2
+
+
 def _truncate_at_sentence(text: str, max_chars: int) -> str:
     """Truncate *text* to at most *max_chars*, breaking at the last sentence
     boundary (. ! ? followed by whitespace or end-of-string) so we never cut
@@ -433,46 +496,169 @@ def _build_transcript(conversation: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _generate_section(
-    conversation: list[dict],
-    model: str,
-    provider_id: str | None = None,
-) -> tuple[str, str, str, list[str]]:
-    """LLM generates title/summary/tags; transcript is built deterministically."""
-    transcript = _build_transcript(conversation)
-
-    prompt_messages: list[dict] = [
-        {"role": "system", "content": settings.SECTION_COMPACTION_PROMPT},
-        {"role": "user", "content": f"Conversation segment to archive:\n\n{transcript}"},
-    ]
-
-    from app.services.providers import get_llm_client
-    response = await get_llm_client(provider_id).chat.completions.create(
-        model=model,
-        messages=prompt_messages,
-        temperature=0.3,
-        max_tokens=1024,
-        timeout=180.0,
-    )
-
-    raw = response.choices[0].message.content or "{}"
+def _parse_section_response(raw: str) -> dict | None:
+    """Parse LLM section response JSON, stripping markdown fences if present."""
     raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         raw = raw.rsplit("```", 1)[0]
-
     try:
-        data = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        logger.warning("Section LLM returned non-JSON: %s", raw[:200])
-        return ("Conversation", raw[:200], transcript, [])
+        return None
 
-    title = data.get("title", "Conversation")
-    summary = data.get("summary", "")
-    tags = data.get("tags", [])
-    if not isinstance(tags, list):
-        tags = []
-    return (title, summary, transcript, tags)
+
+async def _generate_section(
+    conversation: list[dict],
+    model: str,
+    provider_id: str | None = None,
+    *,
+    channel_id: uuid.UUID | None = None,
+    correlation_id: uuid.UUID | None = None,
+    session_id: uuid.UUID | None = None,
+    bot_id: str | None = None,
+    client_id: str | None = None,
+) -> tuple[str, str, str, list[str]]:
+    """LLM generates title/summary/tags; transcript is built deterministically.
+
+    Three-tier escalation:
+    1. Normal — depth-aware prompt with previous-context injection
+    2. Aggressive — tighter prompt, lower max_tokens, temperature 0.1
+    3. Deterministic — no LLM call, mechanical title/summary from first user message
+    """
+    transcript = _build_transcript(conversation)
+    compaction_tier = "normal"
+
+    # --- Query section count + previous section for this channel ---
+    section_count = 0
+    prev_title: str | None = None
+    prev_summary: str | None = None
+    if channel_id:
+        async with async_session() as db:
+            count_result = await db.execute(
+                select(func.count())
+                .select_from(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+            )
+            section_count = count_result.scalar() or 0
+
+            if section_count > 0:
+                prev_result = await db.execute(
+                    select(ConversationSection)
+                    .where(ConversationSection.channel_id == channel_id)
+                    .order_by(ConversationSection.sequence.desc())
+                    .limit(1)
+                )
+                prev_section = prev_result.scalar_one_or_none()
+                if prev_section:
+                    prev_title = prev_section.title
+                    prev_summary = prev_section.summary
+
+    # --- Phase 1: Depth-aware prompt selection ---
+    system_prompt = _select_section_prompt(section_count)
+
+    # --- Phase 2: Previous-context continuity ---
+    user_content = f"Conversation segment to archive:\n\n{transcript}"
+    if prev_title and prev_summary:
+        user_content = (
+            f"Previous section covered: '{prev_title}' — {prev_summary}. "
+            f"Do NOT repeat this. Focus on what is new, changed, or resolved since then.\n\n"
+            f"{user_content}"
+        )
+
+    # --- Phase 3: Three-tier fallback escalation ---
+    from app.services.providers import get_llm_client
+
+    # Tier 1: Normal
+    try:
+        response = await get_llm_client(provider_id).chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.3,
+            max_tokens=1024,
+            timeout=180.0,
+        )
+        raw = response.choices[0].message.content or "{}"
+        data = _parse_section_response(raw)
+        if data is not None:
+            title = data.get("title", "Conversation")
+            summary = data.get("summary", "")
+            tags = data.get("tags", [])
+            if not isinstance(tags, list):
+                tags = []
+            _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
+            return (title, summary, transcript, tags)
+        # Non-JSON response — fall through to aggressive
+        logger.warning("Section LLM returned non-JSON (tier normal): %s", raw[:200])
+    except Exception:
+        logger.warning("Section LLM failed (tier normal), escalating to aggressive", exc_info=True)
+
+    # Tier 2: Aggressive
+    compaction_tier = "aggressive"
+    try:
+        response = await get_llm_client(provider_id).chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SECTION_PROMPT_AGGRESSIVE},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.1,
+            max_tokens=256,
+            timeout=120.0,
+        )
+        raw = response.choices[0].message.content or "{}"
+        data = _parse_section_response(raw)
+        if data is not None:
+            title = data.get("title", "Conversation")
+            summary = data.get("summary", "")
+            tags = data.get("tags", [])
+            if not isinstance(tags, list):
+                tags = []
+            _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
+            return (title, summary, transcript, tags)
+        logger.warning("Section LLM returned non-JSON (tier aggressive): %s", raw[:200])
+    except Exception:
+        logger.warning("Section LLM failed (tier aggressive), escalating to deterministic", exc_info=True)
+
+    # Tier 3: Deterministic — no LLM call
+    compaction_tier = "deterministic"
+    first_user_msg = ""
+    for m in conversation:
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+                )
+            first_user_msg = content.strip()
+            break
+    det_title = (first_user_msg[:80] + "…") if len(first_user_msg) > 80 else (first_user_msg or "Conversation")
+    _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
+    return (det_title, "Auto-archived conversation segment.", transcript, ["auto-truncated"])
+
+
+def _log_compaction_tier(
+    tier: str,
+    correlation_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    bot_id: str | None,
+    client_id: str | None,
+) -> None:
+    """Fire-and-forget trace event recording which compaction tier was used."""
+    if tier != "normal":
+        logger.info("Compaction used tier '%s'", tier)
+    if correlation_id:
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot_id,
+            client_id=client_id,
+            event_type="compaction_tier",
+            data={"compaction_tier": tier},
+        ))
 
 
 async def _regenerate_executive_summary(
@@ -653,6 +839,11 @@ async def run_compaction_stream(
             # --- Section-based compaction ---
             sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
                 to_summarize, model, provider_id=bot.model_provider_id,
+                channel_id=channel.id if channel else None,
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
             )
 
             # Compute message count and period
@@ -913,6 +1104,11 @@ async def run_compaction_forced(
     if history_mode in ("structured", "file"):
         sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
             conversation, model, provider_id=bot.model_provider_id,
+            channel_id=session.channel_id,
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
         )
         msg_count = sum(1 for m in conversation if m.get("role") in ("user", "assistant"))
 
@@ -1249,6 +1445,9 @@ async def backfill_sections(
         seq = start_seq + i
         title, summary, transcript, tags = await _generate_section(
             chunk, effective_model, provider_id=effective_provider,
+            channel_id=channel_id,
+            session_id=session.id,
+            bot_id=session.bot_id,
         )
 
         msg_count = sum(1 for m in chunk if m.get("role") in ("user", "assistant"))
