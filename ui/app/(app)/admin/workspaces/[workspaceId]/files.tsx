@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Play } from "lucide-react";
-import { useWorkspace, useStartWorkspace } from "@/src/api/hooks/useWorkspaces";
+import { useWorkspace, useStartWorkspace, useWorkspaceIndexStatus } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { BrowserToolbar } from "@/src/components/workspace/BrowserToolbar";
@@ -26,6 +26,22 @@ export default function WorkspaceFileBrowser() {
   const isMobile = windowWidth < MOBILE_BREAKPOINT;
 
   const [showUpload, setShowUpload] = useState(false);
+  const { data: indexData } = useWorkspaceIndexStatus(workspaceId);
+
+  // Build set of indexed paths (including ancestor directories for teal dot on folders)
+  const { indexedPaths, indexMap } = useMemo(() => {
+    const files = indexData?.indexed_files ?? {};
+    const paths = new Set<string>();
+    for (const p of Object.keys(files)) {
+      paths.add(p);
+      // Add ancestor dirs
+      const parts = p.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        paths.add(parts.slice(0, i).join("/"));
+      }
+    }
+    return { indexedPaths: paths, indexMap: files };
+  }, [indexData?.indexed_files]);
 
   // Reset store when workspace changes
   useEffect(() => {
@@ -137,17 +153,17 @@ export default function WorkspaceFileBrowser() {
                 width: Math.min(280, windowWidth * 0.8),
               }}
             >
-              <FileTreePanel workspaceId={workspace.id} mobile />
+              <FileTreePanel workspaceId={workspace.id} mobile indexedPaths={indexedPaths} />
             </div>
           </>
         )}
 
         {/* Desktop inline tree */}
         {!isMobile && treeVisible && (
-          <FileTreePanel workspaceId={workspace.id} />
+          <FileTreePanel workspaceId={workspace.id} indexedPaths={indexedPaths} />
         )}
 
-        <SplitViewContainer workspaceId={workspace.id} />
+        <SplitViewContainer workspaceId={workspace.id} indexMap={indexMap} />
       </div>
 
       {showUpload && (

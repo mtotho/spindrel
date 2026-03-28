@@ -93,6 +93,7 @@ async def diagnostics_indexing(
     # --- 4. Filesystem indexing (per bot) ---
     from app.agent.bots import list_bots, get_bot
     from app.services.workspace import workspace_service
+    from app.services.memory_scheme import get_memory_rel_path
 
     fs_info = []
     for bot in list_bots():
@@ -102,9 +103,20 @@ async def diagnostics_indexing(
         ws_root_resolved = str(Path(ws_root).resolve())
         root_exists = os.path.isdir(ws_root_resolved)
 
+        # Resolve the correct memory prefix for this bot
+        # (orchestrators use "bots/{bot_id}/memory", members use "memory")
+        mem_rel = get_memory_rel_path(bot)
+        mem_prefix_pattern = mem_rel.rstrip("/") + "/%"
+
+        # Build pathspec for gitignore filtering (same as indexer)
+        from app.agent.fs_indexer import _build_pathspec
+        spec = _build_pathspec(Path(ws_root_resolved))
+
         # Count files on disk
         file_count_on_disk = 0
         memory_files_on_disk = 0
+        gitignore_excluded = 0
+        memory_gitignore_excluded = 0
         if root_exists:
             for dirpath, dirnames, filenames in os.walk(ws_root_resolved):
                 # Skip hidden and build dirs
@@ -113,9 +125,16 @@ async def diagnostics_indexing(
                 }]
                 for fn in filenames:
                     if fn.endswith((".py", ".md", ".yaml")):
-                        file_count_on_disk += 1
                         rel = os.path.relpath(os.path.join(dirpath, fn), ws_root_resolved)
-                        if rel.startswith("memory/"):
+                        is_memory = rel.startswith(mem_rel + "/") or rel.startswith(mem_rel + os.sep)
+                        # Check if gitignored
+                        if spec and spec.match_file(rel.replace(os.sep, "/")):
+                            gitignore_excluded += 1
+                            if is_memory:
+                                memory_gitignore_excluded += 1
+                            continue
+                        file_count_on_disk += 1
+                        if is_memory:
                             memory_files_on_disk += 1
 
         # Count chunks in DB
@@ -127,13 +146,13 @@ async def diagnostics_indexing(
             )
         )).scalar_one()
 
-        # Count memory-specific chunks
+        # Count memory-specific chunks (using bot-appropriate prefix)
         memory_chunk_count = (await db.execute(
             select(func.count()).select_from(FilesystemChunk)
             .where(
                 FilesystemChunk.bot_id == bot.id,
                 FilesystemChunk.root == ws_root_resolved,
-                FilesystemChunk.file_path.like("memory/%"),
+                FilesystemChunk.file_path.like(mem_prefix_pattern),
             )
         )).scalar_one()
 
@@ -161,13 +180,18 @@ async def diagnostics_indexing(
             "bot_id": bot.id,
             "workspace_root": ws_root_resolved,
             "root_exists": root_exists,
+            "memory_rel_prefix": mem_rel,
             "files_on_disk": file_count_on_disk,
             "memory_files_on_disk": memory_files_on_disk,
+            "gitignore_excluded": gitignore_excluded,
+            "memory_gitignore_excluded": memory_gitignore_excluded,
+            "has_gitignore": spec is not None,
             "chunks_in_db": chunk_count,
             "memory_chunks_in_db": memory_chunk_count,
             "chunks_with_embedding": embedded_count,
             "chunks_with_tsv": tsv_count,
             "shared_workspace_id": bot.shared_workspace_id,
+            "shared_workspace_role": getattr(bot, "shared_workspace_role", None),
             "memory_scheme": getattr(bot, "memory_scheme", None),
         })
 
@@ -184,6 +208,11 @@ async def diagnostics_indexing(
             issues.append(f"Bot {fi['bot_id']}: {fi['memory_files_on_disk']} memory files on disk but 0 memory chunks indexed")
         if fi["chunks_in_db"] > 0 and fi["chunks_with_embedding"] == 0:
             issues.append(f"Bot {fi['bot_id']}: {fi['chunks_in_db']} chunks but 0 have embeddings")
+        if fi.get("memory_gitignore_excluded", 0) > 0:
+            issues.append(
+                f"Bot {fi['bot_id']}: {fi['memory_gitignore_excluded']} memory files excluded by .gitignore — "
+                "these will NOT be indexed (check .gitignore rules)"
+            )
         if not fi["root_exists"]:
             issues.append(f"Bot {fi['bot_id']}: workspace root does not exist: {fi['workspace_root']}")
     if not ws_skills_info:

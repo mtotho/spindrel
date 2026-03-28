@@ -1,7 +1,7 @@
 import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, Trash2 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
-import { useWorkspaceFiles, useDeleteWorkspaceFile } from "../../api/hooks/useWorkspaces";
+import { useWorkspaceFiles, useDeleteWorkspaceFile, useMoveWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import type { WorkspaceFileEntry } from "../../types/api";
 
 function fuzzyMatch(needle: string, haystack: string): boolean {
@@ -36,17 +36,66 @@ interface FileTreeNodeProps {
   depth: number;
   activePaths: Record<string, boolean>;
   searchFilter?: string;
+  indexedPaths?: Set<string>;
 }
 
-export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFilter }: FileTreeNodeProps) {
+export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFilter, indexedPaths }: FileTreeNodeProps) {
   const [hovered, setHovered] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const dragCounter = useRef(0);
   const expanded = useFileBrowserStore((s) => !!s.expandedDirs[entry.path]);
   const toggleDir = useFileBrowserStore((s) => s.toggleDir);
   const openFile = useFileBrowserStore((s) => s.openFile);
+  const closeFile = useFileBrowserStore((s) => s.closeFile);
   const splitMode = useFileBrowserStore((s) => s.splitMode);
 
   const { data: children } = useWorkspaceFiles(workspaceId, entry.path);
   const deleteMutation = useDeleteWorkspaceFile(workspaceId);
+  const moveMutation = useMoveWorkspaceFile(workspaceId);
+
+  // Drag handlers
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", entry.path);
+    e.dataTransfer.effectAllowed = "move";
+  }, [entry.path]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!entry.is_dir) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, [entry.is_dir]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!entry.is_dir) return;
+    e.preventDefault();
+    dragCounter.current++;
+    setDragOver(true);
+  }, [entry.is_dir]);
+
+  const handleDragLeave = useCallback(() => {
+    dragCounter.current--;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOver(false);
+    if (!entry.is_dir) return;
+    const srcPath = e.dataTransfer.getData("text/plain");
+    if (!srcPath || srcPath === entry.path) return;
+    // Can't drop a dir into its own child
+    if (entry.path.startsWith(srcPath + "/")) return;
+    moveMutation.mutate({ src: srcPath, dst: entry.path }, {
+      onSuccess: () => {
+        closeFile(srcPath, "left");
+        closeFile(srcPath, "right");
+      },
+    });
+  }, [entry.path, entry.is_dir, moveMutation, closeFile]);
 
   // Search filter visibility
   const nameMatches = !searchFilter || fuzzyMatch(searchFilter, entry.name);
@@ -103,9 +152,15 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
   return (
     <div>
       <div
+        draggable
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseLeave={() => { setHovered(false); dragCounter.current = 0; setDragOver(false); }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -115,7 +170,10 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
           paddingTop: 3,
           paddingBottom: 3,
           cursor: "pointer",
-          background: isActive ? "rgba(59,130,246,0.12)" : hovered ? "rgba(255,255,255,0.04)" : "transparent",
+          background: dragOver
+            ? "rgba(20,184,166,0.15)"
+            : isActive ? "rgba(59,130,246,0.12)" : hovered ? "rgba(255,255,255,0.04)" : "transparent",
+          borderLeft: dragOver ? "2px solid #14b8a6" : "2px solid transparent",
           borderRadius: 4,
           userSelect: "none",
         }}
@@ -148,9 +206,24 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
         >
           {entry.name}
+          {indexedPaths?.has(entry.path) && (
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#14b8a6",
+                flexShrink: 0,
+              }}
+              title="Indexed"
+            />
+          )}
         </span>
 
         {!hovered && !entry.is_dir && entry.modified_at && (
@@ -191,6 +264,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
               depth={depth + 1}
               activePaths={activePaths}
               searchFilter={searchFilter}
+              indexedPaths={indexedPaths}
             />
           ))}
         </div>

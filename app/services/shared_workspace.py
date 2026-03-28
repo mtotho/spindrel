@@ -468,6 +468,46 @@ class SharedWorkspaceService:
             os.remove(target)
         return {"path": path, "deleted": True}
 
+    def move_path(self, workspace_id: str, src: str, dst: str) -> dict:
+        """Move a file or directory within the workspace.
+
+        If dst is an existing directory, the source is moved inside it.
+        Returns {"src": <original>, "dst": <final workspace-relative path>}.
+        """
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
+        src_target = self._resolve_path(workspace_id, src)
+        if src_target is None:
+            raise SharedWorkspaceError("Source path escapes workspace root")
+        if not os.path.exists(src_target):
+            raise SharedWorkspaceError("Source path does not exist")
+        if src_target == host_root:
+            raise SharedWorkspaceError("Cannot move workspace root")
+
+        dst_target = self._resolve_path(workspace_id, dst)
+        if dst_target is None:
+            raise SharedWorkspaceError("Destination path escapes workspace root")
+
+        # If dst is an existing directory, move src inside it
+        if os.path.isdir(dst_target):
+            dst_target = os.path.join(dst_target, os.path.basename(src_target))
+
+        # Guard: can't move a directory into itself or its own child
+        if os.path.isdir(src_target):
+            real_dst = os.path.realpath(dst_target)
+            real_src = os.path.realpath(src_target)
+            if real_dst.startswith(real_src + os.sep) or real_dst == real_src:
+                raise SharedWorkspaceError("Cannot move a directory into itself")
+
+        # Final security check
+        if not os.path.realpath(dst_target).startswith(host_root):
+            raise SharedWorkspaceError("Destination escapes workspace root")
+
+        os.makedirs(os.path.dirname(dst_target), exist_ok=True)
+        shutil.move(src_target, dst_target)
+
+        final_rel = os.path.relpath(os.path.realpath(dst_target), host_root)
+        return {"src": src, "dst": final_rel}
+
     # ── Internals ────────────────────────────────────────────────
 
     async def _remove_container(self, name: str) -> None:

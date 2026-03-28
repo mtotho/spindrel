@@ -685,6 +685,11 @@ async def workspace_files(
     return {"path": path, "entries": entries}
 
 
+class FileMoveBody(BaseModel):
+    src: str
+    dst: str
+
+
 class FileWriteBody(BaseModel):
     content: str
 
@@ -770,6 +775,26 @@ async def delete_workspace_file(
         raise HTTPException(400, f"OS error: {exc}")
 
 
+@router.post("/{workspace_id}/files/move")
+async def move_workspace_file(
+    workspace_id: str,
+    body: FileMoveBody,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:write")),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        return shared_workspace_service.move_path(workspace_id, body.src, body.dst)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
+
+
 # ── File upload ─────────────────────────────────────────────────
 
 @router.post("/{workspace_id}/files/upload")
@@ -797,6 +822,76 @@ async def upload_workspace_file(
 
 
 # ── Reindex ─────────────────────────────────────────────────────
+
+@router.get("/{workspace_id}/files/index-status")
+async def workspace_index_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:read")),
+):
+    """Return which files are indexed by the RAG system, with chunk counts and metadata."""
+    import os
+    from app.db.models import FilesystemChunk
+
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404)
+
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot.bot_id).where(SharedWorkspaceBot.workspace_id == ws_id)
+    )).scalars().all()
+    if not sw_bots:
+        return {"indexed_files": {}}
+
+    host_root = os.path.realpath(shared_workspace_service.get_host_root(workspace_id))
+
+    # Query: group by (root, file_path, bot_id) to get chunk counts + metadata
+    rows = (await db.execute(
+        select(
+            FilesystemChunk.root,
+            FilesystemChunk.file_path,
+            FilesystemChunk.bot_id,
+            func.count().label("chunk_count"),
+            func.max(FilesystemChunk.indexed_at).label("last_indexed"),
+            func.max(FilesystemChunk.language).label("language"),
+            func.max(FilesystemChunk.embedding_model).label("embedding_model"),
+        )
+        .where(FilesystemChunk.bot_id.in_(sw_bots))
+        .group_by(FilesystemChunk.root, FilesystemChunk.file_path, FilesystemChunk.bot_id)
+    )).all()
+
+    bot_map = {b.id: b.name for b in list_bots()}
+    indexed: dict[str, dict] = {}
+
+    for row in rows:
+        # Build absolute path and make it relative to workspace host_root
+        abs_path = os.path.join(row.root, row.file_path)
+        real_abs = os.path.realpath(abs_path)
+        if not real_abs.startswith(host_root):
+            continue  # skip files outside this workspace
+        rel_path = os.path.relpath(real_abs, host_root)
+
+        if rel_path not in indexed:
+            indexed[rel_path] = {
+                "chunk_count": 0,
+                "last_indexed": None,
+                "bots": [],
+                "language": row.language,
+                "embedding_model": row.embedding_model,
+            }
+        entry = indexed[rel_path]
+        entry["chunk_count"] += row.chunk_count
+        ts = row.last_indexed.isoformat() if row.last_indexed else None
+        if ts and (entry["last_indexed"] is None or ts > entry["last_indexed"]):
+            entry["last_indexed"] = ts
+        entry["bots"].append({
+            "bot_id": row.bot_id,
+            "bot_name": bot_map.get(row.bot_id, row.bot_id),
+        })
+
+    return {"indexed_files": indexed}
+
 
 @router.post("/{workspace_id}/reindex")
 async def reindex_workspace(

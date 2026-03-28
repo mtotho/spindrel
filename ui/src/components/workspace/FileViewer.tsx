@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useFileBrowserStore, type PaneId } from "../../stores/fileBrowser";
 import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { Save, X, Edit3, FileText, Copy, Check } from "lucide-react";
+import { IndexStatusBadge } from "./IndexStatusBadge";
+import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
 
 interface FileViewerProps {
   workspaceId: string;
   filePath: string;
   pane: PaneId;
+  indexEntry?: FileIndexEntry;
 }
 
-export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
+export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileViewerProps) {
   const { data, isLoading, error } = useWorkspaceFileContent(workspaceId, filePath);
   const writeMutation = useWriteWorkspaceFile(workspaceId);
 
@@ -22,6 +25,7 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
   const openFile = paneState.openFiles.find((f) => f.path === filePath);
   const isEditing = openFile?.editContent !== null && openFile?.editContent !== undefined;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -127,6 +131,7 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
         <span style={{ flex: 1, fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {filePath}
         </span>
+        {indexEntry && <IndexStatusBadge entry={indexEntry} />}
         {isEditing ? (
           <>
             <button
@@ -211,8 +216,26 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
           }}
         />
       ) : (
-        <div style={{ flex: 1, overflow: "auto", background: "#0a0a0a" }}>
+        <div
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+              e.preventDefault();
+              if (preRef.current) {
+                const sel = window.getSelection();
+                if (sel) {
+                  sel.removeAllRanges();
+                  const range = document.createRange();
+                  range.selectNodeContents(preRef.current);
+                  sel.addRange(range);
+                }
+              }
+            }
+          }}
+          style={{ flex: 1, overflow: "auto", background: "#0a0a0a", outline: "none" }}
+        >
           <pre
+            ref={preRef}
             style={{
               margin: 0,
               padding: "8px 0",

@@ -476,40 +476,51 @@ async def index_directory(
                 continue
             _dims_validated = True
 
-        async with async_session() as db:
-            # Delete old chunks for this file
-            await db.execute(
-                delete(FilesystemChunk).where(
-                    *_scope_filter(),
-                    FilesystemChunk.file_path == rel,
+        try:
+            async with async_session() as db:
+                # Delete old chunks for this file
+                await db.execute(
+                    delete(FilesystemChunk).where(
+                        *_scope_filter(),
+                        FilesystemChunk.file_path == rel,
+                    )
                 )
-            )
-            # Insert new chunks
-            for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                row = FilesystemChunk(
-                    bot_id=bot_id,
-                    client_id=client_id,
-                    root=str(root_path),
-                    file_path=rel,
-                    content_hash=file_hash,
-                    chunk_index=i,
-                    content=chunk.content,
-                    embedding=emb,
-                    language=chunk.language,
-                    symbol=chunk.symbol,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    embedding_model=effective_model,
-                )
-                db.add(row)
-            await db.flush()
-            # Populate tsvector column via raw SQL for full-text search
-            from sqlalchemy import text as _sa_text
-            await db.execute(_sa_text(
-                "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
-                "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
-            ).bindparams(fp=rel, rt=str(root_path)))
-            await db.commit()
+                # Insert new chunks
+                for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                    row = FilesystemChunk(
+                        bot_id=bot_id,
+                        client_id=client_id,
+                        root=str(root_path),
+                        file_path=rel,
+                        content_hash=file_hash,
+                        chunk_index=i,
+                        content=chunk.content,
+                        embedding=emb,
+                        language=chunk.language,
+                        symbol=chunk.symbol,
+                        start_line=chunk.start_line,
+                        end_line=chunk.end_line,
+                        embedding_model=effective_model,
+                    )
+                    db.add(row)
+                # Commit chunks first — ensures they persist even if tsvector fails
+                await db.commit()
+        except Exception:
+            logger.exception("Failed to insert chunks for %s (bot=%s, root=%s)", rel, bot_id, root_path)
+            stats["errors"] += 1
+            continue
+
+        # Populate tsvector column (non-fatal — chunks are saved without FTS on failure)
+        try:
+            async with async_session() as db:
+                from sqlalchemy import text as _sa_text
+                await db.execute(_sa_text(
+                    "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                    "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
+                ).bindparams(fp=rel, rt=str(root_path)))
+                await db.commit()
+        except Exception:
+            logger.warning("TSVector population failed for %s (chunks saved without FTS)", rel)
 
         stats["indexed"] += 1
         logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)

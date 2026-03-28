@@ -34,6 +34,19 @@ async def get_skill(skill_id: str) -> str:
     """Fetch the full content of a skill from DB."""
     bot_id = current_bot_id.get()
 
+    # Virtual skill: api_reference — generated from bot's API key scopes
+    if skill_id == "api_reference":
+        if bot_id:
+            try:
+                from app.agent.bots import get_bot
+                bot = get_bot(bot_id)
+                if bot.api_permissions:
+                    from app.services.api_keys import generate_api_docs
+                    return generate_api_docs(bot.api_permissions)
+            except Exception:
+                logger.warning("Failed to generate api_reference skill for bot %s", bot_id, exc_info=True)
+        return "No API permissions configured for this bot."
+
     # Validate that this bot has access to this skill
     if bot_id:
         try:

@@ -259,6 +259,21 @@ export function useDeleteWorkspaceFile(workspaceId: string) {
   });
 }
 
+export function useMoveWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { src: string; dst: string }) =>
+      apiFetch<{ src: string; dst: string }>(
+        `/api/v1/workspaces/${workspaceId}/files/move`,
+        { method: "POST", body: JSON.stringify(data) }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-file-content", workspaceId] });
+    },
+  });
+}
+
 // File upload (multipart — cannot use apiFetch which sets JSON content-type)
 
 export function useUploadWorkspaceFile(workspaceId: string) {
@@ -292,6 +307,28 @@ export function useUploadWorkspaceFile(workspaceId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     },
+  });
+}
+
+// Index status
+
+export interface FileIndexEntry {
+  chunk_count: number;
+  last_indexed: string | null;
+  bots: { bot_id: string; bot_name: string }[];
+  language: string | null;
+  embedding_model: string | null;
+}
+
+export function useWorkspaceIndexStatus(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-index-status", workspaceId],
+    queryFn: () =>
+      apiFetch<{ indexed_files: Record<string, FileIndexEntry> }>(
+        `/api/v1/workspaces/${workspaceId}/files/index-status`
+      ),
+    enabled: !!workspaceId,
+    staleTime: 30_000,
   });
 }
 

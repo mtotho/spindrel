@@ -133,6 +133,21 @@ async def lifespan(app: FastAPI):
     logger.info("Starting file watcher...")
     asyncio.create_task(file_sync.watch_files())
 
+    # Bootstrap memory scheme for workspace-files bots (idempotent, creates MEMORY.md if missing)
+    from app.services.memory_scheme import bootstrap_memory_scheme
+    for bot in list_bots():
+        if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                bootstrap_memory_scheme(bot)
+            except Exception:
+                logger.exception("Failed to bootstrap memory scheme for bot %s", bot.id)
+            if not bot.workspace.indexing.enabled:
+                logger.warning(
+                    "Bot '%s' has memory_scheme='workspace-files' but workspace indexing is disabled — "
+                    "search_memory will return empty results",
+                    bot.id,
+                )
+
     # Ensure workspace host dirs exist (fast, doesn't block)
     from app.services.workspace import workspace_service
     for bot in list_bots():
