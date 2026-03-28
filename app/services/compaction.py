@@ -1557,7 +1557,13 @@ def format_section_index(sections: list, verbosity: str = "standard") -> str:
       standard — adds one-line summary
       detailed — adds message count + full period
     """
-    header = "Archived conversation history (use read_conversation_history with a section number to read full transcripts):"
+    header = (
+        "Archived conversation history — use read_conversation_history with:\n"
+        "  - A section number (e.g. '3') to read a full transcript\n"
+        "  - 'search:<query>' to find sections by topic\n"
+        "  - 'messages:<query>' to grep raw messages across ALL history (exact strings, errors, ports, paths)\n"
+        "  - 'tool:<id>' to retrieve full output of a summarized tool call"
+    )
 
     if verbosity == "compact":
         lines = [header]
