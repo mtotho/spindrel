@@ -414,10 +414,40 @@ async def usage_logs(
             for r in ch_rows:
                 channel_name_map[str(r.id)] = r.name
 
-    # Collect distinct values for filter dropdowns
-    all_bot_ids: set[str] = set()
-    all_model_names: set[str] = set()
-    all_provider_ids: set[str] = set()
+    # Query distinct filter values across the FULL filtered dataset (not just this page)
+    _base_filter = select(TraceEvent).where(TraceEvent.event_type == "token_usage")
+    if after_dt:
+        _base_filter = _base_filter.where(TraceEvent.created_at >= after_dt)
+    if before_dt:
+        _base_filter = _base_filter.where(TraceEvent.created_at <= before_dt)
+
+    _distinct_bots_q = select(func.distinct(TraceEvent.bot_id)).where(
+        TraceEvent.event_type == "token_usage", TraceEvent.bot_id.is_not(None),
+    )
+    _distinct_models_q = select(func.distinct(TraceEvent.data["model"].astext)).where(
+        TraceEvent.event_type == "token_usage",
+    )
+    _distinct_providers_q = select(func.distinct(TraceEvent.data["provider_id"].astext)).where(
+        TraceEvent.event_type == "token_usage",
+    )
+    if after_dt:
+        _distinct_bots_q = _distinct_bots_q.where(TraceEvent.created_at >= after_dt)
+        _distinct_models_q = _distinct_models_q.where(TraceEvent.created_at >= after_dt)
+        _distinct_providers_q = _distinct_providers_q.where(TraceEvent.created_at >= after_dt)
+    if before_dt:
+        _distinct_bots_q = _distinct_bots_q.where(TraceEvent.created_at <= before_dt)
+        _distinct_models_q = _distinct_models_q.where(TraceEvent.created_at <= before_dt)
+        _distinct_providers_q = _distinct_providers_q.where(TraceEvent.created_at <= before_dt)
+
+    all_bot_ids = sorted(
+        r[0] for r in (await db.execute(_distinct_bots_q)).all() if r[0]
+    )
+    all_model_names = sorted(
+        r[0] for r in (await db.execute(_distinct_models_q)).all() if r[0]
+    )
+    all_provider_ids = sorted(
+        r[0] for r in (await db.execute(_distinct_providers_q)).all() if r[0]
+    )
 
     entries: list[UsageLogEntry] = []
     for ev in events:
@@ -430,13 +460,6 @@ async def usage_logs(
 
         input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
         cost = _compute_cost(pt, ct, input_rate, output_rate)
-
-        if ev.bot_id:
-            all_bot_ids.add(ev.bot_id)
-        if ev_model:
-            all_model_names.add(ev_model)
-        if ev_provider:
-            all_provider_ids.add(ev_provider)
 
         entries.append(UsageLogEntry(
             id=str(ev.id),
@@ -459,9 +482,9 @@ async def usage_logs(
         total=total,
         page=page,
         page_size=page_size,
-        bot_ids=sorted(all_bot_ids),
-        model_names=sorted(all_model_names),
-        provider_ids=sorted(all_provider_ids),
+        bot_ids=all_bot_ids,
+        model_names=all_model_names,
+        provider_ids=all_provider_ids,
     )
 
 
