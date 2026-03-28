@@ -140,28 +140,30 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
             </button>
           </>
         ) : (
-          <button
-            onClick={handleCopy}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              background: "none", color: copied ? "#22c55e" : "#999", border: "1px solid #333",
-              borderRadius: 4, padding: "3px 10px", fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
-          </button>
-          <button
-            onClick={handleStartEdit}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              background: "none", color: "#999", border: "1px solid #333",
-              borderRadius: 4, padding: "3px 10px", fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            <Edit3 size={12} /> Edit
-          </button>
+          <>
+            <button
+              onClick={handleCopy}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                background: "none", color: copied ? "#22c55e" : "#999", border: "1px solid #333",
+                borderRadius: 4, padding: "3px 10px", fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+            </button>
+            <button
+              onClick={handleStartEdit}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                background: "none", color: "#999", border: "1px solid #333",
+                borderRadius: 4, padding: "3px 10px", fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              <Edit3 size={12} /> Edit
+            </button>
+          </>
         )}
         {data?.size != null && (
           <span style={{ fontSize: 11, color: "#555" }}>
