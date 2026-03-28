@@ -5,6 +5,24 @@ import { useDeleteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { apiFetch } from "../../api/client";
 import type { WorkspaceFileEntry } from "../../types/api";
 
+/** Write text to clipboard with fallback for non-HTTPS */
+async function writeToClipboard(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch { /* fallback */ }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
 interface FileContextMenuProps {
   x: number;
   y: number;
@@ -43,7 +61,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
       const data = await apiFetch<{ content: string }>(
         `/api/v1/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(entry.path)}`
       );
-      await navigator.clipboard.writeText(data.content);
+      await writeToClipboard(data.content);
     } catch (err) {
       console.error("Failed to copy contents:", err);
     }
@@ -52,7 +70,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
 
   const handleCopyPath = () => {
     if (!entry) return;
-    navigator.clipboard.writeText(entry.path);
+    writeToClipboard(entry.path);
     onClose();
   };
 
@@ -116,8 +134,8 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
   if (typeof document === "undefined") return null;
-  const ReactDOM = require("react-dom");
 
+  const ReactDOM = require("react-dom");
   return ReactDOM.createPortal(
     <>
       <div

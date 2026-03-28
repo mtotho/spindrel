@@ -14,8 +14,10 @@ router = APIRouter()
 
 
 class GeneratePromptIn(BaseModel):
-    context: str  # what this prompt field is for (from generateContext prop)
+    context: str = ""  # what this prompt field is for (from generateContext prop)
     user_input: str = ""  # description/instruction, partial prompt, or empty
+    mode: str = "generate"  # "generate" = full prompt rewrite, "inline" = replace selected text
+    surrounding_context: str = ""  # rest of the document (for inline mode)
 
 
 class GeneratePromptOut(BaseModel):
@@ -31,32 +33,52 @@ PURPOSE: {context}
 
 Write a clear, effective, production-quality prompt. Output ONLY the prompt text — no explanations, no markdown fences, no preamble."""
 
+_INLINE_PROMPT = """\
+You are assisting a user who is editing a prompt template. They have selected a portion of their text and want you to generate a replacement.
+
+The selected text may be:
+- A question or instruction — generate the answer or fulfillment
+- Text to transform or improve — rewrite it appropriately
+
+{surrounding_section}
+Produce ONLY the replacement text. No explanations, no markdown fences, no preamble."""
+
 
 @router.post("/generate-prompt", response_model=GeneratePromptOut)
 async def generate_prompt(body: GeneratePromptIn):
     from app.services.providers import get_llm_client
 
-    if body.user_input.strip():
-        user_input_section = (
-            f"The user described what they want: '{body.user_input}'. "
-            "Write a prompt that fulfills this description."
-        )
+    if body.mode == "inline":
+        surrounding_section = ""
+        if body.surrounding_context.strip():
+            surrounding_section = (
+                "SURROUNDING CONTEXT (the rest of the template around the selection):\n"
+                f"```\n{body.surrounding_context}\n```\n"
+            )
+        system_msg = _INLINE_PROMPT.format(surrounding_section=surrounding_section)
+        user_msg = body.user_input
     else:
-        user_input_section = "Write a high-quality prompt from scratch for this purpose."
+        if body.user_input.strip():
+            user_input_section = (
+                f"The user described what they want: '{body.user_input}'. "
+                "Write a prompt that fulfills this description."
+            )
+        else:
+            user_input_section = "Write a high-quality prompt from scratch for this purpose."
 
-    system_msg = _META_PROMPT.format(
-        context=body.context,
-        user_input_section=user_input_section,
-    )
+        system_msg = _META_PROMPT.format(
+            context=body.context,
+            user_input_section=user_input_section,
+        )
+        user_msg = "Generate the prompt now."
 
     model = settings.PROMPT_GENERATION_MODEL or None
     client = get_llm_client(None)
 
-    # If no model configured, use the default model on the LiteLLM proxy
     kwargs: dict = {
         "messages": [
             {"role": "system", "content": system_msg},
-            {"role": "user", "content": "Generate the prompt now."},
+            {"role": "user", "content": user_msg},
         ],
         "temperature": 0.7,
         "max_tokens": 2000,
@@ -64,7 +86,6 @@ async def generate_prompt(body: GeneratePromptIn):
     if model:
         kwargs["model"] = model
     else:
-        # LiteLLM requires a model string; use a sensible default
         kwargs["model"] = settings.COMPACTION_MODEL
 
     resp = await client.chat.completions.create(**kwargs)

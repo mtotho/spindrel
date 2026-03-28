@@ -339,6 +339,7 @@ export interface BotIndexingInfo {
   bot_name: string;
   role: string;
   indexing_enabled: boolean;
+  memory_scheme: string | null;
   explicit_overrides: Record<string, any>;
   resolved: {
     enabled: boolean;

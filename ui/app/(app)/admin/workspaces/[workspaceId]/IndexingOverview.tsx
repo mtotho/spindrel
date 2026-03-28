@@ -151,7 +151,7 @@ function BotIndexCard({
         border: `1px solid ${bot.indexing_enabled ? t.surfaceRaised : t.surfaceBorder}`,
         borderRadius: 8,
         overflow: "hidden",
-        opacity: bot.indexing_enabled ? 1 : 0.5,
+        opacity: (bot.indexing_enabled || bot.memory_scheme === "workspace-files") ? 1 : 0.5,
       }}
     >
       {/* Header row */}
@@ -168,7 +168,12 @@ function BotIndexCard({
           color={t.textMuted}
           style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 } as any}
         />
-        <span style={{ width: 8, height: 8, borderRadius: 4, background: bot.indexing_enabled ? "#14b8a6" : t.surfaceBorder, flexShrink: 0 }} />
+        <span style={{
+          width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+          background: bot.indexing_enabled ? "#14b8a6"
+            : bot.memory_scheme === "workspace-files" ? "#8b5cf6"
+            : t.surfaceBorder,
+        }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{bot.bot_name}</span>
         <span style={{
           padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
@@ -177,7 +182,7 @@ function BotIndexCard({
         }}>
           {bot.role}
         </span>
-        {bot.indexing_enabled && totalChunks > 0 && (
+        {(bot.indexing_enabled || bot.memory_scheme === "workspace-files") && totalChunks > 0 && (
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Database size={11} color={t.textDim} />
             <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>
@@ -190,7 +195,17 @@ function BotIndexCard({
             {overrideKeys.length} override{overrideKeys.length > 1 ? "s" : ""}
           </span>
         )}
-        {!bot.indexing_enabled && (
+        {bot.indexing_enabled && bot.memory_scheme === "workspace-files" && (
+          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: "rgba(20,184,166,0.1)", color: "#14b8a6" }}>
+            memory + files
+          </span>
+        )}
+        {!bot.indexing_enabled && bot.memory_scheme === "workspace-files" && (
+          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: "rgba(139,92,246,0.1)", color: "#8b5cf6" }}>
+            memory only
+          </span>
+        )}
+        {!bot.indexing_enabled && bot.memory_scheme !== "workspace-files" && (
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
             <EyeOff size={11} color={t.textDim} />
             <span style={{ fontSize: 10, color: t.textDim }}>disabled</span>
@@ -335,6 +350,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
   }
 
   const enabledCount = data.bots.filter((b) => b.indexing_enabled).length;
+  const memoryOnlyCount = data.bots.filter((b) => !b.indexing_enabled && b.memory_scheme === "workspace-files").length;
   const totalFiles = Object.keys(indexedFiles).length;
   const totalChunks = Object.values(indexedFiles).reduce((s, e) => s + e.chunk_count, 0);
 
@@ -348,6 +364,11 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
       }}>
         <span style={{ color: t.text, fontWeight: 600 }}>
           {enabledCount}/{data.bots.length} bots indexing
+          {memoryOnlyCount > 0 && (
+            <span style={{ fontWeight: 400, color: "#8b5cf6", marginLeft: 6, fontSize: 11 }}>
+              +{memoryOnlyCount} memory only
+            </span>
+          )}
         </span>
         {totalChunks > 0 && (
           <span style={{ display: "flex", alignItems: "center", gap: 4, color: t.textMuted }}>

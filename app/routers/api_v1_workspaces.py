@@ -910,7 +910,10 @@ async def reindex_workspace(
     from app.agent.fs_indexer import index_directory
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
+    from app.services.memory_indexing import index_memory_for_bot
+
     results = {}
+    general_indexed_bot_ids: set[str] = set()
     for swb in sw_bots:
         try:
             bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
@@ -925,8 +928,22 @@ async def reindex_workspace(
                     )
                     bot_results.append(stats)
                 results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results
+                general_indexed_bot_ids.add(swb.bot_id)
         except Exception as exc:
             results[swb.bot_id] = {"error": str(exc)}
+
+    # Memory-only reindex for bots with workspace-files but no general indexing
+    for swb in sw_bots:
+        if swb.bot_id in general_indexed_bot_ids:
+            continue
+        bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
+        if bot and bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                stats = await index_memory_for_bot(bot, force=True)
+                if stats:
+                    results[swb.bot_id] = {"source": "memory-only", **stats}
+            except Exception as exc:
+                results[swb.bot_id] = {"source": "memory-only", "error": str(exc)}
 
     return {"results": results}
 
@@ -1038,6 +1055,7 @@ async def get_workspace_indexing(
             "bot_name": bot.name,
             "role": swb.role,
             "indexing_enabled": bot.workspace.indexing.enabled,
+            "memory_scheme": getattr(bot, "memory_scheme", None),
             "explicit_overrides": explicit,
             "resolved": resolved,
         })
