@@ -6,7 +6,6 @@ import {
   BookOpen,
   ClipboardList,
   Wrench,
-  Server,
   FileText,
   ChevronLeft,
   ChevronRight,
@@ -15,10 +14,11 @@ import {
   Container,
   Plus,
   Hash,
-  Eye,
   Lock,
-  KeyRound,
   BarChart3,
+  Shield,
+  ShieldCheck,
+  Activity,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -53,16 +53,21 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     ],
   },
   {
+    title: "SECURITY",
+    items: [
+      { label: "Policies", href: "/admin/tool-policies", icon: Shield },
+      { label: "Approvals", href: "/admin/approvals", icon: ShieldCheck },
+      { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },
+    ],
+  },
+  {
     title: "SYSTEM",
     items: [
       { label: "Tools", href: "/admin/tools", icon: Wrench },
-      { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
-      { label: "API Keys", href: "/admin/api-keys", icon: KeyRound },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
       { label: "Settings", href: "/settings", icon: Settings },
-      { label: "Config State", href: "/admin/config-state", icon: Eye },
     ],
   },
 ];

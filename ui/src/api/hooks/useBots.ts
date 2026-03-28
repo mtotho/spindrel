@@ -9,6 +9,17 @@ export function useBots() {
   });
 }
 
+/** Full bot configs via admin endpoint (includes tools, skills, memory, etc.) */
+export function useAdminBots() {
+  return useQuery({
+    queryKey: ["admin-bots"],
+    queryFn: async () => {
+      const res = await apiFetch<{ bots: BotConfig[] }>("/api/v1/admin/bots");
+      return res.bots;
+    },
+  });
+}
+
 export function useBot(botId: string | undefined) {
   return useQuery({
     queryKey: ["bots", botId],

@@ -222,7 +222,7 @@ export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: n
 
 export function Col({ children, flex = 1 }: { children: React.ReactNode; flex?: number }) {
   return (
-    <div style={{ flex, minWidth: 180 }}>{children}</div>
+    <div style={{ flex, minWidth: 140 }}>{children}</div>
   );
 }
 

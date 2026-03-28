@@ -14,7 +14,7 @@ import {
   Zap,
   DollarSign,
 } from "lucide-react";
-import { useBots } from "@/src/api/hooks/useBots";
+import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import type { BotConfig } from "@/src/types/api";
@@ -342,7 +342,7 @@ function BotCard({
 // ---------------------------------------------------------------------------
 export default function BotsScreen() {
   const router = useRouter();
-  const { data: bots, isLoading } = useBots();
+  const { data: bots, isLoading } = useAdminBots();
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
