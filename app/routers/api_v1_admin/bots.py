@@ -411,6 +411,15 @@ async def admin_bot_update(
     await reload_bots()
 
     bot = get_bot(bot_id)
+
+    # Bootstrap memory directories when memory_scheme is set via PUT/PATCH
+    if updates.get("memory_scheme") == "workspace-files":
+        from app.services.memory_scheme import bootstrap_memory_scheme
+        try:
+            bootstrap_memory_scheme(bot)
+        except Exception:
+            pass  # non-fatal
+
     pc = await get_persona(bot_id)
     return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
 
