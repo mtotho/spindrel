@@ -248,7 +248,7 @@ function ModelParamsSection({
                   disabled={!isSupported}
                   style={{
                     background: "#111", border: "1px solid #333", borderRadius: 8,
-                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, width: 160,
+                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, maxWidth: 200, width: "100%",
                     outline: "none", opacity: isSupported ? 1 : 0.4, cursor: isSupported ? "pointer" : "not-allowed",
                   }}
                 >
@@ -277,7 +277,7 @@ function ModelParamsSection({
                   disabled={!isSupported}
                   style={{
                     background: "#111", border: "1px solid #333", borderRadius: 8,
-                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, width: 160,
+                    padding: "7px 12px", color: "#e5e5e5", fontSize: 13, maxWidth: 200, width: "100%",
                     outline: "none", opacity: isSupported ? 1 : 0.4,
                   }}
                 />
@@ -374,6 +374,8 @@ function ToolsSection({
     }
   };
 
+  const { width: toolsWinWidth } = useWindowDimensions();
+  const toolsMobile = toolsWinWidth < MOBILE_NAV_BREAKPOINT;
   const q = toolFilter.toLowerCase();
 
   return (
@@ -502,7 +504,7 @@ function ToolsSection({
 
                   {/* Tool rows */}
                   {!isCollapsed && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, padding: 4 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 1, padding: 4 }}>
                       {filtered.map((tool) => {
                         const enabled = localTools.includes(tool.name);
                         const pinned = pinnedTools.includes(tool.name);
@@ -567,7 +569,7 @@ function ToolsSection({
       {editorData.mcp_servers.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>MCP Servers</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 2 }}>
             {editorData.mcp_servers.filter((s) => !q || s.toLowerCase().includes(q)).map((srv) => {
               const on = (draft.mcp_servers || []).includes(srv);
               return (
@@ -590,7 +592,7 @@ function ToolsSection({
       {editorData.client_tools.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Client Tools</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 2 }}>
             {editorData.client_tools.filter((t) => !q || t.toLowerCase().includes(q)).map((tool) => {
               const on = (draft.client_tools || []).includes(tool);
               return (
@@ -618,7 +620,7 @@ function ToolsSection({
           description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
         />
         {draft.tool_retrieval && (
-          <div style={{ marginTop: 8, maxWidth: 200 }}>
+          <div style={{ marginTop: 8, maxWidth: 300 }}>
             <FormRow label="Similarity Threshold">
               <TextInput
                 value={String(draft.tool_similarity_threshold ?? "")}
@@ -740,7 +742,7 @@ function SkillsSection({
             placeholder="Filter skills..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#e5e5e5", fontSize: 12 }} />
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
         {filtered.map((skill) => {
           const sel = isSelected(skill.id);
           const entry = getEntry(skill.id);
@@ -937,14 +939,14 @@ function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: "#666", textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
                     {envEntries.map(([k, v]) => (
                       <div key={k} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#93c5fd", width: 120 }}>{k}</span>
+                        <span style={{ fontFamily: "monospace", color: "#93c5fd", minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
                         <span style={{ color: "#555" }}>=</span>
                         <span style={{ fontFamily: "monospace", color: "#888", flex: 1 }}>{v as string}</span>
                         {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
                       </div>
                     ))}
                     <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                      {miniInput(newEnvKey, setNewEnvKey, "KEY", { width: 120 })}
+                      {miniInput(newEnvKey, setNewEnvKey, "KEY", { flex: 1, maxWidth: 120 })}
                       <span style={{ color: "#555", fontSize: 11 }}>=</span>
                       {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
                       {addBtn("Add", () => {
@@ -963,9 +965,9 @@ function WorkspaceSection({
                       </div>
                     ))}
                     <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                      {miniInput(newHostPort, setNewHostPort, "host (opt)", { width: 90 })}
+                      {miniInput(newHostPort, setNewHostPort, "host (opt)", { flex: 1, maxWidth: 100 })}
                       <span style={{ color: "#555", fontSize: 11 }}>:</span>
-                      {miniInput(newContainerPort, setNewContainerPort, "container", { width: 90 })}
+                      {miniInput(newContainerPort, setNewContainerPort, "container", { flex: 1, maxWidth: 100 })}
                       {addBtn("Add", () => {
                         if (newContainerPort.trim()) { setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] }); setNewHostPort(""); setNewContainerPort(""); }
                       })}
@@ -982,10 +984,10 @@ function WorkspaceSection({
                         {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
-                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                      {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1 })}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                      {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1, minWidth: 80 })}
                       <span style={{ color: "#555", fontSize: 11 }}>:</span>
-                      {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1 })}
+                      {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1, minWidth: 80 })}
                       <select value={newMountMode} onChange={(e) => setNewMountMode(e.target.value)}
                         style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 4, padding: "3px 4px", fontSize: 11, color: "#e5e5e5", width: 50 }}>
                         <option value="rw">rw</option>
@@ -1014,13 +1016,13 @@ function WorkspaceSection({
                     <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
                     {commands.map((cmd: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#818cf8", width: 80 }}>{cmd.name}</span>
+                        <span style={{ fontFamily: "monospace", color: "#818cf8", minWidth: 50, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>{cmd.name}</span>
                         <span style={{ color: "#888", flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
                         {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
                       </div>
                     ))}
                     <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                      {miniInput(newCmd, setNewCmd, "binary", { width: 100 })}
+                      {miniInput(newCmd, setNewCmd, "binary", { flex: 1, maxWidth: 100 })}
                       {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
                       {addBtn("Add", () => {
                         if (newCmd.trim()) {
@@ -1059,7 +1061,7 @@ function WorkspaceSection({
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  {miniInput(newEnvPass, setNewEnvPass, "ENV_VAR_NAME", { width: 160 })}
+                  {miniInput(newEnvPass, setNewEnvPass, "ENV_VAR_NAME", { flex: 1, maxWidth: 200 })}
                   {addBtn("Add", () => { if (newEnvPass.trim()) { setHost({ env_passthrough: [...envPass, newEnvPass.trim()] }); setNewEnvPass(""); } })}
                 </div>
               </div>
@@ -1089,7 +1091,7 @@ function WorkspaceSection({
                     ))}
                   </div>
                   <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                    {miniInput(newPattern, setNewPattern, "**/*.py", { width: 160 })}
+                    {miniInput(newPattern, setNewPattern, "**/*.py", { flex: 1, maxWidth: 200 })}
                     {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
                   </div>
                 </div>
@@ -1114,9 +1116,9 @@ function WorkspaceSection({
                       {removeBtn(() => setIndexing({ segments: segments.filter((_: any, j: number) => j !== i) }))}
                     </div>
                   ))}
-                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                    {miniInput(newSegPrefix, setNewSegPrefix, "path_prefix (e.g. src/)", { width: 180 })}
-                    {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { width: 200 })}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                    {miniInput(newSegPrefix, setNewSegPrefix, "path_prefix (e.g. src/)", { flex: 1, minWidth: 80 })}
+                    {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { flex: 1, minWidth: 80 })}
                     {addBtn("Add Segment", () => {
                       if (newSegPrefix.trim()) {
                         const seg: any = { path_prefix: newSegPrefix.trim() };
@@ -1134,33 +1136,6 @@ function WorkspaceSection({
         </>
       )}
 
-      {/* Sandbox profiles */}
-      {editorData.all_sandbox_profiles.length > 0 && (
-        <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, color: "#e5e5e5", marginBottom: 4 }}>Docker Sandbox Profiles</div>
-          <div style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>Restrict which profiles this bot can use.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-            {editorData.all_sandbox_profiles.map((p) => {
-              const on = (draft.docker_sandbox_profiles || []).includes(p.name);
-              return (
-                <label key={p.name} style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
-                  borderRadius: 4, cursor: "pointer", fontSize: 11,
-                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
-                }}>
-                  <input type="checkbox" checked={on} style={{ accentColor: "#3b82f6" }}
-                    onChange={() => {
-                      const cur = draft.docker_sandbox_profiles || [];
-                      update({ docker_sandbox_profiles: on ? cur.filter((n) => n !== p.name) : [...cur, p.name] });
-                    }} />
-                  <span style={{ fontFamily: "monospace", color: on ? "#93c5fd" : "#555" }}>{p.name}</span>
-                  {p.description && <span style={{ color: "#444", marginLeft: 4 }}>{p.description}</span>}
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1509,7 +1484,7 @@ export default function BotEditorScreen() {
           <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile={false} />
         )}
 
-        <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 20, maxWidth: 800 }}>
+        <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: isMobile ? 12 : 20, maxWidth: 800, width: "100%" }}>
 
           {activeSection === "identity" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1656,7 +1631,7 @@ export default function BotEditorScreen() {
                     These skills come from the workspace filesystem and are automatically injected into this bot's context.
                     Manage them by adding/removing <code style={{ color: "#888" }}>.md</code> files in the workspace <code style={{ color: "#888" }}>common/skills/</code> or <code style={{ color: "#888" }}>bots/{"{bot_id}"}/skills/</code> directories.
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
                     {editorData.workspace_skills.map((ws) => (
                       <div key={ws.skill_id} style={{
                         padding: 8, borderRadius: 6,
@@ -1747,7 +1722,7 @@ export default function BotEditorScreen() {
                 value={draft.elevation_enabled === true ? "true" : draft.elevation_enabled === false ? "false" : ""}
                 onChange={(v) => update({ elevation_enabled: v === "true" ? true : v === "false" ? false : null })}
                 options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
-                style={{ maxWidth: 200 }}
+                style={{ maxWidth: 300 }}
               />
               <Row>
                 <Col>
@@ -1855,7 +1830,7 @@ export default function BotEditorScreen() {
                 value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""}
                 onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })}
                 options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
-                style={{ maxWidth: 200 }}
+                style={{ maxWidth: 300 }}
               />
               <Row>
                 <Col>
@@ -1875,7 +1850,7 @@ export default function BotEditorScreen() {
                   </FormRow>
                 </Col>
               </Row>
-              <div style={{ maxWidth: 200 }}>
+              <div style={{ maxWidth: 300 }}>
                 <FormRow label="Vision Concurrency">
                   <TextInput value={String(draft.attachment_vision_concurrency ?? "")}
                     onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })} placeholder="3" type="number" />
@@ -1899,7 +1874,7 @@ export default function BotEditorScreen() {
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Delegate-to Bots</div>
                   <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>@-tagged bots in messages bypass this list.</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
                     {editorData.all_bots.map((b) => {
                       const on = (draft.delegation_config?.delegate_bots || draft.delegate_bots || []).includes(b.id);
                       return (
@@ -1926,7 +1901,7 @@ export default function BotEditorScreen() {
               {editorData.all_harnesses.length > 0 && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Harness Access</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
                     {editorData.all_harnesses.map((h) => {
                       const on = (draft.delegation_config?.harness_access || draft.harness_access || []).includes(h);
                       return (
@@ -1981,7 +1956,7 @@ export default function BotEditorScreen() {
               </Row>
               <div style={{ borderTop: "1px solid #1a1a1a", paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#555", textTransform: "uppercase", marginBottom: 8 }}>Slack</div>
-                <div style={{ maxWidth: 300 }}>
+                <div>
                   <FormRow label="Icon Emoji" description="Overrides Avatar URL in Slack. Requires chat:write.customize.">
                     <TextInput value={draft.integration_config?.slack?.icon_emoji || ""}
                       onChangeText={(v) => {
@@ -2001,7 +1976,7 @@ export default function BotEditorScreen() {
               <FormRow label="Audio Input">
                 <SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })}
                   options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}
-                  style={{ maxWidth: 300 }} />
+                />
               </FormRow>
               <FormRow label="History Mode">
                 <SelectInput value={draft.history_mode || "summary"} onChange={(v) => update({ history_mode: v })}
@@ -2010,7 +1985,7 @@ export default function BotEditorScreen() {
                     { label: "Structured — semantic retrieval of sections", value: "structured" },
                     { label: "File — LLM navigates sections via tool", value: "file" },
                   ]}
-                  style={{ maxWidth: 400 }} />
+                />
               </FormRow>
             </div>
           )}

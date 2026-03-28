@@ -13,7 +13,8 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { Link, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Eye, ChevronRight } from "lucide-react";
+import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound } from "lucide-react";
+import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -382,12 +383,26 @@ function GlobalSection({
 }) {
   return (
     <View>
-      <Link href={"/admin/config-state" as any} asChild>
-        <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 mb-4 hover:bg-surface-overlay active:bg-surface-overlay" style={{ alignSelf: "flex-start" }}>
-          <Eye size={14} color="#3b82f6" />
-          <Text style={{ fontSize: 13, color: "#3b82f6" }}>View full config state</Text>
-        </Pressable>
-      </Link>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+        <Link href={"/admin/providers" as any} asChild>
+          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
+            <Server size={14} color="#3b82f6" />
+            <Text style={{ fontSize: 13, color: "#3b82f6" }}>Providers</Text>
+          </Pressable>
+        </Link>
+        <Link href={"/admin/api-keys" as any} asChild>
+          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
+            <KeyRound size={14} color="#3b82f6" />
+            <Text style={{ fontSize: 13, color: "#3b82f6" }}>API Keys</Text>
+          </Pressable>
+        </Link>
+        <Link href={"/admin/config-state" as any} asChild>
+          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
+            <Eye size={14} color="#3b82f6" />
+            <Text style={{ fontSize: 13, color: "#3b82f6" }}>Config State</Text>
+          </Pressable>
+        </Link>
+      </View>
 
       <Section title="Global Fallback Models">
         <Text className="text-text-dim text-xs" style={{ marginBottom: 12 }}>
@@ -817,11 +832,14 @@ export default function SettingsScreen() {
             </View>
           ))}
 
-          {/* Chat History extras: section index preview + deviations */}
+          {/* Chat History extras: memory scheme + section index preview + deviations */}
           {activeGroup === "Chat History" && (
-            <ChatHistoryExtras
-              verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
-            />
+            <>
+              <MemorySchemeSection />
+              <ChatHistoryExtras
+                verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
+              />
+            </>
           )}
         </RefreshableScrollView>
       </View>
