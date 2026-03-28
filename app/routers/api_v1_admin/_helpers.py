@@ -103,6 +103,8 @@ def _bot_to_out(
         created_at=bot.created_at.isoformat() if hasattr(bot, "created_at") and bot.created_at else None,
         updated_at=bot.updated_at.isoformat() if hasattr(bot, "updated_at") and bot.updated_at else None,
         api_permissions=api_permissions,
+        api_docs_mode=getattr(bot, "api_docs_mode", None),
+        memory_scheme=getattr(bot, "memory_scheme", None),
     )
 
 

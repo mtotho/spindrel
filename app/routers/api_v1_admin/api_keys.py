@@ -13,6 +13,7 @@ from app.db.models import ApiKey as ApiKeyRow
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.api_keys import (
     ALL_SCOPES,
+    SCOPE_DESCRIPTIONS,
     SCOPE_GROUPS,
     create_api_key,
 )
@@ -57,9 +58,15 @@ class ApiKeyUpdateIn(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class ScopeGroupOut(BaseModel):
+    description: str
+    scopes: list[str]
+
+
 class ScopeGroupsOut(BaseModel):
-    groups: dict[str, list[str]]
+    groups: dict[str, ScopeGroupOut]
     all_scopes: list[str]
+    descriptions: dict[str, str]
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +96,17 @@ async def admin_api_key_scopes(
     _auth=Depends(verify_auth_or_user),
 ):
     """Return available scopes grouped for the UI."""
-    return ScopeGroupsOut(groups=SCOPE_GROUPS, all_scopes=ALL_SCOPES)
+    return ScopeGroupsOut(
+        groups={
+            name: ScopeGroupOut(
+                description=group["description"],
+                scopes=group["scopes"],
+            )
+            for name, group in SCOPE_GROUPS.items()
+        },
+        all_scopes=ALL_SCOPES,
+        descriptions=SCOPE_DESCRIPTIONS,
+    )
 
 
 @router.get("/api-keys", response_model=list[ApiKeyOut])

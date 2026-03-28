@@ -355,6 +355,8 @@ class BotUpdateIn(BaseModel):
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
     api_permissions: Optional[list[str]] = None
+    api_docs_mode: Optional[str] = None  # "pinned"|"rag"|"on_demand"|null
+    memory_scheme: Optional[str] = None  # "workspace-files"|null
 
 
 @router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
@@ -461,6 +463,7 @@ class BotCreateIn(BaseModel):
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
+    memory_scheme: Optional[str] = None  # "workspace-files"|null
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -565,6 +568,51 @@ async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[st
     if not api_key:
         return None
     return api_key.scopes or []
+
+
+# ---------------------------------------------------------------------------
+# Memory scheme
+# ---------------------------------------------------------------------------
+
+@router.post("/bots/{bot_id}/memory-scheme")
+async def admin_bot_enable_memory_scheme(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Enable the workspace-files memory scheme on an existing bot.
+
+    Sets memory_scheme, bootstraps directory structure, and triggers reindex.
+    """
+    from app.agent.bots import reload_bots
+    from app.services.memory_scheme import bootstrap_memory_scheme
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    row.memory_scheme = "workspace-files"
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    await reload_bots()
+    bot = get_bot(bot_id)
+
+    # Bootstrap memory directories
+    memory_root = bootstrap_memory_scheme(bot)
+
+    # Trigger filesystem reindex for the memory directory
+    try:
+        from app.agent.fs_indexer import index_directory
+        from app.services.workspace import workspace_service
+        ws_root = workspace_service.get_workspace_root(bot_id, bot)
+        await index_directory(
+            ws_root, bot_id, ["memory/**/*.md"], force=True,
+        )
+    except Exception:
+        pass  # non-fatal; will be indexed on next natural cycle
+
+    return {"status": "ok", "memory_scheme": "workspace-files", "memory_root": memory_root}
 
 
 # ---------------------------------------------------------------------------

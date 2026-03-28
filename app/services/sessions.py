@@ -161,9 +161,42 @@ def _effective_system_prompt(
             parts.append(base.rstrip())
 
     parts.append(bot.system_prompt.rstrip())
-    if bot.memory.enabled and bot.memory.prompt:
+    if getattr(bot, "memory_scheme", None) == "workspace-files":
+        parts.append(_MEMORY_SCHEME_PROMPT.strip())
+    elif bot.memory.enabled and bot.memory.prompt:
         parts.append(bot.memory.prompt.strip())
     return "\n\n".join(parts)
+
+
+_MEMORY_SCHEME_PROMPT = """\
+## Memory
+
+Your persistent memory lives in `memory/` relative to your workspace directory.
+MEMORY.md and recent daily logs are in your context — do not re-read them.
+
+### MEMORY.md — Curated Knowledge
+Stable facts: user preferences, key decisions, system configs, learned patterns.
+Keep under ~100 lines. Promote important learnings from daily logs here.
+Format: ## sections with _Updated: YYYY-MM-DD_ headers. Edit in place.
+
+### logs/YYYY-MM-DD.md — Daily Logs
+Session notes, events, decisions, task progress. Today's log and yesterday's
+are in your context. Append to today's log during the session.
+
+### reference/ — Reference Documents
+Longer guides, runbooks, architecture notes. Not in your context.
+Use get_memory_file("name") or search_memory("query") to access.
+
+### Tools
+- search_memory(query) — hybrid semantic+keyword search across all memory files
+- get_memory_file(name) — read a specific memory file
+
+### Rules
+- Use exec_command to write/edit memory files (sed, echo, heredoc, etc.)
+- Write session events and decisions to today's daily log
+- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines
+- Search memory before assuming you don't know something
+- Write important learnings immediately, don't wait for session end"""
 
 
 async def load_or_create(

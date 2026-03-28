@@ -211,7 +211,7 @@ async def _mirror_to_integration(
 
 
 @router.get("/bots")
-async def bots(_auth=Depends(verify_auth_or_user)):
+async def bots(_auth=Depends(require_scopes("bots:read"))):
     result = []
     for b in list_bots():
         entry: dict = {"id": b.id, "name": b.name, "model": b.model}

@@ -76,9 +76,13 @@ async def verify_auth_or_user(
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
 
-    # Try static API key first (fast path)
+    # Try static API key first (fast path) — treat as admin-scoped key
     if token == settings.API_KEY:
-        return token
+        return ApiKeyAuth(
+            key_id=UUID("00000000-0000-0000-0000-000000000000"),
+            scopes=["admin"],
+            name="static-env-key",
+        )
 
     # Try scoped API key (ask_ prefix)
     if token.startswith("ask_"):
@@ -115,15 +119,21 @@ async def verify_admin_auth(
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
 
+    _static_admin = ApiKeyAuth(
+        key_id=UUID("00000000-0000-0000-0000-000000000000"),
+        scopes=["admin"],
+        name="static-env-key",
+    )
+
     # If ADMIN_API_KEY is configured, check it first
     if settings.ADMIN_API_KEY:
         if token == settings.ADMIN_API_KEY:
-            return token
+            return _static_admin
         # Regular API_KEY is NOT accepted for admin routes when ADMIN_API_KEY is set
     else:
         # Backward compat: accept regular API_KEY
         if token == settings.API_KEY:
-            return token
+            return _static_admin
 
     # Try scoped API key with admin scope
     if token.startswith("ask_"):
@@ -157,10 +167,8 @@ async def optional_user(
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization.removeprefix("Bearer ")
-    if token == settings.API_KEY:
-        return None
-    # Scoped API keys are not users
-    if token.startswith("ask_"):
+    # Static key and scoped API keys are not users
+    if token == settings.API_KEY or token.startswith("ask_"):
         return None
 
     from app.services.auth import decode_access_token, get_user_by_id
@@ -175,21 +183,19 @@ async def optional_user(
 
 
 def require_scopes(*scopes: str):
-    """Dependency factory that enforces scope requirements on scoped API keys.
+    """Dependency factory that enforces scope requirements on API keys.
 
-    Static API keys (str) and JWT users always pass through (full access).
-    ApiKeyAuth is checked against the required scopes.
+    JWT users always pass through (full access).
+    ApiKeyAuth (including static env key) is checked against required scopes.
+    The static env key and any key with 'admin' scope bypass all checks.
     """
     async def _check(
         auth=Depends(verify_auth_or_user),
     ):
-        # Static API key or JWT user → full access
-        if isinstance(auth, str):
-            return auth
         if not isinstance(auth, ApiKeyAuth):
-            # User object from JWT
+            # User object from JWT → full access
             return auth
-        # Scoped API key → check scopes
+        # API key → check scopes
         from app.services.api_keys import has_scope
         for scope in scopes:
             if not has_scope(auth.scopes, scope):

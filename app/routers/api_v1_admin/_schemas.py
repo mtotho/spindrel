@@ -84,6 +84,8 @@ class BotOut(BaseModel):
     shared_workspace_id: Optional[str] = None
     shared_workspace_role: Optional[str] = None
     api_permissions: Optional[list[str]] = None
+    api_docs_mode: Optional[str] = None
+    memory_scheme: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

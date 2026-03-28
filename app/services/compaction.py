@@ -21,6 +21,13 @@ from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
 
+_MEMORY_SCHEME_FLUSH_PROMPT = """\
+Before this conversation is compacted, save important context to your memory files:
+- Append key decisions and events to today's daily log
+- Promote any new stable facts to MEMORY.md
+- Write anything you'll need to remember in future sessions
+Use exec_command to write to the appropriate files."""
+
 
 def _truncate_at_sentence(text: str, max_chars: int) -> str:
     """Truncate *text* to at most *max_chars*, breaking at the last sentence
@@ -193,13 +200,17 @@ async def _run_memory_flush(
     from app.services.prompt_resolution import resolve_prompt
 
     async with async_session() as db:
-        prompt = await resolve_prompt(
-            workspace_id=str(channel.memory_flush_workspace_id) if channel.memory_flush_workspace_id else None,
-            workspace_file_path=channel.memory_flush_workspace_file_path,
-            template_id=str(channel.memory_flush_prompt_template_id) if channel.memory_flush_prompt_template_id else None,
-            inline_prompt=channel.memory_flush_prompt or settings.MEMORY_FLUSH_DEFAULT_PROMPT,
-            db=db,
-        )
+        # Memory scheme override: use file-based flush prompt
+        if bot.memory_scheme == "workspace-files":
+            prompt = _MEMORY_SCHEME_FLUSH_PROMPT
+        else:
+            prompt = await resolve_prompt(
+                workspace_id=str(channel.memory_flush_workspace_id) if channel.memory_flush_workspace_id else None,
+                workspace_file_path=channel.memory_flush_workspace_file_path,
+                template_id=str(channel.memory_flush_prompt_template_id) if channel.memory_flush_prompt_template_id else None,
+                inline_prompt=channel.memory_flush_prompt or settings.MEMORY_FLUSH_DEFAULT_PROMPT,
+                db=db,
+            )
 
         # Grab existing summary so the flush knows what's already been captured
         session_row = await db.get(Session, session_id)

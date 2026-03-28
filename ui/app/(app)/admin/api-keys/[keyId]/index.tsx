@@ -19,10 +19,12 @@ import {
 
 function ScopeCheckboxGroup({
   groups,
+  descriptions,
   selected,
   onChange,
 }: {
-  groups: Record<string, string[]>;
+  groups: Record<string, { description: string; scopes: string[] }>;
+  descriptions?: Record<string, string>;
   selected: string[];
   onChange: (scopes: string[]) => void;
 }) {
@@ -40,28 +42,33 @@ function ScopeCheckboxGroup({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {Object.entries(groups).map(([group, scopes]) => (
+      {Object.entries(groups).map(([group, groupInfo]) => (
         <div key={group}>
           <div
             style={{
               fontSize: 12,
               fontWeight: 600,
               color: "#888",
-              marginBottom: 6,
+              marginBottom: 2,
               textTransform: "uppercase",
               letterSpacing: 0.5,
             }}
           >
             {group}
           </div>
+          <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>
+            {groupInfo.description}
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {scopes.map((scope) => {
+            {groupInfo.scopes.map((scope) => {
               const checked = set.has(scope);
               const isAdmin = scope === "admin";
+              const desc = descriptions?.[scope];
               return (
                 <button
                   key={scope}
                   onClick={() => toggle(scope)}
+                  title={desc}
                   style={{
                     display: "flex",
                     alignItems: "center",

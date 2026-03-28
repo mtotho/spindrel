@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
-from app.dependencies import get_db, require_scopes, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     reset_channel_session, switch_channel_session,
@@ -355,7 +355,7 @@ async def get_channel(
 async def get_channel_config(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    _auth=Depends(require_scopes("channels.config:read")),
 ):
     """Get all channel settings + heartbeat config in a single flat response."""
     channel = await db.get(Channel, channel_id)
@@ -374,9 +374,15 @@ async def update_channel_config(
     channel_id: uuid.UUID,
     body: ChannelConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(verify_auth_or_user),
 ):
-    """Update any subset of channel settings + heartbeat config in one call."""
+    """Update any subset of channel settings + heartbeat config in one call.
+
+    Scope requirements depend on which fields are set:
+    - Heartbeat fields only → ``channels.heartbeat:write``
+    - Non-heartbeat fields (or both) → ``channels.config:write``
+    ``channels.config:write`` always covers heartbeat as a parent scope.
+    """
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -392,6 +398,16 @@ async def update_channel_config(
             hb_updates[key.removeprefix("heartbeat_")] = value
         else:
             ch_updates[key] = value
+
+    # Enforce scopes based on which fields are being modified
+    if isinstance(_auth, ApiKeyAuth):
+        from app.services.api_keys import has_scope
+        if ch_updates:
+            if not has_scope(_auth.scopes, "channels.config:write"):
+                raise HTTPException(status_code=403, detail="Missing required scope: channels.config:write")
+        if hb_updates:
+            if not has_scope(_auth.scopes, "channels.heartbeat:write"):
+                raise HTTPException(status_code=403, detail="Missing required scope: channels.heartbeat:write")
 
     # Apply channel updates
     if ch_updates:
@@ -571,7 +587,7 @@ async def inject_channel_message(
     channel_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Inject a message into a channel's active session."""
     channel = await db.get(Channel, channel_id)
@@ -623,7 +639,7 @@ async def inject_channel_message(
 async def reset_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Reset a channel's session. Old session preserved, new one becomes active."""
     channel = await db.get(Channel, channel_id)
@@ -649,7 +665,7 @@ async def switch_session(
     channel_id: uuid.UUID,
     body: SwitchSessionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Switch a channel's active session to an existing session."""
     channel = await db.get(Channel, channel_id)
@@ -715,7 +731,7 @@ async def search_channel_messages(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    _auth=Depends(require_scopes("channels.messages:read")),
 ):
     """Search messages across all sessions in a channel."""
     channel = await db.get(Channel, channel_id)
@@ -789,7 +805,7 @@ async def get_attachment_stats(
 async def list_channel_integrations(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:read")),
+    _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List integration bindings for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -809,7 +825,7 @@ async def bind_channel_integration(
     channel_id: uuid.UUID,
     body: IntegrationBindRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Bind an integration to a channel."""
     channel = await db.get(Channel, channel_id)
@@ -844,7 +860,7 @@ async def unbind_channel_integration(
     channel_id: uuid.UUID,
     binding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Remove an integration binding from a channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -861,7 +877,7 @@ async def adopt_channel_integration(
     binding_id: uuid.UUID,
     body: IntegrationAdoptRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("channels:write")),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Move an integration binding to another channel."""
     binding = await db.get(ChannelIntegration, binding_id)

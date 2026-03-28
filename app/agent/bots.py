@@ -211,6 +211,10 @@ class BotConfig:
     history_mode: str = "file"
     # Scoped API key permissions (populated from linked ApiKey)
     api_permissions: list[str] = field(default_factory=list)
+    # How to inject API docs into context: "pinned"|"rag"|"on_demand"|None (disabled)
+    api_docs_mode: str | None = None
+    # Memory scheme: "workspace-files" = file-based memory (replaces DB memory/knowledge)
+    memory_scheme: str | None = None
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -420,6 +424,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         context_pruning=getattr(row, "context_pruning", None),
         context_pruning_keep_turns=getattr(row, "context_pruning_keep_turns", None),
         history_mode=row.history_mode or "file",
+        api_docs_mode=getattr(row, "api_docs_mode", None),
+        memory_scheme=getattr(row, "memory_scheme", None),
         shared_workspace_cwd=_sw_cwd,
         _workspace_raw=ws_raw,
     )
@@ -502,6 +508,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "context_pruning": data.get("context_pruning"),
         "context_pruning_keep_turns": data.get("context_pruning_keep_turns"),
         "history_mode": data.get("history_mode", "file"),
+        "memory_scheme": data.get("memory_scheme"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

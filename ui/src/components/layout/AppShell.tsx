@@ -40,9 +40,9 @@ export function AppShell() {
               onPress={closeMobileSidebar}
               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)" }}
             />
-            {/* Sidebar on top of backdrop */}
-            <View style={{ width: 260, flexShrink: 0, zIndex: 1 }}>
-              <Sidebar />
+            {/* Sidebar on top of backdrop — full width on mobile for fat-finger friendliness */}
+            <View style={{ flex: 1, maxWidth: 360, flexShrink: 0, zIndex: 1 }}>
+              <Sidebar mobile />
             </View>
           </View>
         )}
