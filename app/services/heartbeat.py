@@ -15,6 +15,22 @@ from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task
 logger = logging.getLogger(__name__)
 
 
+def next_aligned_time(now: datetime, interval_minutes: int) -> datetime:
+    """Compute the next clock-aligned run time.
+
+    Snaps to even multiples of *interval_minutes* from midnight UTC so that
+    heartbeats always fire on predictable clock boundaries (e.g. :00/:30 for
+    30-min intervals) regardless of when the server started or last fired.
+    """
+    if interval_minutes <= 0:
+        return now + timedelta(minutes=30)  # safety fallback
+    minutes_since_midnight = now.hour * 60 + now.minute
+    current_slot = minutes_since_midnight // interval_minutes
+    next_slot_minutes = (current_slot + 1) * interval_minutes
+    base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base + timedelta(minutes=next_slot_minutes)
+
+
 def _truncate_at_sentence(text: str, max_chars: int) -> str:
     """Truncate *text* to at most *max_chars*, breaking at the last sentence
     boundary (. ! ? followed by whitespace or end-of-string) so we never cut
@@ -285,7 +301,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         if heartbeat:
             effective = get_effective_interval(heartbeat.interval_minutes, heartbeat)
             heartbeat.last_run_at = now
-            heartbeat.next_run_at = now + timedelta(minutes=effective if effective > 0 else heartbeat.interval_minutes)
+            heartbeat.next_run_at = next_aligned_time(now, effective if effective > 0 else heartbeat.interval_minutes)
             heartbeat.updated_at = now
 
         await db.commit()

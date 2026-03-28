@@ -359,7 +359,7 @@ class SharedWorkspaceService:
 
     def list_files(self, workspace_id: str, path: str = "/") -> list[dict]:
         """List files/dirs at a path inside the workspace (host-side)."""
-        host_root = self.get_host_root(workspace_id)
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
         if path == "/" or not path:
             target = host_root
         else:
@@ -371,7 +371,7 @@ class SharedWorkspaceService:
 
         target = os.path.realpath(target)
         # Security: ensure within host_root
-        if not target.startswith(os.path.realpath(host_root)):
+        if not target.startswith(host_root):
             return []
 
         entries = []
@@ -382,7 +382,7 @@ class SharedWorkspaceService:
                     "name": entry.name,
                     "is_dir": entry.is_dir(),
                     "size": stat.st_size if entry.is_file() else None,
-                    "path": os.path.relpath(entry.path, host_root),
+                    "path": os.path.relpath(os.path.realpath(entry.path), host_root),
                     "modified_at": stat.st_mtime,
                 })
         except OSError:

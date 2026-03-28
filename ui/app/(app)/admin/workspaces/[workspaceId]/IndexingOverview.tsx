@@ -16,21 +16,30 @@ import { useThemeTokens } from "@/src/theme/tokens";
 // Helpers
 // ---------------------------------------------------------------------------
 
+type DirSource = "memory" | "patterns" | "mixed";
+
+interface DirFileInfo {
+  rel: string;
+  chunks: number;
+  lang: string | null;
+  source: "memory" | "patterns" | null;
+}
+
 /** Group indexed file paths by their first N directory segments. */
 function buildDirTree(
   files: Record<string, FileIndexEntry>,
   botId: string,
-): { path: string; files: { rel: string; chunks: number; lang: string | null }[] }[] {
+): { path: string; files: DirFileInfo[]; source: DirSource }[] {
   // Filter files that belong to this bot
-  const botFiles: { rel: string; chunks: number; lang: string | null }[] = [];
+  const botFiles: DirFileInfo[] = [];
   for (const [filePath, entry] of Object.entries(files)) {
     if (entry.bots.some((b) => b.bot_id === botId)) {
-      botFiles.push({ rel: filePath, chunks: entry.chunk_count, lang: entry.language });
+      botFiles.push({ rel: filePath, chunks: entry.chunk_count, lang: entry.language, source: entry.source });
     }
   }
 
   // Group by top-level directory
-  const groups = new Map<string, typeof botFiles>();
+  const groups = new Map<string, DirFileInfo[]>();
   for (const f of botFiles) {
     const parts = f.rel.split("/");
     const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : ".";
@@ -41,22 +50,34 @@ function buildDirTree(
 
   return Array.from(groups.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([path, files]) => ({
-      path,
-      files: files.sort((a, b) => a.rel.localeCompare(b.rel)),
-    }));
+    .map(([path, dirFiles]) => {
+      const sources = new Set(dirFiles.map((f) => f.source).filter(Boolean));
+      const source: DirSource = sources.size > 1 ? "mixed" : sources.has("memory") ? "memory" : "patterns";
+      return {
+        path,
+        files: dirFiles.sort((a, b) => a.rel.localeCompare(b.rel)),
+        source,
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------
 // Directory group (expandable)
 // ---------------------------------------------------------------------------
 
+const SOURCE_STYLES: Record<DirSource, { bg: string; color: string; label: string }> = {
+  memory: { bg: "rgba(139,92,246,0.1)", color: "#8b5cf6", label: "memory" },
+  patterns: { bg: "rgba(59,130,246,0.08)", color: "#60a5fa", label: "patterns" },
+  mixed: { bg: "rgba(20,184,166,0.1)", color: "#14b8a6", label: "mixed" },
+};
+
 function DirGroup({ dir }: {
-  dir: { path: string; files: { rel: string; chunks: number; lang: string | null }[] };
+  dir: { path: string; files: DirFileInfo[]; source: DirSource };
 }) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const totalChunks = dir.files.reduce((s, f) => s + f.chunks, 0);
+  const ss = SOURCE_STYLES[dir.source];
 
   return (
     <div>
@@ -74,6 +95,12 @@ function DirGroup({ dir }: {
         <Folder size={12} color="#60a5fa" />
         <span style={{ fontSize: 11, fontFamily: "monospace", color: t.text, flex: 1 }}>
           {dir.path}
+        </span>
+        <span style={{
+          padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600,
+          background: ss.bg, color: ss.color,
+        }}>
+          {ss.label}
         </span>
         <span style={{ fontSize: 10, color: t.textDim }}>
           {dir.files.length} file{dir.files.length !== 1 ? "s" : ""}, {totalChunks} chunks
@@ -216,19 +243,34 @@ function BotIndexCard({
       {/* Expanded details */}
       {expanded && (
         <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* Memory auto-indexing note */}
+          {bot.memory_scheme === "workspace-files" && (
+            <div style={{
+              padding: "8px 12px", background: "rgba(139,92,246,0.06)",
+              border: "1px solid rgba(139,92,246,0.12)", borderRadius: 6,
+              fontSize: 11, color: t.textMuted, lineHeight: 1.5,
+            }}>
+              <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory auto-indexed</span>
+              {" "}&mdash; <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> is always indexed for search_memory, independent of the patterns below.
+            </div>
+          )}
+
           {/* Config chips */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            <ConfigChip label="top_k" value={r.top_k} overridden={!!bot.explicit_overrides.top_k} />
-            <ConfigChip label="threshold" value={r.similarity_threshold} overridden={!!bot.explicit_overrides.similarity_threshold} />
-            <ConfigChip label="cooldown" value={`${r.cooldown_seconds}s`} overridden={!!bot.explicit_overrides.cooldown_seconds} />
-            <ConfigChip label="watch" value={r.watch ? "on" : "off"} overridden={!!bot.explicit_overrides.watch} />
-            <ConfigChip label="model" value={r.embedding_model} overridden={!!bot.explicit_overrides.embedding_model} />
-          </div>
+          {bot.indexing_enabled && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <ConfigChip label="top_k" value={r.top_k} overridden={!!bot.explicit_overrides.top_k} />
+              <ConfigChip label="threshold" value={r.similarity_threshold} overridden={!!bot.explicit_overrides.similarity_threshold} />
+              <ConfigChip label="cooldown" value={`${r.cooldown_seconds}s`} overridden={!!bot.explicit_overrides.cooldown_seconds} />
+              <ConfigChip label="watch" value={r.watch ? "on" : "off"} overridden={!!bot.explicit_overrides.watch} />
+              <ConfigChip label="model" value={r.embedding_model} overridden={!!bot.explicit_overrides.embedding_model} />
+            </div>
+          )}
 
           {/* Patterns — this is the key "why is it indexed" info */}
+          {bot.indexing_enabled && (
           <div>
             <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-              Patterns
+              Indexed File Patterns
               {bot.explicit_overrides.patterns && (
                 <span style={{ color: "#f59e0b", fontWeight: 600, marginLeft: 6, textTransform: "none" }}>overridden</span>
               )}
@@ -245,11 +287,15 @@ function BotIndexCard({
                   {pat}
                 </span>
               ))}
+              {(r.patterns || []).length === 0 && (
+                <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>No patterns — no additional files indexed</span>
+              )}
             </div>
             <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
-              Files matching these globs under the workspace root are indexed. Excluded: .git, node_modules, __pycache__, .venv, .history, and .gitignore rules.
+              Only files matching these globs are indexed. Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>) to target specific folders. Blanket patterns like <span style={{ fontFamily: "monospace" }}>**/*.py</span> index everything.
             </div>
           </div>
+          )}
 
           {/* Segments */}
           {r.segments && r.segments.length > 0 && (
@@ -278,7 +324,7 @@ function BotIndexCard({
           )}
 
           {/* Indexed files drilldown */}
-          {bot.indexing_enabled && totalFiles > 0 && (
+          {(bot.indexing_enabled || bot.memory_scheme === "workspace-files") && totalFiles > 0 && (
             <div>
               <button
                 onClick={() => setShowFiles(!showFiles)}

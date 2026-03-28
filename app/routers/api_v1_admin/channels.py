@@ -749,16 +749,9 @@ async def admin_channel_heartbeat_update(
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
-        if heartbeat.next_run_at is None:
-            # First enable — schedule from now
-            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
-        elif "interval_minutes" in updates:
-            # Interval changed — reschedule relative to last run (or now if never ran)
-            base = heartbeat.last_run_at or now
-            heartbeat.next_run_at = base + timedelta(minutes=heartbeat.interval_minutes)
-            # If the new schedule is already past, fire on next poll
-            if heartbeat.next_run_at <= now:
-                heartbeat.next_run_at = now
+        if heartbeat.next_run_at is None or "interval_minutes" in updates:
+            from app.services.heartbeat import next_aligned_time
+            heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes)
 
     await db.commit()
     await db.refresh(heartbeat)
@@ -794,7 +787,8 @@ async def admin_channel_heartbeat_toggle(
     heartbeat.updated_at = now
 
     if heartbeat.enabled and heartbeat.next_run_at is None:
-        heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+        from app.services.heartbeat import next_aligned_time
+        heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes)
     elif not heartbeat.enabled:
         heartbeat.next_run_at = None
 

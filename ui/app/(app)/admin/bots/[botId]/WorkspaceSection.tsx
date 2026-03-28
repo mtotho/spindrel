@@ -299,14 +299,14 @@ export function WorkspaceSection({
               fontSize: 11, color: t.textMuted, lineHeight: 1.5,
             }}>
               <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory indexing is automatic</span>
-              {" "}— files in <span style={{ fontFamily: "monospace" }}>memory/</span> are always indexed when memory_scheme is "workspace-files", regardless of the indexing toggle below. The toggle controls indexing of additional workspace files beyond memory.
+              {" "}— files in <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> are always indexed and searchable via search_memory, regardless of the settings below.
             </div>
           )}
 
           {/* Indexing panel */}
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Additional File Indexing</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Workspace File Indexing</div>
               <Toggle value={indexing.enabled !== false} onChange={(v) => setIndexing({ enabled: v })} label="Enable" />
               {indexing.enabled !== false && (
                 <Toggle value={indexing.watch !== false} onChange={(v) => setIndexing({ watch: v })} label="Watch" />
@@ -315,7 +315,19 @@ export function WorkspaceSection({
             {indexing.enabled !== false && (
               <>
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>File Patterns</div>
+                  <div style={{
+                    padding: "8px 12px", background: "rgba(59,130,246,0.05)",
+                    border: "1px solid rgba(59,130,246,0.12)", borderRadius: 6,
+                    fontSize: 11, color: t.textMuted, lineHeight: 1.5, marginBottom: 8,
+                  }}>
+                    These patterns control which workspace files are indexed for RAG retrieval via search_workspace.
+                    {draft.memory_scheme === "workspace-files" && (<>
+                      {" "}Memory files (<span style={{ fontFamily: "monospace" }}>memory/</span>) are handled separately above.
+                    </>)}
+                    {" "}Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>, <span style={{ fontFamily: "monospace" }}>reference/**/*.yaml</span>) to index specific folders.
+                    Blanket patterns like <span style={{ fontFamily: "monospace" }}>**/*.py</span> will index <em>every</em> matching file in the workspace.
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {patterns.map((pat, i) => (
                       <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
@@ -323,8 +335,13 @@ export function WorkspaceSection({
                       </span>
                     ))}
                   </div>
+                  {patterns.length === 0 && (
+                    <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
+                      No patterns — nothing will be indexed beyond memory. Add patterns to index specific directories.
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                    {miniInput(newPattern, setNewPattern, "**/*.py", { flex: 1, maxWidth: 200 })}
+                    {miniInput(newPattern, setNewPattern, "docs/**/*.md", { flex: 1, maxWidth: 200 })}
                     {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
                   </div>
                 </div>
@@ -336,8 +353,11 @@ export function WorkspaceSection({
                 </Row>
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-                    Index Segments
-                    <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>per-path-prefix overrides</span>
+                    Segments
+                    <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>per-directory embedding model overrides</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
+                    Override the embedding model or retrieval settings for files under a specific path prefix.
                   </div>
                   {segments.map((seg: any, i: number) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>

@@ -318,6 +318,7 @@ export interface FileIndexEntry {
   bots: { bot_id: string; bot_name: string }[];
   language: string | null;
   embedding_model: string | null;
+  source: "memory" | "patterns" | null;
 }
 
 export function useWorkspaceIndexStatus(workspaceId: string | undefined) {
