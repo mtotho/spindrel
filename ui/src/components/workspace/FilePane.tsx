@@ -2,13 +2,15 @@ import { useFileBrowserStore, type PaneId } from "../../stores/fileBrowser";
 import { PaneTabBar } from "./PaneTabBar";
 import { FileViewer } from "./FileViewer";
 import { FileText } from "lucide-react";
+import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
 
 interface FilePaneProps {
   workspaceId: string;
   pane: PaneId;
+  indexMap?: Record<string, FileIndexEntry>;
 }
 
-export function FilePane({ workspaceId, pane }: FilePaneProps) {
+export function FilePane({ workspaceId, pane, indexMap }: FilePaneProps) {
   const paneState = useFileBrowserStore((s) => s[pane === "left" ? "leftPane" : "rightPane"]);
 
   if (paneState.openFiles.length === 0) {
@@ -41,6 +43,7 @@ export function FilePane({ workspaceId, pane }: FilePaneProps) {
           workspaceId={workspaceId}
           filePath={paneState.activeFile}
           pane={pane}
+          indexEntry={indexMap?.[paneState.activeFile]}
         />
       )}
     </div>

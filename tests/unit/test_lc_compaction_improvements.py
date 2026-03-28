@@ -1,7 +1,7 @@
 """Tests for LC-inspired compaction engine improvements (Phases 1-5)."""
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,6 +11,8 @@ from app.services.compaction import (
     _select_section_prompt,
     _parse_section_response,
     _generate_section,
+    _format_section_period,
+    format_section_index,
     _SECTION_PROMPT_TIER0,
     _SECTION_PROMPT_TIER1,
     _SECTION_PROMPT_TIER2,
@@ -361,3 +363,116 @@ class TestToolDispatchRetrievalHint:
 
         assert result.was_summarized is False
         assert "read_conversation_history" not in result.result_for_llm
+
+
+# ---------------------------------------------------------------------------
+# _format_section_period — deterministic timestamp rendering
+# ---------------------------------------------------------------------------
+
+class TestFormatSectionPeriod:
+    def test_none_returns_question_mark(self):
+        assert _format_section_period(None, None) == "?"
+
+    def test_start_only(self):
+        dt = datetime(2026, 3, 25, 14, 0, tzinfo=timezone.utc)
+        result = _format_section_period(dt, None)
+        assert "mar" in result.lower() or "Mar" in result
+
+    def test_same_day_shows_time_range(self):
+        start = datetime(2026, 3, 25, 14, 10, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 25, 15, 45, tzinfo=timezone.utc)
+        result = _format_section_period(start, end)
+        # Should include both times on same day
+        assert "—" in result or "-" in result
+
+    def test_different_days_shows_date_range(self):
+        start = datetime(2026, 3, 25, 14, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 27, 10, 0, tzinfo=timezone.utc)
+        result = _format_section_period(start, end)
+        assert "25" in result
+        assert "27" in result
+
+    def test_detailed_mode(self):
+        start = datetime(2026, 3, 25, 14, 10, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 25, 15, 45, tzinfo=timezone.utc)
+        result = _format_section_period(start, end, detailed=True)
+        assert "—" in result or "-" in result
+
+
+# ---------------------------------------------------------------------------
+# format_section_index — section index rendering with periods
+# ---------------------------------------------------------------------------
+
+class TestFormatSectionIndex:
+    def _make_section(self, seq, title, summary="Summary.", tags=None,
+                      period_start=None, period_end=None, message_count=5):
+        s = MagicMock()
+        s.sequence = seq
+        s.title = title
+        s.summary = summary
+        s.tags = tags or []
+        s.period_start = period_start
+        s.period_end = period_end
+        s.message_count = message_count
+        return s
+
+    def test_compact_with_period(self):
+        start = datetime(2026, 3, 25, 14, 10, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 25, 15, 45, tzinfo=timezone.utc)
+        sections = [self._make_section(1, "Slack Setup", period_start=start, period_end=end)]
+        result = format_section_index(sections, "compact")
+        assert "#1: Slack Setup" in result
+        assert "(?" not in result  # Should have real date, not "?"
+
+    def test_compact_without_period_shows_question_mark(self):
+        sections = [self._make_section(1, "Slack Setup")]
+        result = format_section_index(sections, "compact")
+        assert "(?)" in result
+
+    def test_standard_includes_summary(self):
+        start = datetime(2026, 3, 25, 14, 10, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 25, 15, 45, tzinfo=timezone.utc)
+        sections = [self._make_section(1, "Slack Setup", "Set up Slack.",
+                                        period_start=start, period_end=end, tags=["slack"])]
+        result = format_section_index(sections, "standard")
+        assert "Slack Setup" in result
+        assert "Set up Slack." in result
+        assert "slack" in result
+
+    def test_header_includes_all_modes(self):
+        result = format_section_index([], "compact")
+        assert "messages:" in result
+        assert "tool:" in result
+        assert "search:" in result
+
+    def test_multiple_sections_all_have_dates(self):
+        base = datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc)
+        sections = [
+            self._make_section(i, f"Section {i}",
+                               period_start=base + timedelta(hours=i),
+                               period_end=base + timedelta(hours=i, minutes=30))
+            for i in range(1, 4)
+        ]
+        result = format_section_index(sections, "compact")
+        # None of the sections should show "?"
+        assert result.count("(?)") == 0
+
+
+# ---------------------------------------------------------------------------
+# Prompt content validation
+# ---------------------------------------------------------------------------
+
+class TestPromptContent:
+    def test_all_tiers_tell_llm_not_to_include_dates(self):
+        """Verify all prompts tell the LLM to NOT include dates (we add them deterministically)."""
+        for prompt in [_SECTION_PROMPT_TIER0, _SECTION_PROMPT_TIER1, _SECTION_PROMPT_TIER2]:
+            assert "Do NOT include dates" in prompt, f"Prompt missing date exclusion: {prompt[:80]}..."
+
+    def test_tier0_requests_detailed_summary(self):
+        assert "3-sentence" in _SECTION_PROMPT_TIER0
+
+    def test_tier1_requests_moderate_summary(self):
+        assert "2-sentence" in _SECTION_PROMPT_TIER1
+
+    def test_tier2_requests_brief_summary(self):
+        assert "1-2 sentence" in _SECTION_PROMPT_TIER2

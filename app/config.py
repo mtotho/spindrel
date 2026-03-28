@@ -251,21 +251,6 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
         Respond ONLY with the JSON object, no markdown fences or extra text."""
 
 
-    SECTION_COMPACTION_PROMPT: str = """\
-        You are a conversation archiver. You will receive a segment of conversation between \
-        a user and an AI assistant that is being archived. The raw transcript is stored separately — \
-        you only need to produce metadata.
-
-        Produce a JSON object with the following fields:
-        - "title": A concise heading for this conversation segment (5-12 words).
-        - "summary": A 2-3 sentence summary capturing the key topics, decisions, and outcomes.
-        - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment. \
-          Examples: "database migration", "bug fix", "API design", "deployment", "memory system".
-
-        IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
-
-        Respond ONLY with the JSON object, no markdown fences or extra text."""
-
     SECTION_EXECUTIVE_SUMMARY_PROMPT: str = """\
         You are a conversation historian. Below are section summaries from a long-running conversation. \
         Write a concise executive summary (3-5 sentences) covering the overall arc: \

@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from dataclasses import replace as _dc_replace
@@ -250,7 +251,7 @@ async def assemble_context(
             # 1. MEMORY.md — always inject
             _mem_md_path = _mem_os.path.join(_mem_root, "MEMORY.md")
             if _mem_os.path.isfile(_mem_md_path):
-                _mem_md_content = open(_mem_md_path).read()
+                _mem_md_content = Path(_mem_md_path).read_text()
                 if _mem_md_content.strip():
                     _inject_chars["memory_bootstrap"] = len(_mem_md_content)
                     messages.append({
@@ -264,7 +265,7 @@ async def assemble_context(
             _today = _mem_date.today().isoformat()
             _today_path = _mem_os.path.join(_mem_root, "logs", f"{_today}.md")
             if _mem_os.path.isfile(_today_path):
-                _today_content = open(_today_path).read()
+                _today_content = Path(_today_path).read_text()
                 if _today_content.strip():
                     _inject_chars["memory_today_log"] = len(_today_content)
                     messages.append({
@@ -279,7 +280,7 @@ async def assemble_context(
             _yesterday = (_mem_date.today() - _mem_td(days=1)).isoformat()
             _yesterday_path = _mem_os.path.join(_mem_root, "logs", f"{_yesterday}.md")
             if _mem_os.path.isfile(_yesterday_path):
-                _yesterday_content = open(_yesterday_path).read()
+                _yesterday_content = Path(_yesterday_path).read_text()
                 if _yesterday_content.strip():
                     _inject_chars["memory_yesterday_log"] = len(_yesterday_content)
                     messages.append({
@@ -507,6 +508,16 @@ async def assemble_context(
     if bot.api_permissions and bot.api_docs_mode:
         try:
             _mode = bot.api_docs_mode
+
+            # Always add api_reference to skill index so bot knows it exists
+            _api_skill_line = "- api_reference: Agent Server API Reference (auto-generated from your API key scopes)"
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"Available skills (use get_skill to retrieve full content):\n{_api_skill_line}"
+                ),
+            })
+
             if _mode == "pinned":
                 # Always inject full docs
                 from app.services.api_keys import generate_api_docs
@@ -549,15 +560,16 @@ async def assemble_context(
                         ),
                     })
                     yield {"type": "api_docs_context", "mode": "rag", "scopes": bot.api_permissions, "chars": _api_docs_chars}
+                else:
+                    yield {"type": "api_docs_context", "mode": "rag_skipped", "scopes": bot.api_permissions, "chars": 0}
 
             elif _mode == "on_demand":
-                # Just inject a short hint — bot uses `agent docs` when needed
+                # Just inject a short hint — bot uses get_skill("api_reference") when needed
                 _hint = (
                     "You have a scoped API key for the agent server "
                     f"(scopes: {', '.join(bot.api_permissions)}). "
-                    "Run `agent docs` to see full API documentation for your permissions, "
-                    "or `agent discover` for a quick endpoint list. "
-                    "Use `agent api METHOD /path [body]` for raw API calls."
+                    "Use `get_skill(\"api_reference\")` to see full API documentation for your permissions. "
+                    "Use `agent api METHOD /path [body]` or `agent-api METHOD /path [body]` for raw API calls."
                 )
                 _inject_chars["api_docs"] = len(_hint)
                 messages.append({"role": "system", "content": _hint})
@@ -588,8 +600,8 @@ async def assemble_context(
             })
             yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
-    # --- memories ---
-    if bot.memory.enabled and session_id and client_id:
+    # --- memories (DB-based — skip when using workspace-files scheme) ---
+    if bot.memory.enabled and bot.memory_scheme != "workspace-files" and session_id and client_id:
         memories, mem_sim = await retrieve_memories(
             query=user_message,
             session_id=session_id,
@@ -660,8 +672,8 @@ async def assemble_context(
                 "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
             })
 
-    # --- RAG knowledge ---
-    if bot.knowledge.enabled and client_id:
+    # --- RAG knowledge (DB-based — skip when using workspace-files scheme) ---
+    if bot.knowledge.enabled and bot.memory_scheme != "workspace-files" and client_id:
         chunks, know_sim = await retrieve_knowledge(
             query=user_message,
             bot_id=bot.id,

@@ -14,9 +14,10 @@ import type { ChannelSettings } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
 // History modes — visual mode selector data
+// Uses rgba backgrounds that work on both light and dark surfaces
 // ---------------------------------------------------------------------------
 const HISTORY_MODES: ReadonlyArray<{
-  value: string; label: string; icon: string; color: string;
+  value: string; label: string; icon: string; accentColor: string;
   bg: string; border: string; summary: string; detail: string | null;
   recommended?: boolean;
 }> = [
@@ -24,9 +25,9 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "",
     label: "Inherit",
     icon: "\u2193",
-    color: "#666",
-    bg: "#222",
-    border: "#333",
+    accentColor: "#6b7280",
+    bg: "rgba(107,114,128,0.06)",
+    border: "rgba(107,114,128,0.25)",
     summary: "Use the bot's default history mode.",
     detail: null,
   },
@@ -34,9 +35,9 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "summary",
     label: "Summary",
     icon: "\ud83d\udcdd",
-    color: "#2563eb",
-    bg: "#0c1929",
-    border: "#1e3a5f",
+    accentColor: "#2563eb",
+    bg: "rgba(59,130,246,0.06)",
+    border: "rgba(59,130,246,0.3)",
     summary: "Flat rolling summary \u2014 simple and efficient.",
     detail:
       "Each compaction replaces the previous summary with a new one covering the full conversation. " +
@@ -47,9 +48,9 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "structured",
     label: "Structured",
     icon: "\ud83d\udd0d",
-    color: "#9333ea",
-    bg: "#1a0a2e",
-    border: "#3b0764",
+    accentColor: "#9333ea",
+    bg: "rgba(147,51,234,0.06)",
+    border: "rgba(147,51,234,0.3)",
     summary: "Semantic retrieval \u2014 automatically surfaces relevant history.",
     detail:
       "Conversation is archived into titled sections with embeddings, also written as .md files in the bot's " +
@@ -62,9 +63,9 @@ const HISTORY_MODES: ReadonlyArray<{
     value: "file",
     label: "File",
     icon: "\ud83d\udcc2",
-    color: "#ca8a04",
-    bg: "#1a1400",
-    border: "#92400e",
+    accentColor: "#d97706",
+    bg: "rgba(217,119,6,0.06)",
+    border: "rgba(217,119,6,0.3)",
     summary: "Tool-based navigation \u2014 the bot browses history on demand.",
     detail:
       "Conversation is archived into titled sections, each written as a .md file in the bot's workspace " +
@@ -110,19 +111,19 @@ function HistoryModeSection({ form, patch }: {
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
                 padding: "14px 10px", borderRadius: 8, cursor: "pointer",
                 background: isSelected ? m.bg : t.inputBg,
-                border: `2px solid ${isSelected ? m.color : t.surfaceOverlay}`,
+                border: `2px solid ${isSelected ? m.accentColor : t.surfaceOverlay}`,
                 transition: "all 0.15s ease",
               }}
             >
               <span style={{ fontSize: 22 }}>{m.icon}</span>
               <span style={{
                 fontSize: 12, fontWeight: 700,
-                color: isSelected ? m.color : t.textMuted,
+                color: isSelected ? m.accentColor : t.textMuted,
               }}>
                 {m.label}
               </span>
               {m.recommended && (
-                <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", letterSpacing: "0.03em" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#d97706", letterSpacing: "0.03em" }}>
                   Recommended
                 </span>
               )}
@@ -161,11 +162,14 @@ type SectionsStats = {
   files_ok: number;
   files_missing: number;
   files_none: number;
+  periods_missing: number;
 };
 
 function BackfillButton({ channelId, historyMode }: { channelId: string; historyMode: string }) {
   const t = useThemeTokens();
   const [running, setRunning] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ repaired: number } | null>(null);
   const [progress, setProgress] = useState<{ section: number; total: number; title?: string } | null>(null);
   const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
   const queryClient = useQueryClient();
@@ -219,6 +223,23 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
     }
   }, [channelId, historyMode, queryClient, existingSections]);
 
+  const runRepairPeriods = useCallback(async () => {
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const res = await apiFetch<{ repaired: number }>(
+        `/api/v1/admin/channels/${channelId}/repair-section-periods`,
+        { method: "POST" },
+      );
+      setRepairResult(res);
+    } catch (e) {
+      setRepairResult({ repaired: -1 });
+    } finally {
+      setRepairing(false);
+      queryClient.invalidateQueries({ queryKey: ["channel-sections", channelId] });
+    }
+  }, [channelId, queryClient]);
+
   const pct = stats && stats.total_messages > 0
     ? Math.round((stats.covered_messages / stats.total_messages) * 100) : 0;
   const progressPct = progress && progress.total > 0
@@ -230,7 +251,7 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
       {stats && existingSections > 0 && (
         <div style={{ marginBottom: 10 }}>
           <div style={{
-            height: 6, borderRadius: 3, background: "#1a1a2e", overflow: "hidden", marginBottom: 4,
+            height: 6, borderRadius: 3, background: t.surfaceOverlay, overflow: "hidden", marginBottom: 4,
           }}>
             <div style={{
               height: "100%", borderRadius: 3, transition: "width 0.3s",
@@ -244,9 +265,34 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
             {stats.estimated_remaining > 0 && ` \u00b7 ~${stats.estimated_remaining} remaining`}
           </div>
           {stats.files_missing > 0 && (
-            <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: "#d97706", marginTop: 2 }}>
               <AlertTriangle size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
               {stats.files_missing} section{stats.files_missing !== 1 ? "s" : ""} missing transcript files — re-run backfill to regenerate
+            </div>
+          )}
+          {stats.periods_missing > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#d97706", marginTop: 2 }}>
+              <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+              <span>
+                {stats.periods_missing} section{stats.periods_missing !== 1 ? "s" : ""} missing timestamps
+              </span>
+              <button
+                onClick={runRepairPeriods}
+                disabled={repairing}
+                style={{
+                  padding: "1px 8px", fontSize: 11, fontWeight: 600,
+                  border: "none", cursor: repairing ? "default" : "pointer", borderRadius: 4,
+                  background: "rgba(217,119,6,0.15)", color: "#b45309",
+                  opacity: repairing ? 0.6 : 1,
+                }}
+              >
+                {repairing ? "Repairing..." : "Repair"}
+              </button>
+              {repairResult && (
+                <span style={{ color: repairResult.repaired >= 0 ? "#16a34a" : "#dc2626" }}>
+                  {repairResult.repaired >= 0 ? `Fixed ${repairResult.repaired}` : "Failed"}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -262,12 +308,12 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
-              background: running ? t.surfaceBorder : "#92400e",
-              color: running ? t.textDim : "#ca8a04",
+              background: running ? t.surfaceBorder : "rgba(217,119,6,0.12)",
+              color: running ? t.textDim : "#b45309",
               opacity: running ? 0.7 : 1,
             }}
           >
-            <Play size={12} color={running ? t.textDim : "#ca8a04"} />
+            <Play size={12} color={running ? t.textDim : "#b45309"} />
             {running ? "Resuming..." : "Resume Backfill"}
           </button>
         )}
@@ -295,12 +341,12 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", cursor: running ? "default" : "pointer", borderRadius: 6,
-              background: running ? t.surfaceBorder : "#92400e",
-              color: running ? t.textDim : "#ca8a04",
+              background: running ? t.surfaceBorder : "rgba(217,119,6,0.12)",
+              color: running ? t.textDim : "#b45309",
               opacity: running ? 0.7 : 1,
             }}
           >
-            <Play size={12} color={running ? t.textDim : "#ca8a04"} />
+            <Play size={12} color={running ? t.textDim : "#b45309"} />
             {running ? "Backfilling..." : "Backfill Sections"}
           </button>
         )}
@@ -321,11 +367,11 @@ function BackfillButton({ channelId, historyMode }: { channelId: string; history
             Section {progress.section}/{progress.total}{progress.title ? `: "${progress.title}"` : ""}
           </div>
           <div style={{
-            height: 4, borderRadius: 2, background: "#1a1a2e", overflow: "hidden",
+            height: 4, borderRadius: 2, background: t.surfaceOverlay, overflow: "hidden",
           }}>
             <div style={{
               height: "100%", borderRadius: 2, transition: "width 0.3s",
-              width: `${progressPct}%`, background: "#60a5fa",
+              width: `${progressPct}%`, background: t.accent,
             }} />
           </div>
         </div>
@@ -406,7 +452,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                   <span style={{ display: "flex", gap: 3, flexShrink: 0 }}>
                     {s.tags.slice(0, 3).map((tag, i) => (
                       <span key={i} style={{
-                        fontSize: 9, color: "#2563eb", background: "#1e3a5f",
+                        fontSize: 9, color: "#2563eb", background: "rgba(59,130,246,0.1)",
                         padding: "1px 5px", borderRadius: 8, whiteSpace: "nowrap",
                       }}>{tag}</span>
                     ))}
@@ -415,7 +461,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                 <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{s.message_count} msgs</span>
                 {s.view_count > 0 && (
                   <span style={{
-                    fontSize: 9, color: "#a78bfa", background: "#2e1065",
+                    fontSize: 9, color: "#7c3aed", background: "rgba(124,58,237,0.1)",
                     padding: "1px 5px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
                   }}>{s.view_count}x viewed</span>
                 )}
@@ -439,7 +485,7 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
                       {s.tags.map((tag, i) => (
                         <span key={i} style={{
-                          fontSize: 10, color: "#2563eb", background: "#1e3a5f",
+                          fontSize: 10, color: "#2563eb", background: "rgba(59,130,246,0.1)",
                           padding: "2px 8px", borderRadius: 10,
                         }}>{tag}</span>
                       ))}
@@ -447,33 +493,33 @@ function SectionsViewer({ channelId }: { channelId: string }) {
                   )}
                   {s.transcript_path ? (
                     <div style={{
-                      marginTop: 8, padding: "6px 10px", background: "#0d1117",
-                      border: `1px solid ${s.file_exists === false ? "#5b2333" : "#1e3a5f"}`,
+                      marginTop: 8, padding: "6px 10px", background: t.codeBg,
+                      border: `1px solid ${s.file_exists === false ? "rgba(239,68,68,0.3)" : t.codeBorder}`,
                       borderRadius: 6,
                       display: "flex", alignItems: "center", gap: 6,
                     }}>
                       <span style={{ fontSize: 12 }}>\ud83d\udcc4</span>
-                      <span style={{ fontSize: 10, color: "#8b949e", fontFamily: "monospace", flex: 1, wordBreak: "break-all" }}>
+                      <span style={{ fontSize: 10, color: t.textMuted, fontFamily: "monospace", flex: 1, wordBreak: "break-all" }}>
                         {s.transcript_path}
                       </span>
                       {s.file_exists === true && (
                         <span style={{
-                          fontSize: 9, color: "#22c55e", background: "#052e16",
+                          fontSize: 9, color: "#16a34a", background: "rgba(34,197,94,0.1)",
                           padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
                         }}>File OK</span>
                       )}
                       {s.file_exists === false && (
                         <span style={{
-                          fontSize: 9, color: "#ef4444", background: "#450a0a",
+                          fontSize: 9, color: "#dc2626", background: "rgba(239,68,68,0.1)",
                           padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
                         }}>File Missing</span>
                       )}
                     </div>
                   ) : (
                     <div style={{
-                      marginTop: 8, padding: "6px 10px", background: "#1a1117",
-                      border: "1px solid #5b2333", borderRadius: 6,
-                      fontSize: 10, color: "#d4a0a0", fontStyle: "italic",
+                      marginTop: 8, padding: "6px 10px", background: "rgba(239,68,68,0.05)",
+                      border: "1px solid rgba(239,68,68,0.15)", borderRadius: 6,
+                      fontSize: 10, color: "#dc2626", fontStyle: "italic",
                     }}>
                       No transcript file — re-run backfill to generate .md files.
                     </div>
@@ -516,7 +562,7 @@ function SectionIndexSettings({ form, patch, channelId }: {
   return (
     <div>
       <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8, lineHeight: "1.5" }}>
-        The bot sees what's in the archive without spending a tool call and can use <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> with a section number to read full transcripts.
+        The bot sees what's in the archive without spending a tool call and can use <code style={{ color: t.codeText }}>read_conversation_history</code> with a section number to read full transcripts.
       </div>
       <Row>
         <Col>
@@ -546,9 +592,9 @@ function SectionIndexSettings({ form, patch, channelId }: {
           {preview && preview.section_count > 0 ? (
             <>
               <div style={{
-                background: "#0d1117", border: "1px solid #1e3a5f", borderRadius: 8,
+                background: t.codeBg, border: `1px solid ${t.codeBorder}`, borderRadius: 8,
                 padding: "12px 14px", fontFamily: "monospace", fontSize: 11,
-                color: "#c9d1d9", whiteSpace: "pre-wrap", lineHeight: "1.5",
+                color: t.contentText, whiteSpace: "pre-wrap", lineHeight: "1.5",
                 maxHeight: 300, overflow: "auto",
               }}>
                 {preview.content}
@@ -595,21 +641,21 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
         <Section title="Archival Settings" description="Manages long conversations by archiving old turns into titled sections.">
           {/* Locked banner */}
           <div style={{
-            padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
-            borderRadius: 8, fontSize: 12, color: "#ca8a04", fontWeight: 600,
+            padding: "10px 14px", background: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.25)",
+            borderRadius: 8, fontSize: 12, color: "#b45309", fontWeight: 600,
           }}>
             Auto-compaction is always on in {selected} mode — it creates the archived sections the bot navigates.
           </div>
 
           {/* File-mode guidance */}
           <div style={{
-            padding: "12px 14px", background: "#0d1117", border: "1px solid #1e3a5f",
-            borderRadius: 8, fontSize: 11, color: "#8b949e", lineHeight: "1.6",
+            padding: "12px 14px", background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+            borderRadius: 8, fontSize: 11, color: t.textMuted, lineHeight: "1.6",
           }}>
             After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages are
             archived into a titled, summarized section. The bot keeps the last <strong style={{ color: t.text }}>Keep Turns</strong> verbatim,
-            plus an executive summary and section index. It can open any section with the <code style={{ color: "#c9d1d9" }}>read_conversation_history</code> tool.
-            <div style={{ marginTop: 8, color: "#f59e0b" }}>
+            plus an executive summary and section index. It can open any section with the <code style={{ color: t.codeText }}>read_conversation_history</code> tool.
+            <div style={{ marginTop: 8, color: "#d97706" }}>
               Recommended: Interval 20, Keep Turns 6 — lower interval = more granular sections.
               The bot can always read full transcripts, so aggressive archival is safe.
             </div>
@@ -708,11 +754,11 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
 
         <Section title="Backfill" description="Retroactively create archived sections from existing message history.">
           <div style={{
-            padding: "10px 14px", background: "#1a1117",
-            border: "1px solid #5b2333", borderRadius: 8,
-            fontSize: 11, color: "#d4a0a0", lineHeight: "1.5",
+            padding: "10px 14px", background: "rgba(245,158,11,0.06)",
+            border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8,
+            fontSize: 11, color: t.textMuted, lineHeight: "1.5",
           }}>
-            <AlertTriangle size={12} color="#f59e0b" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+            <AlertTriangle size={12} color="#d97706" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
             Backfill makes one LLM call per chunk of messages plus one for the executive summary. For example,
             500 messages at chunk size 50 = ~11 LLM calls using your compaction model. Set your interval and keep
             turns first. Resume only processes uncovered messages; re-chunk deletes everything and starts fresh.
@@ -734,17 +780,17 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
           {form.context_compaction && (
             <>
               <div style={{
-                padding: "14px 16px", background: "#0d1117", border: "1px solid #1e3a5f",
+                padding: "14px 16px", background: t.codeBg, border: `1px solid ${t.codeBorder}`,
                 borderRadius: 8, marginBottom: 4,
               }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", marginBottom: 8 }}>How Compaction Works</div>
-                <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: t.accent, marginBottom: 8 }}>How Compaction Works</div>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6" }}>
                   After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages
                   are archived and summarized by an LLM. The most recent <strong style={{ color: t.text }}>Keep Turns</strong> are
                   always preserved verbatim. If memory/knowledge/persona is enabled, the bot gets a "last chance" pass
                   to save important information before summarization.
                 </div>
-                <div style={{ fontSize: 11, color: "#8b949e", lineHeight: "1.6", marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6", marginTop: 8 }}>
                   <strong style={{ color: t.text }}>Example:</strong> Interval=30, Keep Turns=10 \u2192 after 30 user messages,
                   the oldest 20 are summarized. The bot always sees the last 10 turns plus the summary.
                 </div>
@@ -787,7 +833,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                 <div style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5" }}>
                   <strong style={{ color: t.contentText }}>Long-running agent:</strong> Interval 40+, Keep 12 — more raw context, fewer compaction LLM calls.
                 </div>
-                <div style={{ fontSize: 11, color: "#f59e0b", lineHeight: "1.5", marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: "#d97706", lineHeight: "1.5", marginTop: 4 }}>
                   Keep Turns must be less than Interval — otherwise nothing gets summarized.
                 </div>
               </div>

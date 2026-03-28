@@ -159,6 +159,65 @@ async def compute_context_breakdown(
                 description="Bot persona layer injected as system message",
             ))
 
+    # Workspace-files memory scheme: MEMORY.md + daily logs (injected every turn from disk)
+    if bot.memory_scheme == "workspace-files":
+        import os as _bd_os
+        from datetime import date as _bd_date
+        from app.services.memory_scheme import get_memory_root, get_memory_rel_path
+        from app.services.workspace import workspace_service
+        try:
+            _bd_ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            _bd_mem_root = get_memory_root(bot, ws_root=_bd_ws_root)
+            _bd_mem_rel = get_memory_rel_path(bot)
+
+            # MEMORY.md
+            _bd_mem_md = _bd_os.path.join(_bd_mem_root, "MEMORY.md")
+            if _bd_os.path.isfile(_bd_mem_md):
+                _bd_md_chars = len(open(_bd_mem_md).read())
+                if _bd_md_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_md", label="MEMORY.md", chars=_bd_md_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Curated stable facts ({_bd_mem_rel}/MEMORY.md) — injected every turn",
+                    ))
+
+            # Today's daily log
+            _bd_today = _bd_date.today().isoformat()
+            _bd_today_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_today}.md")
+            if _bd_os.path.isfile(_bd_today_path):
+                _bd_today_chars = len(open(_bd_today_path).read())
+                if _bd_today_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_today_log", label="Today's Log", chars=_bd_today_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_today}.md) — injected every turn",
+                    ))
+
+            # Yesterday's daily log
+            _bd_yest = (_bd_date.today() - __import__("datetime").timedelta(days=1)).isoformat()
+            _bd_yest_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_yest}.md")
+            if _bd_os.path.isfile(_bd_yest_path):
+                _bd_yest_chars = len(open(_bd_yest_path).read())
+                if _bd_yest_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_yesterday_log", label="Yesterday's Log", chars=_bd_yest_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_yest}.md) — injected every turn",
+                    ))
+
+            # Reference file count
+            _bd_ref_dir = _bd_os.path.join(_bd_mem_root, "reference")
+            if _bd_os.path.isdir(_bd_ref_dir):
+                _bd_ref_files = [f for f in _bd_os.listdir(_bd_ref_dir) if f.endswith(".md")]
+                if _bd_ref_files:
+                    categories.append(ContextCategory(
+                        key="memory_reference_index", label="Reference Index", chars=len(_bd_ref_files) * 40,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"{len(_bd_ref_files)} reference file(s) listed (names only; read via get_memory_file)",
+                    ))
+        except Exception:
+            logger.debug("Could not compute memory scheme breakdown for bot %s", bot.id, exc_info=True)
+
     # Datetime
     categories.append(ContextCategory(
         key="datetime", label="Date/Time", chars=72,

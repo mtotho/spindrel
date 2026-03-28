@@ -1046,6 +1046,17 @@ async def admin_channel_backfill_status(
     return job
 
 
+@router.post("/channels/{channel_id}/repair-section-periods")
+async def admin_repair_section_periods(
+    channel_id: uuid.UUID,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Backfill missing period_start/period_end on sections from message timestamps."""
+    from app.services.compaction import repair_section_periods
+    repaired = await repair_section_periods(channel_id)
+    return {"repaired": repaired}
+
+
 # ---------------------------------------------------------------------------
 # Conversation sections list
 # ---------------------------------------------------------------------------
@@ -1091,6 +1102,7 @@ async def admin_channel_sections(
     files_ok = 0
     files_missing = 0
     files_none = 0
+    periods_missing = 0
     for s in rows:
         fe = _file_exists(s)
         if fe is True:
@@ -1099,6 +1111,8 @@ async def admin_channel_sections(
             files_missing += 1
         else:
             files_none += 1
+        if not s.period_start:
+            periods_missing += 1
         sections_out.append({
             "id": str(s.id),
             "sequence": s.sequence,
@@ -1133,6 +1147,7 @@ async def admin_channel_sections(
             "files_ok": files_ok,
             "files_missing": files_missing,
             "files_none": files_none,
+            "periods_missing": periods_missing,
         },
     }
 

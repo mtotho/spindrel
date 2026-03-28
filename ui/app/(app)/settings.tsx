@@ -13,8 +13,9 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { Link, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound, Sun, Moon } from "lucide-react";
+import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound, Sun, Moon, AlertTriangle } from "lucide-react";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
+import { useAdminBots } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
 import { useThemeStore } from "@/src/stores/theme";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -497,23 +498,37 @@ function AppearanceSection() {
 // Chat History extras (section index preview + deviations)
 // ---------------------------------------------------------------------------
 
+const SECTION_INDEX_HEADER = `Archived conversation history — use read_conversation_history with:
+  - A section number (e.g. '3') to read a full transcript
+  - 'search:<query>' to find sections by topic
+  - 'messages:<query>' to grep raw messages across ALL history
+  - 'tool:<id>' to retrieve full output of a summarized tool call`;
+
 const SECTION_INDEX_PREVIEW: Record<string, string> = {
-  compact: `#1: Database Migration (Mar 5) [database, migration]
+  compact: `${SECTION_INDEX_HEADER}
+- #3: Deploy Pipeline (Mar 5) [deploy, ci-cd]
+- #2: API Design (Mar 3) [api, design]
+- #1: Database Migration (Mar 1) [database, migration]`,
+  standard: `${SECTION_INDEX_HEADER}
+
+#3: Deploy Pipeline (Mar 5) [deploy, ci-cd]
+  Set up GitHub Actions workflow with staging and production targets.
+
 #2: API Design (Mar 3) [api, design]
-#3: Deploy Pipeline (Mar 1) [deploy, ci-cd]`,
-  standard: `#1: Database Migration (Mar 5) [database, migration]
-  Fixed PostgreSQL schema issues and updated indexes for vector search
-#2: API Design (Mar 3) [api, design]
-  Discussed REST endpoint structure for v2 and auth middleware
-#3: Deploy Pipeline (Mar 1) [deploy, ci-cd]
-  Set up GitHub Actions workflow with staging and production targets`,
-  detailed: `#1: Database Migration (Mar 5) [database, migration, postgresql]
-  Fixed PostgreSQL schema issues and updated indexes for vector search.
-  Resolved conflict between pgvector extension and existing JSONB columns.
-  Added new migration for conversation_sections table.
-#2: API Design (Mar 3) [api, design, rest]
   Discussed REST endpoint structure for v2 and auth middleware.
-  Decided on JWT tokens with refresh rotation. Rate limiting via Redis.`,
+
+#1: Database Migration (Mar 1) [database, migration]
+  Fixed PostgreSQL schema issues and updated indexes for vector search.`,
+  detailed: `${SECTION_INDEX_HEADER}
+
+#3: Deploy Pipeline (12 msgs, mar 5, 8:30am — 11:15am) [deploy, ci-cd]
+  Set up GitHub Actions workflow with staging and production targets.
+
+#2: API Design (18 msgs, mar 3, 10:00am — 2:45pm) [api, design]
+  Discussed REST endpoint structure for v2 and auth middleware.
+
+#1: Database Migration (32 msgs, mar 1, 9:15am — 4:30pm) [database, migration]
+  Fixed PostgreSQL schema issues and updated indexes for vector search.`,
 };
 
 interface ChatHistoryDeviation {
@@ -537,7 +552,7 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
   return (
     <View style={{ marginTop: 16, gap: 16 }}>
       {/* Section Index Preview */}
-      <Section title="Section Index Preview" description={`Example of what the section index looks like in "${verbosity}" mode`}>
+      <Section title="Section Index Preview" description={`System message injected into the bot's context each turn ("${verbosity}" verbosity)`}>
         <View style={{
           backgroundColor: t.surface,
           borderRadius: 8,
@@ -615,6 +630,102 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
           </View>
         )}
       </Section>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// File-mode-only indicator for section index settings
+// ---------------------------------------------------------------------------
+
+function FileModeOnlyBanner({ historyMode }: { historyMode: string }) {
+  const t = useThemeTokens();
+  const isFileMode = historyMode === "file";
+
+  return (
+    <View style={{ marginTop: 8, marginBottom: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
+          Section Index
+        </Text>
+        <View
+          style={{
+            backgroundColor: isFileMode ? "rgba(59,130,246,0.1)" : "rgba(100,100,100,0.15)",
+            paddingHorizontal: 7,
+            paddingVertical: 2,
+            borderRadius: 4,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 9,
+              fontWeight: "700",
+              color: isFileMode ? "#3b82f6" : t.textDim,
+            }}
+          >
+            file mode only
+          </Text>
+        </View>
+      </View>
+      {!isFileMode && (
+        <Text style={{ fontSize: 11, color: t.textDim, lineHeight: 17 }}>
+          These settings only apply when History Mode is "file". Current mode: "{historyMode}".
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Flush prompt override warning (workspace-files bots ignore this setting)
+// ---------------------------------------------------------------------------
+
+function FlushPromptOverrideWarning() {
+  const t = useThemeTokens();
+  const { data: bots } = useAdminBots();
+  const wsFileBots = bots?.filter((b) => b.memory_scheme === "workspace-files") ?? [];
+  if (!wsFileBots.length) return null;
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        gap: 10,
+        backgroundColor: "rgba(245,158,11,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(245,158,11,0.25)",
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 4,
+      }}
+    >
+      <AlertTriangle size={15} color="#f59e0b" style={{ marginTop: 1, flexShrink: 0 } as any} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>
+          Ignored by workspace-files bots
+        </Text>
+        <Text style={{ fontSize: 11, color: t.textMuted, lineHeight: 17 }}>
+          {wsFileBots.length === bots?.length
+            ? "All bots use workspace-files memory — this prompt is never used. "
+            : `This prompt is ignored for ${wsFileBots.length} bot${wsFileBots.length > 1 ? "s" : ""} using workspace-files memory. `}
+          Those bots use a built-in flush prompt that writes to disk instead.
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+          {wsFileBots.map((b) => (
+            <View
+              key={b.id}
+              style={{
+                backgroundColor: "rgba(245,158,11,0.1)",
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+                borderRadius: 4,
+              }}
+            >
+              <Text style={{ fontSize: 10, fontWeight: "600", color: "#f59e0b" }}>{b.name}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
@@ -865,25 +976,38 @@ export default function SettingsScreen() {
           )}
 
           {/* Settings */}
-          {!isGlobal && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => (
-            <View key={item.key}>
-              {idx > 0 && <View className="h-px bg-surface-border" />}
-              <SettingRow
-                item={item}
-                localValue={localValues[item.key]}
-                onLocalChange={handleLocalChange}
-                onReset={handleReset}
-                isResetting={resettingKey === item.key}
-              />
-            </View>
-          ))}
+          {!isGlobal && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => {
+            const FILE_MODE_KEYS = new Set(["SECTION_INDEX_COUNT", "SECTION_INDEX_VERBOSITY"]);
+            const historyMode = String(localValues["DEFAULT_HISTORY_MODE"] ?? "file");
+            const isFileModeOnly = FILE_MODE_KEYS.has(item.key);
+            const dimmed = isFileModeOnly && historyMode !== "file";
 
-          {/* Chat History extras: section index preview + deviations + memory scheme */}
+            return (
+              <View key={item.key} style={dimmed ? { opacity: 0.4 } : undefined}>
+                {idx > 0 && <View className="h-px bg-surface-border" />}
+                {item.key === "MEMORY_FLUSH_DEFAULT_PROMPT" && <FlushPromptOverrideWarning />}
+                {item.key === "SECTION_INDEX_COUNT" && (
+                  <FileModeOnlyBanner historyMode={historyMode} />
+                )}
+                <SettingRow
+                  item={item}
+                  localValue={localValues[item.key]}
+                  onLocalChange={handleLocalChange}
+                  onReset={handleReset}
+                  isResetting={resettingKey === item.key}
+                />
+              </View>
+            );
+          })}
+
+          {/* Chat History extras: section index preview + deviations (file mode only) + memory scheme */}
           {activeGroup === "Chat History" && (
             <>
-              <ChatHistoryExtras
-                verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
-              />
+              {String(localValues["DEFAULT_HISTORY_MODE"] ?? "file") === "file" && (
+                <ChatHistoryExtras
+                  verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
+                />
+              )}
               <MemorySchemeSection />
             </>
           )}

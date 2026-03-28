@@ -1,0 +1,126 @@
+/**
+ * History mode selector + presets display for the bot editor.
+ * Shows auto-injected features and built-in prompt when file mode is active.
+ */
+import { useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { SelectInput, FormRow } from "@/src/components/shared/FormControls";
+import type { BotConfig } from "@/src/types/api";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+const FILE_MODE_PRESETS = [
+  { label: "read_conversation_history auto-injected", detail: "Tool for navigating archived sections, searching, and retrieving content" },
+  { label: "Section index injected every turn", detail: "Numbered list of archived sections with titles, dates, tags, and summaries" },
+  { label: "messages: grep mode", detail: "Search raw messages across ALL history — exact strings, errors, ports, paths" },
+  { label: "tool: retrieval mode", detail: "Retrieve full output of summarized tool calls by ID" },
+  { label: "Depth-aware compaction", detail: "Early sections preserve detail; later sections become more abstract automatically" },
+  { label: "3-tier fallback escalation", detail: "Normal → aggressive → deterministic fallback if LLM fails during compaction" },
+];
+
+const FILE_MODE_BUILT_IN_PROMPT = `Archived conversation history — use read_conversation_history with:
+  - A section number (e.g. '3') to read a full transcript
+  - 'search:<query>' to find sections by topic
+  - 'messages:<query>' to grep raw messages across ALL history (exact strings, errors, ports, paths)
+  - 'tool:<id>' to retrieve full output of a summarized tool call
+
+Section Index (injected each turn):
+  §1  Setting Up Slack  [2026-03-25]  #slack #integration
+      User configured Slack integration with socket mode.
+  §2  Rate Limit Fixes  [2026-03-26]  #debugging #api
+      Fixed rate limiting on outbound API calls.
+  ...
+
+The section index is rebuilt after each compaction cycle. Older sections are
+summarized more aggressively (depth-aware tiers). Use 'messages:' mode to
+search for exact strings that may have been abstracted away in summaries.`;
+
+// ---------------------------------------------------------------------------
+// History Mode Section
+// ---------------------------------------------------------------------------
+export function HistoryModeSection({ draft, update }: {
+  draft: BotConfig;
+  update: (p: Partial<BotConfig>) => void;
+}) {
+  const t = useThemeTokens();
+  const isFileMode = draft.history_mode === "file";
+  const isStructured = draft.history_mode === "structured";
+  const showPresets = isFileMode || isStructured;
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <FormRow label="History Mode">
+        <SelectInput value={draft.history_mode || "summary"} onChange={(v) => update({ history_mode: v })}
+          options={[
+            { label: "Summary — flat rolling summary (default)", value: "summary" },
+            { label: "Structured — semantic retrieval of sections", value: "structured" },
+            { label: "File — LLM navigates sections via tool", value: "file" },
+          ]}
+        />
+      </FormRow>
+
+      {showPresets && (
+        <>
+          {/* Presets info */}
+          <div style={{
+            background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.15)",
+            borderRadius: 8, padding: "14px 16px",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#22c55e", marginBottom: 10 }}>
+              {isFileMode ? "File mode — applying presets" : "Structured mode — applying presets"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {FILE_MODE_PRESETS.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <Check size={12} color="#22c55e" style={{ marginTop: 2, flexShrink: 0 } as any} />
+                  <div>
+                    <span style={{ fontSize: 12, color: t.text }}>{p.label}</span>
+                    <span style={{ fontSize: 11, color: t.textDim }}> — {p.detail}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Built-in prompt (collapsible) */}
+          <div style={{
+            background: t.surface, border: `1px solid ${t.surfaceRaised}`,
+            borderRadius: 8, overflow: "hidden",
+          }}>
+            <button
+              onClick={() => setShowPrompt(!showPrompt)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "10px 16px", background: "none", border: "none",
+                cursor: "pointer", color: t.textMuted,
+              }}
+            >
+              <ChevronDown
+                size={14}
+                style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+              />
+              <span style={{ fontSize: 12, fontWeight: 600 }}>Built-in Context (section index + tool)</span>
+              <span style={{
+                fontSize: 9, padding: "2px 6px", borderRadius: 3,
+                background: "rgba(34,197,94,0.1)", color: "#4ade80",
+                marginLeft: 4,
+              }}>auto-injected</span>
+            </button>
+            {showPrompt && (
+              <div style={{ padding: "0 16px 14px 16px" }}>
+                <pre style={{
+                  margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
+                  fontFamily: "monospace", whiteSpace: "pre-wrap",
+                  background: t.inputBg, borderRadius: 6, padding: 12,
+                }}>{FILE_MODE_BUILT_IN_PROMPT}</pre>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -24,6 +24,7 @@ import { SkillsSection } from "./SkillsSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { BotPermissionsSection } from "./BotPermissionsSection";
 import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
+import { HistoryModeSection } from "./HistoryModeSection";
 
 // ---------------------------------------------------------------------------
 // Main Bot Editor
@@ -385,6 +386,33 @@ export default function BotEditorScreen() {
                   </div>
                 </div>
               )}
+              {draft.api_permissions && draft.api_permissions.length > 0 && draft.api_docs_mode && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6" }}>Virtual Skills</span>
+                    <span style={{ fontSize: 10, color: t.textDim, background: "rgba(59,130,246,0.12)", padding: "2px 8px", borderRadius: 4 }}>
+                      from permissions
+                    </span>
+                  </div>
+                  <div style={{
+                    padding: 8, borderRadius: 6,
+                    background: "rgba(59,130,246,0.04)",
+                    border: "1px solid rgba(59,130,246,0.15)",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "#3b82f6" }}>api_reference</span>
+                      <span style={{
+                        fontSize: 9, padding: "1px 6px", borderRadius: 3,
+                        background: "rgba(59,130,246,0.15)", color: "#60a5fa",
+                      }}>on-demand</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
+                      Auto-generated API docs filtered to this bot's {draft.api_permissions.length} scope{draft.api_permissions.length !== 1 ? "s" : ""}.
+                      Available via <code style={{ color: t.textMuted, fontSize: 10 }}>get_skill("api_reference")</code>.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -708,15 +736,7 @@ export default function BotEditorScreen() {
                   options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}
                 />
               </FormRow>
-              <FormRow label="History Mode">
-                <SelectInput value={draft.history_mode || "summary"} onChange={(v) => update({ history_mode: v })}
-                  options={[
-                    { label: "Summary — flat rolling summary (default)", value: "summary" },
-                    { label: "Structured — semantic retrieval of sections", value: "structured" },
-                    { label: "File — LLM navigates sections via tool", value: "file" },
-                  ]}
-                />
-              </FormRow>
+              <HistoryModeSection draft={draft} update={update} />
             </div>
           )}
 

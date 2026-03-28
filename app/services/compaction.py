@@ -39,13 +39,12 @@ a user and an AI assistant that is being archived. The raw transcript is stored 
 you only need to produce metadata.
 
 Produce a JSON object with the following fields:
-- "title": A concise heading for this conversation segment (5-12 words).
+- "title": A concise heading for this conversation segment (5-12 words). Do NOT include dates or times \
+in the title — timestamps are added automatically from message metadata.
 - "summary": A detailed 3-sentence summary preserving exact errors, commands, file paths, \
 config values, and timestamps. Include what was tried and why. Preserve operational detail — \
 this is early history that may be referenced later.
 - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
-
-IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
 
 Respond ONLY with the JSON object, no markdown fences or extra text."""
 
@@ -55,12 +54,11 @@ a user and an AI assistant that is being archived. The raw transcript is stored 
 you only need to produce metadata.
 
 Produce a JSON object with the following fields:
-- "title": A concise heading for this conversation segment (5-12 words).
+- "title": A concise heading for this conversation segment (5-12 words). Do NOT include dates or times \
+in the title — timestamps are added automatically from message metadata.
 - "summary": A 2-sentence summary capturing decisions, rationale, and outcomes. \
 Drop dead-end exploration and intermediate debugging steps when the conclusion is known.
 - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
-
-IMPORTANT: Include temporal references (dates, times) in the summary for future retrieval context.
 
 Respond ONLY with the JSON object, no markdown fences or extra text."""
 
@@ -70,7 +68,8 @@ a user and an AI assistant that is being archived. The raw transcript is stored 
 you only need to produce metadata.
 
 Produce a JSON object with the following fields:
-- "title": A concise heading for this conversation segment (5-12 words).
+- "title": A concise heading for this conversation segment (5-12 words). Do NOT include dates or times \
+in the title — timestamps are added automatically from message metadata.
 - "summary": A 1-2 sentence high-level summary — narrative arc only. What was the goal, \
 what happened, what carries forward. Only durable facts.
 - "tags": An array of 3-5 short topic tags (1-3 words each) that categorize this segment.
@@ -849,6 +848,23 @@ async def run_compaction_stream(
             # Compute message count and period
             msg_count = sum(1 for m in to_summarize if m.get("role") in ("user", "assistant"))
 
+            # Compute period from actual message timestamps
+            period_start = None
+            period_end = None
+            async with async_session() as db:
+                period_result = await db.execute(
+                    select(
+                        func.min(Message.created_at),
+                        func.max(Message.created_at),
+                    )
+                    .where(Message.session_id == session_id)
+                    .where(Message.created_at < oldest_kept.created_at)
+                    .where(Message.role.in_(["user", "assistant"]))
+                )
+                row = period_result.one_or_none()
+                if row:
+                    period_start, period_end = row[0], row[1]
+
             # Embed for structured mode only (file mode uses keyword search via tool)
             sec_embedding = None
             if history_mode == "structured":
@@ -876,7 +892,7 @@ async def run_compaction_stream(
                 try:
                     transcript_path = _write_section_file(
                         history_dir, max_seq + 1, sec_title, sec_summary,
-                        sec_transcript, None, None, msg_count,
+                        sec_transcript, period_start, period_end, msg_count,
                         sec_tags or [], ws_root,
                     )
                 except Exception:
@@ -894,6 +910,8 @@ async def run_compaction_stream(
                     transcript_path=transcript_path,
                     message_count=msg_count,
                     chunk_size=msg_count,
+                    period_start=period_start,
+                    period_end=period_end,
                     embedding=sec_embedding,
                     tags=sec_tags or None,
                 )
@@ -1112,6 +1130,22 @@ async def run_compaction_forced(
         )
         msg_count = sum(1 for m in conversation if m.get("role") in ("user", "assistant"))
 
+        # Compute period from actual message timestamps
+        period_start = None
+        period_end = None
+        period_result = await db.execute(
+            select(
+                func.min(Message.created_at),
+                func.max(Message.created_at),
+            )
+            .where(Message.session_id == session_id)
+            .where(Message.created_at < oldest_kept.created_at)
+            .where(Message.role.in_(["user", "assistant"]))
+        )
+        row = period_result.one_or_none()
+        if row:
+            period_start, period_end = row[0], row[1]
+
         sec_embedding = None
         if history_mode == "structured":
             from app.agent.embeddings import embed_text
@@ -1135,7 +1169,7 @@ async def run_compaction_forced(
             try:
                 transcript_path = _write_section_file(
                     history_dir, max_seq + 1, sec_title, sec_summary,
-                    sec_transcript, None, None, msg_count,
+                    sec_transcript, period_start, period_end, msg_count,
                     sec_tags or [], ws_root,
                 )
             except Exception:
@@ -1152,6 +1186,8 @@ async def run_compaction_forced(
             transcript_path=transcript_path,
             message_count=msg_count,
             chunk_size=msg_count,
+            period_start=period_start,
+            period_end=period_end,
             embedding=sec_embedding,
             tags=sec_tags or None,
         )
@@ -1527,6 +1563,70 @@ async def backfill_sections(
         "sections_created": sections_created,
         "executive_summary": exec_summary,
     }
+
+
+# ---------------------------------------------------------------------------
+# Repair missing section periods
+# ---------------------------------------------------------------------------
+
+async def repair_section_periods(channel_id: uuid.UUID | None = None) -> int:
+    """Backfill period_start/period_end for sections that are missing them.
+
+    Uses the section's session_id + sequence to find the corresponding messages.
+    Returns the number of sections repaired.
+    """
+    async with async_session() as db:
+        query = (
+            select(ConversationSection)
+            .where(ConversationSection.period_start.is_(None))
+        )
+        if channel_id:
+            query = query.where(ConversationSection.channel_id == channel_id)
+        result = await db.execute(query)
+        sections = result.scalars().all()
+
+        repaired = 0
+        for section in sections:
+            if not section.session_id:
+                continue
+            # Get all sections for this channel to determine message boundaries
+            all_sections = await db.execute(
+                select(ConversationSection)
+                .where(ConversationSection.channel_id == section.channel_id)
+                .order_by(ConversationSection.sequence)
+            )
+            ordered = all_sections.scalars().all()
+
+            # Find this section's position and compute message range
+            # Each section covers message_count user+assistant messages
+            msgs_before = sum(
+                s.message_count or 0
+                for s in ordered
+                if s.sequence < section.sequence
+            )
+            msg_count = section.message_count or 0
+
+            if msg_count == 0:
+                continue
+
+            # Query the actual messages by offset
+            period_result = await db.execute(
+                select(Message.created_at)
+                .where(Message.session_id == section.session_id)
+                .where(Message.role.in_(["user", "assistant"]))
+                .order_by(Message.created_at)
+                .offset(msgs_before)
+                .limit(msg_count)
+            )
+            timestamps = period_result.scalars().all()
+            if timestamps:
+                section.period_start = timestamps[0]
+                section.period_end = timestamps[-1]
+                repaired += 1
+
+        if repaired:
+            await db.commit()
+        return repaired
 
 
 # ---------------------------------------------------------------------------

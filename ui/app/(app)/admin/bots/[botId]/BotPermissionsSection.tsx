@@ -5,7 +5,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 
 const API_DOCS_MODES = [
   { value: "", label: "Disabled", description: "No API docs injected into context" },
-  { value: "on_demand", label: "On Demand", description: "Short hint injected; bot runs `agent docs` when needed" },
+  { value: "on_demand", label: "On Demand", description: "Short hint + skill index entry; bot calls get_skill(\"api_reference\") when needed" },
   { value: "rag", label: "RAG", description: "Full docs injected only when the message mentions API-related keywords" },
   { value: "pinned", label: "Pinned", description: "Full docs injected every turn (~1K tokens)" },
 ];
@@ -151,6 +151,25 @@ export function BotPermissionsSection({
               </div>
             )}
           </div>
+
+          {docsMode && (
+            <div style={{
+              marginTop: 12, padding: "10px 12px", borderRadius: 6,
+              background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.12)",
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", marginBottom: 4 }}>
+                Virtual Skill: api_reference
+              </div>
+              <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
+                The bot automatically gets an <code style={{ color: t.textMuted }}>api_reference</code> entry
+                in its skill index. It can call <code style={{ color: t.textMuted }}>get_skill("api_reference")</code> to
+                retrieve full API documentation filtered to only the endpoints its scopes allow.
+                {docsMode === "pinned" && " In pinned mode, the full docs are also always included in context."}
+                {docsMode === "rag" && " In RAG mode, full docs are injected when the message mentions API-related keywords."}
+                {docsMode === "on_demand" && " In on-demand mode, only a short hint is injected — the bot fetches full docs via the skill when needed."}
+              </div>
+            </div>
+          )}
         </>
       )}
       {permissions.length === 0 && (

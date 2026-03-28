@@ -1,6 +1,6 @@
 import { useMemo, useState, useRef, useCallback } from "react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
-import { useWorkspaceFiles } from "../../api/hooks/useWorkspaces";
+import { useWorkspaceFiles, useMoveWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { FileTreeNode } from "./FileTreeNode";
 import { ResizeHandle } from "./ResizeHandle";
 import { Folder, Search, X } from "lucide-react";
@@ -8,15 +8,20 @@ import { Folder, Search, X } from "lucide-react";
 interface FileTreePanelProps {
   workspaceId: string;
   mobile?: boolean;
+  indexedPaths?: Set<string>;
 }
 
-export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
+export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePanelProps) {
   const treeWidth = useFileBrowserStore((s) => s.treeWidth);
   const setTreeWidth = useFileBrowserStore((s) => s.setTreeWidth);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
   const rightActive = useFileBrowserStore((s) => s.rightPane.activeFile);
+  const closeFile = useFileBrowserStore((s) => s.closeFile);
   const [searchQuery, setSearchQuery] = useState("");
+  const [rootDragOver, setRootDragOver] = useState(false);
+  const rootDragCounter = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  const moveMutation = useMoveWorkspaceFile(workspaceId);
 
   const { data, isLoading } = useWorkspaceFiles(workspaceId, "/");
 
@@ -115,7 +120,27 @@ export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
       </div>
 
       {/* Tree */}
-      <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
+      <div
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+        onDragEnter={(e) => { e.preventDefault(); rootDragCounter.current++; setRootDragOver(true); }}
+        onDragLeave={() => { rootDragCounter.current--; if (rootDragCounter.current <= 0) { rootDragCounter.current = 0; setRootDragOver(false); } }}
+        onDrop={(e) => {
+          e.preventDefault();
+          rootDragCounter.current = 0;
+          setRootDragOver(false);
+          const srcPath = e.dataTransfer.getData("text/plain");
+          if (!srcPath) return;
+          // Don't move if already at root level (no directory separator beyond first segment)
+          if (!srcPath.includes("/")) return;
+          moveMutation.mutate({ src: srcPath, dst: "/" }, {
+            onSuccess: () => {
+              closeFile(srcPath, "left");
+              closeFile(srcPath, "right");
+            },
+          });
+        }}
+        style={{ flex: 1, overflow: "auto", padding: "4px 0", background: rootDragOver ? "rgba(20,184,166,0.06)" : undefined }}
+      >
         {isLoading ? (
           <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Loading...</div>
         ) : sortedEntries.length === 0 ? (
@@ -129,6 +154,7 @@ export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
               depth={0}
               activePaths={activePaths}
               searchFilter={searchQuery}
+              indexedPaths={indexedPaths}
             />
           ))
         )}
