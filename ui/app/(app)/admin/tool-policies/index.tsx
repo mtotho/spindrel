@@ -171,7 +171,34 @@ function SettingsPanel() {
 
   if (isLoading || !policySettings) return null;
 
-  const isDeny = policySettings.default_action === "deny";
+  const action = policySettings.default_action;
+  const borderColor =
+    action === "deny" ? "rgba(239,68,68,0.15)"
+    : action === "require_approval" ? "rgba(251,191,36,0.15)"
+    : "rgba(34,197,94,0.15)";
+  const bgColor =
+    action === "deny" ? "rgba(239,68,68,0.04)"
+    : action === "require_approval" ? "rgba(251,191,36,0.04)"
+    : "rgba(34,197,94,0.04)";
+  const iconColor =
+    !policySettings.enabled ? "#555"
+    : action === "deny" ? "#ef4444"
+    : action === "require_approval" ? "#fbbf24"
+    : "#22c55e";
+  const description =
+    !policySettings.enabled
+      ? "Policy engine is off — all tool calls are permitted without checks"
+      : action === "deny"
+      ? "Default: DENY — all tool calls are blocked unless explicitly allowed by a rule"
+      : action === "require_approval"
+      ? "Default: REQUIRE APPROVAL — all tool calls need human approval unless explicitly allowed by a rule"
+      : "Default: ALLOW — all tool calls are permitted unless blocked by a rule";
+
+  const actions = [
+    { key: "allow", label: "Allow", color: "#86efac", activeColor: "rgba(34,197,94,0.15)", borderActive: "rgba(34,197,94,0.3)" },
+    { key: "require_approval", label: "Require Approval", color: "#fde68a", activeColor: "rgba(251,191,36,0.15)", borderActive: "rgba(251,191,36,0.3)" },
+    { key: "deny", label: "Deny", color: "#fca5a5", activeColor: "rgba(239,68,68,0.15)", borderActive: "rgba(239,68,68,0.3)" },
+  ] as const;
 
   return (
     <div
@@ -181,25 +208,19 @@ function SettingsPanel() {
         gap: 12,
         padding: "16px 20px",
         borderRadius: 10,
-        background: isDeny ? "rgba(239,68,68,0.04)" : "rgba(34,197,94,0.04)",
-        border: isDeny
-          ? "1px solid rgba(239,68,68,0.15)"
-          : "1px solid rgba(34,197,94,0.15)",
+        background: bgColor,
+        border: `1px solid ${borderColor}`,
         marginBottom: 16,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Shield size={18} color={policySettings.enabled ? (isDeny ? "#ef4444" : "#22c55e") : "#555"} />
+        <Shield size={18} color={iconColor} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>
             Policy Engine {policySettings.enabled ? "Active" : "Disabled"}
           </div>
           <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-            {policySettings.enabled
-              ? isDeny
-                ? "Default: DENY — all tool calls are blocked unless explicitly allowed by a rule"
-                : "Default: ALLOW — all tool calls are permitted unless blocked by a rule"
-              : "Policy engine is off — all tool calls are permitted without checks"}
+            {description}
           </div>
         </div>
       </div>
@@ -213,38 +234,28 @@ function SettingsPanel() {
         {policySettings.enabled && (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#888" }}>Default action:</span>
-            <button
-              onClick={() => updateMut.mutate({ default_action: "deny" })}
-              style={{
-                padding: "4px 12px",
-                borderRadius: 5,
-                fontSize: 12,
-                fontWeight: 600,
-                border: "1px solid",
-                cursor: "pointer",
-                background: isDeny ? "rgba(239,68,68,0.15)" : "transparent",
-                borderColor: isDeny ? "rgba(239,68,68,0.3)" : "#333",
-                color: isDeny ? "#fca5a5" : "#666",
-              }}
-            >
-              Deny
-            </button>
-            <button
-              onClick={() => updateMut.mutate({ default_action: "allow" })}
-              style={{
-                padding: "4px 12px",
-                borderRadius: 5,
-                fontSize: 12,
-                fontWeight: 600,
-                border: "1px solid",
-                cursor: "pointer",
-                background: !isDeny ? "rgba(34,197,94,0.15)" : "transparent",
-                borderColor: !isDeny ? "rgba(34,197,94,0.3)" : "#333",
-                color: !isDeny ? "#86efac" : "#666",
-              }}
-            >
-              Allow
-            </button>
+            {actions.map((a) => {
+              const isActive = action === a.key;
+              return (
+                <button
+                  key={a.key}
+                  onClick={() => updateMut.mutate({ default_action: a.key })}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 5,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: "1px solid",
+                    cursor: "pointer",
+                    background: isActive ? a.activeColor : "transparent",
+                    borderColor: isActive ? a.borderActive : "#333",
+                    color: isActive ? a.color : "#666",
+                  }}
+                >
+                  {a.label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -260,7 +271,8 @@ export default function ToolPoliciesScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
-  const isDeny = policySettings?.default_action === "deny";
+  const defaultAction = policySettings?.default_action;
+  const isBlockingDefault = defaultAction === "deny" || defaultAction === "require_approval";
   const allowRules = rules?.filter((r) => r.action === "allow" && r.enabled) || [];
   const denyRules = rules?.filter((r) => r.action === "deny" && r.enabled) || [];
   const approvalRules = rules?.filter((r) => r.action === "require_approval" && r.enabled) || [];
@@ -321,7 +333,7 @@ export default function ToolPoliciesScreen() {
               <strong style={{ color: "#fca5a5" }}>Deny</strong> — blocked, bot sees an error.{" "}
               <strong style={{ color: "#fde68a" }}>Require Approval</strong> — paused until a human approves via the Approvals page or Slack.
             </div>
-            {isDeny && !rules?.length && (
+            {isBlockingDefault && !rules?.length && (
               <div style={{
                 marginTop: 10,
                 padding: "8px 12px",
@@ -331,8 +343,9 @@ export default function ToolPoliciesScreen() {
                 color: "#fde68a",
               }}>
                 <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
-                <strong>Default is DENY and you have no rules.</strong> All bot tool calls will be blocked.
-                Create an <strong>allow</strong> rule (e.g. tool name <code style={{ background: "#222", padding: "1px 4px", borderRadius: 3 }}>*</code> for a specific bot) to unblock.
+                <strong>Default is {defaultAction === "deny" ? "DENY" : "REQUIRE APPROVAL"} and you have no rules.</strong>{" "}
+                {defaultAction === "deny" ? "All bot tool calls will be blocked." : "All bot tool calls will require human approval."}
+                {" "}Create an <strong>allow</strong> rule (e.g. tool name <code style={{ background: "#222", padding: "1px 4px", borderRadius: 3 }}>*</code> for a specific bot) to unblock.
               </div>
             )}
           </div>
@@ -388,8 +401,10 @@ export default function ToolPoliciesScreen() {
                   }}
                 >
                   No policy rules yet.
-                  {isDeny
+                  {defaultAction === "deny"
                     ? " All bot tool calls are currently BLOCKED."
+                    : defaultAction === "require_approval"
+                    ? " All bot tool calls currently require APPROVAL."
                     : " All tool calls are currently allowed."}
                 </div>
               )}
