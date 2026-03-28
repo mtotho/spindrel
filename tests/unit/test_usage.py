@@ -82,3 +82,18 @@ class TestLookupPricing:
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, "prov2", "gpt-4")
         assert result == ("$30.00", "$60.00")
+
+    def test_env_fallback_key(self):
+        """No provider_id on event → should match __env__ sentinel from LiteLLM cache."""
+        pricing = {("__env__", "gemini/gemini-2.5-flash"): ("$0.15", "$0.60")}
+        result = _lookup_pricing(pricing, None, "gemini/gemini-2.5-flash")
+        assert result == ("$0.15", "$0.60")
+
+    def test_db_overrides_env(self):
+        """DB row should win over __env__ LiteLLM cache entry."""
+        pricing = {
+            ("__env__", "gpt-4"): ("$10.00", "$30.00"),
+            ("prov1", "gpt-4"): ("$5.00", "$15.00"),
+        }
+        result = _lookup_pricing(pricing, "prov1", "gpt-4")
+        assert result == ("$5.00", "$15.00")

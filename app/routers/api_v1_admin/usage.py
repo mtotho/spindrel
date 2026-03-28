@@ -107,7 +107,12 @@ def _lookup_pricing(
         key = (provider_id, model)
         if key in pricing_map:
             return pricing_map[key]
-    # Fallback: match on model_id alone (for old events without provider_id)
+    else:
+        # No provider_id — try the .env LiteLLM fallback key
+        env_key = ("__env__", model)
+        if env_key in pricing_map:
+            return pricing_map[env_key]
+    # Fallback: match on model_id alone across all providers
     for (pid, mid), costs in pricing_map.items():
         if mid == model:
             return costs

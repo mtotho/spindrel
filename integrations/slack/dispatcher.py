@@ -163,6 +163,12 @@ class SlackDispatcher:
                     },
                     {
                         "type": "button",
+                        "text": {"type": "plain_text", "text": "Allow Always"},
+                        "action_id": "allow_always_tool_call",
+                        "value": _json.dumps({"approval_id": approval_id, "bot_id": bot_id, "tool_name": tool_name}),
+                    },
+                    {
+                        "type": "button",
                         "text": {"type": "plain_text", "text": "Deny"},
                         "style": "danger",
                         "action_id": "deny_tool_call",
