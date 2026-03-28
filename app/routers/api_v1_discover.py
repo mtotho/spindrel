@@ -1,11 +1,12 @@
 """Discovery endpoint — GET /api/v1/discover."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.dependencies import ApiKeyAuth, verify_auth_or_user
-from app.services.api_keys import ENDPOINT_CATALOG, has_scope
+from app.services.api_keys import ENDPOINT_CATALOG, has_scope, generate_api_docs
 
 router = APIRouter(tags=["Discovery"])
 
@@ -23,11 +24,22 @@ class DiscoverResponse(BaseModel):
     endpoints: list[EndpointInfo]
 
 
-@router.get("/discover", response_model=DiscoverResponse)
+@router.get("/discover")
 async def discover(
     auth=Depends(verify_auth_or_user),
+    detail: bool = Query(False, description="Return full markdown API docs"),
 ):
-    """Return available endpoints for the current key/user."""
+    """Return available endpoints for the current key/user.
+
+    With ?detail=true, returns a full markdown API reference filtered
+    by the key's scopes (used by agent CLI `agent docs`).
+    """
+    scopes = auth.scopes if isinstance(auth, ApiKeyAuth) else None
+
+    if detail:
+        docs = generate_api_docs(scopes)
+        return PlainTextResponse(docs, media_type="text/markdown")
+
     if isinstance(auth, ApiKeyAuth):
         # Scoped key: filter by scopes
         endpoints = []

@@ -408,6 +408,17 @@ async def estimate_bot_context(
         _est_si = 100 + 10 * 120  # header + 10 standard sections
         lines.append(EstimateLine("sys:section_index (typical)", _est_si, "~10 sections in standard verbosity; channel-configurable"))
 
+    # Context pruning indicator
+    _pruning = draft.get("context_pruning")
+    _pruning_on = _pruning if _pruning is not None else settings.CONTEXT_PRUNING_ENABLED
+    if _pruning_on:
+        _keep = draft.get("context_pruning_keep_turns")
+        _keep = _keep if _keep is not None else settings.CONTEXT_PRUNING_KEEP_TURNS
+        lines.append(EstimateLine(
+            "opt:context_pruning", 0,
+            f"enabled — old tool results trimmed (keeping last {_keep} turns intact)",
+        ))
+
     if audio_input == "native":
         from app.agent.message_utils import _AUDIO_TRANSCRIPT_INSTRUCTION
 

@@ -83,6 +83,8 @@ export default function ProviderDetailScreen() {
   const [newModelId, setNewModelId] = useState("");
   const [newModelDisplay, setNewModelDisplay] = useState("");
   const [newModelMaxTokens, setNewModelMaxTokens] = useState("");
+  const [newModelInputCost, setNewModelInputCost] = useState("");
+  const [newModelOutputCost, setNewModelOutputCost] = useState("");
   const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
 
   if (provider && !initialized) {
@@ -334,6 +336,11 @@ export default function ProviderDetailScreen() {
                       {m.max_tokens && (
                         <span style={{ color: "#666", fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
                       )}
+                      {(m.input_cost_per_1m || m.output_cost_per_1m) && (
+                        <span style={{ color: "#666", fontSize: 11 }}>
+                          {m.input_cost_per_1m || "?"}/{m.output_cost_per_1m || "?"}
+                        </span>
+                      )}
                       {m.no_system_messages && (
                         <span style={{
                           color: "#f59e0b", fontSize: 10, fontWeight: 600,
@@ -407,6 +414,32 @@ export default function ProviderDetailScreen() {
                     }}
                   />
                 </div>
+                <div style={{ flex: 1, minWidth: 80 }}>
+                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Input $/1M</div>
+                  <input
+                    value={newModelInputCost}
+                    onChange={(e) => setNewModelInputCost(e.target.value)}
+                    placeholder="e.g. $3.00"
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 12,
+                      background: "#111", border: "1px solid #333", borderRadius: 4,
+                      color: "#e5e5e5",
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 80 }}>
+                  <div style={{ color: "#666", fontSize: 10, marginBottom: 2 }}>Output $/1M</div>
+                  <input
+                    value={newModelOutputCost}
+                    onChange={(e) => setNewModelOutputCost(e.target.value)}
+                    placeholder="e.g. $15.00"
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 12,
+                      background: "#111", border: "1px solid #333", borderRadius: 4,
+                      color: "#e5e5e5",
+                    }}
+                  />
+                </div>
                 <label style={{
                   display: "flex", alignItems: "center", gap: 4,
                   fontSize: 10, color: "#888", cursor: "pointer",
@@ -427,11 +460,15 @@ export default function ProviderDetailScreen() {
                       model_id: newModelId.trim(),
                       display_name: newModelDisplay.trim() || undefined,
                       max_tokens: newModelMaxTokens ? parseInt(newModelMaxTokens) : undefined,
+                      input_cost_per_1m: newModelInputCost.trim() || undefined,
+                      output_cost_per_1m: newModelOutputCost.trim() || undefined,
                       no_system_messages: newModelNoSysMsg || undefined,
                     });
                     setNewModelId("");
                     setNewModelDisplay("");
                     setNewModelMaxTokens("");
+                    setNewModelInputCost("");
+                    setNewModelOutputCost("");
                     setNewModelNoSysMsg(false);
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}

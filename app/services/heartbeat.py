@@ -15,6 +15,22 @@ from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task
 logger = logging.getLogger(__name__)
 
 
+def _truncate_at_sentence(text: str, max_chars: int) -> str:
+    """Truncate *text* to at most *max_chars*, breaking at the last sentence
+    boundary (. ! ? followed by whitespace or end-of-string) so we never cut
+    mid-sentence.  Falls back to the full slice if no boundary is found.
+    """
+    if len(text) <= max_chars:
+        return text
+    window = text[:max_chars]
+    # Walk backwards to find last sentence-ending punctuation
+    for i in range(len(window) - 1, -1, -1):
+        if window[i] in ".!?" and (i + 1 >= len(window) or window[i + 1] in " \n\t\r"):
+            return window[: i + 1]
+    # No sentence boundary found — fall back to hard cut
+    return window.rstrip() + "…"
+
+
 def parse_quiet_hours(spec: str) -> tuple[time, time] | None:
     """Parse a quiet-hours spec like '23:00-07:00' into (start, end) times.
 
@@ -245,12 +261,12 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                         _user_ago = f"{_mins}m ago"
                     metadata_lines.append(f"Last user message: {_user_ago}")
 
-        # Previous result — first 150 chars only (enough to jog memory, not enough to parrot)
+        # Previous result — truncated at sentence boundary to avoid mid-sentence cuts
         if last_run and last_run.result:
-            # Take first line or first 150 chars, whichever is shorter
-            first_line = last_run.result.split("\n")[0][:150]
-            metadata_lines.append(f"Previous heartbeat conclusion: {first_line}")
-            if len(last_run.result) > 150:
+            max_chars = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
+            conclusion = _truncate_at_sentence(last_run.result, max_chars)
+            metadata_lines.append(f"Previous heartbeat conclusion: {conclusion}")
+            if len(last_run.result) > max_chars:
                 metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
 
         metadata_header = "\n".join(metadata_lines)

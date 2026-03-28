@@ -77,7 +77,13 @@ def _lookup_pricing(
     provider_id: str | None,
     model: str | None,
 ) -> tuple[str | None, str | None]:
-    """Find pricing for a (provider_id, model) pair with fallback to model-only match."""
+    """Find pricing for a (provider_id, model) pair.
+
+    Resolution order:
+    1. Exact (provider_id, model) match in ProviderModel DB rows
+    2. Model-only match in DB rows (for old events without provider_id)
+    3. LiteLLM model info cache (auto-fetched from /model/info at startup)
+    """
     if not model:
         return (None, None)
     if provider_id:
@@ -88,6 +94,14 @@ def _lookup_pricing(
     for (pid, mid), costs in pricing_map.items():
         if mid == model:
             return costs
+    # Fallback: LiteLLM cached model info (fetched from /model/info at startup)
+    from app.services.providers import get_cached_model_info
+    cached = get_cached_model_info(model, provider_id)
+    if cached:
+        inp = cached.get("input_cost_per_1m")
+        out = cached.get("output_cost_per_1m")
+        if inp or out:
+            return (inp, out)
     return (None, None)
 
 

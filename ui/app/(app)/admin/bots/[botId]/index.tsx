@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from "react";
 import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown } from "lucide-react";
+import { ArrowLeft, Save, Search, X, Plus, Trash2, Package, ChevronDown, Check } from "lucide-react";
+import { useApiKeyScopes } from "@/src/api/hooks/useApiKeys";
 import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
 import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
@@ -30,6 +31,7 @@ const SECTIONS = [
   { key: "attachments", label: "Attachments" },
   { key: "workspace", label: "Workspace" },
   { key: "delegation", label: "Delegation" },
+  { key: "permissions", label: "Permissions" },
   { key: "display", label: "Display" },
   { key: "advanced", label: "Advanced" },
 ] as const;
@@ -1230,6 +1232,109 @@ function WorkspaceSection({
 }
 
 // ---------------------------------------------------------------------------
+// Bot Permissions section — scoped API key management
+// ---------------------------------------------------------------------------
+function BotPermissionsSection({
+  permissions,
+  onChange,
+}: {
+  permissions: string[];
+  onChange: (scopes: string[]) => void;
+}) {
+  const { data: scopeGroups } = useApiKeyScopes();
+  const set = new Set(permissions);
+
+  const toggle = (scope: string) => {
+    const next = new Set(set);
+    if (next.has(scope)) next.delete(scope);
+    else next.add(scope);
+    onChange(Array.from(next));
+  };
+
+  const hasAdmin = set.has("admin");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Permissions</div>
+      <div style={{ fontSize: 11, color: "#555" }}>
+        Control which API endpoints this bot can access when running inside a workspace or sandbox.
+        A scoped API key is automatically created and injected into the bot's container environment.
+      </div>
+
+      {hasAdmin && (
+        <div style={{
+          padding: "8px 12px", borderRadius: 6,
+          background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)",
+          fontSize: 12, color: "#fca5a5",
+        }}>
+          Warning: admin scope grants full access to all endpoints including admin panel.
+        </div>
+      )}
+
+      {scopeGroups ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {Object.entries(scopeGroups.groups).map(([group, scopes]) => (
+            <div key={group}>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 6,
+                textTransform: "uppercase", letterSpacing: 0.5,
+              }}>
+                {group}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {scopes.map((scope) => {
+                  const checked = set.has(scope);
+                  const isAdmin = scope === "admin";
+                  return (
+                    <button key={scope} onClick={() => toggle(scope)} style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "4px 10px", borderRadius: 5,
+                      border: checked
+                        ? isAdmin ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(59,130,246,0.4)"
+                        : "1px solid #333",
+                      background: checked
+                        ? isAdmin ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)"
+                        : "transparent",
+                      cursor: "pointer", fontSize: 12,
+                      color: checked ? (isAdmin ? "#fca5a5" : "#93c5fd") : "#666",
+                      fontWeight: checked ? 600 : 400,
+                    }}>
+                      <span style={{
+                        width: 14, height: 14, borderRadius: 3,
+                        border: checked ? "none" : "1px solid #444",
+                        background: checked ? (isAdmin ? "#ef4444" : "#3b82f6") : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {checked && <Check size={10} color="#fff" strokeWidth={3} />}
+                      </span>
+                      {scope}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ActivityIndicator color="#3b82f6" />
+      )}
+
+      {permissions.length > 0 && (
+        <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>
+          {permissions.length} scope{permissions.length !== 1 ? "s" : ""} selected.
+          The bot's scoped key will be updated on save.
+        </div>
+      )}
+      {permissions.length === 0 && (
+        <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>
+          No scopes selected. The bot will use the server's default API key in containers.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Bot Editor
 // ---------------------------------------------------------------------------
 export default function BotEditorScreen() {
@@ -1307,6 +1412,7 @@ export default function BotEditorScreen() {
       attachments: ["attachment", "summarization", "vision"],
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
       delegation: ["delegat", "harness", "bot"],
+      permissions: ["permission", "scope", "api", "key", "access"],
       display: ["display", "avatar", "icon", "slack", "emoji"],
       advanced: ["audio", "compaction", "interval", "keep_turns"],
     };
@@ -1917,6 +2023,10 @@ export default function BotEditorScreen() {
                 <div style={{ color: "#555", fontSize: 12 }}>No other bots or harnesses configured.</div>
               )}
             </div>
+          )}
+
+          {activeSection === "permissions" && (
+            <BotPermissionsSection permissions={draft.api_permissions || []} onChange={(p) => update({ api_permissions: p })} />
           )}
 
           {activeSection === "display" && (

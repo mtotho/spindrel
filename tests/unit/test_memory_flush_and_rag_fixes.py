@@ -318,12 +318,65 @@ class TestMemoryFlushServerSettings:
         from app.services.server_settings import SETTINGS_SCHEMA
         from app.config import Settings
 
-        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT"]:
+        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT", "PREVIOUS_SUMMARY_INJECT_CHARS"]:
             assert key in SETTINGS_SCHEMA, f"{key} not in SETTINGS_SCHEMA"
             assert key in Settings.model_fields, f"{key} not in Settings"
 
     def test_memory_flush_settings_group(self):
         from app.services.server_settings import SETTINGS_SCHEMA
 
-        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT"]:
+        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT", "PREVIOUS_SUMMARY_INJECT_CHARS"]:
             assert SETTINGS_SCHEMA[key]["group"] == "Chat History"
+
+
+# ===================================================================
+# Sentence-boundary truncation
+# ===================================================================
+
+class TestTruncateAtSentence:
+
+    def test_short_text_unchanged(self):
+        from app.services.compaction import _truncate_at_sentence
+        assert _truncate_at_sentence("Hello world.", 100) == "Hello world."
+
+    def test_truncates_at_period(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "First sentence. Second sentence. Third sentence that goes on and on."
+        result = _truncate_at_sentence(text, 35)
+        assert result == "First sentence. Second sentence."
+
+    def test_truncates_at_exclamation(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "Wow! That is amazing! Something else entirely here."
+        result = _truncate_at_sentence(text, 25)
+        assert result == "Wow! That is amazing!"
+
+    def test_truncates_at_question_mark(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "Is it good? I think so. More stuff."
+        result = _truncate_at_sentence(text, 15)
+        assert result == "Is it good?"
+
+    def test_no_sentence_boundary_falls_back(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "A very long word without any punctuation at all"
+        result = _truncate_at_sentence(text, 20)
+        assert result == "A very long word wit\u2026"
+        assert len(result) <= 21  # 20 chars + ellipsis
+
+    def test_heartbeat_version_matches(self):
+        from app.services.heartbeat import _truncate_at_sentence
+        text = "First sentence. Second sentence. Third long one."
+        result = _truncate_at_sentence(text, 35)
+        assert result == "First sentence. Second sentence."
+
+    def test_heartbeat_previous_conclusion_chars_in_schema(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+        from app.config import Settings
+        assert "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS" in SETTINGS_SCHEMA
+        assert "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS" in Settings.model_fields
+        assert SETTINGS_SCHEMA["HEARTBEAT_PREVIOUS_CONCLUSION_CHARS"]["group"] == "Heartbeat"
+
+    def test_legacy_trigger_heartbeat_removed_from_schema(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+        assert "TRIGGER_HEARTBEAT_BEFORE_COMPACTION" not in SETTINGS_SCHEMA

@@ -47,10 +47,10 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
     "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
     "COMPACTION_KEEP_TURNS": {"group": "Chat History", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
-    "TRIGGER_HEARTBEAT_BEFORE_COMPACTION": {"group": "Chat History", "label": "Trigger Heartbeat Before Compaction (Legacy)", "description": "Deprecated — use Memory Flush instead. Falls back to firing channel heartbeats before compaction.", "type": "bool"},
     "MEMORY_FLUSH_ENABLED": {"group": "Chat History", "label": "Memory Flush Before Compaction", "description": "Run a dedicated memory flush before compaction — bot saves memories/knowledge/persona while it still sees full context", "type": "bool"},
     "MEMORY_FLUSH_MODEL": {"group": "Chat History", "label": "Memory Flush Model", "description": "Model for memory flush (empty = use bot's model)", "type": "string", "widget": "model"},
     "MEMORY_FLUSH_DEFAULT_PROMPT": {"group": "Chat History", "label": "Memory Flush Default Prompt", "description": "Default prompt for the memory flush pass. Tells the bot what to save before context is archived.", "type": "string", "widget": "textarea"},
+    "PREVIOUS_SUMMARY_INJECT_CHARS": {"group": "Chat History", "label": "Previous Summary Max Chars", "description": "Max characters of existing summary injected into heartbeat/memory-flush context. Truncates at sentence boundary.", "type": "int", "min": 0, "max": 5000},
     "SECTION_INDEX_COUNT": {"group": "Chat History", "label": "Section Index Count", "description": "Number of recent sections shown in the index (file mode)", "type": "int", "min": 0, "max": 100},
     "SECTION_INDEX_VERBOSITY": {"group": "Chat History", "label": "Section Index Verbosity", "description": "Detail level for section index entries", "type": "string", "options": ["compact", "standard", "detailed"]},
     # --- Context Pruning ---
@@ -96,6 +96,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "HEARTBEAT_QUIET_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Quiet Interval (min)", "description": "Interval during quiet hours (0 = disabled)", "type": "int", "min": 0, "max": 1440},
     "HEARTBEAT_ACTIVE_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Active Interval (min)", "description": "Default active heartbeat interval", "type": "int", "min": 1, "max": 1440},
     "HEARTBEAT_DEFAULT_PROMPT": {"group": "Heartbeat", "label": "Default Prompt", "description": "Fallback prompt used when a channel heartbeat has no prompt, template, or workspace file configured.", "type": "string", "widget": "textarea"},
+    "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS": {"group": "Heartbeat", "label": "Previous Conclusion Max Chars", "description": "Max characters of previous heartbeat conclusion injected into the next heartbeat. Truncates at sentence boundary.", "type": "int", "min": 0, "max": 5000},
     # --- Attachments ---
     "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
     "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},

@@ -62,4 +62,8 @@ fi
 SCRIPT
 RUN chmod +x /usr/local/bin/agent-api
 
+# Install the agent CLI (Python-based, richer than agent-api)
+COPY workspace-tools/agent-cli.py /usr/local/bin/agent
+RUN chmod +x /usr/local/bin/agent
+
 CMD ["sleep", "infinity"]

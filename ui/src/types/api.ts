@@ -66,6 +66,7 @@ export interface BotConfig {
   attachment_summary_model?: string | null;
   attachment_text_max_chars?: number | null;
   attachment_vision_concurrency?: number | null;
+  api_permissions?: string[] | null;
   created_at?: string;
   updated_at?: string;
 }

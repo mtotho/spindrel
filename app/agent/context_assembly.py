@@ -172,12 +172,28 @@ async def assemble_context(
         from app.agent.context_pruning import prune_tool_results
         _prune_stats = prune_tool_results(messages, keep_full_turns=_pruning_keep, min_content_length=_pruning_min_len)
         if _prune_stats["pruned_count"] > 0:
+            _inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
             yield {
                 "type": "context_pruning",
                 "pruned_count": _prune_stats["pruned_count"],
                 "chars_saved": _prune_stats["chars_saved"],
                 "turns_pruned": _prune_stats["turns_pruned"],
             }
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="context_pruning",
+                    count=_prune_stats["pruned_count"],
+                    data={
+                        "chars_saved": _prune_stats["chars_saved"],
+                        "turns_pruned": _prune_stats["turns_pruned"],
+                        "keep_turns": _pruning_keep,
+                        "min_length": _pruning_min_len,
+                    },
+                ))
 
     if _ch_row is not None:
             _eff = resolve_effective_tools(bot, _ch_row)
@@ -392,6 +408,27 @@ async def assemble_context(
                 messages, bot.shared_workspace_id, bot.id, user_message, _inject_chars,
             ):
                 yield evt
+
+    # --- dynamic API access docs (for bots with scoped API keys) ---
+    if bot.api_permissions:
+        try:
+            from app.services.api_keys import generate_api_docs
+            _api_docs = generate_api_docs(bot.api_permissions)
+            _api_docs_chars = len(_api_docs)
+            _inject_chars["api_docs"] = _api_docs_chars
+            messages.append({
+                "role": "system",
+                "content": (
+                    "You have a scoped API key for the agent server. "
+                    "The following endpoints are available to you.\n"
+                    "Use the `agent` CLI tool (`agent api`, `agent chat`, `agent channels`, etc.) "
+                    "or `agent-api` for raw HTTP calls.\n\n"
+                    + _api_docs
+                ),
+            })
+            yield {"type": "api_docs_context", "scopes": bot.api_permissions, "chars": _api_docs_chars}
+        except Exception:
+            logger.warning("Failed to inject API docs for bot %s", bot.id, exc_info=True)
 
     # --- delegate bot index ---
     _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))

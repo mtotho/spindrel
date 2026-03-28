@@ -368,6 +368,45 @@ async def compute_context_breakdown(
                 description=f"{msgs_since_watermark} messages since last compaction" if session and session.summary else f"{total_messages} messages (no compaction yet)",
             ))
 
+        # Context pruning savings estimate
+        _pruning_on = _resolve_setting(
+            getattr(channel, "context_pruning", None),
+            getattr(bot, "context_pruning", None),
+            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
+        ).value
+        if _pruning_on and chars_since_watermark > 0:
+            _keep = _resolve_setting(
+                getattr(channel, "context_pruning_keep_turns", None),
+                getattr(bot, "context_pruning_keep_turns", None),
+                settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
+            ).value
+            # Estimate: count tool-role messages with content > min_length in older turns
+            _min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
+            _watermark_clause = Message.created_at > watermark_msg.created_at if (session and session.summary_message_id and watermark_msg) else True
+            _tool_msg_stats = (await db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(func.length(Message.content)), 0),
+                ).where(
+                    Message.session_id == channel.active_session_id,
+                    _watermark_clause,
+                    Message.role == "tool",
+                    func.length(Message.content) >= _min_len,
+                )
+            )).one()
+            _tool_count, _tool_chars = _tool_msg_stats
+            if _tool_count > 0:
+                # Rough estimate: most tool results outside keep_turns get pruned,
+                # marker is ~50 chars each, saving most of the original content
+                _marker_chars = _tool_count * 50
+                _est_savings = max(0, _tool_chars - _marker_chars)
+                categories.append(ContextCategory(
+                    key="context_pruning", label="Context Pruning (savings)",
+                    chars=-_est_savings,
+                    tokens_approx=0, percentage=0, category="conversation",
+                    description=f"~{_tool_count} tool results eligible for pruning (keeping last {_keep} turns intact)",
+                ))
+
     # -----------------------------------------------------------------------
     # 4. Compaction state
     # -----------------------------------------------------------------------
@@ -477,6 +516,16 @@ async def compute_context_breakdown(
         ),
         "base_prompt": EffectiveSetting(value=bot.base_prompt, source="bot"),
         "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
+        "context_pruning": _resolve_setting(
+            getattr(channel, "context_pruning", None),
+            getattr(bot, "context_pruning", None),
+            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
+        ),
+        "context_pruning_keep_turns": _resolve_setting(
+            getattr(channel, "context_pruning_keep_turns", None),
+            getattr(bot, "context_pruning_keep_turns", None),
+            settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
+        ),
     }
 
     # -----------------------------------------------------------------------

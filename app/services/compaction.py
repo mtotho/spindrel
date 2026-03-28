@@ -22,6 +22,20 @@ from app.services.sessions import normalize_stored_content
 logger = logging.getLogger(__name__)
 
 
+def _truncate_at_sentence(text: str, max_chars: int) -> str:
+    """Truncate *text* to at most *max_chars*, breaking at the last sentence
+    boundary (. ! ? followed by whitespace or end-of-string) so we never cut
+    mid-sentence.  Falls back to the full slice if no boundary is found.
+    """
+    if len(text) <= max_chars:
+        return text
+    window = text[:max_chars]
+    for i in range(len(window) - 1, -1, -1):
+        if window[i] in ".!?" and (i + 1 >= len(window) or window[i + 1] in " \n\t\r"):
+            return window[: i + 1]
+    return window.rstrip() + "…"
+
+
 # ---------------------------------------------------------------------------
 # Filesystem transcript helpers
 # ---------------------------------------------------------------------------
@@ -187,6 +201,10 @@ async def _run_memory_flush(
             db=db,
         )
 
+        # Grab existing summary so the flush knows what's already been captured
+        session_row = await db.get(Session, session_id)
+        existing_summary = session_row.summary if session_row else None
+
     # Build metadata header
     now = datetime.now()
     msg_count = sum(1 for m in messages if m.get("role") in ("user", "assistant"))
@@ -196,8 +214,18 @@ async def _run_memory_flush(
         f"Current time: {now.strftime('%Y-%m-%d %H:%M UTC')}",
         f"Channel: {channel.name}",
         f"Messages about to be archived: ~{msg_count}",
-        "",
     ]
+
+    # Inject existing summary so the bot knows what's already been captured
+    if existing_summary:
+        max_chars = settings.PREVIOUS_SUMMARY_INJECT_CHARS
+        if len(existing_summary) > max_chars:
+            truncated = _truncate_at_sentence(existing_summary, max_chars)
+            header_lines.append(f"\nExisting conversation summary (may be truncated):\n{truncated}")
+        else:
+            header_lines.append(f"\nExisting conversation summary:\n{existing_summary}")
+
+    header_lines.append("")
     full_prompt = "\n".join(header_lines) + prompt
 
     model = _get_memory_flush_model(bot, channel)

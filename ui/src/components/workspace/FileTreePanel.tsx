@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useCallback } from "react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import { useWorkspaceFiles } from "../../api/hooks/useWorkspaces";
 import { FileTreeNode } from "./FileTreeNode";
 import { ResizeHandle } from "./ResizeHandle";
-import { Folder } from "lucide-react";
+import { Folder, Search, X } from "lucide-react";
 
 interface FileTreePanelProps {
   workspaceId: string;
@@ -15,8 +15,17 @@ export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
   const setTreeWidth = useFileBrowserStore((s) => s.setTreeWidth);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
   const rightActive = useFileBrowserStore((s) => s.rightPane.activeFile);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useWorkspaceFiles(workspaceId, "/");
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setSearchQuery("");
+      searchRef.current?.blur();
+    }
+  }, []);
 
   const activePaths = useMemo(() => {
     const m: Record<string, boolean> = {};
@@ -62,6 +71,49 @@ export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
         </span>
       </div>
 
+      {/* Search */}
+      <div style={{ padding: "6px 8px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            background: "#0a0a0a",
+            borderRadius: 4,
+            padding: "4px 8px",
+            border: "1px solid #222",
+          }}
+        >
+          <Search size={12} color="#555" style={{ flexShrink: 0 }} />
+          <input
+            ref={searchRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Filter files..."
+            style={{
+              flex: 1,
+              background: "none",
+              border: "none",
+              outline: "none",
+              color: "#ccc",
+              fontSize: 12,
+              padding: 0,
+              minWidth: 0,
+            }}
+          />
+          {searchQuery && (
+            <X
+              size={12}
+              color="#555"
+              style={{ cursor: "pointer", flexShrink: 0 }}
+              onClick={() => { setSearchQuery(""); searchRef.current?.focus(); }}
+            />
+          )}
+        </div>
+      </div>
+
       {/* Tree */}
       <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
         {isLoading ? (
@@ -76,6 +128,7 @@ export function FileTreePanel({ workspaceId, mobile }: FileTreePanelProps) {
               workspaceId={workspaceId}
               depth={0}
               activePaths={activePaths}
+              searchFilter={searchQuery}
             />
           ))
         )}
