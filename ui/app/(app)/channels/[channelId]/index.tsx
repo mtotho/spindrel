@@ -11,6 +11,7 @@ import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { useChatStream } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
@@ -48,6 +49,7 @@ export default function ChatScreen() {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   const showHamburger = columns === "single" || sidebarCollapsed;
+  const t = useThemeTokens();
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
 
@@ -184,44 +186,43 @@ export default function ChatScreen() {
     <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-3 px-4 border-b border-surface-border"
+        className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
         style={{
           flexShrink: 0,
           zIndex: 10,
           minHeight: 52,
           paddingTop: insets.top,
-          backgroundColor: "#111111",
         }}
       >
         {columns === "single" && (
           <Pressable
             onPress={goBack}
             className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 36, height: 36 }}
+            style={{ width: 44, height: 44 }}
           >
-            <ArrowLeft size={20} color="#9ca3af" />
+            <ArrowLeft size={20} color={t.textMuted} />
           </Pressable>
         )}
         {showHamburger && columns !== "single" && (
           <Pressable
             onPress={toggleSidebar}
             className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 36, height: 36 }}
+            style={{ width: 44, height: 44 }}
           >
-            <Menu size={20} color="#9ca3af" />
+            <Menu size={20} color={t.textMuted} />
           </Pressable>
         )}
-        <Hash size={18} color="#666666" style={{ marginLeft: 2 }} />
+        <Hash size={18} color={t.textDim} style={{ marginLeft: 2 }} />
         <View className="flex-1 min-w-0 py-2">
-          <Text style={{ fontSize: 16, fontWeight: "700", color: "#e5e5e5" }} numberOfLines={1}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: t.text }} numberOfLines={1}>
             {displayName}
           </Text>
           {bot && (
             <View className="flex-row items-center gap-1.5 mt-0.5">
               <Link href={`/admin/bots/${bot.id}` as any}>
-                <Text style={{ fontSize: 12, color: "#999" }}>{bot.name}</Text>
+                <Text style={{ fontSize: 12, color: t.textMuted }}>{bot.name}</Text>
               </Link>
-              <Text style={{ fontSize: 11, color: "#555" }}>
+              <Text style={{ fontSize: 11, color: t.textDim }}>
                 {channel?.model_override || bot?.model}
               </Text>
             </View>
@@ -231,9 +232,9 @@ export default function ChatScreen() {
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
               className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-              style={{ width: 36, height: 36 }}
+              style={{ width: 44, height: 44 }}
             >
-              <Settings size={18} color="#666666" />
+              <Settings size={18} color={t.textDim} />
             </Pressable>
           </Link>
         )}
@@ -242,7 +243,7 @@ export default function ChatScreen() {
       {/* Messages */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#666666" />
+          <ActivityIndicator color={t.textDim} />
         </View>
       ) : (
         <FlatList

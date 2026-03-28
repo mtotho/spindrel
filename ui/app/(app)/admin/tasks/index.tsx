@@ -14,6 +14,7 @@ import { TaskEditor } from "@/src/components/shared/TaskEditor";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatTime, formatDate } from "@/src/utils/time";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 interface TaskItem {
   id: string;
@@ -282,6 +283,7 @@ function NowLine() {
 // Hour labels / grid
 // ---------------------------------------------------------------------------
 function HourLabels() {
+  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
@@ -290,7 +292,7 @@ function HourLabels() {
         return (
           <div key={h} style={{
             position: "absolute", left: 0, top: `${pct}%`,
-            fontSize: 10, color: "#444", width: 40, textAlign: "right", paddingRight: 8,
+            fontSize: 10, color: t.surfaceBorder, width: 40, textAlign: "right", paddingRight: 8,
             transform: "translateY(-50%)", pointerEvents: "none",
           }}>
             {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
@@ -302,6 +304,7 @@ function HourLabels() {
 }
 
 function HourGrid() {
+  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
@@ -309,7 +312,7 @@ function HourGrid() {
         <div key={h} style={{
           position: "absolute", left: 48, right: 0,
           top: `${(h / 24) * 100}%`,
-          borderTop: "1px solid #1a1a1a",
+          borderTop: `1px solid ${t.surfaceRaised}`,
           pointerEvents: "none",
         }} />
       ))}
@@ -400,6 +403,7 @@ function TaskCard({
 }: {
   task: TaskItem; isPast: boolean; onPress: () => void; style?: React.CSSProperties;
 }) {
+  const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const isVirtual = task.is_virtual;
   const isCancelled = task.status === "cancelled";
@@ -419,8 +423,8 @@ function TaskCard({
           ? (hovered ? "#151515" : "#0d0d0d")
           : isVirtual
           ? (hovered ? "#151520" : "#0e0e18")
-          : (hovered ? "#222" : isPast ? "#111" : "#1a1a1a"),
-        border: `1px solid ${isCancelled ? "#1a1a1a" : isVirtual ? (hovered ? "#3b82f6" : "#1a1a2e") : hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
+          : (hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised),
+        border: `1px solid ${isCancelled ? t.surfaceRaised : isVirtual ? (hovered ? t.accent : "#1a1a2e") : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay}`,
         borderStyle: isVirtual ? "dashed" : "solid",
         opacity: isCancelled ? 0.4 : isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
@@ -434,7 +438,7 @@ function TaskCard({
         <Icon size={13} color={s.fg} />
         <span style={{
           fontSize: 13, fontWeight: 600,
-          color: isCancelled ? "#555" : "#e5e5e5",
+          color: isCancelled ? t.textDim : t.text,
           textDecoration: isCancelled ? "line-through" : "none",
           flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
@@ -455,14 +459,14 @@ function TaskCard({
           </span>
         )}
 
-        <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
           {time ? formatTime(time) : "\u2014"}
         </span>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
         <BotDot botId={task.bot_id} />
-        <span style={{ fontSize: 10, color: "#666" }}>{task.bot_id}</span>
+        <span style={{ fontSize: 10, color: t.textDim }}>{task.bot_id}</span>
         {task.task_type && <TypeBadge type={task.task_type} />}
       </div>
       {task.error && (
@@ -481,6 +485,7 @@ const CARD_HEIGHT_PX = 70;
 const CARD_MIN_GAP = 4;
 
 function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
+  const t = useThemeTokens();
   const now = new Date();
   const showNow = isToday(date);
 
@@ -507,14 +512,14 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
   return (
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
       <div style={{
-        padding: "8px 12px", borderBottom: "1px solid #2a2a2a",
+        padding: "8px 12px", borderBottom: `1px solid ${t.surfaceOverlay}`,
         background: showNow ? "rgba(59,130,246,0.08)" : "transparent",
         position: "sticky", top: 0, zIndex: 3,
       }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? "#3b82f6" : "#e5e5e5" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? t.accent : t.text }}>
           {formatDate(date)}
         </div>
-        <div style={{ fontSize: 10, color: "#555" }}>
+        <div style={{ fontSize: 10, color: t.textDim }}>
           {tasks.length} task{tasks.length !== 1 ? "s" : ""}
         </div>
       </div>
@@ -554,6 +559,7 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
   statusFilter: StatusFilter;
   conflicts: Map<string, string[]>;
 }) {
+  const t = useThemeTokens();
   const [collapsedBots, setCollapsedBots] = useState<Set<string>>(new Set());
   const now = new Date();
 
@@ -646,7 +652,7 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
 
   if (!grouped.length) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
         No tasks found.
       </div>
     );
@@ -698,19 +704,19 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                 position: "sticky", top: 0, zIndex: 2,
               }}
             >
-              {isCollapsed ? <ChevronRight size={14} color="#666" /> : <ChevronDown size={14} color="#666" />}
+              {isCollapsed ? <ChevronRight size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
               <BotDot botId={botId} size={10} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#e5e5e5" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
                 {botName(botId)}
               </span>
-              <span style={{ fontSize: 11, color: "#666" }}>
+              <span style={{ fontSize: 11, color: t.textDim }}>
                 {displayTasks.length} task{displayTasks.length !== 1 ? "s" : ""}
                 {scheduleCount > 0 && ` \u00b7 ${scheduleCount} schedule${scheduleCount !== 1 ? "s" : ""}`}
               </span>
               {cancelledCount > 0 && statusFilter === "all" && (
                 <span style={{
-                  fontSize: 10, fontWeight: 600, color: "#555",
-                  background: "#1a1a1a", padding: "1px 6px", borderRadius: 4,
+                  fontSize: 10, fontWeight: 600, color: t.textDim,
+                  background: t.surfaceRaised, padding: "1px 6px", borderRadius: 4,
                 }}>
                   {cancelledCount} cancelled
                 </span>
@@ -739,33 +745,33 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                 <div style={{
                   padding: "6px 20px 6px 36px",
                   borderLeft: `3px solid ${c.border}`,
-                  borderBottom: "1px solid #1a1a1a",
+                  borderBottom: `1px solid ${t.surfaceRaised}`,
                 }}>
                   <span style={{
                     fontSize: 11, fontWeight: 600,
-                    color: isToday(new Date(dayStr)) ? "#3b82f6" : "#666",
+                    color: isToday(new Date(dayStr)) ? t.accent : t.textDim,
                   }}>
                     {dateSectionLabel(new Date(dayStr))}
                   </span>
                 </div>
 
                 {/* Task cards */}
-                {dayTasks.map((t) => {
-                  const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+                {dayTasks.map((tk) => {
+                  const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
                   const Icon = s.icon;
-                  const time = t.scheduled_at || t.created_at;
-                  const isPast = getTaskTime(t) < now && t.status !== "running" && t.status !== "active";
-                  const isVirtual = t.is_virtual;
-                  const isCancelled = t.status === "cancelled";
+                  const time = tk.scheduled_at || tk.created_at;
+                  const isPast = getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active";
+                  const isVirtual = tk.is_virtual;
+                  const isCancelled = tk.status === "cancelled";
 
                   return (
                     <div
-                      key={t.id}
-                      onClick={() => onTaskPress(t)}
+                      key={tk.id}
+                      onClick={() => onTaskPress(tk)}
                       style={{
                         display: "flex", alignItems: "center", gap: 10,
                         padding: "10px 20px 10px 36px",
-                        borderLeft: `3px solid ${isCancelled ? "#333" : c.border}`,
+                        borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
                         borderBottom: "1px solid #0f0f0f",
                         cursor: "pointer",
                         opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.5 : 1,
@@ -780,30 +786,30 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
                           fontSize: 13, fontWeight: 600,
-                          color: isCancelled ? "#555" : "#e5e5e5",
+                          color: isCancelled ? t.textDim : t.text,
                           textDecoration: isCancelled ? "line-through" : "none",
                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         }}>
-                          {displayTitle(t)}
+                          {displayTitle(tk)}
                         </div>
                       </div>
 
-                      <StatusBadge status={t.status} />
+                      <StatusBadge status={tk.status} />
 
-                      {t.recurrence && (
+                      {tk.recurrence && (
                         <span style={{
                           display: "inline-flex", alignItems: "center", gap: 3,
-                          background: isCancelled ? "#1a1a1a" : "#92400e",
-                          color: isCancelled ? "#555" : "#fcd34d",
+                          background: isCancelled ? t.surfaceRaised : "#92400e",
+                          color: isCancelled ? t.textDim : "#fcd34d",
                           padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                           flexShrink: 0,
                         }}>
-                          <RefreshCw size={9} color={isCancelled ? "#555" : "#fcd34d"} />
-                          {t.recurrence}
+                          <RefreshCw size={9} color={isCancelled ? t.textDim : "#fcd34d"} />
+                          {tk.recurrence}
                         </span>
                       )}
 
-                      <span style={{ fontSize: 10, color: "#555", flexShrink: 0, minWidth: 90, textAlign: "right" }}>
+                      <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, minWidth: 90, textAlign: "right" }}>
                         {time ? formatTime(time) : "\u2014"}
                       </span>
                     </div>
@@ -824,16 +830,17 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
 function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
   tasks: TaskItem[];
   schedules: TaskItem[];
-  onTaskPress: (t: TaskItem) => void;
+  onTaskPress: (tk: TaskItem) => void;
   statusFilter: StatusFilter;
 }) {
+  const t = useThemeTokens();
   const now = new Date();
   const allItems = useMemo(() => {
     const schedulesWithFlag = schedules
       .filter(s => passesStatusFilter(s, statusFilter))
       .map(s => ({ ...s, is_schedule: true }));
     const sortedTasks = [...tasks]
-      .filter(t => passesStatusFilter(t, statusFilter))
+      .filter(tk => passesStatusFilter(tk, statusFilter))
       .sort((a, b) => {
         const ta = getTaskTime(a).getTime();
         const tb = getTaskTime(b).getTime();
@@ -844,7 +851,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
 
   if (!allItems.length) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
         No tasks found.
       </div>
     );
@@ -854,12 +861,12 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
   const byDate: Record<string, TaskItem[]> = {};
   // Schedules go in a special section
   const activeSchedules: TaskItem[] = [];
-  for (const t of allItems) {
-    if (t.is_schedule && (t.status === "active" || t.status === "cancelled")) {
-      activeSchedules.push(t);
+  for (const item of allItems) {
+    if (item.is_schedule && (item.status === "active" || item.status === "cancelled")) {
+      activeSchedules.push(item);
     } else {
-      const d = startOfDay(getTaskTime(t)).toDateString();
-      (byDate[d] ??= []).push(t);
+      const d = startOfDay(getTaskTime(item)).toDateString();
+      (byDate[d] ??= []).push(item);
     }
   }
 
@@ -871,47 +878,47 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
           <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: "#fcd34d", textTransform: "uppercase", letterSpacing: 0.5 }}>
             Schedules
           </div>
-          {activeSchedules.map((t) => {
-            const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+          {activeSchedules.map((tk) => {
+            const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
             const Icon = s.icon;
-            const isCancelled = t.status === "cancelled";
+            const isCancelled = tk.status === "cancelled";
             return (
               <div
-                key={t.id}
-                onClick={() => onTaskPress(t)}
+                key={tk.id}
+                onClick={() => onTaskPress(tk)}
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 14px", background: "#111", borderRadius: 8,
-                  border: isCancelled ? "1px solid #151515" : "1px solid #1a1a1a",
+                  padding: "10px 14px", background: t.inputBg, borderRadius: 8,
+                  border: isCancelled ? "1px solid #151515" : `1px solid ${t.surfaceRaised}`,
                   cursor: "pointer", marginBottom: 2,
                   opacity: isCancelled ? 0.4 : 1,
                 }}
               >
                 <Icon size={14} color={s.fg} />
-                <BotDot botId={t.bot_id} />
+                <BotDot botId={tk.bot_id} />
                 <span style={{
                   fontSize: 13, fontWeight: 600,
-                  color: isCancelled ? "#555" : "#e5e5e5",
+                  color: isCancelled ? t.textDim : t.text,
                   textDecoration: isCancelled ? "line-through" : "none",
                   flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
-                  {displayTitle(t)}
+                  {displayTitle(tk)}
                 </span>
-                <StatusBadge status={t.status} />
-                <span style={{ fontSize: 10, color: "#666" }}>{t.bot_id}</span>
-                {t.recurrence && (
+                <StatusBadge status={tk.status} />
+                <span style={{ fontSize: 10, color: t.textDim }}>{tk.bot_id}</span>
+                {tk.recurrence && (
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 3,
-                    background: isCancelled ? "#1a1a1a" : "#92400e",
-                    color: isCancelled ? "#555" : "#fcd34d",
+                    background: isCancelled ? t.surfaceRaised : "#92400e",
+                    color: isCancelled ? t.textDim : "#fcd34d",
                     padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                   }}>
-                    <RefreshCw size={9} color={isCancelled ? "#555" : "#fcd34d"} />
-                    {t.recurrence}
+                    <RefreshCw size={9} color={isCancelled ? t.textDim : "#fcd34d"} />
+                    {tk.recurrence}
                   </span>
                 )}
-                {t.run_count != null && t.run_count > 0 && (
-                  <span style={{ fontSize: 10, color: "#666" }}>{t.run_count} runs</span>
+                {tk.run_count != null && tk.run_count > 0 && (
+                  <span style={{ fontSize: 10, color: t.textDim }}>{tk.run_count} runs</span>
                 )}
               </div>
             );
@@ -922,40 +929,40 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
       {/* Date sections */}
       {Object.entries(byDate).map(([dayStr, dayTasks]) => (
         <div key={dayStr}>
-          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: isToday(new Date(dayStr)) ? "#3b82f6" : "#666", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: isToday(new Date(dayStr)) ? t.accent : t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
             {dateSectionLabel(new Date(dayStr))}
           </div>
-          {dayTasks.map((t) => {
-            const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
+          {dayTasks.map((tk) => {
+            const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
             const Icon = s.icon;
-            const time = t.scheduled_at || t.created_at;
-            const isPast = getTaskTime(t) < now && t.status !== "running";
-            const isCancelled = t.status === "cancelled";
+            const time = tk.scheduled_at || tk.created_at;
+            const isPast = getTaskTime(tk) < now && tk.status !== "running";
+            const isCancelled = tk.status === "cancelled";
             return (
               <div
-                key={t.id}
-                onClick={() => onTaskPress(t)}
+                key={tk.id}
+                onClick={() => onTaskPress(tk)}
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 14px", background: "#111", borderRadius: 8,
-                  border: "1px solid #1a1a1a", cursor: "pointer", marginBottom: 2,
+                  padding: "10px 14px", background: t.inputBg, borderRadius: 8,
+                  border: `1px solid ${t.surfaceRaised}`, cursor: "pointer", marginBottom: 2,
                   opacity: isCancelled ? 0.35 : isPast ? 0.6 : 1,
                 }}
               >
                 <Icon size={14} color={s.fg} />
-                <BotDot botId={t.bot_id} />
+                <BotDot botId={tk.bot_id} />
                 <span style={{
                   fontSize: 13, fontWeight: 600,
-                  color: isCancelled ? "#555" : "#e5e5e5",
+                  color: isCancelled ? t.textDim : t.text,
                   textDecoration: isCancelled ? "line-through" : "none",
                   flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
-                  {displayTitle(t)}
+                  {displayTitle(tk)}
                 </span>
-                <StatusBadge status={t.status} />
-                <span style={{ fontSize: 10, color: "#666" }}>{t.bot_id}</span>
-                {t.task_type && <TypeBadge type={t.task_type} />}
-                <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>
+                <StatusBadge status={tk.status} />
+                <span style={{ fontSize: 10, color: t.textDim }}>{tk.bot_id}</span>
+                {tk.task_type && <TypeBadge type={tk.task_type} />}
+                <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
                   {time ? formatTime(time) : "\u2014"}
                 </span>
               </div>
@@ -971,6 +978,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
+  const t = useThemeTokens();
   const [viewMode, setViewMode] = useState<ViewMode>("schedule");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
@@ -1108,7 +1116,7 @@ export default function TasksScreen() {
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "5px 14px", fontSize: 12, fontWeight: 600,
-                border: "none", cursor: "pointer", borderRadius: 6, background: "#3b82f6", color: "#fff",
+                border: "none", cursor: "pointer", borderRadius: 6, background: t.accent, color: "#fff",
               }}
             >
               <Plus size={14} />
@@ -1120,8 +1128,8 @@ export default function TasksScreen() {
               onChange={(e) => setBotFilter(e.target.value)}
               style={{
                 padding: "5px 8px", fontSize: 11, borderRadius: 6,
-                background: "#1a1a1a", color: botFilter ? "#e5e5e5" : "#666",
-                border: botFilter ? "1px solid #3b82f6" : "1px solid #333",
+                background: t.surfaceRaised, color: botFilter ? t.text : t.textDim,
+                border: botFilter ? `1px solid ${t.accent}` : `1px solid ${t.surfaceBorder}`,
                 cursor: "pointer", maxWidth: 140,
               }}
             >
@@ -1131,7 +1139,7 @@ export default function TasksScreen() {
               ))}
             </select>
 
-            <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
+            <div style={{ display: "flex", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
               {(["schedule", "day", "week", "list"] as ViewMode[]).map((m) => (
                 <button
                   key={m}
@@ -1139,8 +1147,8 @@ export default function TasksScreen() {
                   style={{
                     padding: "5px 12px", fontSize: 11, fontWeight: 500,
                     border: "none", cursor: "pointer",
-                    background: viewMode === m ? "#3b82f6" : "transparent",
-                    color: viewMode === m ? "#fff" : "#999",
+                    background: viewMode === m ? t.accent : "transparent",
+                    color: viewMode === m ? "#fff" : t.textMuted,
                     textTransform: "capitalize",
                     display: "flex", alignItems: "center", gap: 4,
                   }}
@@ -1155,21 +1163,21 @@ export default function TasksScreen() {
             {isCalendar && (
               <>
                 <button onClick={goToday} style={{
-                  padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
-                  background: "transparent", color: "#999", cursor: "pointer",
+                  padding: "5px 8px", fontSize: 11, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.textMuted, cursor: "pointer",
                 }}>
                   Today
                 </button>
                 <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronLeft size={16} color="#999" />
+                  <ChevronLeft size={16} color={t.textMuted} />
                 </button>
-                <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
+                <span style={{ fontSize: 12, color: t.text, fontWeight: 500, textAlign: "center" }}>
                   {viewMode === "day"
                     ? formatDate(baseDate)
                     : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
                 </span>
                 <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronRight size={16} color="#999" />
+                  <ChevronRight size={16} color={t.textMuted} />
                 </button>
               </>
             )}
@@ -1180,12 +1188,12 @@ export default function TasksScreen() {
       {/* Filter rows */}
       <div style={{
         display: "flex", alignItems: "center", gap: 6,
-        padding: "8px 20px", borderBottom: "1px solid #1a1a1a",
+        padding: "8px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
         overflowX: "auto", flexWrap: "wrap",
       }}>
         {/* Type filter pills */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 10, color: "#555", fontWeight: 600, marginRight: 2 }}>TYPE</span>
+          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>TYPE</span>
           {TASK_TYPE_FILTERS.map((f) => (
             <button
               key={f.key}
@@ -1193,8 +1201,8 @@ export default function TasksScreen() {
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 12,
-                background: typeFilter === f.key ? "#3b82f6" : "#1a1a1a",
-                color: typeFilter === f.key ? "#fff" : "#888",
+                background: typeFilter === f.key ? t.accent : t.surfaceRaised,
+                color: typeFilter === f.key ? "#fff" : t.textMuted,
                 whiteSpace: "nowrap",
               }}
             >
@@ -1204,11 +1212,11 @@ export default function TasksScreen() {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: "#2a2a2a", margin: "0 4px" }} />
+        <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
 
         {/* Status filter pills */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 10, color: "#555", fontWeight: 600, marginRight: 2 }}>STATUS</span>
+          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>STATUS</span>
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.key}
@@ -1217,11 +1225,11 @@ export default function TasksScreen() {
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 12,
                 background: statusFilter === f.key
-                  ? (f.key === "cancelled" ? "#333" : f.key === "failed" ? "#7f1d1d" : "#3b82f6")
-                  : "#1a1a1a",
+                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? "#7f1d1d" : t.accent)
+                  : t.surfaceRaised,
                 color: statusFilter === f.key
-                  ? (f.key === "cancelled" ? "#999" : f.key === "failed" ? "#fca5a5" : "#fff")
-                  : "#888",
+                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? "#fca5a5" : "#fff")
+                  : t.textMuted,
                 whiteSpace: "nowrap",
               }}
             >
@@ -1233,7 +1241,7 @@ export default function TasksScreen() {
         {/* Conflict indicator */}
         {conflictCount > 0 && (
           <>
-            <div style={{ width: 1, height: 20, background: "#2a2a2a", margin: "0 4px" }} />
+            <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
               fontSize: 11, fontWeight: 700, color: "#fbbf24",
@@ -1275,7 +1283,7 @@ export default function TasksScreen() {
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
           <div style={{
             display: "flex", flex: 1, minHeight: 1500,
-            borderLeft: "1px solid #2a2a2a",
+            borderLeft: `1px solid ${t.surfaceOverlay}`,
           }}>
             {Object.entries(tasksByDay).map(([dayStr, tasks]) => (
               <DayColumn

@@ -3,6 +3,7 @@ import { View, Text, Pressable, Switch } from "react-native";
 import { useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useCreateChannel } from "@/src/api/hooks/useChannels";
 import { Section, FormRow, SelectInput, TextInput } from "@/src/components/shared/FormControls";
@@ -10,6 +11,7 @@ import { Section, FormRow, SelectInput, TextInput } from "@/src/components/share
 export default function NewChannelScreen() {
   const router = useRouter();
   const goBack = useGoBack("/");
+  const t = useThemeTokens();
   const { data: bots } = useBots();
   const createChannel = useCreateChannel();
 
@@ -42,7 +44,7 @@ export default function NewChannelScreen() {
           className="items-center justify-center rounded-md hover:bg-surface-overlay"
           style={{ width: 44, height: 44 }}
         >
-          <ArrowLeft size={20} color="#999" />
+          <ArrowLeft size={20} color={t.textMuted} />
         </Pressable>
         <Text className="text-text font-semibold text-sm">New Channel</Text>
       </View>
@@ -73,7 +75,7 @@ export default function NewChannelScreen() {
           <Switch
             value={isPrivate}
             onValueChange={setIsPrivate}
-            trackColor={{ false: "#333", true: "#3b82f6" }}
+            trackColor={{ false: t.surfaceBorder, true: t.accent }}
           />
         </View>
 
@@ -81,7 +83,7 @@ export default function NewChannelScreen() {
           onPress={handleCreate}
           disabled={!name.trim() || createChannel.isPending}
           style={{
-            backgroundColor: name.trim() ? "#3b82f6" : "#333",
+            backgroundColor: name.trim() ? t.accent : t.surfaceBorder,
             paddingHorizontal: 20,
             paddingVertical: 10,
             borderRadius: 8,

@@ -132,6 +132,42 @@ class SlackDispatcher:
         args_preview = _json.dumps(arguments, indent=2)[:500]
         attrs = bot_attribution(bot_id)
 
+        # Build smart suggestion buttons from argument analysis
+        from app.services.approval_suggestions import build_suggestions
+        suggestions = build_suggestions(tool_name, arguments)
+
+        # Slack actions block: Approve (once) + suggestion buttons + Deny
+        # Slack limits to 5 elements per actions block
+        action_elements = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Approve Once"},
+                "style": "primary",
+                "action_id": "approve_tool_call",
+                "value": approval_id,
+            },
+        ]
+        for i, sug in enumerate(suggestions[:3]):  # max 3 suggestions (+ approve + deny = 5)
+            action_elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sug.label[:75]},  # Slack 75 char limit
+                "action_id": f"allow_rule_{i}",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": sug.tool_name,
+                    "conditions": sug.conditions,
+                    "label": sug.label,
+                }),
+            })
+        action_elements.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Deny"},
+            "style": "danger",
+            "action_id": "deny_tool_call",
+            "value": approval_id,
+        })
+
         blocks = [
             {
                 "type": "section",
@@ -151,31 +187,7 @@ class SlackDispatcher:
                     "text": f"```\n{args_preview}\n```",
                 },
             },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Approve"},
-                        "style": "primary",
-                        "action_id": "approve_tool_call",
-                        "value": approval_id,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Allow Always"},
-                        "action_id": "allow_always_tool_call",
-                        "value": _json.dumps({"approval_id": approval_id, "bot_id": bot_id, "tool_name": tool_name}),
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Deny"},
-                        "style": "danger",
-                        "action_id": "deny_tool_call",
-                        "value": approval_id,
-                    },
-                ],
-            },
+            {"type": "actions", "elements": action_elements},
         ]
 
         import httpx

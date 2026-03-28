@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Badge colors
@@ -86,6 +87,7 @@ function fmtDuration(ms: number | null | undefined): string {
 // Main component
 // ---------------------------------------------------------------------------
 export default function LogsScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { channel_id: channelIdParam } = useLocalSearchParams<{ channel_id?: string }>();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -131,13 +133,13 @@ export default function LogsScreen() {
       {/* Filter bar */}
       <div style={{
         display: "flex", gap: 8, padding: isMobile ? "8px 12px" : "8px 20px",
-        borderBottom: "1px solid #1a1a1a", flexWrap: "wrap", alignItems: "center",
+        borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", alignItems: "center",
       }}>
         <select
           value={eventType}
           onChange={(e) => { setEventType(e.target.value); setPage(1); }}
           style={{
-            background: "#1a1a1a", color: "#999", border: "1px solid #333",
+            background: t.surfaceRaised, color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none",
           }}
         >
@@ -150,7 +152,7 @@ export default function LogsScreen() {
           value={botFilter}
           onChange={(e) => { setBotFilter(e.target.value); setPage(1); }}
           style={{
-            background: "#1a1a1a", color: "#999", border: "1px solid #333",
+            background: t.surfaceRaised, color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none",
           }}
         >
@@ -165,7 +167,7 @@ export default function LogsScreen() {
           onChange={(e) => { setSessionFilter(e.target.value); setPage(1); }}
           placeholder="Session ID..."
           style={{
-            background: "#1a1a1a", color: "#999", border: "1px solid #333",
+            background: t.surfaceRaised, color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6, padding: "5px 10px", fontSize: 12, outline: "none",
             width: isMobile ? "100%" : 200,
           }}
@@ -176,7 +178,7 @@ export default function LogsScreen() {
             onClick={clearFilters}
             style={{
               display: "flex", alignItems: "center", gap: 4,
-              background: "none", border: "none", color: "#666", cursor: "pointer",
+              background: "none", border: "none", color: t.textDim, cursor: "pointer",
               fontSize: 12,
             }}
           >
@@ -189,8 +191,8 @@ export default function LogsScreen() {
       <div style={{
         display: "flex", gap: 12,
         padding: isMobile ? "6px 12px" : "6px 20px",
-        borderBottom: "1px solid #2a2a2a",
-        fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase",
+        borderBottom: `1px solid ${t.surfaceOverlay}`,
+        fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}>
         <span style={{ width: isMobile ? 60 : 120 }}>Time</span>
@@ -216,7 +218,7 @@ export default function LogsScreen() {
               }} />
             ))}
             {data?.rows.length === 0 && (
-              <div style={{ padding: 40, textAlign: "center", color: "#666", fontSize: 13 }}>
+              <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
                 No log entries found.
               </div>
             )}
@@ -228,19 +230,19 @@ export default function LogsScreen() {
       {totalPages > 1 && (
         <div style={{
           display: "flex", justifyContent: "center", alignItems: "center", gap: 12,
-          padding: "10px 20px", borderTop: "1px solid #2a2a2a",
+          padding: "10px 20px", borderTop: `1px solid ${t.surfaceOverlay}`,
         }}>
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
             style={{
               background: "none", border: "none", cursor: page <= 1 ? "default" : "pointer",
-              color: page <= 1 ? "#333" : "#999", padding: 4,
+              color: page <= 1 ? t.surfaceBorder : t.textMuted, padding: 4,
             }}
           >
             <ChevronLeft size={16} />
           </button>
-          <span style={{ fontSize: 12, color: "#666" }}>
+          <span style={{ fontSize: 12, color: t.textDim }}>
             Page {page} of {totalPages}
           </span>
           <button
@@ -248,7 +250,7 @@ export default function LogsScreen() {
             disabled={page >= totalPages}
             style={{
               background: "none", border: "none", cursor: page >= totalPages ? "default" : "pointer",
-              color: page >= totalPages ? "#333" : "#999", padding: 4,
+              color: page >= totalPages ? t.surfaceBorder : t.textMuted, padding: 4,
             }}
           >
             <ChevronRight size={16} />
@@ -267,6 +269,7 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
   isMobile: boolean;
   onCorrelationPress: (cid: string) => void;
 }) {
+  const t = useThemeTokens();
   const rowType = getRowType(row);
   const name = getRowName(row);
   const hasError = !!row.error;
@@ -276,17 +279,17 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
       style={{
         display: "flex", gap: 12, alignItems: "center",
         padding: isMobile ? "6px 12px" : "6px 20px",
-        borderBottom: "1px solid #1a1a1a",
+        borderBottom: `1px solid ${t.surfaceRaised}`,
         fontSize: 12,
         cursor: row.correlation_id ? "pointer" : "default",
       }}
       onClick={() => row.correlation_id && onCorrelationPress(row.correlation_id)}
     >
       {/* Time */}
-      <span style={{ width: isMobile ? 60 : 120, color: "#666", fontSize: 11, flexShrink: 0 }}>
+      <span style={{ width: isMobile ? 60 : 120, color: t.textDim, fontSize: 11, flexShrink: 0 }}>
         {isMobile ? fmtTime(row.created_at) : (
           <>
-            <span style={{ color: "#555" }}>{fmtDate(row.created_at)} </span>
+            <span style={{ color: t.textDim }}>{fmtDate(row.created_at)} </span>
             {fmtTime(row.created_at)}
           </>
         )}
@@ -299,33 +302,33 @@ function LogRowItem({ row, isMobile, onCorrelationPress }: {
 
       {/* Name */}
       <span style={{
-        flex: 1, minWidth: 0, color: "#e5e5e5", overflow: "hidden",
+        flex: 1, minWidth: 0, color: t.text, overflow: "hidden",
         textOverflow: "ellipsis", whiteSpace: "nowrap",
       }}>
         {name}
         {row.kind === "tool_call" && row.tool_type && (
-          <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>({row.tool_type})</span>
+          <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>({row.tool_type})</span>
         )}
         {row.kind === "trace_event" && row.count != null && (
-          <span style={{ color: "#555", marginLeft: 6, fontSize: 10 }}>({row.count})</span>
+          <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>({row.count})</span>
         )}
       </span>
 
       {/* Bot */}
       {!isMobile && (
-        <span style={{ width: 90, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
+        <span style={{ width: 90, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
           {row.bot_id || "—"}
         </span>
       )}
 
       {/* Correlation */}
-      <span style={{ width: isMobile ? 70 : 100, color: "#555", fontFamily: "monospace", fontSize: 10, flexShrink: 0 }}>
+      <span style={{ width: isMobile ? 70 : 100, color: t.textDim, fontFamily: "monospace", fontSize: 10, flexShrink: 0 }}>
         {row.correlation_id?.substring(0, isMobile ? 8 : 12) || "—"}
       </span>
 
       {/* Duration */}
       {!isMobile && (
-        <span style={{ width: 60, textAlign: "right", color: "#666", flexShrink: 0 }}>
+        <span style={{ width: 60, textAlign: "right", color: t.textDim, flexShrink: 0 }}>
           {fmtDuration(row.duration_ms)}
         </span>
       )}

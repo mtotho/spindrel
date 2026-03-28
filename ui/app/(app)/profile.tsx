@@ -13,6 +13,7 @@ import { User, Link2, Lock, Check, X, Eye, EyeOff } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useAuthStore, AuthUser } from "@/src/stores/auth";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 interface IntegrationField {
   key: string;
@@ -38,6 +39,7 @@ function useIntegrations() {
 // ---------------------------------------------------------------------------
 
 function AccountSection({ user }: { user: AuthUser }) {
+  const t = useThemeTokens();
   const updateUser = useAuthStore((s) => s.updateUser);
   const [displayName, setDisplayName] = useState(user.display_name);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || "");
@@ -79,7 +81,7 @@ function AccountSection({ user }: { user: AuthUser }) {
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={{ width: 64, height: 64 }} />
           ) : (
-            <User size={28} color="#3b82f6" />
+            <User size={28} color={t.accent} />
           )}
         </View>
         <View>
@@ -114,7 +116,7 @@ function AccountSection({ user }: { user: AuthUser }) {
           value={avatarUrl}
           onChangeText={setAvatarUrl}
           placeholder="https://..."
-          placeholderTextColor="#666666"
+          placeholderTextColor={t.textDim}
         />
       </View>
 
@@ -144,6 +146,7 @@ function AccountSection({ user }: { user: AuthUser }) {
 // ---------------------------------------------------------------------------
 
 function IntegrationsSection({ user }: { user: AuthUser }) {
+  const t = useThemeTokens();
   const updateUser = useAuthStore((s) => s.updateUser);
   const { data: integrations, isLoading } = useIntegrations();
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
@@ -204,7 +207,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
     return (
       <View className="gap-4">
         <Text className="text-text font-semibold text-base">Integrations</Text>
-        <ActivityIndicator size="small" color="#3b82f6" />
+        <ActivityIndicator size="small" color={t.accent} />
       </View>
     );
   }
@@ -242,7 +245,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
                 value={values[integration.id]?.[field.key] || ""}
                 onChangeText={(v) => updateField(integration.id, field.key, v)}
                 placeholder={field.description}
-                placeholderTextColor="#666666"
+                placeholderTextColor={t.textDim}
               />
             </View>
           ))}
@@ -275,6 +278,7 @@ function IntegrationsSection({ user }: { user: AuthUser }) {
 // ---------------------------------------------------------------------------
 
 function SecuritySection({ user }: { user: AuthUser }) {
+  const t = useThemeTokens();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -356,9 +360,9 @@ function SecuritySection({ user }: { user: AuthUser }) {
               className="bg-surface border border-l-0 border-surface-border rounded-r px-3 py-2"
             >
               {showCurrent ? (
-                <EyeOff size={14} color="#999" />
+                <EyeOff size={14} color={t.textMuted} />
               ) : (
-                <Eye size={14} color="#999" />
+                <Eye size={14} color={t.textMuted} />
               )}
             </Pressable>
           </View>
@@ -378,9 +382,9 @@ function SecuritySection({ user }: { user: AuthUser }) {
               className="bg-surface border border-l-0 border-surface-border rounded-r px-3 py-2"
             >
               {showNew ? (
-                <EyeOff size={14} color="#999" />
+                <EyeOff size={14} color={t.textMuted} />
               ) : (
-                <Eye size={14} color="#999" />
+                <Eye size={14} color={t.textMuted} />
               )}
             </Pressable>
           </View>

@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Plus, Play, Square, Container, RefreshCw } from "lucide-react";
 import { useWorkspaces, useStartWorkspace, useStopWorkspace } from "@/src/api/hooks/useWorkspaces";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 import type { SharedWorkspace } from "@/src/types/api";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -31,21 +32,22 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
   onPress: () => void;
   isWide: boolean;
 }) {
+  const t = useThemeTokens();
   return (
     <button
       onClick={onPress}
       style={{
         display: "flex", flexDirection: "column", gap: 10,
         padding: isWide ? "16px 20px" : "12px 14px",
-        background: "#111", borderRadius: 10,
-        border: "1px solid #1a1a1a",
+        background: t.inputBg, borderRadius: 10,
+        border: `1px solid ${t.surfaceRaised}`,
         cursor: "pointer", textAlign: "left", width: "100%",
       }}
     >
       {/* Top row: name + status */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Container size={14} color="#93c5fd" />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           {workspace.name}
         </span>
         <StatusBadge status={workspace.status} />
@@ -53,7 +55,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
 
       {/* Description */}
       {workspace.description && (
-        <div style={{ fontSize: 12, color: "#888", lineHeight: 1.4 }}>
+        <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.4 }}>
           {workspace.description.length > 120
             ? workspace.description.slice(0, 120) + "..."
             : workspace.description}
@@ -61,7 +63,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
       )}
 
       {/* Info row */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#666" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{workspace.image}</span>
         {workspace.bots.length > 0 && (
           <span>{workspace.bots.length} bot{workspace.bots.length !== 1 ? "s" : ""}</span>
@@ -93,6 +95,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
 }
 
 export default function WorkspacesScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: workspaces, isLoading } = useWorkspaces();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -102,7 +105,7 @@ export default function WorkspacesScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -118,7 +121,7 @@ export default function WorkspacesScreen() {
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
-              background: "#3b82f6", color: "#fff", cursor: "pointer",
+              background: t.accent, color: "#fff", cursor: "pointer",
             }}
           >
             <Plus size={14} />
@@ -136,8 +139,8 @@ export default function WorkspacesScreen() {
           <div style={{
             padding: 40, textAlign: "center", fontSize: 13,
           }}>
-            <div style={{ color: "#555", marginBottom: 8 }}>No shared workspaces yet.</div>
-            <div style={{ color: "#444", fontSize: 12 }}>
+            <div style={{ color: t.textDim, marginBottom: 8 }}>No shared workspaces yet.</div>
+            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>
               Create a workspace to give multiple bots a shared Docker environment.
             </div>
           </div>

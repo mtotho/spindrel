@@ -3,6 +3,8 @@
  * Uses inline SVG (web) — no external charting library needed.
  */
 
+import { useThemeTokens } from "../../theme/tokens";
+
 interface BarChartItem {
   label: string;
   value: number;
@@ -22,10 +24,11 @@ export function BarChart({
   barColor = "#3b82f6",
   maxBars = 10,
 }: BarChartProps) {
+  const t = useThemeTokens();
   const displayed = items.slice(0, maxBars);
   if (displayed.length === 0) {
     return (
-      <div style={{ padding: 20, textAlign: "center", color: "#666", fontSize: 13 }}>
+      <div style={{ padding: 20, textAlign: "center", color: t.textDim, fontSize: 13 }}>
         No data
       </div>
     );
@@ -36,7 +39,6 @@ export function BarChart({
   const gap = 6;
   const labelWidth = 160;
   const valueWidth = 80;
-  const chartHeight = displayed.length * (barHeight + gap) - gap;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: gap }}>
@@ -46,7 +48,7 @@ export function BarChart({
             style={{
               width: labelWidth,
               fontSize: 12,
-              color: "#999",
+              color: t.textMuted,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -75,7 +77,7 @@ export function BarChart({
             style={{
               width: valueWidth,
               fontSize: 12,
-              color: "#ccc",
+              color: t.text,
               textAlign: "right",
               fontFamily: "monospace",
               flexShrink: 0,
@@ -109,9 +111,10 @@ export function LineChart({
   fillColor = "rgba(59,130,246,0.15)",
   height = 200,
 }: LineChartProps) {
+  const t = useThemeTokens();
   if (points.length === 0) {
     return (
-      <div style={{ padding: 20, textAlign: "center", color: "#666", fontSize: 13 }}>
+      <div style={{ padding: 20, textAlign: "center", color: t.textDim, fontSize: 13 }}>
         No data
       </div>
     );
@@ -168,14 +171,14 @@ export function LineChart({
               y1={g.y}
               x2={chartWidth - paddingRight}
               y2={g.y}
-              stroke="#333"
+              stroke={t.surfaceBorder}
               strokeWidth={1}
             />
             <text
               x={paddingLeft - 8}
               y={g.y + 4}
               textAnchor="end"
-              fill="#666"
+              fill={t.textDim}
               fontSize={10}
             >
               {g.label}
@@ -197,7 +200,7 @@ export function LineChart({
             cy={c.y}
             r={3}
             fill={lineColor}
-            stroke="#111"
+            stroke={t.surface}
             strokeWidth={1}
           />
         ))}
@@ -209,7 +212,7 @@ export function LineChart({
             x={paddingLeft + p.i * xStep}
             y={height - 8}
             textAnchor="middle"
-            fill="#666"
+            fill={t.textDim}
             fontSize={10}
           >
             {p.label}

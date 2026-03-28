@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { Plus, ExternalLink, Server } from "lucide-react";
 import { useProviders, useTestProvider, type ProviderItem } from "@/src/api/hooks/useProviders";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   litellm: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
@@ -28,15 +29,16 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey: boolean }) {
+  const t = useThemeTokens();
   return (
     <div style={{
       display: "flex", flexDirection: "column", gap: 8,
-      padding: "16px 20px", background: "#111", borderRadius: 10,
+      padding: "16px 20px", background: t.inputBg, borderRadius: 10,
       border: "1px solid rgba(59,130,246,0.2)",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Server size={14} color="#93c5fd" />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           LiteLLM (.env fallback)
         </span>
         <span style={{
@@ -47,22 +49,23 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
         </span>
         <span style={{ fontSize: 11, fontWeight: 600, color: "#86efac" }}>active</span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#666" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         {baseUrl && (
-          <span style={{ fontFamily: "monospace", color: "#888" }}>{baseUrl}</span>
+          <span style={{ fontFamily: "monospace", color: t.textMuted }}>{baseUrl}</span>
         )}
-        <span style={{ color: hasKey ? "#555" : "#444" }}>
+        <span style={{ color: hasKey ? t.textDim : t.surfaceBorder }}>
           {hasKey ? "API key set" : "No API key"}
         </span>
       </div>
-      <div style={{ fontSize: 10, color: "#444" }}>
-        Bots with no provider assigned use this fallback. Configure via <code style={{ color: "#555" }}>LITELLM_BASE_URL</code> / <code style={{ color: "#555" }}>LITELLM_API_KEY</code> in .env.
+      <div style={{ fontSize: 10, color: t.surfaceBorder }}>
+        Bots with no provider assigned use this fallback. Configure via <code style={{ color: t.textDim }}>LITELLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LITELLM_API_KEY</code> in .env.
       </div>
     </div>
   );
 }
 
 function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; onPress: () => void; isWide: boolean }) {
+  const t = useThemeTokens();
   const testMut = useTestProvider();
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -81,8 +84,8 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
       style={{
         display: "flex", flexDirection: "column", gap: 10,
         padding: isWide ? "16px 20px" : "12px 14px",
-        background: "#111", borderRadius: 10,
-        border: `1px solid ${provider.is_enabled ? "#1a1a1a" : "#2a1a1a"}`,
+        background: t.inputBg, borderRadius: 10,
+        border: `1px solid ${provider.is_enabled ? t.surfaceRaised : "#2a1a1a"}`,
         cursor: "pointer", textAlign: "left", width: "100%",
         opacity: provider.is_enabled ? 1 : 0.6,
       }}
@@ -93,14 +96,14 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
           width: 8, height: 8, borderRadius: 4, flexShrink: 0,
           background: provider.is_enabled ? "#22c55e" : "#ef4444",
         }} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           {provider.display_name}
         </span>
         <TypeBadge type={provider.provider_type} />
       </div>
 
       {/* Info row */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#666" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         <span style={{ fontFamily: "monospace" }}>{provider.id}</span>
         {provider.base_url && (
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -108,12 +111,12 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
             {provider.base_url.replace(/^https?:\/\//, "").slice(0, 30)}
           </span>
         )}
-        {provider.has_api_key && <span style={{ color: "#555" }}>API key set</span>}
+        {provider.has_api_key && <span style={{ color: t.textDim }}>API key set</span>}
       </div>
 
       {/* Rate limits */}
       {(provider.tpm_limit || provider.rpm_limit) && (
-        <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#555" }}>
+        <div style={{ display: "flex", gap: 12, fontSize: 11, color: t.textDim }}>
           {provider.tpm_limit && <span>TPM: {provider.tpm_limit.toLocaleString()}</span>}
           {provider.rpm_limit && <span>RPM: {provider.rpm_limit.toLocaleString()}</span>}
         </div>
@@ -126,8 +129,8 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
           disabled={testMut.isPending}
           style={{
             padding: "4px 12px", fontSize: 11, fontWeight: 600,
-            border: "1px solid #333", borderRadius: 5,
-            background: "transparent", color: "#999", cursor: "pointer",
+            border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+            background: "transparent", color: t.textMuted, cursor: "pointer",
           }}
         >
           {testMut.isPending ? "Testing..." : "Test Connection"}
@@ -146,6 +149,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
 }
 
 export default function ProvidersScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data, isLoading } = useProviders();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -175,7 +179,7 @@ export default function ProvidersScreen() {
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
-              background: "#3b82f6", color: "#fff", cursor: "pointer",
+              background: t.accent, color: "#fff", cursor: "pointer",
             }}
           >
             <Plus size={14} />
@@ -198,9 +202,9 @@ export default function ProvidersScreen() {
           <div style={{
             padding: 40, textAlign: "center", fontSize: 13,
           }}>
-            <div style={{ color: "#555", marginBottom: 8 }}>No providers configured.</div>
-            <div style={{ color: "#444", fontSize: 12 }}>
-              Set <code style={{ color: "#666" }}>LITELLM_BASE_URL</code> / <code style={{ color: "#666" }}>LITELLM_API_KEY</code> in .env or add a provider above.
+            <div style={{ color: t.textDim, marginBottom: 8 }}>No providers configured.</div>
+            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>
+              Set <code style={{ color: t.textDim }}>LITELLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LITELLM_API_KEY</code> in .env or add a provider above.
             </div>
           </div>
         )}
@@ -226,10 +230,10 @@ export default function ProvidersScreen() {
         {/* Fallback note when DB providers exist */}
         {providers && providers.length > 0 && (
           <div style={{
-            padding: 12, fontSize: 11, color: "#444", borderTop: "1px solid #1a1a1a",
+            padding: 12, fontSize: 11, color: t.surfaceBorder, borderTop: `1px solid ${t.surfaceRaised}`,
             marginTop: 4,
           }}>
-            Bots with no provider assigned use the first enabled <code style={{ color: "#555" }}>litellm</code> provider, or the .env fallback if none exist.
+            Bots with no provider assigned use the first enabled <code style={{ color: t.textDim }}>litellm</code> provider, or the .env fallback if none exist.
           </div>
         )}
       </RefreshableScrollView>

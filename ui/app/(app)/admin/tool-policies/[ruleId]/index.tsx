@@ -17,6 +17,7 @@ import {
   SelectInput,
   Toggle,
 } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 const ACTION_OPTIONS = [
   { label: "Allow", value: "allow" },
@@ -25,6 +26,7 @@ const ACTION_OPTIONS = [
 ];
 
 export default function ToolPolicyDetailScreen() {
+  const t = useThemeTokens();
   const params = useLocalSearchParams<{ ruleId: string; bot_id?: string }>();
   const ruleId = params.ruleId;
   const isNew = ruleId === "new";
@@ -139,7 +141,7 @@ export default function ToolPolicyDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -153,7 +155,7 @@ export default function ToolPolicyDetailScreen() {
           alignItems: "center",
           gap: 12,
           padding: "12px 20px",
-          borderBottom: "1px solid #222",
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
         }}
       >
         <button
@@ -165,14 +167,14 @@ export default function ToolPolicyDetailScreen() {
             padding: 4,
           }}
         >
-          <ChevronLeft size={22} color="#888" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
         <span
           style={{
             flex: 1,
             fontSize: 16,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
           }}
         >
           {isNew ? "New Policy Rule" : "Edit Policy Rule"}
@@ -202,7 +204,7 @@ export default function ToolPolicyDetailScreen() {
           style={{
             padding: "6px 18px",
             borderRadius: 6,
-            background: isSaving || !toolName.trim() ? "#333" : "#3b82f6",
+            background: isSaving || !toolName.trim() ? t.surfaceBorder : t.accent,
             border: "none",
             cursor: isSaving || !toolName.trim() ? "default" : "pointer",
             fontSize: 13,
@@ -305,11 +307,11 @@ export default function ToolPolicyDetailScreen() {
               rows={6}
               placeholder={'{\n  "arguments": {\n    "command": { "pattern": "^rm " }\n  }\n}'}
               style={{
-                background: "#111",
-                border: "1px solid #333",
+                background: t.inputBg,
+                border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 8,
                 padding: "8px 12px",
-                color: "#e5e5e5",
+                color: t.text,
                 fontSize: 13,
                 fontFamily: "monospace",
                 width: "100%",
@@ -317,10 +319,10 @@ export default function ToolPolicyDetailScreen() {
                 outline: "none",
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = "#3b82f6";
+                e.target.style.borderColor = t.accent;
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = "#333";
+                e.target.style.borderColor = t.surfaceBorder;
               }}
             />
           </Section>
@@ -357,11 +359,11 @@ export default function ToolPolicyDetailScreen() {
                 gap: 6,
                 padding: "8px 16px",
                 borderRadius: 6,
-                background: "#222",
-                border: "1px solid #333",
+                background: t.surfaceOverlay,
+                border: `1px solid ${t.surfaceBorder}`,
                 cursor: "pointer",
                 fontSize: 13,
-                color: "#e5e5e5",
+                color: t.text,
                 alignSelf: "flex-start",
               }}
             >
@@ -373,7 +375,7 @@ export default function ToolPolicyDetailScreen() {
                 style={{
                   padding: "8px 12px",
                   borderRadius: 6,
-                  background: "#1a1a1a",
+                  background: t.surfaceRaised,
                   fontSize: 12,
                   color: "#93c5fd",
                   fontFamily: "monospace",
@@ -390,7 +392,7 @@ export default function ToolPolicyDetailScreen() {
                 <span
                   style={{
                     fontSize: 12,
-                    color: "#666",
+                    color: t.textDim,
                     fontFamily: "monospace",
                   }}
                 >
@@ -398,12 +400,12 @@ export default function ToolPolicyDetailScreen() {
                 </span>
               </FormRow>
               <FormRow label="Created">
-                <span style={{ fontSize: 13, color: "#888" }}>
+                <span style={{ fontSize: 13, color: t.textMuted }}>
                   {new Date(rule.created_at).toLocaleString()}
                 </span>
               </FormRow>
               <FormRow label="Updated">
-                <span style={{ fontSize: 13, color: "#888" }}>
+                <span style={{ fontSize: 13, color: t.textMuted }}>
                   {new Date(rule.updated_at).toLocaleString()}
                 </span>
               </FormRow>

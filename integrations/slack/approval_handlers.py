@@ -1,10 +1,11 @@
 """Slack Block Kit action handlers for tool approval buttons.
 
-Handles approve_tool_call, deny_tool_call, and allow_always_tool_call
+Handles approve_tool_call, deny_tool_call, and allow_rule_N
 button clicks from Block Kit messages sent by SlackDispatcher.request_approval().
 """
 import json
 import logging
+import re
 
 import httpx
 
@@ -34,27 +35,33 @@ def register_approval_handlers(app) -> None:
             respond=respond, body=body,
         )
 
-    @app.action("allow_always_tool_call")
-    async def handle_allow_always(ack, body, respond):
+    # Dynamic rule suggestion buttons: allow_rule_0, allow_rule_1, allow_rule_2
+    @app.action(re.compile(r"^allow_rule_\d+$"))
+    async def handle_allow_rule(ack, body, respond):
         await ack()
         raw = body["actions"][0]["value"]
         data = json.loads(raw)
         approval_id = data["approval_id"]
         bot_id = data["bot_id"]
         tool_name = data["tool_name"]
+        conditions = data.get("conditions", {})
+        label = data.get("label", tool_name)
         user_id = body.get("user", {}).get("id", "unknown")
 
-        # Approve this call
-        ok = await _decide(approval_id, approved=True, decided_by=f"slack:{user_id}")
+        ok = await _decide_with_rule(
+            approval_id,
+            decided_by=f"slack:{user_id}",
+            create_rule={"tool_name": tool_name, "conditions": conditions},
+        )
         if ok:
-            # Create an allow rule so it never asks again
-            await _create_allow_rule(bot_id, tool_name, decided_by=f"slack:{user_id}")
             await _update_message(
                 respond, body,
-                f":white_check_mark: *Approved* and *always allowed* for `{tool_name}` on `{bot_id}` by <@{user_id}>",
+                f":white_check_mark: *Approved* + rule created: *{label}* for `{bot_id}` by <@{user_id}>",
             )
+        elif ok is None:
+            await _update_message(respond, body, ":warning: Approval already resolved.")
         else:
-            await _update_message(respond, body, f":warning: Approval already resolved.")
+            await _update_message(respond, body, ":x: Failed to process approval.")
 
 
 async def _decide_and_update(
@@ -69,9 +76,9 @@ async def _decide_and_update(
     if ok:
         await _update_message(respond, body, f"{emoji} *{verdict}* by <@{user_id}>")
     elif ok is None:
-        await _update_message(respond, body, f":warning: Approval already resolved.")
+        await _update_message(respond, body, ":warning: Approval already resolved.")
     else:
-        await _update_message(respond, body, f":x: Failed to process approval.")
+        await _update_message(respond, body, ":x: Failed to process approval.")
 
 
 async def _decide(approval_id: str, *, approved: bool, decided_by: str) -> bool | None:
@@ -101,17 +108,17 @@ async def _decide(approval_id: str, *, approved: bool, decided_by: str) -> bool 
         return False
 
 
-async def _create_allow_rule(bot_id: str, tool_name: str, *, decided_by: str) -> None:
-    """Create an allow policy rule for this bot+tool so it's auto-approved going forward."""
+async def _decide_with_rule(
+    approval_id: str, *, decided_by: str, create_rule: dict,
+) -> bool | None:
+    """Approve + create an allow rule in a single call."""
     from slack_settings import AGENT_BASE_URL, API_KEY
 
-    url = f"{AGENT_BASE_URL}/api/v1/tool-policies"
+    url = f"{AGENT_BASE_URL}/api/v1/approvals/{approval_id}/decide"
     payload = {
-        "bot_id": bot_id,
-        "tool_name": tool_name,
-        "action": "allow",
-        "priority": 50,
-        "reason": f"Allowed via Slack by {decided_by}",
+        "approved": True,
+        "decided_by": decided_by,
+        "create_rule": create_rule,
     }
 
     try:
@@ -120,17 +127,20 @@ async def _create_allow_rule(bot_id: str, tool_name: str, *, decided_by: str) ->
                 url, json=payload,
                 headers={"Authorization": f"Bearer {API_KEY}"},
             )
-            if r.status_code == 201:
-                logger.info("Created allow rule for %s/%s via Slack", bot_id, tool_name)
+            if r.status_code == 200:
+                return True
+            elif r.status_code == 409:
+                return None
             else:
-                logger.error("Failed to create allow rule: %d %s", r.status_code, r.text)
+                logger.error("Approval decide+rule failed: %d %s", r.status_code, r.text)
+                return False
     except Exception:
-        logger.exception("Failed to create allow rule for %s/%s", bot_id, tool_name)
+        logger.exception("Failed to decide+rule approval %s", approval_id)
+        return False
 
 
 async def _update_message(respond, body, text: str) -> None:
     """Replace the original approval message with a resolved status (no buttons)."""
-    # Preserve the original context blocks (bot, tool, args) but replace actions
     original_blocks = body.get("message", {}).get("blocks", [])
     updated_blocks = [b for b in original_blocks if b.get("type") != "actions"]
     updated_blocks.append({

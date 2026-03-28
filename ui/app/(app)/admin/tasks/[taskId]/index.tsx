@@ -13,6 +13,7 @@ import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 const STATUS_OPTIONS = [
   { label: "Pending", value: "pending" },
@@ -42,10 +43,11 @@ function fmtDatetime(iso: string | null | undefined) {
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
-      <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>{value}</span>
+      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
   );
 }
@@ -63,6 +65,7 @@ const SCHEDULE_PRESETS = [
 ];
 
 function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useThemeTokens();
   const isRelative = /^\+\d+[smhd]$/.test(value);
 
   return (
@@ -74,8 +77,8 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
-              background: !value ? "#3b82f6" : "#1a1a1a",
-              color: !value ? "#fff" : "#888",
+              background: !value ? t.accent : t.surfaceRaised,
+              color: !value ? "#fff" : t.textMuted,
             }}
           >
             Now
@@ -87,8 +90,8 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
-                background: value === p.value ? "#3b82f6" : "#1a1a1a",
-                color: value === p.value ? "#fff" : "#888",
+                background: value === p.value ? t.accent : t.surfaceRaised,
+                color: value === p.value ? "#fff" : t.textMuted,
               }}
             >
               {p.label}
@@ -100,13 +103,13 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
           value={isRelative ? "" : value}
           onChange={(e) => onChange(e.target.value)}
           style={{
-            background: "#111", border: "1px solid #333", borderRadius: 8,
-            padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
+            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+            padding: "7px 12px", color: t.text, fontSize: 13,
             outline: "none", colorScheme: "dark",
           }}
         />
         {isRelative && (
-          <div style={{ fontSize: 10, color: "#666" }}>
+          <div style={{ fontSize: 10, color: t.textDim }}>
             Relative: runs {value} from now
           </div>
         )}
@@ -130,6 +133,7 @@ const RECURRENCE_PRESETS = [
 ];
 
 function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useThemeTokens();
   const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
   const showCustom = !!value && !isPreset;
 
@@ -144,8 +148,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
-                background: value === p.value ? (p.value ? "#92400e" : "#333") : "#1a1a1a",
-                color: value === p.value ? (p.value ? "#fcd34d" : "#e5e5e5") : "#888",
+                background: value === p.value ? (p.value ? "#92400e" : t.surfaceBorder) : t.surfaceRaised,
+                color: value === p.value ? (p.value ? "#fcd34d" : t.text) : t.textMuted,
               }}
             >
               {p.label}
@@ -156,8 +160,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
-              background: showCustom ? "#92400e" : "#1a1a1a",
-              color: showCustom ? "#fcd34d" : "#888",
+              background: showCustom ? "#92400e" : t.surfaceRaised,
+              color: showCustom ? "#fcd34d" : t.textMuted,
             }}
           >
             Custom
@@ -170,8 +174,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
             onChange={(e) => onChange(e.target.value)}
             placeholder="+3h, +45m, etc."
             style={{
-              background: "#111", border: "1px solid #333", borderRadius: 8,
-              padding: "7px 12px", color: "#e5e5e5", fontSize: 13, outline: "none",
+              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+              padding: "7px 12px", color: t.text, fontSize: 13, outline: "none",
               maxWidth: 200,
             }}
           />
@@ -182,6 +186,7 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
 }
 
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
+  const t = useThemeTokens();
   return (
     <button
       onClick={() => onChange(!enabled)}
@@ -196,7 +201,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
     >
       <div style={{
         width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? "#22c55e" : "#555",
+        background: enabled ? "#22c55e" : t.textDim,
         transition: "background 0.2s",
       }}>
         <div style={{
@@ -212,6 +217,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 }
 
 export default function TaskDetailScreen() {
+  const t = useThemeTokens();
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   const goBackNav = useGoBack("/admin/tasks");
   const qc = useQueryClient();
@@ -296,7 +302,7 @@ export default function TaskDetailScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -306,15 +312,15 @@ export default function TaskDetailScreen() {
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: "1px solid #333", flexShrink: 0,
+        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0,
         gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>Edit Task</span>
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>Edit Task</span>
         {isWide && (
-          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>
+          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
             {taskId?.slice(0, 8)}
           </span>
         )}
@@ -347,8 +353,8 @@ export default function TaskDetailScreen() {
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!hasPrompt || !botId) ? "#333" : "#3b82f6",
-            color: (!hasPrompt || !botId) ? "#666" : "#fff",
+            background: (!hasPrompt || !botId) ? t.surfaceBorder : t.accent,
+            color: (!hasPrompt || !botId) ? t.textDim : "#fff",
             cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
           }}
         >
@@ -369,7 +375,7 @@ export default function TaskDetailScreen() {
       }}>
         {/* Prompt + Result/Error */}
         <div style={{
-          ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
           display: "flex", flexDirection: "column",
         }}>
           <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -414,9 +420,9 @@ export default function TaskDetailScreen() {
 
             {task?.result && (
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Result</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
                 <div style={{
-                  padding: 12, borderRadius: 8, background: "#111", border: "1px solid #1a1a1a",
+                  padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
                   fontSize: 12, color: "#86efac", whiteSpace: "pre-wrap",
                   maxHeight: 300, overflow: "auto", fontFamily: "monospace",
                 }}>
@@ -427,7 +433,7 @@ export default function TaskDetailScreen() {
 
             {task?.error && (
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Error</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
                 <div style={{
                   padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid #7f1d1d",
                   fontSize: 12, color: "#fca5a5", whiteSpace: "pre-wrap",
@@ -444,7 +450,7 @@ export default function TaskDetailScreen() {
         <div style={{
           ...(isWide ? { flex: 2 } : {}),
           padding: "16px 20px",
-          borderTop: isWide ? "none" : "1px solid #2a2a2a",
+          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
         }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <Section title="Configuration">
@@ -514,9 +520,9 @@ export default function TaskDetailScreen() {
                   <InfoRow label="Type" value={task.dispatch_type} />
                   {task.dispatch_config && (
                     <div>
-                      <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Config</div>
+                      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Config</div>
                       <pre style={{
-                        fontSize: 10, color: "#888", background: "#111", padding: 8,
+                        fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
                         borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
                       }}>
                         {JSON.stringify(task.dispatch_config, null, 2)}
@@ -525,9 +531,9 @@ export default function TaskDetailScreen() {
                   )}
                   {task.callback_config && (
                     <div>
-                      <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Callback Config</div>
+                      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Callback Config</div>
                       <pre style={{
-                        fontSize: 10, color: "#888", background: "#111", padding: 8,
+                        fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
                         borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
                       }}>
                         {JSON.stringify(task.callback_config, null, 2)}

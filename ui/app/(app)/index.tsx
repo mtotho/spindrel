@@ -6,6 +6,7 @@ import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Hash,
   Bot,
@@ -18,6 +19,7 @@ export default function HomeScreen() {
   const { data: bots } = useBots();
   const columns = useResponsiveColumns();
   const { refreshing, onRefresh } = usePageRefresh();
+  const t = useThemeTokens();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
   return (
@@ -51,11 +53,11 @@ export default function HomeScreen() {
           </View>
         ) : channelsLoading ? (
           <View className="items-center py-12">
-            <Activity size={24} color="#666666" className="animate-spin" />
+            <Activity size={24} color={t.textDim} className="animate-spin" />
           </View>
         ) : channels?.length === 0 ? (
           <View className="items-center py-16 gap-3">
-            <Hash size={36} color="#555555" />
+            <Hash size={36} color={t.textDim} />
             <Text className="text-text-muted text-base">No channels yet</Text>
             <Text className="text-text-dim text-sm">Create a channel to get started</Text>
           </View>
@@ -71,15 +73,15 @@ export default function HomeScreen() {
                 >
                   <Pressable className="bg-surface-raised border border-surface-border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer" style={{ padding: 16 }}>
                     <View style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: "rgba(59,130,246,0.12)", alignItems: "center", justifyContent: "center" }}>
-                      <Hash size={22} color="#3b82f6" />
+                      <Hash size={22} color={t.accent} />
                     </View>
                     <View className="flex-1 min-w-0">
-                      <Text style={{ fontSize: 15, fontWeight: "600", color: "#e5e5e5" }} numberOfLines={1}>
+                      <Text style={{ fontSize: 15, fontWeight: "600", color: t.text }} numberOfLines={1}>
                         {channel.display_name || channel.name || channel.client_id}
                       </Text>
                       <View className="flex-row items-center gap-2 mt-1">
-                        <Bot size={13} color="#999999" />
-                        <Text style={{ fontSize: 13, color: "#999" }}>
+                        <Bot size={13} color={t.textMuted} />
+                        <Text style={{ fontSize: 13, color: t.textMuted }}>
                           {bot?.name ?? channel.bot_id}
                         </Text>
                         {(channel.integrations?.length ?? 0) > 0 ? (

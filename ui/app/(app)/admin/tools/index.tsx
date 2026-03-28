@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Wrench, Server, Cpu } from "lucide-react";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function TypeBadge({ tool }: { tool: ToolItem }) {
   if (tool.server_name) {
@@ -45,6 +46,7 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => void; isWide: boolean }) {
+  const t = useThemeTokens();
   const desc = tool.description || "";
   const source = tool.server_name || tool.source_file || tool.source_dir || "";
 
@@ -54,26 +56,26 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
         onClick={onPress}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
-          padding: "12px 16px", background: "#111", borderRadius: 8,
-          border: "1px solid #1a1a1a", cursor: "pointer", textAlign: "left",
+          padding: "12px 16px", background: t.inputBg, borderRadius: 8,
+          border: `1px solid ${t.surfaceRaised}`, cursor: "pointer", textAlign: "left",
           width: "100%",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1, fontFamily: "monospace" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1, fontFamily: "monospace" }}>
             {tool.tool_name}
           </span>
           <TypeBadge tool={tool} />
         </div>
         {desc && (
           <div style={{
-            fontSize: 11, color: "#888",
+            fontSize: 11, color: t.textMuted,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {desc.slice(0, 120)}
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#555" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
           {source && <span style={{ fontFamily: "monospace" }}>{source}</span>}
         </div>
       </button>
@@ -87,28 +89,28 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
         display: "grid", gridTemplateColumns: "200px 1fr 90px 120px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: "1px solid #1a1a1a", cursor: "pointer",
+        borderBottom: `1px solid ${t.surfaceRaised}`, cursor: "pointer",
         textAlign: "left", width: "100%", border: "none",
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "#111")}
+      onMouseEnter={(e) => (e.currentTarget.style.background = t.inputBg)}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <span style={{
-        fontSize: 12, fontFamily: "monospace", color: "#e5e5e5", fontWeight: 600,
+        fontSize: 12, fontFamily: "monospace", color: t.text, fontWeight: 600,
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
       }}>
         {tool.tool_name}
       </span>
       <div style={{ overflow: "hidden" }}>
         <div style={{
-          fontSize: 12, color: "#888",
+          fontSize: 12, color: t.textMuted,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
           {desc || "\u2014"}
         </div>
         {source && (
           <div style={{
-            fontSize: 10, color: "#555", fontFamily: "monospace",
+            fontSize: 10, color: t.textDim, fontFamily: "monospace",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             marginTop: 2,
           }}>
@@ -117,7 +119,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
         )}
       </div>
       <TypeBadge tool={tool} />
-      <span style={{ fontSize: 11, color: "#666", textAlign: "right" }}>
+      <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>
         {fmtDate(tool.indexed_at)}
       </span>
     </button>
@@ -125,6 +127,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
 }
 
 export default function ToolsScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: tools, isLoading } = useTools();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -161,8 +164,8 @@ export default function ToolsScreen() {
         <div style={{
           display: "grid", gridTemplateColumns: "200px 1fr 90px 120px",
           gap: 12, padding: "8px 16px",
-          borderBottom: "1px solid #222",
-          fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: 1,
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
+          fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1,
         }}>
           <span>Name</span>
           <span>Description</span>
@@ -178,7 +181,7 @@ export default function ToolsScreen() {
       }}>
         {(!tools || tools.length === 0) && (
           <div style={{
-            padding: 40, textAlign: "center", color: "#555", fontSize: 13,
+            padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,
           }}>
             No tools indexed yet. Tools are indexed automatically on server startup.
           </div>
@@ -188,9 +191,9 @@ export default function ToolsScreen() {
         {localTools.length > 0 && !isWide && (
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
-            padding: "8px 4px 4px", fontSize: 11, fontWeight: 600, color: "#555",
+            padding: "8px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
           }}>
-            <Cpu size={12} color="#555" />
+            <Cpu size={12} color={t.textDim} />
             Local ({localTools.length})
           </div>
         )}
@@ -207,9 +210,9 @@ export default function ToolsScreen() {
         {integrationTools.length > 0 && !isWide && (
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
-            padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: "#555",
+            padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
           }}>
-            <Wrench size={12} color="#555" />
+            <Wrench size={12} color={t.textDim} />
             Integration ({integrationTools.length})
           </div>
         )}
@@ -228,9 +231,9 @@ export default function ToolsScreen() {
             {!isWide && (
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
-                padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: "#555",
+                padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
               }}>
-                <Server size={12} color="#555" />
+                <Server size={12} color={t.textDim} />
                 {server} ({serverTools.length})
               </div>
             )}

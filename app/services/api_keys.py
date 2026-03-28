@@ -167,6 +167,67 @@ SCOPE_GROUPS: dict[str, dict] = {
     },
 }
 
+# Pre-built scope bundles for common use cases.
+# The API returns these alongside groups so the UI can offer one-click presets.
+SCOPE_PRESETS: dict[str, dict] = {
+    "slack_integration": {
+        "name": "Slack Integration",
+        "description": "Full access for the Slack bot — chat, channels, sessions, model switching, approvals",
+        "scopes": [
+            "admin",
+            "chat", "bots:read",
+            "channels:read", "channels:write",
+            "sessions:read", "sessions:write",
+            "todos:read",
+        ],
+        "instructions": (
+            "Set this key as `AGENT_API_KEY` in your Slack integration environment.\n\n"
+            "The Slack bot needs `admin` scope for model switching (`/model set`), "
+            "channel settings, and tool approval handling.\n\n"
+            "If running via docker compose, add to your `.env`:\n"
+            "```\nAGENT_API_KEY=ask_your_key_here\n```"
+        ),
+    },
+    "chat_client": {
+        "name": "Chat Client",
+        "description": "Send messages and read responses — no admin access",
+        "scopes": [
+            "chat", "bots:read",
+            "channels:read", "channels:write",
+            "sessions:read",
+            "attachments:read",
+        ],
+        "instructions": "Set as `AGENT_SERVER_API_KEY` in the client environment.",
+    },
+    "workspace_bot": {
+        "name": "Workspace Bot",
+        "description": "For bots in shared workspace containers — chat, files, tasks, documents",
+        "scopes": [
+            "chat", "bots:read",
+            "channels:read", "channels:write",
+            "sessions:read",
+            "tasks:read", "tasks:write",
+            "documents:read", "documents:write",
+            "todos:read", "todos:write",
+            "workspaces.files:read", "workspaces.files:write",
+            "attachments:read",
+        ],
+        "instructions": (
+            "Injected automatically when a bot has API permissions configured.\n"
+            "Use the `agent` CLI inside the workspace container."
+        ),
+    },
+    "read_only": {
+        "name": "Read-Only Monitor",
+        "description": "Read channels, sessions, tasks — no write access",
+        "scopes": [
+            "bots:read", "channels:read", "sessions:read",
+            "tasks:read", "todos:read", "attachments:read",
+        ],
+        "instructions": "Safe for dashboards and monitoring. Cannot send messages or modify data.",
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Endpoint catalog (used by /discover)
 # ---------------------------------------------------------------------------

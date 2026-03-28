@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { FolderOpen, Unlink, Save, X, Edit3, FileText } from "lucide-react";
 import { useWorkspaces, useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { WorkspaceFilePicker } from "./WorkspaceFilePicker";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface Props {
   /** Default workspace id (e.g. from the bot). Null/undefined = let user pick. */
@@ -55,6 +56,7 @@ function BrowseButton({
   hasAnyWorkspace: boolean;
   onLink: (path: string, workspaceId: string) => void;
 }) {
+  const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
   const [pickerWsId, setPickerWsId] = useState<string | null>(null);
@@ -70,9 +72,9 @@ function BrowseButton({
         style={{
           display: "inline-flex", alignItems: "center", gap: 4,
           padding: "3px 8px", fontSize: 11, fontWeight: 600,
-          border: "1px solid #333", borderRadius: 4,
-          background: open ? "#1a1a1a" : "transparent",
-          color: "#888", cursor: "pointer",
+          border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+          background: open ? t.surfaceRaised : "transparent",
+          color: t.textMuted, cursor: "pointer",
         }}
       >
         <FolderOpen size={11} />
@@ -94,8 +96,8 @@ function BrowseButton({
                 left: btnRef.current?.getBoundingClientRect().left ?? 0,
                 width: 400,
                 zIndex: 10011,
-                background: "#1a1a1a",
-                border: "1px solid #333",
+                background: t.surfaceRaised,
+                border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 8,
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 display: "flex",
@@ -104,12 +106,12 @@ function BrowseButton({
                 gap: 10,
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#999", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Select workspace file
               </div>
 
               {!hasAnyWorkspace ? (
-                <div style={{ padding: "16px 8px", textAlign: "center", color: "#555", fontSize: 12 }}>
+                <div style={{ padding: "16px 8px", textAlign: "center", color: t.textDim, fontSize: 12 }}>
                   No workspaces available. Create a workspace first.
                 </div>
               ) : (
@@ -120,12 +122,12 @@ function BrowseButton({
                       value={effectiveWsId ?? ""}
                       onChange={(e) => { setPickerWsId(e.target.value); setSelected(""); }}
                       style={{
-                        background: "#111",
-                        border: "1px solid #333",
+                        background: t.inputBg,
+                        border: `1px solid ${t.surfaceBorder}`,
                         borderRadius: 4,
                         padding: "5px 8px",
                         fontSize: 11,
-                        color: "#e5e5e5",
+                        color: t.text,
                         outline: "none",
                       }}
                     >
@@ -150,8 +152,8 @@ function BrowseButton({
                   onClick={() => { setOpen(false); setSelected(""); }}
                   style={{
                     padding: "4px 12px", fontSize: 11,
-                    background: "transparent", border: "1px solid #333",
-                    borderRadius: 4, color: "#888", cursor: "pointer",
+                    background: "transparent", border: `1px solid ${t.surfaceBorder}`,
+                    borderRadius: 4, color: t.textMuted, cursor: "pointer",
                   }}
                 >
                   Cancel
@@ -167,8 +169,8 @@ function BrowseButton({
                   disabled={!selected}
                   style={{
                     padding: "4px 12px", fontSize: 11, fontWeight: 600,
-                    background: selected ? "#22c55e" : "#333",
-                    color: selected ? "#fff" : "#666",
+                    background: selected ? "#22c55e" : t.surfaceBorder,
+                    color: selected ? "#fff" : t.textDim,
                     border: "none", borderRadius: 4,
                     cursor: selected ? "pointer" : "not-allowed",
                   }}
@@ -189,6 +191,7 @@ function BrowseButton({
 // Inline file viewer (when a file is linked)
 // ---------------------------------------------------------------------------
 function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string; filePath: string; onUnlink: () => void }) {
+  const t = useThemeTokens();
   const { data, isLoading, error } = useWorkspaceFileContent(workspaceId, filePath);
   const writeMutation = useWriteWorkspaceFile(workspaceId);
   const [editing, setEditing] = useState(false);
@@ -230,7 +233,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
 
   return (
     <div style={{
-      border: "1px solid #222",
+      border: `1px solid ${t.surfaceOverlay}`,
       borderRadius: 8,
       overflow: "hidden",
       display: "flex",
@@ -241,8 +244,8 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
         padding: "4px 12px",
-        borderBottom: "1px solid #222",
-        background: "#0d0d0d",
+        borderBottom: `1px solid ${t.surfaceOverlay}`,
+        background: t.surface,
         flexShrink: 0,
       }}>
         <FileText size={12} color="#86efac" />
@@ -250,7 +253,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           {filePath}
         </span>
         {data?.size != null && (
-          <span style={{ fontSize: 10, color: "#555" }}>
+          <span style={{ fontSize: 10, color: t.textDim }}>
             {data.size > 1024 ? `${(data.size / 1024).toFixed(1)}KB` : `${data.size}B`}
           </span>
         )}
@@ -272,7 +275,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
               onClick={handleCancel}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "none", color: "#999", border: "1px solid #333",
+                background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 11,
                 cursor: "pointer",
               }}
@@ -286,7 +289,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
             disabled={isLoading || !!error}
             style={{
               display: "flex", alignItems: "center", gap: 4,
-              background: "none", color: "#999", border: "1px solid #333",
+              background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 4, padding: "3px 10px", fontSize: 11,
               cursor: "pointer",
             }}
@@ -300,8 +303,8 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           style={{
             display: "flex", alignItems: "center", gap: 3,
             padding: "3px 8px", fontSize: 10,
-            border: "1px solid #333", borderRadius: 4,
-            background: "transparent", color: "#888", cursor: "pointer",
+            border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            background: "transparent", color: t.textMuted, cursor: "pointer",
           }}
         >
           <Unlink size={10} /> Unlink
@@ -310,7 +313,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
 
       {/* Content */}
       {isLoading ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontSize: 12 }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.textDim, fontSize: 12 }}>
           Loading...
         </div>
       ) : error ? (
@@ -326,8 +329,8 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           autoFocus
           style={{
             flex: 1,
-            background: "#0a0a0a",
-            color: "#d4d4d4",
+            background: t.surface,
+            color: t.contentText,
             border: "none",
             outline: "none",
             resize: "none",
@@ -341,14 +344,14 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           }}
         />
       ) : (
-        <div style={{ flex: 1, overflow: "auto", background: "#0a0a0a" }}>
+        <div style={{ flex: 1, overflow: "auto", background: t.surface }}>
           <pre style={{
             margin: 0,
             padding: "8px 0",
             fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
             fontSize: 13,
             lineHeight: "20px",
-            color: "#d4d4d4",
+            color: t.contentText,
           }}>
             {lines.map((line, i) => (
               <div key={i} style={{ display: "flex", minHeight: 20 }}>
@@ -357,7 +360,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
                   width: 48,
                   textAlign: "right",
                   paddingRight: 16,
-                  color: "#444",
+                  color: t.surfaceBorder,
                   userSelect: "none",
                   flexShrink: 0,
                 }}>

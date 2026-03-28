@@ -165,11 +165,14 @@ async def admin_bot_editor_data(
         ws_persona = None
         if bot.shared_workspace_id:
             ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+        bot_row = await db.get(BotRow, bot_id)
+        api_perms = await _get_bot_api_permissions(db, bot_row) if bot_row else None
         bot_out = _bot_to_out(
             bot,
             persona_content=persona_content,
             persona_from_workspace=ws_persona is not None,
             workspace_persona_content=ws_persona,
+            api_permissions=api_perms,
         )
 
     tool_groups = _build_tool_groups(tool_rows)

@@ -658,7 +658,7 @@ async def run_compaction_stream(
             # Compute message count and period
             msg_count = sum(1 for m in to_summarize if m.get("role") in ("user", "assistant"))
 
-            # Embed for structured mode only
+            # Embed for structured mode only (file mode uses keyword search via tool)
             sec_embedding = None
             if history_mode == "structured":
                 from app.agent.embeddings import embed_text

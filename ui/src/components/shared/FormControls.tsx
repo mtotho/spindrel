@@ -4,6 +4,7 @@
  */
 
 import { View, Text, Pressable } from "react-native";
+import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Section card
@@ -38,12 +39,13 @@ export function FormRow({ label, description, children }: {
   description?: string;
   children: React.ReactNode;
 }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ color: "#999", fontSize: 12, fontWeight: 500 }}>{label}</label>
+      <label style={{ color: t.textMuted, fontSize: 12, fontWeight: 500 }}>{label}</label>
       {children}
       {description && (
-        <div style={{ color: "#555", fontSize: 11 }}>{description}</div>
+        <div style={{ color: t.textDim, fontSize: 12 }}>{description}</div>
       )}
     </div>
   );
@@ -52,17 +54,19 @@ export function FormRow({ label, description, children }: {
 // ---------------------------------------------------------------------------
 // Text / number input
 // ---------------------------------------------------------------------------
-const inputStyle: React.CSSProperties = {
-  background: "#111",
-  border: "1px solid #333",
-  borderRadius: 8,
-  padding: "8px 12px",
-  color: "#e5e5e5",
-  fontSize: 16,
-  width: "100%",
-  outline: "none",
-  transition: "border-color 0.15s",
-};
+function makeInputStyle(t: ThemeTokens): React.CSSProperties {
+  return {
+    background: t.inputBg,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 8,
+    padding: "8px 12px",
+    color: t.inputText,
+    fontSize: 16,
+    width: "100%",
+    outline: "none",
+    transition: "border-color 0.15s",
+  };
+}
 
 export function TextInput({ value, onChangeText, placeholder, type = "text", style }: {
   value: string;
@@ -71,6 +75,8 @@ export function TextInput({ value, onChangeText, placeholder, type = "text", sty
   type?: string;
   style?: React.CSSProperties;
 }) {
+  const t = useThemeTokens();
+  const inputStyle = makeInputStyle(t);
   return (
     <input
       type={type}
@@ -78,8 +84,8 @@ export function TextInput({ value, onChangeText, placeholder, type = "text", sty
       onChange={(e) => onChangeText(e.target.value)}
       placeholder={placeholder}
       style={{ ...inputStyle, ...style }}
-      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; }}
-      onBlur={(e) => { e.target.style.borderColor = "#333"; }}
+      onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+      onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
     />
   );
 }
@@ -93,13 +99,15 @@ export function SelectInput({ value, onChange, options, style }: {
   options: { label: string; value: string }[];
   style?: React.CSSProperties;
 }) {
+  const t = useThemeTokens();
+  const inputStyle = makeInputStyle(t);
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, cursor: "pointer", ...style }}
-      onFocus={(e) => { (e.target as HTMLSelectElement).style.borderColor = "#3b82f6"; }}
-      onBlur={(e) => { (e.target as HTMLSelectElement).style.borderColor = "#333"; }}
+      onFocus={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus; }}
+      onBlur={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorder; }}
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -117,6 +125,7 @@ export function Toggle({ value, onChange, label, description }: {
   label: string;
   description?: string;
 }) {
+  const t = useThemeTokens();
   return (
     <div
       onClick={() => onChange(!value)}
@@ -134,7 +143,7 @@ export function Toggle({ value, onChange, label, description }: {
         width: 36,
         height: 20,
         borderRadius: 10,
-        background: value ? "#3b82f6" : "#333",
+        background: value ? t.accent : t.surfaceBorder,
         position: "relative",
         flexShrink: 0,
         marginTop: 1,
@@ -144,7 +153,7 @@ export function Toggle({ value, onChange, label, description }: {
           width: 16,
           height: 16,
           borderRadius: 8,
-          background: "#e5e5e5",
+          background: t.text,
           position: "absolute",
           top: 2,
           left: value ? 18 : 2,
@@ -152,9 +161,9 @@ export function Toggle({ value, onChange, label, description }: {
         }} />
       </div>
       <div>
-        <div style={{ fontSize: 13, color: "#e5e5e5" }}>{label}</div>
+        <div style={{ fontSize: 13, color: t.text }}>{label}</div>
         {description && (
-          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{description}</div>
+          <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{description}</div>
         )}
       </div>
     </div>
@@ -173,9 +182,10 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
   disabled?: boolean;
   defaultValue?: number | null;
 }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: disabled ? 0.4 : 1 }}>
-      <span style={{ fontSize: 11, color: "#666", minWidth: 24, textAlign: "right" }}>{min}</span>
+      <span style={{ fontSize: 11, color: t.textDim, minWidth: 24, textAlign: "right" }}>{min}</span>
       <input
         type="range"
         min={min}
@@ -184,11 +194,11 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ flex: 1, accentColor: "#3b82f6", cursor: disabled ? "not-allowed" : "pointer" }}
+        style={{ flex: 1, accentColor: t.accent, cursor: disabled ? "not-allowed" : "pointer" }}
       />
-      <span style={{ fontSize: 11, color: "#666", minWidth: 24 }}>{max}</span>
+      <span style={{ fontSize: 11, color: t.textDim, minWidth: 24 }}>{max}</span>
       <span style={{
-        fontSize: 12, color: "#e5e5e5", fontWeight: 600, minWidth: 40, textAlign: "right",
+        fontSize: 12, color: t.text, fontWeight: 600, minWidth: 40, textAlign: "right",
         fontFamily: "monospace",
       }}>
         {value}
@@ -198,7 +208,7 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
           onClick={() => onChange(defaultValue)}
           disabled={disabled}
           style={{
-            fontSize: 10, color: "#666", background: "#1a1a1a", border: "1px solid #333",
+            fontSize: 10, color: t.textDim, background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 4, padding: "2px 6px", cursor: disabled ? "not-allowed" : "pointer",
             whiteSpace: "nowrap",
           }}
@@ -234,6 +244,7 @@ export function TabBar({ tabs, active, onChange }: {
   active: string;
   onChange: (key: string) => void;
 }) {
+  const t = useThemeTokens();
   return (
     <div
       style={{
@@ -243,6 +254,7 @@ export function TabBar({ tabs, active, onChange }: {
         WebkitOverflowScrolling: "touch",
         scrollbarWidth: "none",
         paddingBottom: 4,
+        scrollSnapType: "x mandatory",
       }}
       className="hide-scrollbar"
     >
@@ -257,14 +269,15 @@ export function TabBar({ tabs, active, onChange }: {
               fontSize: 13,
               fontWeight: isActive ? 600 : 500,
               border: "1px solid",
-              borderColor: isActive ? "#3b82f6" : "#333",
+              borderColor: isActive ? t.accent : t.surfaceBorder,
               borderRadius: 6,
-              background: isActive ? "#3b82f6" : "transparent",
-              color: isActive ? "#fff" : "#999",
+              background: isActive ? t.accent : "transparent",
+              color: isActive ? "#fff" : t.textMuted,
               cursor: "pointer",
               whiteSpace: "nowrap",
               transition: "all 0.15s",
               flexShrink: 0,
+              scrollSnapAlign: "start",
             }}
           >
             {tab.label}
@@ -279,8 +292,9 @@ export function TabBar({ tabs, active, onChange }: {
 // Empty state / placeholder
 // ---------------------------------------------------------------------------
 export function EmptyState({ message }: { message: string }) {
+  const t = useThemeTokens();
   return (
-    <div style={{ padding: 32, textAlign: "center", color: "#555", fontSize: 13 }}>
+    <div style={{ padding: 32, textAlign: "center", color: t.textDim, fontSize: 13 }}>
       {message}
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Copy, Check, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Trash2, Copy, Check, AlertTriangle, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import {
   useApiKey,
@@ -9,6 +9,7 @@ import {
   useCreateApiKey,
   useUpdateApiKey,
   useDeleteApiKey,
+  ScopePreset,
 } from "@/src/api/hooks/useApiKeys";
 import {
   Section,
@@ -16,6 +17,7 @@ import {
   TextInput,
   Toggle,
 } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function ScopeCheckboxGroup({
   groups,
@@ -40,6 +42,8 @@ function ScopeCheckboxGroup({
     onChange(Array.from(next));
   };
 
+  const t = useThemeTokens();
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {Object.entries(groups).map(([group, groupInfo]) => (
@@ -48,7 +52,7 @@ function ScopeCheckboxGroup({
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "#888",
+              color: t.textMuted,
               marginBottom: 2,
               textTransform: "uppercase",
               letterSpacing: 0.5,
@@ -56,7 +60,7 @@ function ScopeCheckboxGroup({
           >
             {group}
           </div>
-          <div style={{ fontSize: 10, color: "#555", marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>
             {groupInfo.description}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -79,7 +83,7 @@ function ScopeCheckboxGroup({
                       ? isAdmin
                         ? "1px solid rgba(239,68,68,0.4)"
                         : "1px solid rgba(59,130,246,0.4)"
-                      : "1px solid #333",
+                      : `1px solid ${t.surfaceBorder}`,
                     background: checked
                       ? isAdmin
                         ? "rgba(239,68,68,0.1)"
@@ -91,7 +95,7 @@ function ScopeCheckboxGroup({
                       ? isAdmin
                         ? "#fca5a5"
                         : "#93c5fd"
-                      : "#666",
+                      : t.textDim,
                     fontWeight: checked ? 600 : 400,
                   }}
                 >
@@ -102,11 +106,11 @@ function ScopeCheckboxGroup({
                       borderRadius: 3,
                       border: checked
                         ? "none"
-                        : "1px solid #444",
+                        : `1px solid ${t.surfaceBorder}`,
                       background: checked
                         ? isAdmin
                           ? "#ef4444"
-                          : "#3b82f6"
+                          : t.accent
                         : "transparent",
                       display: "flex",
                       alignItems: "center",
@@ -129,6 +133,7 @@ function ScopeCheckboxGroup({
 }
 
 export default function ApiKeyDetailScreen() {
+  const t = useThemeTokens();
   const { keyId } = useLocalSearchParams<{ keyId: string }>();
   const isNew = keyId === "new";
   const goBack = useGoBack("/admin/api-keys");
@@ -144,6 +149,13 @@ export default function ApiKeyDetailScreen() {
   const [isActive, setIsActive] = useState(true);
   const [expiresAt, setExpiresAt] = useState("");
   const [initialized, setInitialized] = useState(isNew);
+
+  // Preset state (create flow only)
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const activePresetData: ScopePreset | null =
+    activePreset && scopeGroups?.presets?.[activePreset]
+      ? scopeGroups.presets[activePreset]
+      : null;
 
   // Created key reveal state
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -184,6 +196,24 @@ export default function ApiKeyDetailScreen() {
     goBack();
   }, [keyId, deleteMut, goBack]);
 
+  const handlePreset = useCallback(
+    (key: string | null) => {
+      if (!key || !scopeGroups?.presets?.[key]) {
+        setActivePreset(null);
+        setScopes([]);
+        if (!name.trim()) setName("");
+        return;
+      }
+      const preset = scopeGroups.presets[key];
+      setActivePreset(key);
+      setScopes([...preset.scopes]);
+      if (!name.trim() || activePreset) {
+        setName(preset.name);
+      }
+    },
+    [scopeGroups, name, activePreset],
+  );
+
   const handleCopy = useCallback(() => {
     if (createdKey) {
       navigator.clipboard.writeText(createdKey);
@@ -195,7 +225,7 @@ export default function ApiKeyDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -211,7 +241,7 @@ export default function ApiKeyDetailScreen() {
           alignItems: "center",
           gap: 12,
           padding: "12px 20px",
-          borderBottom: "1px solid #222",
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
         }}
       >
         <button
@@ -223,14 +253,14 @@ export default function ApiKeyDetailScreen() {
             padding: 4,
           }}
         >
-          <ChevronLeft size={22} color="#888" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
         <span
           style={{
             flex: 1,
             fontSize: 16,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
           }}
         >
           {isNew ? "New API Key" : "Edit API Key"}
@@ -261,7 +291,7 @@ export default function ApiKeyDetailScreen() {
             padding: "6px 18px",
             borderRadius: 6,
             background:
-              isSaving || !name.trim() ? "#333" : "#3b82f6",
+              isSaving || !name.trim() ? t.surfaceBorder : t.accent,
             border: "none",
             cursor: isSaving || !name.trim() ? "default" : "pointer",
             fontSize: 13,
@@ -316,7 +346,7 @@ export default function ApiKeyDetailScreen() {
                     flex: 1,
                     padding: "8px 12px",
                     borderRadius: 6,
-                    background: "#1a1a1a",
+                    background: t.surfaceRaised,
                     fontSize: 12,
                     color: "#86efac",
                     wordBreak: "break-all",
@@ -330,14 +360,14 @@ export default function ApiKeyDetailScreen() {
                   style={{
                     padding: "8px 12px",
                     borderRadius: 6,
-                    background: "#222",
-                    border: "1px solid #333",
+                    background: t.surfaceOverlay,
+                    border: `1px solid ${t.surfaceBorder}`,
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
                     fontSize: 12,
-                    color: copied ? "#86efac" : "#888",
+                    color: copied ? "#86efac" : t.textMuted,
                   }}
                 >
                   {copied ? (
@@ -365,7 +395,7 @@ export default function ApiKeyDetailScreen() {
                   <code
                     style={{
                       fontSize: 13,
-                      color: "#888",
+                      color: t.textMuted,
                       fontFamily: "monospace",
                     }}
                   >
@@ -381,6 +411,127 @@ export default function ApiKeyDetailScreen() {
               </>
             )}
           </Section>
+
+          {/* Preset picker — only on create */}
+          {isNew && scopeGroups?.presets && (
+            <Section title="Quick Start">
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                {Object.entries(scopeGroups.presets).map(
+                  ([key, preset]) => {
+                    const active = activePreset === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => handlePreset(active ? null : key)}
+                        style={{
+                          padding: "8px 14px",
+                          borderRadius: 8,
+                          border: active
+                            ? `1px solid ${t.accent}`
+                            : `1px solid ${t.surfaceBorder}`,
+                          background: active
+                            ? "rgba(59,130,246,0.12)"
+                            : t.surfaceOverlay,
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: active ? 600 : 400,
+                          color: active ? "#93c5fd" : t.textMuted,
+                        }}
+                      >
+                        <div>{preset.name}</div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: t.textDim,
+                            marginTop: 2,
+                          }}
+                        >
+                          {preset.description}
+                        </div>
+                      </button>
+                    );
+                  },
+                )}
+                <button
+                  onClick={() => handlePreset(null)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    border:
+                      activePreset === null
+                        ? `1px solid ${t.accent}`
+                        : `1px solid ${t.surfaceBorder}`,
+                    background:
+                      activePreset === null
+                        ? "rgba(59,130,246,0.12)"
+                        : t.surfaceOverlay,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: activePreset === null ? 600 : 400,
+                    color:
+                      activePreset === null ? "#93c5fd" : t.textMuted,
+                  }}
+                >
+                  <div>Custom</div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: t.textDim,
+                      marginTop: 2,
+                    }}
+                  >
+                    Pick scopes manually
+                  </div>
+                </button>
+              </div>
+            </Section>
+          )}
+
+          {/* Instructions banner for active preset */}
+          {activePresetData && (
+            <div
+              style={{
+                padding: 14,
+                borderRadius: 10,
+                background: "rgba(59,130,246,0.06)",
+                border: "1px solid rgba(59,130,246,0.15)",
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#93c5fd",
+                }}
+              >
+                <Info size={13} />
+                Setup Instructions
+              </div>
+              <pre
+                style={{
+                  fontSize: 12,
+                  color: t.textMuted,
+                  whiteSpace: "pre-wrap",
+                  margin: 0,
+                  fontFamily: "monospace",
+                  lineHeight: 1.5,
+                }}
+              >
+                {activePresetData.instructions}
+              </pre>
+            </div>
+          )}
 
           <Section title="Scopes">
             {hasAdminScope && (
@@ -406,7 +557,7 @@ export default function ApiKeyDetailScreen() {
                 onChange={setScopes}
               />
             ) : (
-              <ActivityIndicator color="#3b82f6" />
+              <ActivityIndicator color={t.accent} />
             )}
           </Section>
 
@@ -426,12 +577,12 @@ export default function ApiKeyDetailScreen() {
           {!isNew && apiKey && (
             <Section title="Info">
               <FormRow label="Created">
-                <span style={{ fontSize: 13, color: "#888" }}>
+                <span style={{ fontSize: 13, color: t.textMuted }}>
                   {new Date(apiKey.created_at).toLocaleString()}
                 </span>
               </FormRow>
               <FormRow label="Last used">
-                <span style={{ fontSize: 13, color: "#888" }}>
+                <span style={{ fontSize: 13, color: t.textMuted }}>
                   {apiKey.last_used_at
                     ? new Date(apiKey.last_used_at).toLocaleString()
                     : "Never"}

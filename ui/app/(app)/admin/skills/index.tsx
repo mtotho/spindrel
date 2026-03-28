@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Plus, RefreshCw, BookOpen, FileText, Plug, AlertTriangle } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { useState } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
@@ -35,6 +36,7 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
+  const t = useThemeTokens();
   const firstLine = (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || "";
   const isWs = skill.source_type === "workspace";
   const wsDetail = isWs
@@ -51,18 +53,18 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         onClick={isWs ? undefined : onPress}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
-          padding: "12px 16px", background: "#111", borderRadius: 8,
-          border: `1px solid ${isWs ? "#2d1f4e" : "#1a1a1a"}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
+          padding: "12px 16px", background: t.inputBg, borderRadius: 8,
+          border: `1px solid ${isWs ? "#2d1f4e" : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
           width: "100%",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
             {skill.name}
           </span>
           <SourceBadge type={skill.source_type} detail={wsDetail} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#666" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
           {isWs && skill.workspace_name && (
@@ -70,7 +72,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           )}
         </div>
         {description && (
-          <div style={{ fontSize: 11, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {description.slice(0, 120)}
           </div>
         )}
@@ -86,18 +88,18 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: `1px solid ${isWs ? "#1a1a2e" : "#1a1a1a"}`, cursor: isWs ? "default" : "pointer",
+        borderBottom: `1px solid ${isWs ? "#1a1a2e" : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer",
         textAlign: "left", width: "100%", border: "none",
       }}
-      onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = "#111"; }}
+      onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = t.inputBg; }}
       onMouseLeave={(e) => { if (!isWs) e.currentTarget.style.background = "transparent"; }}
     >
-      <span style={{ fontSize: 11, fontFamily: "monospace", color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {skill.id}
       </span>
       <div style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
           {isWs && skill.workspace_name && (
@@ -105,19 +107,20 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           )}
         </div>
         {description && (
-          <div style={{ fontSize: 11, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
             {description.slice(0, 120)}
           </div>
         )}
       </div>
       <SourceBadge type={skill.source_type} detail={wsDetail} />
-      <span style={{ fontSize: 11, color: "#888", textAlign: "right" }}>{skill.chunk_count}</span>
-      <span style={{ fontSize: 11, color: "#666", textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
+      <span style={{ fontSize: 11, color: t.textMuted, textAlign: "right" }}>{skill.chunk_count}</span>
+      <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
     </button>
   );
 }
 
 function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDismiss: () => void }) {
+  const t = useThemeTokens();
   const hasErrors = result.errors && result.errors.length > 0;
   const bg = hasErrors ? "rgba(127,29,29,0.3)" : "rgba(34,197,94,0.1)";
   const border = hasErrors ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.2)";
@@ -132,7 +135,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
           <strong>Sync complete:</strong> +{result.added} added, ~{result.updated} updated,
           {" "}{result.unchanged} unchanged, -{result.deleted} deleted
           {result._diagnostics && (
-            <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 4 }}>
               {result._diagnostics.files_on_disk.length} files found on disk
               {" "}(cwd: <code>{result._diagnostics.cwd}</code>)
             </div>
@@ -144,7 +147,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
           ))}
         </div>
         <button onClick={onDismiss} style={{
-          background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16, padding: "0 4px",
+          background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 16, padding: "0 4px",
         }}>&times;</button>
       </div>
     </div>
@@ -152,6 +155,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
 }
 
 export default function SkillsScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
@@ -190,8 +194,8 @@ export default function SkillsScreen() {
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
-                border: "1px solid #333", borderRadius: 6,
-                background: "transparent", color: "#999", cursor: "pointer",
+                border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                background: "transparent", color: t.textMuted, cursor: "pointer",
               }}
             >
               <RefreshCw size={14} style={syncMut.isPending ? { animation: "spin 1s linear infinite" } : undefined} />
@@ -203,7 +207,7 @@ export default function SkillsScreen() {
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
-                background: "#3b82f6", color: "#fff", cursor: "pointer",
+                background: t.accent, color: "#fff", cursor: "pointer",
               }}
             >
               <Plus size={14} />
@@ -226,7 +230,7 @@ export default function SkillsScreen() {
         }}>
           <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>
           <button onClick={() => setSyncError(null)} style={{
-            background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16,
+            background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 16,
           }}>&times;</button>
         </div>
       )}
@@ -236,8 +240,8 @@ export default function SkillsScreen() {
         <div style={{
           display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
           gap: 12, padding: "8px 16px",
-          borderBottom: "1px solid #222",
-          fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: 1,
+          borderBottom: `1px solid ${t.surfaceOverlay}`,
+          fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1,
         }}>
           <span>ID</span>
           <span>Name</span>
@@ -254,10 +258,10 @@ export default function SkillsScreen() {
       }}>
         {(!skills || skills.length === 0) && (
           <div style={{
-            padding: 40, textAlign: "center", color: "#555", fontSize: 13,
+            padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,
           }}>
-            No skills yet. Create one or drop <code style={{ color: "#888" }}>.md</code> files in{" "}
-            <code style={{ color: "#888" }}>skills/</code> and click Sync Files.
+            No skills yet. Create one or drop <code style={{ color: t.textMuted }}>.md</code> files in{" "}
+            <code style={{ color: t.textMuted }}>skills/</code> and click Sync Files.
           </div>
         )}
         {skills?.map((skill) => (

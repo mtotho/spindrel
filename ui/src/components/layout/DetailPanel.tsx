@@ -1,10 +1,12 @@
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { X } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
+import { useThemeTokens } from "../../theme/tokens";
 
 export function DetailPanel() {
   const { type, id } = useUIStore((s) => s.detailPanel);
   const closeDetail = useUIStore((s) => s.closeDetail);
+  const t = useThemeTokens();
 
   if (!type) return null;
 
@@ -16,7 +18,7 @@ export function DetailPanel() {
           {type} Detail
         </Text>
         <Pressable onPress={closeDetail} className="p-1">
-          <X size={16} color="#999999" />
+          <X size={16} color={t.textMuted} />
         </Pressable>
       </View>
 

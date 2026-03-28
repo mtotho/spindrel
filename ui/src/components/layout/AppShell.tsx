@@ -72,7 +72,7 @@ export function AppShell() {
             {/* Sidebar — slides in from left */}
             <View style={{
               flex: 1, zIndex: 1,
-              transform: [{ translateX: visible ? 0 : -999 }],
+              transform: [{ translateX: visible ? 0 : -300 }],
               transitionProperty: "transform",
               transitionDuration: "280ms",
               transitionTimingFunction: visible

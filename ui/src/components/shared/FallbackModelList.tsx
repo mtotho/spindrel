@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { LlmModelDropdown } from "./LlmModelDropdown";
+import { useThemeTokens } from "../../theme/tokens";
 
 export interface FallbackModelEntry {
   model: string;
@@ -17,6 +18,8 @@ interface Props {
  * remove button. "Add fallback" button at the bottom.
  */
 export function FallbackModelList({ value, onChange, placeholder }: Props) {
+  const t = useThemeTokens();
+
   const updateEntry = useCallback(
     (index: number, model: string) => {
       const next = [...value];
@@ -52,7 +55,7 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
           <span
             onClick={() => removeEntry(i)}
             style={{
-              color: "#666",
+              color: t.textDim,
               cursor: "pointer",
               fontSize: 14,
               lineHeight: 1,
@@ -60,7 +63,7 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
               borderRadius: 4,
             }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#666"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = t.textDim; }}
           >
             ✕
           </span>
@@ -72,21 +75,21 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
         style={{
           alignSelf: "flex-start",
           background: "none",
-          border: "1px dashed #444",
+          border: `1px dashed ${t.surfaceBorder}`,
           borderRadius: 6,
-          color: "#888",
+          color: t.textMuted,
           cursor: "pointer",
           fontSize: 12,
           padding: "4px 12px",
           marginTop: value.length > 0 ? 2 : 0,
         }}
         onMouseEnter={(e) => {
-          (e.currentTarget as HTMLElement).style.borderColor = "#3b82f6";
-          (e.currentTarget as HTMLElement).style.color = "#3b82f6";
+          (e.currentTarget as HTMLElement).style.borderColor = t.accent;
+          (e.currentTarget as HTMLElement).style.color = t.accent;
         }}
         onMouseLeave={(e) => {
-          (e.currentTarget as HTMLElement).style.borderColor = "#444";
-          (e.currentTarget as HTMLElement).style.color = "#888";
+          (e.currentTarget as HTMLElement).style.borderColor = t.surfaceBorder;
+          (e.currentTarget as HTMLElement).style.color = t.textMuted;
         }}
       >
         + Add fallback

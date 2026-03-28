@@ -1,5 +1,6 @@
 import { View, Text, Platform } from "react-native";
 import { Loader2, Wrench } from "lucide-react";
+import { useThemeTokens } from "../../theme/tokens";
 
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
@@ -24,6 +25,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
   const name = botName || "Bot";
   const letter = name[0].toUpperCase();
   const bg = avatarColor(name);
+  const t = useThemeTokens();
 
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
@@ -67,14 +69,14 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
                   paddingHorizontal: 10,
                   paddingVertical: 6,
                   borderRadius: 6,
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: t.overlayLight,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.06)",
+                  borderColor: t.overlayBorder,
                   alignSelf: "flex-start",
                 }}
               >
                 <Wrench size={12} color={tc.status === "running" ? "#8b5cf6" : "#4ade80"} />
-                <Text style={{ fontSize: 12, color: "#999", fontFamily: Platform.OS === "web" ? "'Menlo', monospace" : undefined }}>
+                <Text style={{ fontSize: 12, color: t.textMuted, fontFamily: Platform.OS === "web" ? "'Menlo', monospace" : undefined }}>
                   {tc.name}
                 </Text>
                 {tc.status === "running" && (
@@ -92,7 +94,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
         {content ? (
           <View>
             {Platform.OS === "web" ? (
-              <div style={{ fontSize: 15, lineHeight: "1.6", color: "#d1d5db" }}>
+              <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText }}>
                 {content}
                 <span
                   style={{
@@ -108,7 +110,7 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
                 />
               </div>
             ) : (
-              <Text style={{ fontSize: 15, lineHeight: 22, color: "#d1d5db" }}>{content}</Text>
+              <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{content}</Text>
             )}
           </View>
         ) : toolCalls.length === 0 ? (

@@ -4,6 +4,7 @@
  */
 import { useState } from "react";
 import { Check, ChevronDown, HelpCircle, Trash2, X } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
@@ -137,26 +138,27 @@ const DIR_STRUCTURE = `memory/
 // Bot memories list (DB mode)
 // ---------------------------------------------------------------------------
 function BotMemoriesSection({ botId }: { botId: string | undefined }) {
+  const t = useThemeTokens();
   const { data: memories, isLoading } = useBotMemories(botId);
   const deleteMut = useDeleteMemory();
 
   if (!botId) return null;
 
   return (
-    <div style={{ marginTop: 8, borderTop: "1px solid #222", paddingTop: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", marginBottom: 4 }}>
+    <div style={{ marginTop: 8, borderTop: `1px solid ${t.surfaceOverlay}`, paddingTop: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 4 }}>
         Stored Memories
       </div>
-      <div style={{ fontSize: 10, color: "#555", marginBottom: 12 }}>
+      <div style={{ fontSize: 10, color: t.textDim, marginBottom: 12 }}>
         Facts this bot has memorized. Delete individual memories that are no longer relevant.
       </div>
 
       {isLoading && (
-        <div style={{ padding: 12, color: "#555", fontSize: 12 }}>Loading...</div>
+        <div style={{ padding: 12, color: t.textDim, fontSize: 12 }}>Loading...</div>
       )}
 
       {!isLoading && (!memories || memories.length === 0) && (
-        <div style={{ padding: 12, color: "#444", fontSize: 12, fontStyle: "italic" }}>
+        <div style={{ padding: 12, color: t.surfaceBorder, fontSize: 12, fontStyle: "italic" }}>
           No memories stored yet.
         </div>
       )}
@@ -166,17 +168,17 @@ function BotMemoriesSection({ botId }: { botId: string | undefined }) {
           {memories.map((m) => (
             <div key={m.id} style={{
               display: "flex", alignItems: "flex-start", gap: 8,
-              padding: "8px 10px", background: "#111", borderRadius: 6,
-              border: "1px solid #1a1a1a",
+              padding: "8px 10px", background: t.inputBg, borderRadius: 6,
+              border: `1px solid ${t.surfaceRaised}`,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: 12, color: "#ccc", lineHeight: 1.5,
+                  fontSize: 12, color: t.text, lineHeight: 1.5,
                   whiteSpace: "pre-wrap", wordBreak: "break-word",
                 }}>
                   {m.content}
                 </div>
-                <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>
+                <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
                   {new Date(m.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   {m.client_id && <span> &middot; {m.client_id.slice(0, 12)}</span>}
                 </div>
@@ -188,7 +190,7 @@ function BotMemoriesSection({ botId }: { botId: string | undefined }) {
                 disabled={deleteMut.isPending}
                 style={{
                   background: "none", border: "none", cursor: "pointer",
-                  padding: 4, flexShrink: 0, color: "#666",
+                  padding: 4, flexShrink: 0, color: t.textDim,
                 }}
                 title="Delete memory"
               >
@@ -206,6 +208,7 @@ function BotMemoriesSection({ botId }: { botId: string | undefined }) {
 // Architecture help overlay
 // ---------------------------------------------------------------------------
 function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
+  const t = useThemeTokens();
   return (
     <div
       onClick={onClose}
@@ -219,23 +222,23 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "#0a0a0a", border: "1px solid #2a2a2a",
+          background: t.surface, border: `1px solid ${t.surfaceOverlay}`,
           borderRadius: 12, maxWidth: 780, width: "100%",
           maxHeight: "90vh", overflow: "auto",
         }}
       >
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 18px", borderBottom: "1px solid #1a1a1a",
+          padding: "14px 18px", borderBottom: `1px solid ${t.surfaceRaised}`,
         }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "#e5e5e5" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
             Workspace Files Memory — Architecture
           </span>
           <button
             onClick={onClose}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              color: "#666", padding: 4,
+              color: t.textDim, padding: 4,
             }}
           >
             <X size={16} />
@@ -243,7 +246,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
         </div>
         <pre style={{
           margin: 0, padding: "16px 20px",
-          fontSize: 11, lineHeight: 1.6, color: "#999",
+          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
           fontFamily: "monospace", whiteSpace: "pre",
           overflowX: "auto",
         }}>{ARCHITECTURE_DIAGRAM}</pre>
@@ -260,6 +263,7 @@ export function MemorySection({ draft, update, botId }: {
   update: (p: Partial<BotConfig>) => void;
   botId: string | undefined;
 }) {
+  const t = useThemeTokens();
   const isWorkspaceFiles = draft.memory_scheme === "workspace-files";
   const [showPrompt, setShowPrompt] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -279,12 +283,12 @@ export function MemorySection({ draft, update, botId }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Memory</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Memory</div>
         <button
           onClick={() => setShowHelp(true)}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: "#555", padding: 2, display: "flex", alignItems: "center",
+            color: t.textDim, padding: 2, display: "flex", alignItems: "center",
           }}
           title="How workspace files memory works"
         >
@@ -301,7 +305,7 @@ export function MemorySection({ draft, update, botId }: {
           style={{
             textAlign: "left", cursor: "pointer",
             padding: "14px 16px", borderRadius: 8,
-            border: !isWorkspaceFiles ? "2px solid #3b82f6" : "1px solid #2a2a2a",
+            border: !isWorkspaceFiles ? `2px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
             background: !isWorkspaceFiles ? "rgba(59,130,246,0.06)" : "#0f0f0f",
             transition: "all 0.15s",
           }}
@@ -309,10 +313,10 @@ export function MemorySection({ draft, update, botId }: {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <div style={{
               width: 16, height: 16, borderRadius: 8,
-              border: !isWorkspaceFiles ? "5px solid #3b82f6" : "2px solid #444",
+              border: !isWorkspaceFiles ? `5px solid ${t.accent}` : `2px solid ${t.surfaceBorder}`,
               background: "transparent",
             }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: !isWorkspaceFiles ? "#e5e5e5" : "#888" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: !isWorkspaceFiles ? t.text : t.textMuted }}>
               Database
             </span>
             {!isWorkspaceFiles && (
@@ -323,7 +327,7 @@ export function MemorySection({ draft, update, botId }: {
               }}>ACTIVE</span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginLeft: 24 }}>
+          <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5, marginLeft: 24 }}>
             Short facts stored in PostgreSQL with pgvector embeddings.
             Semantic similarity retrieval each turn. Tools: save_memory,
             search_memories, upsert_knowledge.
@@ -336,7 +340,7 @@ export function MemorySection({ draft, update, botId }: {
           style={{
             textAlign: "left", cursor: "pointer",
             padding: "14px 16px", borderRadius: 8,
-            border: isWorkspaceFiles ? "2px solid #a855f7" : "1px solid #2a2a2a",
+            border: isWorkspaceFiles ? "2px solid #a855f7" : `1px solid ${t.surfaceOverlay}`,
             background: isWorkspaceFiles ? "rgba(168,85,247,0.06)" : "#0f0f0f",
             transition: "all 0.15s",
           }}
@@ -344,10 +348,10 @@ export function MemorySection({ draft, update, botId }: {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <div style={{
               width: 16, height: 16, borderRadius: 8,
-              border: isWorkspaceFiles ? "5px solid #a855f7" : "2px solid #444",
+              border: isWorkspaceFiles ? "5px solid #a855f7" : `2px solid ${t.surfaceBorder}`,
               background: "transparent",
             }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: isWorkspaceFiles ? "#e5e5e5" : "#888" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: isWorkspaceFiles ? t.text : t.textMuted }}>
               Workspace Files
             </span>
             {isWorkspaceFiles && (
@@ -358,7 +362,7 @@ export function MemorySection({ draft, update, botId }: {
               }}>ACTIVE</span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginLeft: 24 }}>
+          <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5, marginLeft: 24 }}>
             File-based memory with daily logs, curated MEMORY.md, and
             reference docs. Hybrid semantic + keyword search. Replaces
             DB memory and knowledge tools.
@@ -382,8 +386,8 @@ export function MemorySection({ draft, update, botId }: {
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                   <Check size={12} color="#a855f7" style={{ marginTop: 2, flexShrink: 0 } as any} />
                   <div>
-                    <span style={{ fontSize: 12, color: "#ccc" }}>{p.label}</span>
-                    <span style={{ fontSize: 11, color: "#555" }}> — {p.detail}</span>
+                    <span style={{ fontSize: 12, color: t.text }}>{p.label}</span>
+                    <span style={{ fontSize: 11, color: t.textDim }}> — {p.detail}</span>
                   </div>
                 </div>
               ))}
@@ -392,21 +396,21 @@ export function MemorySection({ draft, update, botId }: {
 
           {/* Directory structure preview */}
           <div style={{
-            background: "#0a0a0a", border: "1px solid #1a1a1a",
+            background: t.surface, border: `1px solid ${t.surfaceRaised}`,
             borderRadius: 8, padding: "12px 16px",
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 8 }}>
               Directory Structure
             </div>
             <pre style={{
-              margin: 0, fontSize: 11, lineHeight: 1.7, color: "#999",
+              margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
               fontFamily: "monospace",
             }}>{DIR_STRUCTURE}</pre>
           </div>
 
           {/* Built-in prompt (collapsible) */}
           <div style={{
-            background: "#0a0a0a", border: "1px solid #1a1a1a",
+            background: t.surface, border: `1px solid ${t.surfaceRaised}`,
             borderRadius: 8, overflow: "hidden",
           }}>
             <button
@@ -414,7 +418,7 @@ export function MemorySection({ draft, update, botId }: {
               style={{
                 display: "flex", alignItems: "center", gap: 8, width: "100%",
                 padding: "10px 16px", background: "none", border: "none",
-                cursor: "pointer", color: "#888",
+                cursor: "pointer", color: t.textMuted,
               }}
             >
               <ChevronDown
@@ -431,9 +435,9 @@ export function MemorySection({ draft, update, botId }: {
             {showPrompt && (
               <div style={{ padding: "0 16px 14px 16px" }}>
                 <pre style={{
-                  margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
+                  margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                   fontFamily: "monospace", whiteSpace: "pre-wrap",
-                  background: "#111", borderRadius: 6, padding: 12,
+                  background: t.inputBg, borderRadius: 6, padding: 12,
                 }}>{BUILT_IN_PROMPT}</pre>
               </div>
             )}
@@ -448,7 +452,7 @@ export function MemorySection({ draft, update, botId }: {
             background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
             borderRadius: 6, padding: "10px 14px",
           }}>
-            <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
               Stores short facts in the database via pgvector embeddings. Relevant memories are
               automatically injected into context each turn via semantic similarity, and the bot
               can search/save/purge/merge memories via dedicated tools.
@@ -491,11 +495,12 @@ export function KnowledgeSection({ draft, update }: {
   draft: BotConfig;
   update: (p: Partial<BotConfig>) => void;
 }) {
+  const t = useThemeTokens();
   const isWorkspaceFiles = draft.memory_scheme === "workspace-files";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Knowledge</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Knowledge</div>
 
       {isWorkspaceFiles ? (
         <div style={{
@@ -507,7 +512,7 @@ export function KnowledgeSection({ draft, update }: {
               Managed by Workspace Files
             </span>
           </div>
-          <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
             Knowledge lives in <code style={{ color: "#a78bfa" }}>memory/reference/</code> files.
             Searchable via <code style={{ color: "#a78bfa" }}>search_memory</code> and readable
             via <code style={{ color: "#a78bfa" }}>get_memory_file</code>. DB knowledge tools are
@@ -520,7 +525,7 @@ export function KnowledgeSection({ draft, update }: {
             background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
             borderRadius: 6, padding: "10px 14px", marginBottom: 4,
           }}>
-            <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
               Stores longer-form documents in the database via pgvector embeddings. The bot can
               create, update, append to, and search knowledge documents via dedicated tools.
               Relevant documents are automatically injected into context each turn via semantic

@@ -21,6 +21,7 @@ import { apiFetch } from "@/src/api/client";
 import {
   FormRow, TextInput, SelectInput, Toggle, Section, Row, Col,
 } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -51,6 +52,7 @@ function EnvEditor({ entries, onChange }: {
   entries: { key: string; value: string }[];
   onChange: (entries: { key: string; value: string }[]) => void;
 }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {entries.map((entry, i) => (
@@ -64,14 +66,14 @@ function EnvEditor({ entries, onChange }: {
             }}
             placeholder="KEY"
             style={{
-              flex: 1, background: "#111",
-              border: `1px solid ${!entry.key ? "#7f1d1d" : "#333"}`,
+              flex: 1, background: t.inputBg,
+              border: `1px solid ${!entry.key ? "#7f1d1d" : t.surfaceBorder}`,
               borderRadius: 6,
-              padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+              padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
               outline: "none",
             }}
           />
-          <span style={{ color: "#555" }}>=</span>
+          <span style={{ color: t.textDim }}>=</span>
           <input
             value={entry.value}
             onChange={(e) => {
@@ -81,8 +83,8 @@ function EnvEditor({ entries, onChange }: {
             }}
             placeholder="value"
             style={{
-              flex: 2, background: "#111", border: "1px solid #333", borderRadius: 6,
-              padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+              flex: 2, background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+              padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
               outline: "none",
             }}
           />
@@ -90,7 +92,7 @@ function EnvEditor({ entries, onChange }: {
             onClick={() => onChange(entries.filter((_, j) => j !== i))}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              color: "#666", padding: 2, flexShrink: 0,
+              color: t.textDim, padding: 2, flexShrink: 0,
             }}
           >
             <X size={14} />
@@ -102,8 +104,8 @@ function EnvEditor({ entries, onChange }: {
         style={{
           display: "flex", alignItems: "center", gap: 4,
           padding: "4px 10px", fontSize: 11, fontWeight: 600,
-          border: "1px solid #333", borderRadius: 5,
-          background: "transparent", color: "#999", cursor: "pointer",
+          border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+          background: "transparent", color: t.textMuted, cursor: "pointer",
           alignSelf: "flex-start",
         }}
       >
@@ -121,6 +123,7 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
   bots: { bot_id: string; bot_name: string; role: string; cwd_override?: string | null }[];
   isWide: boolean;
 }) {
+  const t = useThemeTokens();
   const { data: allBots } = useBots();
   const addBot = useAddBotToWorkspace(workspaceId);
   const updateBot = useUpdateWorkspaceBot(workspaceId);
@@ -139,16 +142,16 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {bots.length === 0 && (
-        <div style={{ color: "#555", fontSize: 12 }}>No bots connected.</div>
+        <div style={{ color: t.textDim, fontSize: 12 }}>No bots connected.</div>
       )}
       {bots.map((b) => (
         <div key={b.bot_id} style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "8px 12px", background: "#0d0d0d", borderRadius: 8,
-          border: "1px solid #1a1a1a",
+          border: `1px solid ${t.surfaceRaised}`,
         }}>
           <span style={{
-            fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1,
+            fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
             minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {b.bot_name || b.bot_id}
@@ -157,8 +160,8 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
             value={b.role}
             onChange={(e) => updateBot.mutate({ bot_id: b.bot_id, role: e.target.value })}
             style={{
-              background: "#111", border: "1px solid #333", borderRadius: 5,
-              padding: "3px 8px", color: "#ccc", fontSize: 11, cursor: "pointer",
+              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+              padding: "3px 8px", color: t.text, fontSize: 11, cursor: "pointer",
               outline: "none",
             }}
           >
@@ -170,7 +173,7 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
             disabled={removeBot.isPending}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              color: "#666", padding: 2, flexShrink: 0,
+              color: t.textDim, padding: 2, flexShrink: 0,
             }}
           >
             <X size={14} />
@@ -185,8 +188,8 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
             value={addBotId}
             onChange={(e) => setAddBotId(e.target.value)}
             style={{
-              flex: 1, background: "#111", border: "1px solid #333", borderRadius: 6,
-              padding: "5px 8px", color: "#ccc", fontSize: 12, cursor: "pointer",
+              flex: 1, background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+              padding: "5px 8px", color: t.text, fontSize: 12, cursor: "pointer",
               outline: "none",
             }}
           >
@@ -202,8 +205,8 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
               display: "flex", alignItems: "center", gap: 4,
               padding: "5px 12px", fontSize: 12, fontWeight: 600,
               border: "none", borderRadius: 6,
-              background: addBotId ? "#3b82f6" : "#333",
-              color: addBotId ? "#fff" : "#666",
+              background: addBotId ? t.accent : t.surfaceBorder,
+              color: addBotId ? "#fff" : t.textDim,
               cursor: addBotId ? "pointer" : "not-allowed",
               flexShrink: 0,
             }}
@@ -220,6 +223,7 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
 // Container controls
 // ---------------------------------------------------------------------------
 function ContainerControls({ workspaceId, status }: { workspaceId: string; status: string }) {
+  const t = useThemeTokens();
   const startMut = useStartWorkspace(workspaceId);
   const stopMut = useStopWorkspace(workspaceId);
   const recreateMut = useRecreateWorkspace(workspaceId);
@@ -244,9 +248,9 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
   const btnStyle = (active: boolean): React.CSSProperties => ({
     display: "flex", alignItems: "center", gap: 6,
     padding: "6px 14px", fontSize: 12, fontWeight: 600,
-    border: `1px solid ${active ? "#333" : "#222"}`, borderRadius: 6,
+    border: `1px solid ${active ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 6,
     background: "transparent",
-    color: active ? "#ccc" : "#555",
+    color: active ? t.text : t.textDim,
     cursor: active ? "pointer" : "not-allowed",
     opacity: active ? 1 : 0.5,
   });
@@ -295,8 +299,8 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
       {pullResult && (
         <div style={{
           padding: "6px 12px", fontSize: 11, borderRadius: 6,
-          background: "#111", border: "1px solid #222",
-          color: "#999", fontFamily: "monospace", whiteSpace: "pre-wrap",
+          background: t.inputBg, border: `1px solid ${t.surfaceOverlay}`,
+          color: t.textMuted, fontFamily: "monospace", whiteSpace: "pre-wrap",
           maxHeight: 120, overflowY: "auto",
         }}>
           {pullResult}
@@ -311,7 +315,7 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
             style={{
               display: "flex", alignItems: "center", gap: 4,
               background: "none", border: "none", cursor: "pointer",
-              color: "#999", fontSize: 12, padding: 0,
+              color: t.textMuted, fontSize: 12, padding: 0,
             }}
           >
             <FileText size={12} />
@@ -319,11 +323,11 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
           </button>
           {showLogs && (
             <div style={{
-              marginTop: 8, padding: 12, background: "#0a0a0a", borderRadius: 8,
-              border: "1px solid #1a1a1a", maxHeight: 300, overflowY: "auto",
+              marginTop: 8, padding: 12, background: t.surface, borderRadius: 8,
+              border: `1px solid ${t.surfaceRaised}`, maxHeight: 300, overflowY: "auto",
             }}>
               <pre style={{
-                color: "#999", fontSize: 11, fontFamily: "monospace",
+                color: t.textMuted, fontSize: 11, fontFamily: "monospace",
                 whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
               }}>
                 {logsData?.logs || "No logs available"}
@@ -340,6 +344,7 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
 // File browser with view/edit/create/delete
 // ---------------------------------------------------------------------------
 function FileBrowser({ workspaceId }: { workspaceId: string }) {
+  const t = useThemeTokens();
   const [path, setPath] = useState("/");
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -409,7 +414,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+            color: path === "/" ? t.text : "#93c5fd", fontSize: 12, padding: 0,
             fontFamily: "monospace",
           }}
         >
@@ -422,12 +427,12 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             const isLast = i === segments.length - 1;
             return (
               <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
-                <span style={{ color: "#555", margin: "0 1px" }}>/</span>
+                <span style={{ color: t.textDim, margin: "0 1px" }}>/</span>
                 <button
                   onClick={() => navigateTo(segPath)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+                    color: isLast ? t.text : "#93c5fd", fontSize: 12, padding: 0,
                     fontFamily: "monospace",
                   }}
                 >
@@ -442,8 +447,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => { setCreating("file"); setNewName(""); }}
           style={{
             display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: "1px solid #333", borderRadius: 4,
-            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
         >
           <FilePlus size={11} /> New File
@@ -452,8 +457,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => { setCreating("folder"); setNewName(""); }}
           style={{
             display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: "1px solid #333", borderRadius: 4,
-            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
         >
           <FolderPlus size={11} /> New Folder
@@ -462,8 +467,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => refetch()}
           style={{
             display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: "1px solid #333", borderRadius: 4,
-            cursor: "pointer", color: "#999", fontSize: 10, padding: "2px 8px",
+            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
           }}
         >
           <RefreshCw size={10} />
@@ -474,9 +479,9 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
       {creating && (
         <div style={{
           display: "flex", gap: 6, alignItems: "center",
-          padding: "6px 10px", background: "#111", borderRadius: 6, border: "1px solid #333",
+          padding: "6px 10px", background: t.inputBg, borderRadius: 6, border: `1px solid ${t.surfaceBorder}`,
         }}>
-          <span style={{ fontSize: 11, color: "#999" }}>
+          <span style={{ fontSize: 11, color: t.textMuted }}>
             {creating === "folder" ? "Folder:" : "File:"}
           </span>
           <input
@@ -486,8 +491,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(null); }}
             placeholder={creating === "folder" ? "folder-name" : "filename.txt"}
             style={{
-              flex: 1, background: "#0a0a0a", border: "1px solid #333", borderRadius: 4,
-              padding: "3px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+              flex: 1, background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+              padding: "3px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
               outline: "none",
             }}
           />
@@ -496,8 +501,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             disabled={!newName.trim() || mkdirMut.isPending || writeMut.isPending}
             style={{
               padding: "3px 10px", fontSize: 11, fontWeight: 600,
-              background: newName.trim() ? "#3b82f6" : "#333",
-              color: newName.trim() ? "#fff" : "#666",
+              background: newName.trim() ? t.accent : t.surfaceBorder,
+              color: newName.trim() ? "#fff" : t.textDim,
               border: "none", borderRadius: 4, cursor: newName.trim() ? "pointer" : "not-allowed",
             }}
           >
@@ -505,7 +510,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           </button>
           <button
             onClick={() => setCreating(null)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 2 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: t.textDim, padding: 2 }}
           >
             <X size={14} />
           </button>
@@ -514,14 +519,14 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
 
       {/* Entries */}
       {isLoading ? (
-        <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Loading...</div>
+        <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Loading...</div>
       ) : (
         <div style={{
-          background: "#0a0a0a", borderRadius: 8, border: "1px solid #1a1a1a",
+          background: t.surface, borderRadius: 8, border: `1px solid ${t.surfaceRaised}`,
           overflow: "hidden",
         }}>
           {(!data?.entries || data.entries.length === 0) && (
-            <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Empty directory</div>
+            <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Empty directory</div>
           )}
           {data?.entries?.map((entry) => (
             <div
@@ -530,7 +535,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "6px 12px",
                 background: viewingFile === entry.path ? "rgba(59,130,246,0.08)" : "transparent",
-                borderBottom: "1px solid #111",
+                borderBottom: `1px solid ${t.inputBg}`,
               }}
             >
               <button
@@ -551,25 +556,25 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 {entry.is_dir ? (
                   <Folder size={13} color="#93c5fd" />
                 ) : (
-                  <FileText size={13} color="#666" />
+                  <FileText size={13} color={t.textDim} />
                 )}
                 <span style={{
-                  flex: 1, fontSize: 12, color: entry.is_dir ? "#e5e5e5" : "#999",
+                  flex: 1, fontSize: 12, color: entry.is_dir ? t.text : t.textMuted,
                   fontFamily: "monospace",
                 }}>
                   {entry.name}
                 </span>
                 {!entry.is_dir && entry.size != null && (
-                  <span style={{ fontSize: 10, color: "#555" }}>{formatSize(entry.size)}</span>
+                  <span style={{ fontSize: 10, color: t.textDim }}>{formatSize(entry.size)}</span>
                 )}
-                {entry.is_dir && <ChevronRight size={12} color="#555" />}
+                {entry.is_dir && <ChevronRight size={12} color={t.textDim} />}
               </button>
               <button
                 onClick={() => handleDelete(entry.path, entry.name, entry.is_dir)}
                 disabled={deleteMut.isPending}
                 style={{
                   background: "none", border: "none", cursor: "pointer",
-                  color: "#444", padding: 2, flexShrink: 0,
+                  color: t.surfaceBorder, padding: 2, flexShrink: 0,
                 }}
                 title="Delete"
               >
@@ -583,17 +588,17 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
       {/* File viewer/editor panel */}
       {viewingFile && (
         <div style={{
-          background: "#0a0a0a", borderRadius: 8, border: "1px solid #1a1a1a",
+          background: t.surface, borderRadius: 8, border: `1px solid ${t.surfaceRaised}`,
           overflow: "hidden",
         }}>
           {/* File header */}
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
-            padding: "8px 12px", borderBottom: "1px solid #1a1a1a",
-            background: "#111",
+            padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}`,
+            background: t.inputBg,
           }}>
             <FileText size={13} color="#93c5fd" />
-            <span style={{ flex: 1, fontSize: 12, color: "#e5e5e5", fontFamily: "monospace" }}>
+            <span style={{ flex: 1, fontSize: 12, color: t.text, fontFamily: "monospace" }}>
               {viewingFile}
             </span>
             {fileData && !editing && (
@@ -602,8 +607,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 style={{
                   display: "flex", alignItems: "center", gap: 4,
                   padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                  background: "transparent", border: "1px solid #333", borderRadius: 4,
-                  color: "#999", cursor: "pointer",
+                  background: "transparent", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                  color: t.textMuted, cursor: "pointer",
                 }}
               >
                 <Edit3 size={11} /> Edit
@@ -617,7 +622,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                    background: "#3b82f6", border: "none", borderRadius: 4,
+                    background: t.accent, border: "none", borderRadius: 4,
                     color: "#fff", cursor: "pointer",
                   }}
                 >
@@ -627,8 +632,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   onClick={() => setEditing(false)}
                   style={{
                     padding: "3px 10px", fontSize: 11,
-                    background: "transparent", border: "1px solid #333", borderRadius: 4,
-                    color: "#999", cursor: "pointer",
+                    background: "transparent", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                    color: t.textMuted, cursor: "pointer",
                   }}
                 >
                   Cancel
@@ -637,7 +642,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             )}
             <button
               onClick={() => { setViewingFile(null); setEditing(false); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 2 }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: t.textDim, padding: 2 }}
             >
               <X size={14} />
             </button>
@@ -646,7 +651,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           {/* File content */}
           <div style={{ padding: 12, maxHeight: 400, overflowY: "auto" }}>
             {fileLoading && (
-              <div style={{ color: "#555", fontSize: 12 }}>Loading file...</div>
+              <div style={{ color: t.textDim, fontSize: 12 }}>Loading file...</div>
             )}
             {fileError && (
               <div style={{ color: "#fca5a5", fontSize: 12 }}>
@@ -655,11 +660,11 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             )}
             {fileData && !editing && (
               <pre style={{
-                color: "#ccc", fontSize: 12, fontFamily: "monospace",
+                color: t.text, fontSize: 12, fontFamily: "monospace",
                 whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
                 wordBreak: "break-all",
               }}>
-                {fileData.content || <span style={{ color: "#555" }}>(empty file)</span>}
+                {fileData.content || <span style={{ color: t.textDim }}>(empty file)</span>}
               </pre>
             )}
             {editing && (
@@ -668,8 +673,8 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 onChange={(e) => setEditContent(e.target.value)}
                 style={{
                   width: "100%", minHeight: 200, background: "#0d0d0d",
-                  border: "1px solid #333", borderRadius: 6,
-                  padding: 10, color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                  padding: 10, color: t.text, fontSize: 12, fontFamily: "monospace",
                   lineHeight: 1.5, resize: "vertical", outline: "none",
                 }}
               />
@@ -685,6 +690,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
 // Main page
 // ---------------------------------------------------------------------------
 export default function WorkspaceDetailScreen() {
+  const t = useThemeTokens();
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const isNew = workspaceId === "new";
   const goBack = useGoBack("/admin/workspaces");
@@ -840,7 +846,7 @@ export default function WorkspaceDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -851,16 +857,16 @@ export default function WorkspaceDetailScreen() {
       <div style={{
         display: "flex", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
+        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
           {isNew ? "New Workspace" : "Edit Workspace"}
         </span>
         {!isNew && isWide && (
-          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>
+          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
             {workspaceId?.slice(0, 8)}
           </span>
         )}
@@ -904,10 +910,10 @@ export default function WorkspaceDetailScreen() {
           disabled={isSaving || !canSave}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: isDirty && canSave ? "2px solid #3b82f6" : "none",
+            border: isDirty && canSave ? `2px solid ${t.accent}` : "none",
             borderRadius: 6, flexShrink: 0,
-            background: !canSave ? "#333" : isDirty ? "#3b82f6" : "#1e3a5f",
-            color: !canSave ? "#666" : "#fff",
+            background: !canSave ? t.surfaceBorder : isDirty ? t.accent : "#1e3a5f",
+            color: !canSave ? t.textDim : "#fff",
             cursor: !canSave ? "not-allowed" : "pointer",
             transition: "all 0.2s",
           }}
@@ -1029,14 +1035,14 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Host port"
                     style={{
-                      flex: 1, background: "#111",
-                      border: `1px solid ${!p.host && p.container ? "#7f1d1d" : "#333"}`,
+                      flex: 1, background: t.inputBg,
+                      border: `1px solid ${!p.host && p.container ? "#7f1d1d" : t.surfaceBorder}`,
                       borderRadius: 6,
-                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
                   />
-                  <span style={{ color: "#555" }}>:</span>
+                  <span style={{ color: t.textDim }}>:</span>
                   <input
                     value={p.container}
                     onChange={(e) => {
@@ -1046,10 +1052,10 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Container port"
                     style={{
-                      flex: 1, background: "#111",
-                      border: `1px solid ${p.host && !p.container ? "#7f1d1d" : "#333"}`,
+                      flex: 1, background: t.inputBg,
+                      border: `1px solid ${p.host && !p.container ? "#7f1d1d" : t.surfaceBorder}`,
                       borderRadius: 6,
-                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
                   />
@@ -1057,7 +1063,7 @@ export default function WorkspaceDetailScreen() {
                     onClick={() => setPorts(ports.filter((_, j) => j !== i))}
                     style={{
                       background: "none", border: "none", cursor: "pointer",
-                      color: "#666", padding: 2, flexShrink: 0,
+                      color: t.textDim, padding: 2, flexShrink: 0,
                     }}
                   >
                     <X size={14} />
@@ -1069,8 +1075,8 @@ export default function WorkspaceDetailScreen() {
                 style={{
                   display: "flex", alignItems: "center", gap: 4,
                   padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                  border: "1px solid #333", borderRadius: 5,
-                  background: "transparent", color: "#999", cursor: "pointer",
+                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                  background: "transparent", color: t.textMuted, cursor: "pointer",
                   alignSelf: "flex-start",
                 }}
               >
@@ -1093,14 +1099,14 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Host path"
                     style={{
-                      flex: 2, background: "#111",
-                      border: `1px solid ${!m.host_path && m.container_path ? "#7f1d1d" : "#333"}`,
+                      flex: 2, background: t.inputBg,
+                      border: `1px solid ${!m.host_path && m.container_path ? "#7f1d1d" : t.surfaceBorder}`,
                       borderRadius: 6,
-                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
                   />
-                  <span style={{ color: "#555" }}>→</span>
+                  <span style={{ color: t.textDim }}>→</span>
                   <input
                     value={m.container_path}
                     onChange={(e) => {
@@ -1110,10 +1116,10 @@ export default function WorkspaceDetailScreen() {
                     }}
                     placeholder="Container path"
                     style={{
-                      flex: 2, background: "#111",
-                      border: `1px solid ${m.host_path && !m.container_path ? "#7f1d1d" : "#333"}`,
+                      flex: 2, background: t.inputBg,
+                      border: `1px solid ${m.host_path && !m.container_path ? "#7f1d1d" : t.surfaceBorder}`,
                       borderRadius: 6,
-                      padding: "5px 8px", color: "#e5e5e5", fontSize: 12, fontFamily: "monospace",
+                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
                     }}
                   />
@@ -1125,8 +1131,8 @@ export default function WorkspaceDetailScreen() {
                       setMounts(next);
                     }}
                     style={{
-                      background: "#111", border: "1px solid #333", borderRadius: 5,
-                      padding: "3px 6px", color: "#ccc", fontSize: 11, cursor: "pointer",
+                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                      padding: "3px 6px", color: t.text, fontSize: 11, cursor: "pointer",
                       outline: "none", flexShrink: 0,
                     }}
                   >
@@ -1137,7 +1143,7 @@ export default function WorkspaceDetailScreen() {
                     onClick={() => setMounts(mounts.filter((_, j) => j !== i))}
                     style={{
                       background: "none", border: "none", cursor: "pointer",
-                      color: "#666", padding: 2, flexShrink: 0,
+                      color: t.textDim, padding: 2, flexShrink: 0,
                     }}
                   >
                     <X size={14} />
@@ -1149,8 +1155,8 @@ export default function WorkspaceDetailScreen() {
                 style={{
                   display: "flex", alignItems: "center", gap: 4,
                   padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                  border: "1px solid #333", borderRadius: 5,
-                  background: "transparent", color: "#999", cursor: "pointer",
+                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                  background: "transparent", color: t.textMuted, cursor: "pointer",
                   alignSelf: "flex-start",
                 }}
               >
@@ -1164,7 +1170,7 @@ export default function WorkspaceDetailScreen() {
             <FormRow label="Enable workspace skills injection">
               <Toggle value={skillsEnabled} onChange={setSkillsEnabled} />
             </FormRow>
-            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>Directory conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <span><code style={{ color: "#93c5fd" }}>common/skills/pinned/*.md</code> — injected into every request</span>
@@ -1191,8 +1197,8 @@ export default function WorkspaceDetailScreen() {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "5px 12px", fontSize: 11, fontWeight: 600,
-                    border: "1px solid #333", borderRadius: 5,
-                    background: "transparent", color: "#999", cursor: "pointer",
+                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                    background: "transparent", color: t.textMuted, cursor: "pointer",
                   }}
                 >
                   <RefreshCw size={11} /> Reindex Skills
@@ -1206,7 +1212,7 @@ export default function WorkspaceDetailScreen() {
             <FormRow label="Enable workspace base prompt override">
               <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
             </FormRow>
-            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <span><code style={{ color: "#93c5fd" }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
@@ -1217,7 +1223,7 @@ export default function WorkspaceDetailScreen() {
 
           {/* Workspace Persona */}
           <Section title="Workspace Persona" description="Override the DB persona with a workspace file. No toggle needed — file presence opts in.">
-            <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File convention:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <span><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
@@ -1257,8 +1263,8 @@ export default function WorkspaceDetailScreen() {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                    border: "1px solid #333", borderRadius: 5,
-                    background: "transparent", color: "#999", cursor: "pointer",
+                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                    background: "transparent", color: t.textMuted, cursor: "pointer",
                   }}
                 >
                   <RefreshCw size={11} />
@@ -1275,40 +1281,40 @@ export default function WorkspaceDetailScreen() {
             <Section title="Info">
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>ID</span>
-                  <span style={{ color: "#ccc", fontFamily: "monospace" }}>{workspace.id}</span>
+                  <span style={{ color: t.textDim }}>ID</span>
+                  <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
                 </div>
                 {workspace.container_id && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "#666" }}>Container</span>
-                    <span style={{ color: "#888", fontFamily: "monospace" }}>
+                    <span style={{ color: t.textDim }}>Container</span>
+                    <span style={{ color: t.textMuted, fontFamily: "monospace" }}>
                       {workspace.container_name || workspace.container_id.slice(0, 12)}
                     </span>
                   </div>
                 )}
                 {workspace.image_id && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "#666" }}>Image ID</span>
-                    <span style={{ color: "#888", fontFamily: "monospace" }}>{workspace.image_id.slice(0, 16)}</span>
+                    <span style={{ color: t.textDim }}>Image ID</span>
+                    <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{workspace.image_id.slice(0, 16)}</span>
                   </div>
                 )}
                 {workspace.last_started_at && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "#666" }}>Last Started</span>
-                    <span style={{ color: "#888" }}>
+                    <span style={{ color: t.textDim }}>Last Started</span>
+                    <span style={{ color: t.textMuted }}>
                       {new Date(workspace.last_started_at).toLocaleString()}
                     </span>
                   </div>
                 )}
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>Created</span>
-                  <span style={{ color: "#888" }}>
+                  <span style={{ color: t.textDim }}>Created</span>
+                  <span style={{ color: t.textMuted }}>
                     {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#666" }}>Updated</span>
-                  <span style={{ color: "#888" }}>
+                  <span style={{ color: t.textDim }}>Updated</span>
+                  <span style={{ color: t.textMuted }}>
                     {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 </div>

@@ -251,3 +251,71 @@ async def test_update_policy_settings_invalid_action(client):
         "default_action": "invalid_garbage",
     }, headers=AUTH_HEADERS)
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Approval suggestions + decide-with-rule
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_approval_suggestions(client, db_session):
+    """GET /approvals/{id}/suggestions should return smart suggestions."""
+    from app.db.models import ToolApproval
+    approval = ToolApproval(
+        bot_id="test-bot",
+        tool_name="exec_command",
+        tool_type="local",
+        arguments={"command": "ls /home/user"},
+        status="pending",
+        timeout_seconds=300,
+    )
+    db_session.add(approval)
+    await db_session.commit()
+    await db_session.refresh(approval)
+
+    r = await client.get(f"/api/v1/approvals/{approval.id}/suggestions", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    suggestions = r.json()
+    assert len(suggestions) >= 2  # at least a prefix match + tool-always
+    labels = [s["label"] for s in suggestions]
+    assert any("ls" in l for l in labels), f"Expected ls suggestion in {labels}"
+    assert any("exec_command" in l for l in labels)
+
+
+@pytest.mark.asyncio
+async def test_decide_with_rule_creates_policy(client, db_session):
+    """POST /approvals/{id}/decide with create_rule should approve + create an allow rule."""
+    from app.db.models import ToolApproval
+    approval = ToolApproval(
+        bot_id="rule-bot",
+        tool_name="exec_command",
+        tool_type="local",
+        arguments={"command": "cat /etc/hostname"},
+        status="pending",
+        timeout_seconds=300,
+    )
+    db_session.add(approval)
+    await db_session.commit()
+    await db_session.refresh(approval)
+
+    r = await client.post(f"/api/v1/approvals/{approval.id}/decide", json={
+        "approved": True,
+        "decided_by": "test:admin",
+        "create_rule": {
+            "tool_name": "exec_command",
+            "conditions": {"arguments": {"command": {"pattern": "^cat(\\s|$)"}}},
+        },
+    }, headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "approved"
+    assert data["rule_created"] is not None
+
+    # Verify the rule was actually created
+    r2 = await client.get("/api/v1/tool-policies", headers=AUTH_HEADERS)
+    rules = r2.json()
+    created_rule = next((r for r in rules if r["id"] == data["rule_created"]), None)
+    assert created_rule is not None
+    assert created_rule["action"] == "allow"
+    assert created_rule["bot_id"] == "rule-bot"
+    assert "cat" in str(created_rule["conditions"])

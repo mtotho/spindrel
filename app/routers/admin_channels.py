@@ -1009,7 +1009,19 @@ async def api_slack_config(request: Request):
     """Returns Slack channel->bot mapping for the Slack integration service."""
     api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
     expected = getattr(settings, "API_KEY", None)
-    if expected and api_key != expected:
+
+    # Accept the static API_KEY from .env
+    authed = bool(expected and api_key == expected)
+
+    # Also accept scoped ask_ keys with admin scope
+    if not authed and api_key and api_key.startswith("ask_"):
+        from app.services.api_keys import validate_api_key, has_scope
+        async with async_session() as key_db:
+            key_row = await validate_api_key(key_db, api_key)
+            if key_row and has_scope(key_row.scopes or [], "admin"):
+                authed = True
+
+    if not authed:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     async with async_session() as db:

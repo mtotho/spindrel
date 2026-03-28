@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useTool } from "@/src/api/hooks/useTools";
 import { Section } from "@/src/components/shared/FormControls";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -13,11 +14,12 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
       <span style={{
-        fontSize: 11, color: "#ccc", fontFamily: "monospace",
+        fontSize: 11, color: t.text, fontFamily: "monospace",
         maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right",
       }}>{value}</span>
     </div>
@@ -56,15 +58,16 @@ function TypeBadge({ tool }: { tool: { server_name?: string | null; source_integ
 }
 
 function ParamRow({ name, param, required }: { name: string; param: any; required: boolean }) {
+  const t = useThemeTokens();
   const type = param.type || (param.enum ? "enum" : "any");
   return (
     <div style={{
       display: "flex", gap: 8, padding: "6px 0",
-      borderBottom: "1px solid #1a1a1a",
+      borderBottom: `1px solid ${t.surfaceRaised}`,
       alignItems: "flex-start",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 140, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, fontFamily: "monospace", color: "#e5e5e5", fontWeight: 600 }}>
+        <span style={{ fontSize: 12, fontFamily: "monospace", color: t.text, fontWeight: 600 }}>
           {name}
         </span>
         {required && (
@@ -76,7 +79,7 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
         {param.enum && `: ${param.enum.join(" | ")}`}
       </span>
       {param.description && (
-        <span style={{ fontSize: 11, color: "#888", flex: 1 }}>
+        <span style={{ fontSize: 11, color: t.textMuted, flex: 1 }}>
           {param.description}
         </span>
       )}
@@ -85,6 +88,7 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
 }
 
 export default function ToolDetailScreen() {
+  const t = useThemeTokens();
   const { toolId } = useLocalSearchParams<{ toolId: string }>();
   const goBack = useGoBack("/admin/tools");
   const { data: tool, isLoading } = useTool(toolId);
@@ -94,7 +98,7 @@ export default function ToolDetailScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -102,7 +106,7 @@ export default function ToolDetailScreen() {
   if (!tool) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <span style={{ color: "#666", fontSize: 13 }}>Tool not found</span>
+        <span style={{ color: t.textDim, fontSize: 13 }}>Tool not found</span>
       </View>
     );
   }
@@ -118,13 +122,13 @@ export default function ToolDetailScreen() {
       <div style={{
         display: "flex", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
+        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
         <span style={{
-          color: "#e5e5e5", fontSize: 14, fontWeight: 700, fontFamily: "monospace", flexShrink: 0,
+          color: t.text, fontSize: 14, fontWeight: 700, fontFamily: "monospace", flexShrink: 0,
         }}>
           {tool.tool_name}
         </span>
@@ -138,7 +142,7 @@ export default function ToolDetailScreen() {
       }}>
         {/* Main content */}
         <div style={{
-          ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
           display: "flex", flexDirection: "column", gap: 20,
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
@@ -146,9 +150,9 @@ export default function ToolDetailScreen() {
           {tool.description && (
             <Section title="Description">
               <div style={{
-                fontSize: 13, color: "#ccc", lineHeight: 1.6,
-                padding: "8px 12px", background: "#111", borderRadius: 8,
-                border: "1px solid #222",
+                fontSize: 13, color: t.text, lineHeight: 1.6,
+                padding: "8px 12px", background: t.inputBg, borderRadius: 8,
+                border: `1px solid ${t.surfaceOverlay}`,
               }}>
                 {tool.description}
               </div>
@@ -158,12 +162,12 @@ export default function ToolDetailScreen() {
           {/* Parameters */}
           <Section title={`Parameters (${paramNames.length})`}>
             {paramNames.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#555", padding: "8px 0" }}>
+              <div style={{ fontSize: 12, color: t.textDim, padding: "8px 0" }}>
                 No parameters
               </div>
             ) : (
               <div style={{
-                background: "#111", borderRadius: 8, border: "1px solid #222",
+                background: t.inputBg, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
                 padding: "4px 12px",
               }}>
                 {paramNames.map((name) => (
@@ -181,9 +185,9 @@ export default function ToolDetailScreen() {
           {/* Full schema */}
           <Section title="Full Schema (JSON)">
             <pre style={{
-              background: "#0a0a0a", border: "1px solid #222", borderRadius: 8,
+              background: t.surface, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
               padding: 12, fontSize: 11, lineHeight: 1.5,
-              color: "#999", fontFamily: "monospace",
+              color: t.textMuted, fontFamily: "monospace",
               overflow: "auto", maxHeight: 500,
               whiteSpace: "pre-wrap", wordBreak: "break-word",
             }}>
@@ -196,7 +200,7 @@ export default function ToolDetailScreen() {
         <div style={{
           ...(isWide ? { flex: 1.2, minWidth: 240 } : {}),
           padding: isWide ? "16px 20px" : "12px 12px",
-          borderTop: isWide ? "none" : "1px solid #2a2a2a",
+          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
         }}>
           <Section title="Info">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
