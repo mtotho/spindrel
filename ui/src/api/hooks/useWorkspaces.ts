@@ -332,6 +332,48 @@ export function useWorkspaceIndexStatus(workspaceId: string | undefined) {
   });
 }
 
+// Indexing overview (per-bot resolved configs)
+
+export interface BotIndexingInfo {
+  bot_id: string;
+  bot_name: string;
+  role: string;
+  indexing_enabled: boolean;
+  explicit_overrides: Record<string, any>;
+  resolved: {
+    enabled: boolean;
+    patterns: string[];
+    similarity_threshold: number;
+    top_k: number;
+    watch: boolean;
+    cooldown_seconds: number;
+    embedding_model: string;
+    segments?: any[];
+    [key: string]: any;
+  };
+}
+
+export interface WorkspaceIndexingOverview {
+  global_defaults: Record<string, any>;
+  workspace_defaults: Record<string, any> | null;
+  bots: BotIndexingInfo[];
+  supported_languages: string[];
+  skip_extensions: string[];
+  skip_directories: string[];
+}
+
+export function useWorkspaceIndexing(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-indexing", workspaceId],
+    queryFn: () =>
+      apiFetch<WorkspaceIndexingOverview>(
+        `/api/v1/workspaces/${workspaceId}/indexing`
+      ),
+    enabled: !!workspaceId,
+    staleTime: 30_000,
+  });
+}
+
 // Reindex
 
 export function useReindexWorkspace(workspaceId: string) {

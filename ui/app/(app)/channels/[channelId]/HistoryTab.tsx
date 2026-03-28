@@ -620,11 +620,12 @@ function SectionIndexSettings({ form, patch, channelId }: {
 // ---------------------------------------------------------------------------
 // History Tab — history mode, compaction settings, backfill
 // ---------------------------------------------------------------------------
-export function HistoryTab({ form, patch, channelId, workspaceId }: {
+export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
   workspaceId?: string | null;
+  memoryScheme?: string | null;
 }) {
   const t = useThemeTokens();
   const selected = form.history_mode ?? "";
@@ -701,7 +702,10 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
             label="Memory flush before compaction"
           />
           <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
-            Runs a dedicated memory flush pass before archiving messages. The bot gets its normal tools (save_memory, update_knowledge, update_persona) and a prompt telling it to save anything important before context is compacted.
+            {memoryScheme === "workspace-files"
+              ? "Before archiving, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via exec_command."
+              : "Before archiving, the bot gets one pass to save important context using its configured memory tools."
+            }
           </div>
 
           {form.memory_flush_enabled && (
@@ -716,20 +720,21 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                 Model used for the memory flush pass. A capable model works best here since it needs to reason about what to save.
               </div>
 
-              <LlmPrompt
-                label="Memory Flush Prompt"
-                inlineValue={form.memory_flush_prompt ?? ""}
-                onInlineChange={(v) => patch("memory_flush_prompt", v || undefined)}
-                templateId={form.memory_flush_prompt_template_id ?? null}
-                onTemplateChange={(v) => patch("memory_flush_prompt_template_id", v)}
-                workspaceId={form.memory_flush_workspace_id ?? null}
-                workspaceFilePath={form.memory_flush_workspace_file_path ?? null}
-                onWorkspaceFileChange={(wsId, path) => {
-                  patch("memory_flush_workspace_id", wsId);
-                  patch("memory_flush_workspace_file_path", path);
-                }}
-                placeholder="Uses global default memory flush prompt"
-              />
+              {memoryScheme === "workspace-files" ? (
+                <div style={{
+                  padding: "10px 14px", background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.2)",
+                  borderRadius: 8, fontSize: 11, color: t.textMuted, lineHeight: "1.5",
+                }}>
+                  <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts below are ignored.
+                </div>
+              ) : (
+                <LlmPrompt
+                  label="Memory Flush Prompt"
+                  value={form.memory_flush_prompt ?? ""}
+                  onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
+                  placeholder="Uses global default memory flush prompt"
+                />
+              )}
             </>
           )}
 
@@ -787,8 +792,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                 <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6" }}>
                   After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages
                   are archived and summarized by an LLM. The most recent <strong style={{ color: t.text }}>Keep Turns</strong> are
-                  always preserved verbatim. If memory/knowledge/persona is enabled, the bot gets a "last chance" pass
-                  to save important information before summarization.
+                  always preserved verbatim. If memory flush is enabled below, the bot gets a "last chance" pass
+                  to save important context before summarization.
                 </div>
                 <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6", marginTop: 8 }}>
                   <strong style={{ color: t.text }}>Example:</strong> Interval=30, Keep Turns=10 \u2192 after 30 user messages,
@@ -855,7 +860,10 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                 label="Memory flush before compaction"
               />
               <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
-                Runs a dedicated memory flush pass before summarizing messages. The bot saves memories, knowledge, and persona before context is archived.
+                {memoryScheme === "workspace-files"
+                  ? "Before summarizing, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via exec_command."
+                  : "Before summarizing, the bot gets one pass to save important context using its configured memory tools."
+                }
               </div>
 
               {form.memory_flush_enabled && (
@@ -867,20 +875,21 @@ export function HistoryTab({ form, patch, channelId, workspaceId }: {
                     placeholder="inherit (bot model)"
                   />
 
-                  <LlmPrompt
-                    label="Memory Flush Prompt"
-                    inlineValue={form.memory_flush_prompt ?? ""}
-                    onInlineChange={(v) => patch("memory_flush_prompt", v || undefined)}
-                    templateId={form.memory_flush_prompt_template_id ?? null}
-                    onTemplateChange={(v) => patch("memory_flush_prompt_template_id", v)}
-                    workspaceId={form.memory_flush_workspace_id ?? null}
-                    workspaceFilePath={form.memory_flush_workspace_file_path ?? null}
-                    onWorkspaceFileChange={(wsId, path) => {
-                      patch("memory_flush_workspace_id", wsId);
-                      patch("memory_flush_workspace_file_path", path);
-                    }}
-                    placeholder="Uses global default memory flush prompt"
-                  />
+                  {memoryScheme === "workspace-files" ? (
+                    <div style={{
+                      padding: "10px 14px", background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.2)",
+                      borderRadius: 8, fontSize: 11, color: t.textMuted, lineHeight: "1.5",
+                    }}>
+                      <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts are ignored.
+                    </div>
+                  ) : (
+                    <LlmPrompt
+                      label="Memory Flush Prompt"
+                      value={form.memory_flush_prompt ?? ""}
+                      onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
+                      placeholder="Uses global default memory flush prompt"
+                    />
+                  )}
                 </>
               )}
 
