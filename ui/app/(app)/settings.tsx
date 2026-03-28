@@ -819,7 +819,7 @@ export default function SettingsScreen() {
           )}
 
           {/* Settings */}
-          {!isGlobal && activeSettings.map((item, idx) => (
+          {!isGlobal && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => (
             <View key={item.key}>
               {idx > 0 && <View className="h-px bg-surface-border" />}
               <SettingRow
