@@ -103,7 +103,7 @@ async def search_memory(query: str) -> str:
     if not query:
         return "No search query provided."
 
-    from app.services.memory_scheme import get_memory_rel_path
+    from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
@@ -111,14 +111,14 @@ async def search_memory(query: str) -> str:
     _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
     embedding_model = _resolved["embedding_model"]
 
-    # Search all roots (own + include_bots), not just own root
+    # Search all roots; use index-aware prefix (bots/{id}/memory for shared workspace)
     roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
 
     results = await hybrid_memory_search(
         query=query,
         bot_id=bot_id,
         roots=roots,
-        memory_prefix=get_memory_rel_path(bot),
+        memory_prefix=get_memory_index_prefix(bot),
         embedding_model=embedding_model,
         top_k=10,
     )
@@ -252,7 +252,7 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     # Each bot indexes its own workspace root and stores chunks under its own
     # bot_id. Query the target's chunks directly.
     from app.services.memory_search import hybrid_memory_search
-    from app.services.memory_scheme import get_memory_rel_path
+    from app.services.memory_scheme import get_memory_index_prefix
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     # Use the target bot's resolved embedding model
@@ -261,14 +261,13 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     )
     embedding_model = _resolved["embedding_model"]
 
-    target_mem_prefix = get_memory_rel_path(target_bot)
     roots = [str(Path(r).resolve()) for r in get_all_roots(target_bot)]
 
     results = await hybrid_memory_search(
         query=query,
         bot_id=target_bot_id,
         roots=roots,
-        memory_prefix=target_mem_prefix,
+        memory_prefix=get_memory_index_prefix(target_bot),
         embedding_model=embedding_model,
         top_k=10,
     )

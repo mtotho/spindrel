@@ -927,12 +927,17 @@ async def reindex_workspace(
             bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
             if bot and bot.workspace.indexing.enabled:
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
+                _patterns = _resolved["patterns"]
+                _segments = _resolved.get("segments")
+                # Scope patterns for shared workspace bots without segments
+                if bot.shared_workspace_id and not _segments:
+                    _patterns = [f"bots/{bot.id}/{p}" for p in _patterns]
                 bot_results = []
                 for root in get_all_roots(bot):
                     stats = await index_directory(
-                        root, swb.bot_id, _resolved["patterns"], force=True,
+                        root, swb.bot_id, _patterns, force=True,
                         embedding_model=_resolved["embedding_model"],
-                        segments=_resolved.get("segments"),
+                        segments=_segments,
                     )
                     bot_results.append(stats)
                 results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results

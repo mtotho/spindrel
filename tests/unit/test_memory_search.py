@@ -157,7 +157,6 @@ class TestSearchMemoryResolvesModel:
             patch("app.tools.local.memory_files._get_bot_and_root", return_value=(bot, "my_bot", "/ws/my_bot")),
             patch("app.services.memory_search.hybrid_memory_search", mock_search),
             patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/my_bot"]),
-            patch("app.services.memory_scheme.get_memory_rel_path", return_value="memory"),
         ):
             result = await search_memory("test query")
 

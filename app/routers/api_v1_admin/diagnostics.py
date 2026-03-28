@@ -93,7 +93,8 @@ async def diagnostics_indexing(
     # --- 4. Filesystem indexing (per bot) ---
     from app.agent.bots import list_bots, get_bot
     from app.services.workspace import workspace_service
-    from app.services.memory_scheme import get_memory_rel_path
+    from app.services.memory_scheme import get_memory_rel_path, get_memory_index_prefix
+    from app.services.workspace_indexing import get_all_roots
 
     fs_info = []
     for bot in list_bots():
@@ -103,10 +104,11 @@ async def diagnostics_indexing(
         ws_root_resolved = str(Path(ws_root).resolve())
         root_exists = os.path.isdir(ws_root_resolved)
 
-        # Resolve the correct memory prefix for this bot
-        # (orchestrators use "bots/{bot_id}/memory", members use "memory")
+        # Physical prefix for on-disk walks (relative to bot's own directory)
         mem_rel = get_memory_rel_path(bot)
-        mem_prefix_pattern = mem_rel.rstrip("/") + "/%"
+        # Index prefix for DB queries (relative to indexing root = workspace root for shared)
+        mem_index_prefix = get_memory_index_prefix(bot)
+        mem_prefix_pattern = mem_index_prefix.rstrip("/") + "/%"
 
         # Build pathspec for gitignore filtering (same as indexer)
         from app.agent.fs_indexer import _build_pathspec
@@ -137,12 +139,16 @@ async def diagnostics_indexing(
                         if is_memory:
                             memory_files_on_disk += 1
 
+        # Use the indexing root (workspace root for shared ws bots) for DB queries
+        _db_roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+        _root_filter = FilesystemChunk.root.in_(_db_roots)
+
         # Count chunks in DB
         chunk_count = (await db.execute(
             select(func.count()).select_from(FilesystemChunk)
             .where(
                 FilesystemChunk.bot_id == bot.id,
-                FilesystemChunk.root == ws_root_resolved,
+                _root_filter,
             )
         )).scalar_one()
 
@@ -151,7 +157,7 @@ async def diagnostics_indexing(
             select(func.count()).select_from(FilesystemChunk)
             .where(
                 FilesystemChunk.bot_id == bot.id,
-                FilesystemChunk.root == ws_root_resolved,
+                _root_filter,
                 FilesystemChunk.file_path.like(mem_prefix_pattern),
             )
         )).scalar_one()
@@ -161,7 +167,7 @@ async def diagnostics_indexing(
             select(func.count()).select_from(FilesystemChunk)
             .where(
                 FilesystemChunk.bot_id == bot.id,
-                FilesystemChunk.root == ws_root_resolved,
+                _root_filter,
                 FilesystemChunk.embedding.isnot(None),
             )
         )).scalar_one()

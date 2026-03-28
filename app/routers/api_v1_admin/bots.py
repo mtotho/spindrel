@@ -615,14 +615,8 @@ async def admin_bot_enable_memory_scheme(
 
     # Trigger filesystem reindex for the memory directory
     try:
-        from app.agent.fs_indexer import index_directory
-        from app.services.memory_scheme import get_memory_rel_path
-        from app.services.workspace import workspace_service
-        ws_root = workspace_service.get_workspace_root(bot_id, bot)
-        mem_rel = get_memory_rel_path(bot)
-        await index_directory(
-            ws_root, bot_id, [f"{mem_rel}/**/*.md"], force=True,
-        )
+        from app.services.memory_indexing import index_memory_for_bot
+        await index_memory_for_bot(bot, force=True)
     except Exception:
         pass  # non-fatal; will be indexed on next natural cycle
 

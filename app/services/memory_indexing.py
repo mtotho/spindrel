@@ -35,12 +35,14 @@ async def index_memory_for_bot(bot: "BotConfig", *, force: bool = True) -> dict 
     from app.agent.fs_indexer import index_directory
     from app.services.workspace import workspace_service
     from app.services.workspace_indexing import get_all_roots, resolve_indexing
+    from app.services.memory_scheme import get_memory_index_patterns
 
     # Use the resolved embedding model so memory chunks match what search_memory queries
     _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
     embedding_model = _resolved["embedding_model"]
 
-    patterns = get_memory_patterns()
+    # Use index-aware patterns (bots/{id}/memory/**/*.md for shared workspace bots)
+    patterns = get_memory_index_patterns(bot)
     results: list[dict] = []
     for root in get_all_roots(bot, workspace_service):
         try:

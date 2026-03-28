@@ -353,35 +353,53 @@ async def index_directory(
     spec = _build_pathspec(root_path)
 
     # Discover candidate files
+    def _accept(p: Path) -> bool:
+        """Return True if the file should be indexed (passes all filters)."""
+        if not p.is_file():
+            return False
+        parts = p.relative_to(root_path).parts
+        if any(part in _SKIP_DIRS for part in parts):
+            return False
+        if p.suffix.lower() in _SKIP_EXTENSIONS:
+            return False
+        if _is_auto_injected(parts):
+            return False
+        if spec:
+            try:
+                rel = str(PurePosixPath(p.relative_to(root_path)))
+                if spec.match_file(rel):
+                    return False
+            except ValueError:
+                pass
+        return True
+
     if file_paths is not None:
         candidates = [
             p.resolve() for p in file_paths
             if p.is_file() and not _is_auto_injected(p.resolve().relative_to(root_path).parts)
         ]
+    elif segments:
+        # Segment-exclusive discovery: only walk within segment path prefixes.
+        # Each segment defines its own scope; files outside all segments are skipped.
+        seen: set[Path] = set()
+        for seg in segments:
+            seg_prefix = seg["path_prefix"].rstrip("/")
+            seg_dir = root_path / seg_prefix
+            if not seg_dir.is_dir():
+                logger.debug("Segment dir %s does not exist, skipping", seg_dir)
+                continue
+            seg_patterns = seg.get("patterns") or patterns
+            for pattern in seg_patterns:
+                for p in seg_dir.glob(pattern):
+                    if p not in seen and _accept(p):
+                        seen.add(p)
+        candidates = list(seen)
     else:
         seen: set[Path] = set()
         for pattern in patterns:
             for p in root_path.glob(pattern):
-                if not p.is_file():
-                    continue
-                if p in seen:
-                    continue
-                # Skip ignored dirs
-                parts = p.relative_to(root_path).parts
-                if any(part in _SKIP_DIRS for part in parts):
-                    continue
-                if p.suffix.lower() in _SKIP_EXTENSIONS:
-                    continue
-                if _is_auto_injected(parts):
-                    continue
-                if spec:
-                    try:
-                        rel = str(PurePosixPath(p.relative_to(root_path)))
-                        if spec.match_file(rel):
-                            continue
-                    except ValueError:
-                        pass
-                seen.add(p)
+                if p not in seen and _accept(p):
+                    seen.add(p)
         candidates = list(seen)
 
     stats = {"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
