@@ -6,7 +6,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, text
 
 from app.config import settings
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -530,7 +530,7 @@ class FilesystemChunk(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata_", JSONB, server_default=text("'{}'::jsonb")
     )
-    tsv = mapped_column("tsv", Text, nullable=True)  # TSVECTOR column; populated via raw SQL in indexer
+    tsv = mapped_column("tsv", TSVECTOR().with_variant(Text(), "sqlite"), nullable=True)  # populated via raw SQL in indexer
     indexed_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),

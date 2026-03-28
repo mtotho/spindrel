@@ -13,13 +13,13 @@ import { useQuery } from "@tanstack/react-query";
 const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
   static:       { bar: "#3b82f6", dot: "#60a5fa" },
   rag:          { bar: "#22c55e", dot: "#4ade80" },
-  conversation: { bar: "#f59e0b", dot: "#fbbf24" },
-  compaction:   { bar: "#a855f7", dot: "#c084fc" },
+  conversation: { bar: "#f59e0b", dot: "#d97706" },
+  compaction:   { bar: "#a855f7", dot: "#9333ea" },
 };
 
 const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  channel: { bg: "#1e3a5f", fg: "#93c5fd" },
-  bot:     { bg: "#365314", fg: "#bef264" },
+  channel: { bg: "#1e3a5f", fg: "#2563eb" },
+  bot:     { bg: "#365314", fg: "#65a30d" },
   global:  { bg: "#333",    fg: "#999"    },
 };
 

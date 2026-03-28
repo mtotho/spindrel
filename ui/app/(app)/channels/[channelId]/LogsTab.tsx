@@ -9,17 +9,17 @@ import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 // Log type colors (only used by this tab)
 // ---------------------------------------------------------------------------
 const LOG_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
-  tool_call:            { bg: "#312e81", fg: "#a5b4fc" },
-  memory_injection:     { bg: "#3b0764", fg: "#d8b4fe" },
-  skill_context:        { bg: "#134e4a", fg: "#5eead4" },
-  knowledge_context:    { bg: "#1e3a5f", fg: "#93c5fd" },
-  tool_retrieval:       { bg: "#713f12", fg: "#fde047" },
-  context_compressed:   { bg: "#365314", fg: "#bef264" },
-  context_breakdown:    { bg: "#164e63", fg: "#67e8f9" },
+  tool_call:            { bg: "#312e81", fg: "#4f46e5" },
+  memory_injection:     { bg: "#3b0764", fg: "#7c3aed" },
+  skill_context:        { bg: "#134e4a", fg: "#0d9488" },
+  knowledge_context:    { bg: "#1e3a5f", fg: "#2563eb" },
+  tool_retrieval:       { bg: "#713f12", fg: "#ca8a04" },
+  context_compressed:   { bg: "#365314", fg: "#65a30d" },
+  context_breakdown:    { bg: "#164e63", fg: "#0891b2" },
   token_usage:          { bg: "#333",    fg: "#999"    },
-  error:                { bg: "#7f1d1d", fg: "#fca5a5" },
-  harness:              { bg: "#78350f", fg: "#fbbf24" },
-  response:             { bg: "#166534", fg: "#86efac" },
+  error:                { bg: "#7f1d1d", fg: "#dc2626" },
+  harness:              { bg: "#78350f", fg: "#d97706" },
+  response:             { bg: "#166534", fg: "#16a34a" },
 };
 
 // ---------------------------------------------------------------------------

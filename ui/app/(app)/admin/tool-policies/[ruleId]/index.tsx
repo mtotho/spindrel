@@ -377,7 +377,7 @@ export default function ToolPolicyDetailScreen() {
                   borderRadius: 6,
                   background: t.surfaceRaised,
                   fontSize: 12,
-                  color: "#93c5fd",
+                  color: "#2563eb",
                   fontFamily: "monospace",
                 }}
               >

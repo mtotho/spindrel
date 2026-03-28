@@ -32,10 +32,10 @@ export function scoreMatch(value: string, label: string, query: string): number 
 }
 
 const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
-  skill: { bg: "#1e1b4b", fg: "#a5b4fc" },
-  tool: { bg: "#14532d", fg: "#86efac" },
-  "tool-pack": { bg: "#14532d", fg: "#86efac" },
-  knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
+  skill: { bg: "#1e1b4b", fg: "#4f46e5" },
+  tool: { bg: "#14532d", fg: "#16a34a" },
+  "tool-pack": { bg: "#14532d", fg: "#16a34a" },
+  knowledge: { bg: "#3b0764", fg: "#7c3aed" },
 };
 
 // ---------------------------------------------------------------------------

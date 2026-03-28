@@ -20,7 +20,7 @@ const BigTextarea = forwardRef<HTMLTextAreaElement, {
       style={{
         width: "100%", fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
         padding: "12px 16px", borderRadius: 8,
-        border: `1px solid ${t.surfaceBorder}`, background: t.surface, color: "#e5e7eb",
+        border: `1px solid ${t.inputBorder}`, background: t.inputBg, color: t.inputText,
         resize: "vertical", outline: "none", transition: "border-color 0.15s",
         minHeight: minRows * 20,
       }}

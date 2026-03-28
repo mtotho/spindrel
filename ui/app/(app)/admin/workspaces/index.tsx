@@ -9,10 +9,10 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import type { SharedWorkspace } from "@/src/types/api";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  running: { bg: "rgba(34,197,94,0.15)", fg: "#86efac" },
+  running: { bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
   stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
-  creating: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
-  error: { bg: "rgba(239,68,68,0.15)", fg: "#fca5a5" },
+  creating: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
+  error: { bg: "rgba(239,68,68,0.15)", fg: "#dc2626" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -46,7 +46,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
     >
       {/* Top row: name + status */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Container size={14} color="#93c5fd" />
+        <Container size={14} color="#2563eb" />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           {workspace.name}
         </span>
@@ -82,7 +82,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
             <span key={b.bot_id} style={{
               padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 500,
               background: b.role === "orchestrator" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.1)",
-              color: b.role === "orchestrator" ? "#c4b5fd" : "#93c5fd",
+              color: b.role === "orchestrator" ? "#8b5cf6" : "#2563eb",
             }}>
               {b.bot_name || b.bot_id}
               {b.role === "orchestrator" && " (orch)"}

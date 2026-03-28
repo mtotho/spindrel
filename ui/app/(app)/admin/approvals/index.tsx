@@ -34,7 +34,7 @@ function StatusIcon({ status }: { status: string }) {
   const t = useThemeTokens();
   switch (status) {
     case "pending":
-      return <Clock size={14} color="#fbbf24" />;
+      return <Clock size={14} color="#d97706" />;
     case "approved":
       return <CheckCircle size={14} color="#22c55e" />;
     case "denied":
@@ -48,10 +48,10 @@ function StatusIcon({ status }: { status: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { bg: string; color: string }> = {
-    pending: { bg: "rgba(251,191,36,0.12)", color: "#fde68a" },
-    approved: { bg: "rgba(34,197,94,0.12)", color: "#86efac" },
-    denied: { bg: "rgba(239,68,68,0.12)", color: "#fca5a5" },
-    expired: { bg: "rgba(107,114,128,0.12)", color: "#9ca3af" },
+    pending: { bg: "rgba(251,191,36,0.12)", color: "#ca8a04" },
+    approved: { bg: "rgba(34,197,94,0.12)", color: "#16a34a" },
+    denied: { bg: "rgba(239,68,68,0.12)", color: "#dc2626" },
+    expired: { bg: "rgba(107,114,128,0.12)", color: "#6b7280" },
   };
   const c = config[status] || config.expired;
   return (
@@ -95,7 +95,7 @@ function SuggestionButton({
         cursor: disabled ? "default" : "pointer",
         fontSize: 12,
         fontWeight: 500,
-        color: "#93c5fd",
+        color: "#2563eb",
         opacity: disabled ? 0.5 : 1,
         whiteSpace: "nowrap",
       }}
@@ -166,7 +166,7 @@ function ApprovalCard({
             fontSize: 10,
             fontWeight: 600,
             background: "rgba(59,130,246,0.12)",
-            color: "#93c5fd",
+            color: "#2563eb",
           }}
         >
           {approval.bot_id}
@@ -176,7 +176,7 @@ function ApprovalCard({
       </div>
 
       {approval.reason && (
-        <div style={{ fontSize: 12, color: "#fbbf24" }}>{approval.reason}</div>
+        <div style={{ fontSize: 12, color: "#d97706" }}>{approval.reason}</div>
       )}
 
       <pre
@@ -224,7 +224,7 @@ function ApprovalCard({
                 cursor: deciding ? "default" : "pointer",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#86efac",
+                color: "#16a34a",
                 opacity: deciding ? 0.5 : 1,
               }}
             >
@@ -244,7 +244,7 @@ function ApprovalCard({
                 cursor: deciding ? "default" : "pointer",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#fca5a5",
+                color: "#dc2626",
                 opacity: deciding ? 0.5 : 1,
               }}
             >

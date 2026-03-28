@@ -149,7 +149,7 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
                 background: value === p.value ? (p.value ? "#92400e" : t.surfaceBorder) : t.surfaceRaised,
-                color: value === p.value ? (p.value ? "#fcd34d" : t.text) : t.textMuted,
+                color: value === p.value ? (p.value ? "#ca8a04" : t.text) : t.textMuted,
               }}
             >
               {p.label}
@@ -161,7 +161,7 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
               background: showCustom ? "#92400e" : t.surfaceRaised,
-              color: showCustom ? "#fcd34d" : t.textMuted,
+              color: showCustom ? "#ca8a04" : t.textMuted,
             }}
           >
             Custom
@@ -196,7 +196,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
         background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-        color: enabled ? "#86efac" : "#fca5a5",
+        color: enabled ? "#16a34a" : "#dc2626",
       }}
     >
       <div style={{
@@ -332,8 +332,8 @@ export default function TaskDetailScreen() {
           style={{
             display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
             padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-            border: "1px solid #7f1d1d", borderRadius: 6,
-            background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+            border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
+            background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
           }}
         >
           <Trash2 size={14} />
@@ -364,7 +364,7 @@ export default function TaskDetailScreen() {
 
       {/* Error display */}
       {(updateMut.error || deleteMut.error) && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
           {(updateMut.error || deleteMut.error)?.message || "An error occurred"}
         </div>
       )}
@@ -423,7 +423,7 @@ export default function TaskDetailScreen() {
                 <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
                 <div style={{
                   padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
-                  fontSize: 12, color: "#86efac", whiteSpace: "pre-wrap",
+                  fontSize: 12, color: "#16a34a", whiteSpace: "pre-wrap",
                   maxHeight: 300, overflow: "auto", fontFamily: "monospace",
                 }}>
                   {task.result}
@@ -435,8 +435,8 @@ export default function TaskDetailScreen() {
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
                 <div style={{
-                  padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid #7f1d1d",
-                  fontSize: 12, color: "#fca5a5", whiteSpace: "pre-wrap",
+                  padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid rgba(239,68,68,0.25)",
+                  fontSize: 12, color: "#dc2626", whiteSpace: "pre-wrap",
                   maxHeight: 200, overflow: "auto", fontFamily: "monospace",
                 }}>
                   {task.error}

@@ -93,8 +93,8 @@ function ScopeCheckboxGroup({
                     fontSize: 12,
                     color: checked
                       ? isAdmin
-                        ? "#fca5a5"
-                        : "#93c5fd"
+                        ? "#dc2626"
+                        : "#2563eb"
                       : t.textDim,
                     fontWeight: checked ? 600 : 400,
                   }}
@@ -327,9 +327,9 @@ export default function ApiKeyDetailScreen() {
                   marginBottom: 8,
                 }}
               >
-                <AlertTriangle size={14} color="#fbbf24" />
+                <AlertTriangle size={14} color="#d97706" />
                 <span
-                  style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}
+                  style={{ fontSize: 13, fontWeight: 600, color: "#d97706" }}
                 >
                   Save this key now. It won't be shown again.
                 </span>
@@ -348,7 +348,7 @@ export default function ApiKeyDetailScreen() {
                     borderRadius: 6,
                     background: t.surfaceRaised,
                     fontSize: 12,
-                    color: "#86efac",
+                    color: "#16a34a",
                     wordBreak: "break-all",
                     fontFamily: "monospace",
                   }}
@@ -367,7 +367,7 @@ export default function ApiKeyDetailScreen() {
                     alignItems: "center",
                     gap: 4,
                     fontSize: 12,
-                    color: copied ? "#86efac" : t.textMuted,
+                    color: copied ? "#16a34a" : t.textMuted,
                   }}
                 >
                   {copied ? (
@@ -441,7 +441,7 @@ export default function ApiKeyDetailScreen() {
                           cursor: "pointer",
                           fontSize: 13,
                           fontWeight: active ? 600 : 400,
-                          color: active ? "#93c5fd" : t.textMuted,
+                          color: active ? "#2563eb" : t.textMuted,
                         }}
                       >
                         <div>{preset.name}</div>
@@ -475,7 +475,7 @@ export default function ApiKeyDetailScreen() {
                     fontSize: 13,
                     fontWeight: activePreset === null ? 600 : 400,
                     color:
-                      activePreset === null ? "#93c5fd" : t.textMuted,
+                      activePreset === null ? "#2563eb" : t.textMuted,
                   }}
                 >
                   <div>Custom</div>
@@ -512,7 +512,7 @@ export default function ApiKeyDetailScreen() {
                   marginBottom: 8,
                   fontSize: 12,
                   fontWeight: 600,
-                  color: "#93c5fd",
+                  color: "#2563eb",
                 }}
               >
                 <Info size={13} />
@@ -542,7 +542,7 @@ export default function ApiKeyDetailScreen() {
                   background: "rgba(239,68,68,0.08)",
                   border: "1px solid rgba(239,68,68,0.15)",
                   fontSize: 12,
-                  color: "#fca5a5",
+                  color: "#dc2626",
                   marginBottom: 12,
                 }}
               >

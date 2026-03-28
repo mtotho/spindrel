@@ -292,6 +292,9 @@ class TestBackfillSections:
             result = MagicMock()
             stmt_str = str(stmt)
             if "conversation_sections" in stmt_str.lower():
+                # count() query from _generate_section
+                result.scalar.return_value = 0
+                result.scalar_one_or_none.return_value = None
                 # Resume path: return empty list (no existing sections)
                 result.scalars.return_value.all.return_value = []
                 return result
@@ -383,6 +386,12 @@ class TestBackfillSections:
             result = MagicMock()
             stmt_str = str(stmt)
             if "conversation_sections" in stmt_str.lower():
+                # count() query from _generate_section
+                result.scalar.return_value = len(existing_sections)
+                if existing_sections:
+                    result.scalar_one_or_none.return_value = existing_sections[-1]
+                else:
+                    result.scalar_one_or_none.return_value = None
                 # Resume path: return existing sections
                 result.scalars.return_value.all.return_value = existing_sections
                 return result
@@ -469,6 +478,8 @@ class TestBackfillSections:
             result = MagicMock()
             stmt_str = str(stmt)
             if "conversation_sections" in stmt_str.lower():
+                result.scalar.return_value = 0
+                result.scalar_one_or_none.return_value = None
                 result.scalars.return_value.all.return_value = []
                 return result
             # Messages query — only return pre-watermark (the real DB would filter by created_at <= watermark)
@@ -578,6 +589,8 @@ class TestBackfillSections:
             result = MagicMock()
             stmt_str = str(stmt)
             if "conversation_sections" in stmt_str.lower():
+                result.scalar.return_value = 0
+                result.scalar_one_or_none.return_value = None
                 result.scalars.return_value.all.return_value = []
                 return result
             result.scalars.return_value.all.return_value = messages

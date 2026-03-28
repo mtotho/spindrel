@@ -248,8 +248,8 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
         background: t.surface,
         flexShrink: 0,
       }}>
-        <FileText size={12} color="#86efac" />
-        <span style={{ flex: 1, fontSize: 11, color: "#86efac", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+        <FileText size={12} color="#16a34a" />
+        <span style={{ flex: 1, fontSize: 11, color: "#16a34a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
           {filePath}
         </span>
         {data?.size != null && (

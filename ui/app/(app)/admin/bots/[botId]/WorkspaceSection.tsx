@@ -79,12 +79,12 @@ export function WorkspaceSection({
           border: "1px solid rgba(139,92,246,0.15)", borderRadius: 10,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Package size={14} color="#c4b5fd" />
+            <Package size={14} color="#8b5cf6" />
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Shared Workspace</span>
             <span style={{
               padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
               background: draft.shared_workspace_role === "orchestrator" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.1)",
-              color: draft.shared_workspace_role === "orchestrator" ? "#c4b5fd" : "#93c5fd",
+              color: draft.shared_workspace_role === "orchestrator" ? "#8b5cf6" : "#2563eb",
             }}>
               {draft.shared_workspace_role || "member"}
             </span>
@@ -100,7 +100,7 @@ export function WorkspaceSection({
             href={`/admin/workspaces/${draft.shared_workspace_id}`}
             style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 12, fontWeight: 600, color: "#93c5fd",
+              fontSize: 12, fontWeight: 600, color: "#2563eb",
               textDecoration: "none", alignSelf: "flex-start",
             }}
           >
@@ -160,7 +160,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
                     {envEntries.map(([k, v]) => (
                       <div key={k} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#93c5fd", minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
+                        <span style={{ fontFamily: "monospace", color: "#2563eb", minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
                         <span style={{ color: t.textDim }}>=</span>
                         <span style={{ fontFamily: "monospace", color: t.textMuted, flex: 1 }}>{v as string}</span>
                         {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
@@ -181,7 +181,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
                     {ports.map((p: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
+                        <span style={{ fontFamily: "monospace", color: "#2563eb" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
                         {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
@@ -201,7 +201,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
                     {mounts.map((m: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#93c5fd", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
+                        <span style={{ fontFamily: "monospace", color: "#2563eb", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
                         {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
@@ -260,7 +260,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {blocked.map((pat, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#fbbf24" }}>
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#d97706" }}>
                       {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -276,7 +276,7 @@ export function WorkspaceSection({
                 <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {envPass.map((v, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#93c5fd" }}>
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
                       {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -306,7 +306,7 @@ export function WorkspaceSection({
                   <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>File Patterns</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {patterns.map((pat, i) => (
-                      <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#93c5fd" }}>
+                      <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
                         {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
                       </span>
                     ))}
@@ -329,7 +329,7 @@ export function WorkspaceSection({
                   </div>
                   {segments.map((seg: any, i: number) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
-                      <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{seg.path_prefix}</span>
+                      <span style={{ fontFamily: "monospace", color: "#2563eb" }}>{seg.path_prefix}</span>
                       {seg.embedding_model && <span style={{ color: t.textMuted }}>model: <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
                       {seg.patterns && <span style={{ color: t.textDim }}>patterns: {seg.patterns.length}</span>}
                       {seg.similarity_threshold != null && <span style={{ color: t.textDim }}>thresh: {seg.similarity_threshold}</span>}

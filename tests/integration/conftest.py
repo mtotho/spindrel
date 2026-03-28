@@ -19,7 +19,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 # Register SQLite-compatible compilers for PostgreSQL-specific types
 from pgvector.sqlalchemy import Vector  # noqa: E402
 from sqlalchemy.ext.compiler import compiles  # noqa: E402
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, TSVECTOR as PG_TSVECTOR  # noqa: E402
 
 
 @compiles(Vector, "sqlite")
@@ -35,6 +35,11 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):
 @compiles(PG_UUID, "sqlite")
 def _compile_uuid_sqlite(type_, compiler, **kw):
     return "CHAR(32)"
+
+
+@compiles(PG_TSVECTOR, "sqlite")
+def _compile_tsvector_sqlite(type_, compiler, **kw):
+    return "TEXT"
 
 
 @compiles(PG_TIMESTAMP, "sqlite")

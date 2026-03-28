@@ -27,10 +27,10 @@ import { useThemeTokens } from "@/src/theme/tokens";
 // Status badge
 // ---------------------------------------------------------------------------
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  running: { bg: "rgba(34,197,94,0.15)", fg: "#86efac" },
+  running: { bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
   stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
-  creating: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd" },
-  error: { bg: "rgba(239,68,68,0.15)", fg: "#fca5a5" },
+  creating: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
+  error: { bg: "rgba(239,68,68,0.15)", fg: "#dc2626" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -414,7 +414,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? t.text : "#93c5fd", fontSize: 12, padding: 0,
+            color: path === "/" ? t.text : "#2563eb", fontSize: 12, padding: 0,
             fontFamily: "monospace",
           }}
         >
@@ -432,7 +432,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   onClick={() => navigateTo(segPath)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? t.text : "#93c5fd", fontSize: 12, padding: 0,
+                    color: isLast ? t.text : "#2563eb", fontSize: 12, padding: 0,
                     fontFamily: "monospace",
                   }}
                 >
@@ -554,7 +554,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 }}
               >
                 {entry.is_dir ? (
-                  <Folder size={13} color="#93c5fd" />
+                  <Folder size={13} color="#2563eb" />
                 ) : (
                   <FileText size={13} color={t.textDim} />
                 )}
@@ -597,7 +597,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}`,
             background: t.inputBg,
           }}>
-            <FileText size={13} color="#93c5fd" />
+            <FileText size={13} color="#2563eb" />
             <span style={{ flex: 1, fontSize: 12, color: t.text, fontFamily: "monospace" }}>
               {viewingFile}
             </span>
@@ -654,7 +654,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
               <div style={{ color: t.textDim, fontSize: 12 }}>Loading file...</div>
             )}
             {fileError && (
-              <div style={{ color: "#fca5a5", fontSize: 12 }}>
+              <div style={{ color: "#dc2626", fontSize: 12 }}>
                 {(fileError as any)?.message || "Failed to load file"}
               </div>
             )}
@@ -880,8 +880,8 @@ export default function WorkspaceDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #7f1d1d", borderRadius: 6,
-              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+              border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
+              background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -891,7 +891,7 @@ export default function WorkspaceDetailScreen() {
         {/* Unsaved indicator */}
         {isDirty && !isNew && !justSaved && (
           <span style={{
-            fontSize: 11, fontWeight: 600, color: "#fbbf24",
+            fontSize: 11, fontWeight: 600, color: "#d97706",
             flexShrink: 0, whiteSpace: "nowrap",
           }}>
             Unsaved changes
@@ -899,7 +899,7 @@ export default function WorkspaceDetailScreen() {
         )}
         {justSaved && (
           <span style={{
-            fontSize: 11, fontWeight: 600, color: "#86efac",
+            fontSize: 11, fontWeight: 600, color: "#16a34a",
             flexShrink: 0,
           }}>
             Saved
@@ -912,8 +912,8 @@ export default function WorkspaceDetailScreen() {
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: isDirty && canSave ? `2px solid ${t.accent}` : "none",
             borderRadius: 6, flexShrink: 0,
-            background: !canSave ? t.surfaceBorder : isDirty ? t.accent : "#1e3a5f",
-            color: !canSave ? t.textDim : "#fff",
+            background: !canSave ? t.surfaceBorder : isDirty ? t.accent : t.accentMuted,
+            color: !canSave ? t.textDim : isDirty ? "#fff" : t.accent,
             cursor: !canSave ? "not-allowed" : "pointer",
             transition: "all 0.2s",
           }}
@@ -928,7 +928,7 @@ export default function WorkspaceDetailScreen() {
           display: "flex", alignItems: "center", gap: 8,
           padding: "6px 20px", background: "rgba(251,191,36,0.08)",
           borderBottom: "1px solid rgba(251,191,36,0.15)",
-          fontSize: 12, color: "#fbbf24",
+          fontSize: 12, color: "#d97706",
         }}>
           <AlertCircle size={14} />
           <span>
@@ -942,7 +942,7 @@ export default function WorkspaceDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -1171,13 +1171,13 @@ export default function WorkspaceDetailScreen() {
               <Toggle value={skillsEnabled} onChange={setSkillsEnabled} />
             </FormRow>
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>Directory conventions:</div>
+              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>Directory conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#93c5fd" }}>common/skills/pinned/*.md</code> — injected into every request</span>
-                <span><code style={{ color: "#93c5fd" }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
-                <span><code style={{ color: "#93c5fd" }}>common/skills/on-demand/*.md</code> — available via tool call</span>
-                <span><code style={{ color: "#93c5fd" }}>common/skills/*.md</code> — top-level defaults to pinned</span>
-                <span style={{ marginTop: 4 }}><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
+                <span><code style={{ color: "#2563eb" }}>common/skills/pinned/*.md</code> — injected into every request</span>
+                <span><code style={{ color: "#2563eb" }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
+                <span><code style={{ color: "#2563eb" }}>common/skills/on-demand/*.md</code> — available via tool call</span>
+                <span><code style={{ color: "#2563eb" }}>common/skills/*.md</code> — top-level defaults to pinned</span>
+                <span style={{ marginTop: 4 }}><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
               </div>
             </div>
             {!isNew && (
@@ -1213,10 +1213,10 @@ export default function WorkspaceDetailScreen() {
               <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
             </FormRow>
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File conventions:</div>
+              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#93c5fd" }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
-                <span><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
+                <span><code style={{ color: "#2563eb" }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
+                <span><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
               </div>
             </div>
           </Section>
@@ -1224,9 +1224,9 @@ export default function WorkspaceDetailScreen() {
           {/* Workspace Persona */}
           <Section title="Workspace Persona" description="Override the DB persona with a workspace file. No toggle needed — file presence opts in.">
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File convention:</div>
+              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File convention:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#fbbf24" }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
+                <span><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
               </div>
             </div>
           </Section>

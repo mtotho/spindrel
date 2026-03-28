@@ -50,7 +50,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+            color: path === "/" ? "#e5e5e5" : "#2563eb", fontSize: 12, padding: 0,
             fontFamily: "monospace",
           }}
         >
@@ -68,7 +68,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                   onClick={() => navigateTo(segPath)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? "#e5e5e5" : "#93c5fd", fontSize: 12, padding: 0,
+                    color: isLast ? "#e5e5e5" : "#2563eb", fontSize: 12, padding: 0,
                     fontFamily: "monospace",
                   }}
                 >
@@ -127,13 +127,13 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 }}
               >
                 {entry.is_dir ? (
-                  <Folder size={13} color="#93c5fd" />
+                  <Folder size={13} color="#2563eb" />
                 ) : (
-                  <FileText size={13} color={isSelected ? "#93c5fd" : "#666"} />
+                  <FileText size={13} color={isSelected ? "#2563eb" : "#666"} />
                 )}
                 <span style={{
                   flex: 1, fontSize: 12,
-                  color: isSelected ? "#93c5fd" : entry.is_dir ? "#e5e5e5" : "#999",
+                  color: isSelected ? "#2563eb" : entry.is_dir ? "#e5e5e5" : "#999",
                   fontFamily: "monospace",
                   fontWeight: isSelected ? 600 : 400,
                 }}>
@@ -152,7 +152,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
       {/* Selected path display */}
       {value && (
         <div style={{
-          fontSize: 11, color: "#86efac", fontFamily: "monospace",
+          fontSize: 11, color: "#16a34a", fontFamily: "monospace",
           padding: "4px 8px", background: "rgba(34,197,94,0.08)",
           borderRadius: 4, border: "1px solid rgba(34,197,94,0.15)",
         }}>

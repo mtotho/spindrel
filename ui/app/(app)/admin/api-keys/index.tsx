@@ -17,7 +17,7 @@ function ScopeBadge({ scope }: { scope: string }) {
         fontSize: 10,
         fontWeight: 600,
         background: isAdmin ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.12)",
-        color: isAdmin ? "#fca5a5" : "#93c5fd",
+        color: isAdmin ? "#dc2626" : "#2563eb",
         whiteSpace: "nowrap",
       }}
     >
@@ -55,7 +55,7 @@ function ApiKeyCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Key size={14} color="#93c5fd" />
+        <Key size={14} color="#2563eb" />
         <span
           style={{
             fontSize: 14,

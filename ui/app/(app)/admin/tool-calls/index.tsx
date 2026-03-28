@@ -22,9 +22,9 @@ import { useThemeTokens } from "@/src/theme/tokens";
 
 function ToolTypeBadge({ type }: { type: string }) {
   const config: Record<string, { bg: string; color: string }> = {
-    local: { bg: "rgba(59,130,246,0.12)", color: "#93c5fd" },
-    mcp: { bg: "rgba(168,85,247,0.12)", color: "#c4b5fd" },
-    client: { bg: "rgba(34,197,94,0.12)", color: "#86efac" },
+    local: { bg: "rgba(59,130,246,0.12)", color: "#2563eb" },
+    mcp: { bg: "rgba(168,85,247,0.12)", color: "#9333ea" },
+    client: { bg: "rgba(34,197,94,0.12)", color: "#16a34a" },
   };
   const c = config[type] || config.local;
   return (
@@ -105,7 +105,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         )}
         <span style={{ fontSize: 11, color: t.textDim }}>{createdAt}</span>
         {hasError && (
-          <span style={{ fontSize: 11, color: "#fca5a5" }}>
+          <span style={{ fontSize: 11, color: "#dc2626" }}>
             {call.error}
           </span>
         )}
@@ -155,7 +155,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
                   background: t.surface,
                   border: `1px solid ${t.surfaceRaised}`,
                   fontSize: 11,
-                  color: hasError ? "#fca5a5" : t.textMuted,
+                  color: hasError ? "#dc2626" : t.textMuted,
                   fontFamily: "monospace",
                   overflow: "auto",
                   maxHeight: 200,
@@ -244,7 +244,7 @@ function StatsPanel({
                 }}
                 style={{
                   fontSize: 12,
-                  color: "#93c5fd",
+                  color: "#2563eb",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
@@ -270,7 +270,7 @@ function StatsPanel({
                   }}
                   style={{
                     fontSize: 12,
-                    color: "#fca5a5",
+                    color: "#dc2626",
                     background: "rgba(239,68,68,0.08)",
                     border: "1px solid rgba(239,68,68,0.15)",
                     borderRadius: 4,
@@ -404,7 +404,7 @@ export default function ToolCallsScreen() {
               {(toolName || botId || errorOnly) && (
                 <div style={{
                   fontSize: 11,
-                  color: "#93c5fd",
+                  color: "#2563eb",
                   marginBottom: 12,
                   padding: "6px 12px",
                   background: "rgba(59,130,246,0.06)",

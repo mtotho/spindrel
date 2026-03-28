@@ -218,7 +218,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     ) : (
                       <Text style={{
                         fontSize: 9, fontWeight: "700", paddingHorizontal: 5, paddingVertical: 1,
-                        borderRadius: 3, backgroundColor: "#92400e33", color: "#fbbf24",
+                        borderRadius: 3, backgroundColor: "#92400e33", color: "#d97706",
                         textTransform: "uppercase",
                       }}>{group.integration}</Text>
                     )}
@@ -231,7 +231,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                       <Text style={{
                         fontSize: 9, paddingHorizontal: 6, paddingVertical: 1,
                         borderWidth: 1, borderColor: t.surfaceBorder, borderRadius: 4,
-                        color: allInGroup ? "#f87171" : "#86efac",
+                        color: allInGroup ? "#f87171" : "#16a34a",
                       }}>{allInGroup ? "none" : "all"}</Text>
                     </Pressable>
                   </View>
@@ -259,7 +259,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                             />
                             <Text style={{
                               fontFamily: "monospace", fontSize: 11,
-                              color: checked ? (localMode === "disabled" ? "#fca5a5" : "#93c5fd") : t.textDim,
+                              color: checked ? (localMode === "disabled" ? "#dc2626" : "#2563eb") : t.textDim,
                             }} numberOfLines={1}>{tool.name}</Text>
                           </Pressable>
                         );
@@ -308,7 +308,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     />
                     <Text style={{
                       fontFamily: "monospace", fontSize: 11,
-                      color: checked ? (mcpMode === "disabled" ? "#fca5a5" : "#93c5fd") : t.textDim,
+                      color: checked ? (mcpMode === "disabled" ? "#dc2626" : "#2563eb") : t.textDim,
                     }}>{srv}</Text>
                   </Pressable>
                 );
@@ -353,7 +353,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     />
                     <Text style={{
                       fontFamily: "monospace", fontSize: 11,
-                      color: checked ? (clientMode === "disabled" ? "#fca5a5" : "#93c5fd") : t.textDim,
+                      color: checked ? (clientMode === "disabled" ? "#dc2626" : "#2563eb") : t.textDim,
                     }}>{tool}</Text>
                   </Pressable>
                 );
@@ -443,7 +443,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     <Text style={{
                       fontSize: 9, paddingHorizontal: 6, paddingVertical: 1,
                       borderWidth: 1, borderColor: t.surfaceBorder, borderRadius: 4,
-                      color: "#86efac",
+                      color: "#16a34a",
                     }}>
                       {(skillMode === "override"
                         ? botSkills.every((s) => skillOverrideIds.includes(s.id))
@@ -474,7 +474,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                         />
                         <Text style={{
                           fontSize: 11,
-                          color: checked ? (skillMode === "disabled" ? "#fca5a5" : "#93c5fd") : t.textDim,
+                          color: checked ? (skillMode === "disabled" ? "#dc2626" : "#2563eb") : t.textDim,
                         }} numberOfLines={1}>{skill.name || skill.id}</Text>
                       </Pressable>
                     );

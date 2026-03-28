@@ -194,7 +194,7 @@ export default function BotEditorScreen() {
       </div>
 
       {saveMutation.isError && (
-        <div style={{ padding: "8px 16px", background: "#7f1d1d33", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 16px", background: "#7f1d1d33", color: "#dc2626", fontSize: 12 }}>
           {(saveMutation.error as Error)?.message || "Failed to save"}
         </div>
       )}
@@ -287,8 +287,8 @@ export default function BotEditorScreen() {
                     <span style={{ fontSize: 10, color: t.textDim, background: "rgba(147,197,253,0.12)", padding: "2px 8px", borderRadius: 4 }}>
                       workspace file
                     </span>
-                    <span style={{ fontSize: 11, color: "#93c5fd" }}>
-                      <code style={{ color: "#fbbf24" }}>bots/{editorData.bot.id}/persona.md</code>
+                    <span style={{ fontSize: 11, color: "#2563eb" }}>
+                      <code style={{ color: "#d97706" }}>bots/{editorData.bot.id}/persona.md</code>
                     </span>
                   </div>
                   {editorData.bot.shared_workspace_id && (
@@ -296,7 +296,7 @@ export default function BotEditorScreen() {
                       href={`/admin/workspaces/${editorData.bot.shared_workspace_id}`}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 4,
-                        fontSize: 11, fontWeight: 600, color: "#93c5fd",
+                        fontSize: 11, fontWeight: 600, color: "#2563eb",
                         textDecoration: "none", alignSelf: "flex-start",
                       }}
                     >
@@ -326,7 +326,7 @@ export default function BotEditorScreen() {
                   )}
                   {draft.shared_workspace_id && (
                     <div style={{ padding: "8px 0", fontSize: 11, color: t.textDim, lineHeight: 1.6 }}>
-                      Tip: Create <code style={{ color: "#fbbf24" }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
+                      Tip: Create <code style={{ color: "#d97706" }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
                     </div>
                   )}
                 </>
@@ -348,7 +348,7 @@ export default function BotEditorScreen() {
               {editorData.workspace_skills && editorData.workspace_skills.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#c084fc" }}>Workspace Skills</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#9333ea" }}>Workspace Skills</span>
                     <span style={{ fontSize: 10, color: t.textDim, background: "rgba(168,85,247,0.12)", padding: "2px 8px", borderRadius: 4 }}>
                       auto-injected
                     </span>
@@ -365,7 +365,7 @@ export default function BotEditorScreen() {
                         border: "1px solid #2d1f4e",
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: "#c084fc" }}>{ws.name}</span>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: "#9333ea" }}>{ws.name}</span>
                           <span style={{
                             fontSize: 9, padding: "1px 6px", borderRadius: 3,
                             background: "rgba(168,85,247,0.15)", color: "#a78bfa",
@@ -616,7 +616,7 @@ export default function BotEditorScreen() {
                               dc.delegate_bots = on ? cur.filter((x: string) => x !== b.id) : [...cur, b.id];
                               update({ delegation_config: dc });
                             }} />
-                          <span style={{ color: on ? "#c4b5fd" : t.textDim }}>{b.name}</span>
+                          <span style={{ color: on ? "#8b5cf6" : t.textDim }}>{b.name}</span>
                           <span style={{ color: t.surfaceBorder, fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
                         </label>
                       );
@@ -643,7 +643,7 @@ export default function BotEditorScreen() {
                               dc.harness_access = on ? cur.filter((x: string) => x !== h) : [...cur, h];
                               update({ delegation_config: dc });
                             }} />
-                          <span style={{ fontFamily: "monospace", color: on ? "#c4b5fd" : t.textDim }}>{h}</span>
+                          <span style={{ fontFamily: "monospace", color: on ? "#8b5cf6" : t.textDim }}>{h}</span>
                         </label>
                       );
                     })}

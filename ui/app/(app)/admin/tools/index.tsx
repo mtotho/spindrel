@@ -12,7 +12,7 @@ function TypeBadge({ tool }: { tool: ToolItem }) {
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(249,115,22,0.15)", color: "#fdba74",
+        background: "rgba(249,115,22,0.15)", color: "#ea580c",
       }}>
         mcp
       </span>
@@ -22,7 +22,7 @@ function TypeBadge({ tool }: { tool: ToolItem }) {
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(168,85,247,0.15)", color: "#c4b5fd",
+        background: "rgba(168,85,247,0.15)", color: "#8b5cf6",
       }}>
         integration
       </span>
@@ -31,7 +31,7 @@ function TypeBadge({ tool }: { tool: ToolItem }) {
   return (
     <span style={{
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-      background: "rgba(59,130,246,0.15)", color: "#93c5fd",
+      background: "rgba(59,130,246,0.15)", color: "#2563eb",
     }}>
       local
     </span>

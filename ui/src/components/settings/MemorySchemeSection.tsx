@@ -334,7 +334,7 @@ export function MemorySchemeSection() {
               }}>
                 <Text style={{
                   fontSize: 16, fontWeight: "700",
-                  color: allEnabled ? "#c4b5fd" : noneEnabled ? t.textDim : "#a78bfa",
+                  color: allEnabled ? "#8b5cf6" : noneEnabled ? t.textDim : "#a78bfa",
                 }}>
                   {enabledCount}
                 </Text>
@@ -420,7 +420,7 @@ export function MemorySchemeSection() {
                 ) : null}
                 <Text style={{
                   fontSize: 12, fontWeight: "600",
-                  color: allEnabled ? t.textDim : "#c4b5fd",
+                  color: allEnabled ? t.textDim : "#8b5cf6",
                 }}>
                   {justEnabled ? "Enabled" : "Enable All Bots"}
                 </Text>

@@ -86,12 +86,12 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                     </span>
                   )}
                   {s.is_active && (
-                    <span style={{ fontSize: 9, background: "#166534", color: "#86efac", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: "#166534", color: "#16a34a", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
                       ACTIVE
                     </span>
                   )}
                   {s.locked && (
-                    <span style={{ fontSize: 9, background: "#7f1d1d", color: "#fca5a5", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: "rgba(239,68,68,0.12)", color: "#dc2626", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
                       LOCKED
                     </span>
                   )}
@@ -115,7 +115,7 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                     style={{
                       padding: "4px 10px", fontSize: 10, fontWeight: 600,
                       border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, cursor: "pointer",
-                      background: "transparent", color: "#86efac",
+                      background: "transparent", color: "#16a34a",
                     }}
                     title="Switch to this session"
                   >

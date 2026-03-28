@@ -217,20 +217,6 @@ async def dispatch_tool_call(
             _tc_args = {}
     except Exception:
         _tc_args = {}
-    asyncio.create_task(_record_tool_call(
-        session_id=session_id,
-        client_id=client_id,
-        bot_id=bot_id,
-        tool_name=name,
-        tool_type=_tc_type,
-        server_name=_tc_server,
-        iteration=iteration,
-        arguments=_tc_args,
-        result=result,
-        error=_tc_error,
-        duration_ms=_tc_duration,
-        correlation_id=correlation_id,
-    ))
 
     result_obj.result = result
 
@@ -247,12 +233,35 @@ async def dispatch_tool_call(
     # Summarize if needed
     _orig_len = len(result_for_llm)
     _was_summarized = False
-    if (
+    _will_summarize = (
         summarize_enabled
         and name not in summarize_exclude
         and (_tc_server is None or _tc_server not in summarize_exclude)
         and len(result_for_llm) > summarize_threshold
-    ):
+    )
+
+    # Pre-generate tool call ID so we can reference it in the retrieval hint
+    _tc_record_id = uuid.uuid4() if _will_summarize else None
+
+    # Record tool call (store full result when summarization will occur)
+    asyncio.create_task(_record_tool_call(
+        id=_tc_record_id,
+        session_id=session_id,
+        client_id=client_id,
+        bot_id=bot_id,
+        tool_name=name,
+        tool_type=_tc_type,
+        server_name=_tc_server,
+        iteration=iteration,
+        arguments=_tc_args,
+        result=result,
+        error=_tc_error,
+        duration_ms=_tc_duration,
+        correlation_id=correlation_id,
+        store_full_result=_will_summarize,
+    ))
+
+    if _will_summarize:
         _was_summarized = True
         result_for_llm = await _summarize_tool_result(
             tool_name=name,
@@ -260,6 +269,11 @@ async def dispatch_tool_call(
             model=summarize_model,
             max_tokens=summarize_max_tokens,
             provider_id=provider_id,
+        )
+        # Append retrieval hint so the bot can fetch full output
+        result_for_llm += (
+            f"\n\n[Full output stored — use read_conversation_history"
+            f"(section='tool:{_tc_record_id}') to retrieve]"
         )
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
@@ -272,6 +286,7 @@ async def dispatch_tool_call(
                     "tool_name": name,
                     "original_length": _orig_len,
                     "summarized_length": len(result_for_llm),
+                    "tool_call_record_id": str(_tc_record_id),
                 },
             ))
 

@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 
 from app.agent.context import current_channel_id
 from app.db.engine import async_session
-from app.db.models import ConversationSection
+from app.db.models import ConversationSection, Message, Session, ToolCall
 from app.tools.registry import register
 
 _SCHEMA = {
@@ -16,8 +16,10 @@ _SCHEMA = {
         "description": (
             "Read archived conversation history. Pass section='index' to see a table of contents "
             "of all archived sections, a section number (e.g. '12') to read by sequence, "
-            "a section UUID to read the full transcript, or 'search:query' to semantically "
-            "search all sections (e.g. 'search:database migration issue')."
+            "a section UUID to read the full transcript, 'search:query' to search section "
+            "titles/summaries/tags, 'messages:query' to grep raw messages across all history "
+            "(e.g. 'messages:error 5432'), or 'tool:<id>' to retrieve full output of a "
+            "summarized tool call."
         ),
         "parameters": {
             "type": "object",
@@ -25,8 +27,10 @@ _SCHEMA = {
                 "section": {
                     "type": "string",
                     "description": (
-                        "Either 'index' to list all sections, a section number (e.g. '12'), "
-                        "a section UUID, or 'search:<query>' to find sections by topic."
+                        "'index' to list all sections, a section number (e.g. '12'), "
+                        "a section UUID, 'search:<query>' to find sections by topic, "
+                        "'messages:<query>' to search raw message content across all history, "
+                        "or 'tool:<id>' to retrieve full tool call output."
                     ),
                 },
             },
@@ -159,6 +163,61 @@ async def read_conversation_history(section: str) -> str:
             )
         lines.append("\nUse read_conversation_history with a section number to read the full transcript.")
         return "\n".join(lines)
+
+    # Raw message search across all sessions for this channel
+    if section.lower().startswith("messages:"):
+        query = section[len("messages:"):].strip()
+        if not query:
+            return "Please provide a search query, e.g. 'messages:connection refused'."
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(Message)
+                .join(Session, Message.session_id == Session.id)
+                .where(Session.channel_id == channel_id)
+                .where(Message.content.ilike(f"%{query}%"))
+                .where(Message.role.in_(["user", "assistant"]))
+                .order_by(Message.created_at.desc())
+                .limit(10)
+            )
+            matches = result.scalars().all()
+
+        if not matches:
+            return f"No messages found matching '{query}'."
+
+        lines = [f"Messages matching '{query}' (newest first):\n"]
+        for m in matches:
+            ts = m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else "?"
+            content = m.content or ""
+            if len(content) > 300:
+                content = content[:300] + "..."
+            lines.append(f"[{ts}] {m.role}: {content}")
+        return "\n".join(lines)
+
+    # Retrieve full tool call output by ID
+    if section.lower().startswith("tool:"):
+        tool_call_id = section[len("tool:"):].strip()
+        if not tool_call_id:
+            return "Please provide a tool call ID, e.g. 'tool:abc123'."
+
+        try:
+            tc_uuid = uuid.UUID(tool_call_id)
+        except ValueError:
+            return f"Invalid tool call ID: '{tool_call_id}'. Expected a UUID."
+
+        async with async_session() as db:
+            tc = await db.get(ToolCall, tc_uuid)
+
+        if not tc:
+            return f"Tool call not found: {tool_call_id}"
+
+        result_text = tc.result or "(no output)"
+        return (
+            f"Tool: {tc.tool_name}\n"
+            f"Called: {tc.created_at.strftime('%Y-%m-%d %H:%M') if tc.created_at else '?'}\n"
+            f"Duration: {tc.duration_ms}ms\n\n"
+            f"{result_text}"
+        )
 
     # Try sequence number (bare integer)
     if section.isdigit():

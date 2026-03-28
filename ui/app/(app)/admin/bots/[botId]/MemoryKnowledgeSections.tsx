@@ -322,7 +322,7 @@ export function MemorySection({ draft, update, botId }: {
             {!isWorkspaceFiles && (
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(59,130,246,0.15)", color: "#93c5fd",
+                background: "rgba(59,130,246,0.15)", color: "#2563eb",
                 fontWeight: 600, letterSpacing: 0.5,
               }}>ACTIVE</span>
             )}
@@ -357,7 +357,7 @@ export function MemorySection({ draft, update, botId }: {
             {isWorkspaceFiles && (
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(168,85,247,0.15)", color: "#c4b5fd",
+                background: "rgba(168,85,247,0.15)", color: "#8b5cf6",
                 fontWeight: 600, letterSpacing: 0.5,
               }}>ACTIVE</span>
             )}
@@ -378,7 +378,7 @@ export function MemorySection({ draft, update, botId }: {
             background: "rgba(168,85,247,0.04)", border: "1px solid rgba(168,85,247,0.15)",
             borderRadius: 8, padding: "14px 16px",
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#c4b5fd", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#8b5cf6", marginBottom: 10 }}>
               Applying presets
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -508,7 +508,7 @@ export function KnowledgeSection({ draft, update }: {
           borderRadius: 8, padding: "14px 16px",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#c4b5fd" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#8b5cf6" }}>
               Managed by Workspace Files
             </span>
           </div>
