@@ -333,10 +333,10 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages = _base_messages()
 
             if _history_mode == "file" and session.channel_id:
-                # File mode: inject executive summary only
-                # (section index is injected separately by context_assembly.py
-                # with proper count/verbosity settings)
-                messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
+                # File mode: section index is injected by context_assembly.py
+                # with proper count/verbosity — skip executive summary here to
+                # avoid duplicating section titles+summaries in context.
+                pass
             elif _history_mode == "structured":
                 # Structured mode: inject compact executive summary (section retrieval happens in context_assembly)
                 messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
@@ -365,7 +365,10 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             passive, active = _split_passive_active(non_system)
             active = _filter_old_heartbeats(active)
             messages = _base_messages()
-            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+            if _history_mode != "file" or not session.channel_id:
+                # In file mode, section index is injected by context_assembly.py —
+                # skip executive summary here to avoid duplication.
+                messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
