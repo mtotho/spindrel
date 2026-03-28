@@ -241,6 +241,9 @@ async def diagnostics_reindex(
     results = {"filesystem": [], "workspace_skills": []}
 
     # Re-index filesystem chunks
+    from app.services.memory_indexing import index_memory_for_bot
+
+    memory_indexed_bot_ids: set[str] = set()
     for bot in list_bots():
         if not (bot.workspace.enabled and bot.workspace.indexing.enabled):
             continue
@@ -260,6 +263,26 @@ async def diagnostics_reindex(
             except Exception as e:
                 results["filesystem"].append({
                     "bot_id": bot.id, "root": root, "error": str(e),
+                })
+        if bot.memory_scheme == "workspace-files":
+            memory_indexed_bot_ids.add(bot.id)
+
+    # Memory-only reindex for bots with workspace-files but no general indexing
+    for bot in list_bots():
+        if (
+            bot.memory_scheme == "workspace-files"
+            and bot.workspace.enabled
+            and bot.id not in memory_indexed_bot_ids
+        ):
+            try:
+                stats = await index_memory_for_bot(bot, force=True)
+                if stats:
+                    results["filesystem"].append({
+                        "bot_id": bot.id, "source": "memory-only", **stats,
+                    })
+            except Exception as e:
+                results["filesystem"].append({
+                    "bot_id": bot.id, "source": "memory-only", "error": str(e),
                 })
 
     # Re-embed workspace skills

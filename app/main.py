@@ -53,12 +53,37 @@ async def _index_filesystems_and_start_watchers() -> None:
 
     Runs as a background task so it doesn't block server startup.
     """
-    from app.agent.fs_indexer import index_directory
+    from app.agent.fs_indexer import index_directory, cleanup_stale_roots
     from app.agent.fs_watcher import start_watchers
     from app.services.workspace import workspace_service
+    from app.services.memory_indexing import index_memory_for_bot
 
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
+    # Clean up chunks from stale roots (e.g. after workspace root path changes)
+    logger.info("Background: cleaning up stale filesystem index roots...")
+    for bot in list_bots():
+        if bot.workspace.enabled and bot.workspace.indexing.enabled:
+            try:
+                valid = get_all_roots(bot, workspace_service)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    logger.info("Cleaned up %d stale chunks for bot %s", removed, bot.id)
+            except Exception:
+                logger.exception("Failed to clean up stale roots for bot %s", bot.id)
+
+    # Phase 1: Index memory files for workspace-files bots (independent of indexing toggle)
+    logger.info("Background: indexing memory files for workspace-files bots...")
+    for bot in list_bots():
+        if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                stats = await index_memory_for_bot(bot, force=True)
+                if stats:
+                    logger.info("Memory index for bot %s: %s", bot.id, stats)
+            except Exception:
+                logger.exception("Failed to index memory for bot %s", bot.id)
+
+    # Phase 2: General workspace indexing (only for bots with indexing.enabled)
     logger.info("Background: indexing configured filesystem directories...")
     for bot in list_bots():
         # Workspace-based indexing
@@ -141,12 +166,6 @@ async def lifespan(app: FastAPI):
                 bootstrap_memory_scheme(bot)
             except Exception:
                 logger.exception("Failed to bootstrap memory scheme for bot %s", bot.id)
-            if not bot.workspace.indexing.enabled:
-                logger.warning(
-                    "Bot '%s' has memory_scheme='workspace-files' but workspace indexing is disabled — "
-                    "search_memory will return empty results",
-                    bot.id,
-                )
 
     # Ensure workspace host dirs exist (fast, doesn't block)
     from app.services.workspace import workspace_service

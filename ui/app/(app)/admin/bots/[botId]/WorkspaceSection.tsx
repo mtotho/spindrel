@@ -92,7 +92,7 @@ export function WorkspaceSection({
           <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.5 }}>
             This bot is connected to a shared workspace. Container settings (image, ports, mounts, env) are managed at the workspace level.
             {draft.shared_workspace_role === "orchestrator"
-              ? " As orchestrator, this bot has full access to /workspace."
+              ? " As orchestrator, this bot is scoped to /workspace/bots/" + (draft.id || "...") + "/."
               : " As a member, this bot is scoped to /workspace/bots/" + (draft.id || "...") + "/."
             }
           </div>
@@ -291,10 +291,22 @@ export function WorkspaceSection({
             </>
           )}
 
+          {/* Memory indexing info banner */}
+          {draft.memory_scheme === "workspace-files" && (
+            <div style={{
+              padding: "10px 14px", background: "rgba(139,92,246,0.06)",
+              border: "1px solid rgba(139,92,246,0.15)", borderRadius: 8,
+              fontSize: 11, color: t.textMuted, lineHeight: 1.5,
+            }}>
+              <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory indexing is automatic</span>
+              {" "}— files in <span style={{ fontFamily: "monospace" }}>memory/</span> are always indexed when memory_scheme is "workspace-files", regardless of the indexing toggle below. The toggle controls indexing of additional workspace files beyond memory.
+            </div>
+          )}
+
           {/* Indexing panel */}
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Workspace Indexing</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Additional File Indexing</div>
               <Toggle value={indexing.enabled !== false} onChange={(v) => setIndexing({ enabled: v })} label="Enable" />
               {indexing.enabled !== false && (
                 <Toggle value={indexing.watch !== false} onChange={(v) => setIndexing({ watch: v })} label="Watch" />

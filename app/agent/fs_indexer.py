@@ -543,6 +543,24 @@ async def index_directory(
     return stats
 
 
+async def cleanup_stale_roots(bot_id: str, valid_roots: list[str]) -> int:
+    """Delete chunks for a bot whose root no longer matches any current root.
+
+    Call on startup after the workspace root computation changes to purge
+    orphaned chunks from old root paths.  Returns the number of deleted rows.
+    """
+    resolved = [str(Path(r).resolve()) for r in valid_roots]
+    async with async_session() as db:
+        result = await db.execute(
+            delete(FilesystemChunk).where(
+                FilesystemChunk.bot_id == bot_id,
+                FilesystemChunk.root.notin_(resolved),
+            )
+        )
+        await db.commit()
+        return result.rowcount
+
+
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------

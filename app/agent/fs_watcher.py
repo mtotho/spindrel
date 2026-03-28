@@ -98,6 +98,25 @@ async def start_watchers(bots: list) -> None:
                         name=f"fs_watcher:{bot.id}:{abs_root}",
                     )
                     _watcher_tasks.append(task)
+        # Memory-only watcher for bots with workspace-files memory but no general indexing
+        elif (
+            ws and ws.enabled
+            and not ws.indexing.enabled
+            and getattr(bot, "memory_scheme", None) == "workspace-files"
+            and not getattr(bot, "shared_workspace_id", None)
+        ):
+            from app.services.memory_indexing import get_memory_patterns
+            from app.services.workspace_indexing import get_all_roots
+            for ws_root in get_all_roots(bot):
+                abs_root = str(Path(ws_root).resolve())
+                key = (abs_root, bot.id)
+                if key not in seen:
+                    seen.add(key)
+                    task = asyncio.create_task(
+                        _debounced_watch(ws_root, bot.id, get_memory_patterns()),
+                        name=f"fs_watcher:memory:{bot.id}:{abs_root}",
+                    )
+                    _watcher_tasks.append(task)
         # Legacy filesystem_indexes
         for cfg in getattr(bot, "filesystem_indexes", []):
             if not cfg.watch:
@@ -162,22 +181,28 @@ async def _watch_shared_workspace(
                 for bot in list_bots():
                     if bot.shared_workspace_id != workspace_id:
                         continue
-                    if not bot.workspace.indexing.enabled:
-                        continue
-                    try:
-                        _resolved = resolve_indexing(
-                            bot.workspace.indexing,
-                            getattr(bot, "_workspace_raw", {}),
-                            getattr(bot, "_ws_indexing_config", None),
-                        )
-                        for root in get_all_roots(bot):
-                            await index_directory(
-                                root, bot.id, _resolved["patterns"], force=True,
-                                embedding_model=_resolved["embedding_model"],
-                                segments=_resolved.get("segments"),
+                    if bot.workspace.indexing.enabled:
+                        try:
+                            _resolved = resolve_indexing(
+                                bot.workspace.indexing,
+                                getattr(bot, "_workspace_raw", {}),
+                                getattr(bot, "_ws_indexing_config", None),
                             )
-                    except Exception:
-                        logger.exception("Shared workspace watcher: index failed for bot %s", bot.id)
+                            for root in get_all_roots(bot):
+                                await index_directory(
+                                    root, bot.id, _resolved["patterns"], force=True,
+                                    embedding_model=_resolved["embedding_model"],
+                                    segments=_resolved.get("segments"),
+                                )
+                        except Exception:
+                            logger.exception("Shared workspace watcher: index failed for bot %s", bot.id)
+                    elif getattr(bot, "memory_scheme", None) == "workspace-files":
+                        # Memory-only re-index for bots without general indexing
+                        try:
+                            from app.services.memory_indexing import index_memory_for_bot
+                            await index_memory_for_bot(bot, force=True)
+                        except Exception:
+                            logger.exception("Shared workspace watcher: memory index failed for bot %s", bot.id)
 
                 # Re-embed skills
                 if skills_enabled:

@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Info, FileText, Pencil } from "lucide-react";
+import { ChevronLeft, Trash2, Info, FileText, Sparkles } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   useUpdatePromptTemplate,
   useDeletePromptTemplate,
 } from "@/src/api/hooks/usePromptTemplates";
+import { useGeneratePrompt } from "@/src/api/hooks/usePrompts";
 import { useWorkspaces, useWorkspaceFileContent } from "@/src/api/hooks/useWorkspaces";
 import { FormRow, TextInput, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { WorkspaceFilePicker } from "@/src/components/shared/WorkspaceFilePicker";
@@ -47,6 +48,10 @@ export default function PromptTemplateDetailScreen() {
   const isWide = width >= 768;
 
   const { data: workspaces } = useWorkspaces();
+  const generateMut = useGeneratePrompt();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [genFlash, setGenFlash] = useState<"success" | "error" | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -72,6 +77,50 @@ export default function PromptTemplateDetailScreen() {
 
   const isFileManaged = template?.source_type === "file";
   const isWorkspaceFile = sourceType === "workspace_file";
+
+  const handleSelectionChange = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    setHasSelection(ta.selectionStart !== ta.selectionEnd);
+  }, []);
+
+  const handleGenerate = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta || ta.selectionStart === ta.selectionEnd) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const surrounding = content.substring(0, start) + "[SELECTION]" + content.substring(end);
+
+    generateMut.mutate(
+      {
+        user_input: selectedText,
+        mode: "inline",
+        surrounding_context: surrounding,
+      },
+      {
+        onSuccess: (data) => {
+          const newContent = content.substring(0, start) + data.prompt + content.substring(end);
+          setContent(newContent);
+          setHasSelection(false);
+          setGenFlash("success");
+          setTimeout(() => setGenFlash(null), 1200);
+          requestAnimationFrame(() => {
+            if (textareaRef.current) {
+              const newEnd = start + data.prompt.length;
+              textareaRef.current.selectionStart = newEnd;
+              textareaRef.current.selectionEnd = newEnd;
+              textareaRef.current.focus();
+            }
+          });
+        },
+        onError: () => {
+          setGenFlash("error");
+          setTimeout(() => setGenFlash(null), 1500);
+        },
+      }
+    );
+  }, [content, generateMut]);
 
   // Preview workspace file content
   const { data: wsFilePreview, isLoading: wsFileLoading } = useWorkspaceFileContent(
@@ -229,8 +278,36 @@ export default function PromptTemplateDetailScreen() {
           display: "flex", flexDirection: "column",
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>
-            {isWorkspaceFile ? "Content Preview" : "Content"}
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <span>{isWorkspaceFile ? "Content Preview" : "Content"}</span>
+            {!isFileManaged && !isWorkspaceFile && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: t.textDim, fontWeight: 400 }}>
+                  {hasSelection ? "" : "Select text to generate"}
+                </span>
+                <button
+                  onClick={handleGenerate}
+                  disabled={!hasSelection || generateMut.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    background: "none",
+                    border: `1px solid ${hasSelection ? (genFlash === "success" ? "#22c55e" : genFlash === "error" ? "#ef4444" : t.accent) : t.surfaceBorder}`,
+                    borderRadius: 4,
+                    color: hasSelection ? (genFlash === "success" ? "#22c55e" : genFlash === "error" ? "#ef4444" : t.accent) : t.textDim,
+                    fontSize: 11, padding: "2px 8px", fontWeight: 500,
+                    cursor: hasSelection && !generateMut.isPending ? "pointer" : "default",
+                    opacity: hasSelection ? 1 : 0.5,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <Sparkles size={10} />
+                  {generateMut.isPending ? "Generating..." : genFlash === "success" ? "Done!" : genFlash === "error" ? "Failed" : "Generate"}
+                </button>
+              </div>
+            )}
           </div>
           {isWorkspaceFile ? (
             <div style={{
@@ -260,8 +337,12 @@ export default function PromptTemplateDetailScreen() {
             </div>
           ) : (
             <textarea
+              ref={textareaRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onSelect={handleSelectionChange}
+              onMouseUp={handleSelectionChange}
+              onKeyUp={handleSelectionChange}
               readOnly={isFileManaged}
               placeholder="Template content that will be inserted..."
               style={{
