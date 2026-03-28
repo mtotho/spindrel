@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { View, Pressable } from "react-native";
 import { Slot } from "expo-router";
 import { Sidebar } from "./Sidebar";
@@ -14,6 +15,23 @@ export function AppShell() {
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const { data: status } = useSystemStatus();
 
+  // Keep the overlay mounted during the exit animation, then unmount
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (mobileSidebarOpen) {
+      setMounted(true);
+      // Trigger the "open" styles on the next frame so the transition fires
+      requestAnimationFrame(() => setVisible(true));
+    } else {
+      setVisible(false);
+      // Unmount after the exit transition completes
+      const t = setTimeout(() => setMounted(false), 300);
+      return () => clearTimeout(t);
+    }
+  }, [mobileSidebarOpen]);
+
   return (
     <View className="flex-1 bg-surface overflow-hidden">
       {status?.paused && <SystemPauseBanner behavior={status.pause_behavior} />}
@@ -29,19 +47,38 @@ export function AppShell() {
         {/* Detail panel — only on triple column when active */}
         {columns === "triple" && hasDetail && <DetailPanel />}
 
-        {/* Mobile sidebar drawer overlay */}
-        {columns === "single" && mobileSidebarOpen && (
-          <View style={{
-            position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100,
-            flexDirection: "row",
-          }}>
-            {/* Backdrop first — covers entire screen */}
+        {/* Mobile sidebar drawer — always mounted during animation for smooth exit */}
+        {columns === "single" && mounted && (
+          <View
+            pointerEvents={visible ? "auto" : "none"}
+            style={{
+              position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+              zIndex: 100,
+              flexDirection: "row",
+            }}
+          >
+            {/* Backdrop — fades in/out */}
             <Pressable
               onPress={closeMobileSidebar}
-              style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)" }}
+              style={{
+                position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: "rgba(0,0,0,0.6)",
+                opacity: visible ? 1 : 0,
+                transitionProperty: "opacity",
+                transitionDuration: "250ms",
+                transitionTimingFunction: "ease-out",
+              }}
             />
-            {/* Sidebar on top of backdrop — full width on mobile for fat-finger friendliness */}
-            <View style={{ flex: 1, maxWidth: 360, flexShrink: 0, zIndex: 1 }}>
+            {/* Sidebar — slides in from left */}
+            <View style={{
+              flex: 1, zIndex: 1,
+              transform: [{ translateX: visible ? 0 : -999 }],
+              transitionProperty: "transform",
+              transitionDuration: "280ms",
+              transitionTimingFunction: visible
+                ? "cubic-bezier(0.0, 0.0, 0.2, 1)"   // decelerate in
+                : "cubic-bezier(0.4, 0.0, 1, 1)",     // accelerate out
+            }}>
               <Sidebar mobile />
             </View>
           </View>

@@ -506,9 +506,18 @@ export default function UsageScreen() {
 
   const { data: bots } = useBots();
 
-  // We use the logs endpoint (which returns filter dropdown data) to populate dropdowns.
-  // Use summary as the primary data fetch.
-  const { data: logsData } = useUsageLogs({ after: timePreset, page: 1, page_size: 1 });
+  // Fetch unfiltered summary for the time range to populate filter dropdowns
+  const { data: summaryForFilters } = useUsageSummary({ after: timePreset });
+
+  // Derive dropdown options from the unfiltered summary
+  const modelNames = useMemo(
+    () => (summaryForFilters?.cost_by_model || []).map((m) => m.label).sort(),
+    [summaryForFilters],
+  );
+  const providerIds = useMemo(
+    () => (summaryForFilters?.cost_by_provider || []).map((p) => p.label).filter((p) => p !== "default").sort(),
+    [summaryForFilters],
+  );
 
   const params: UsageParams = useMemo(() => ({
     after: timePreset,
@@ -575,7 +584,7 @@ export default function UsageScreen() {
           style={selectStyle}
         >
           <option value="">All Models</option>
-          {(logsData?.model_names || []).map((m) => (
+          {modelNames.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
@@ -589,7 +598,7 @@ export default function UsageScreen() {
           style={selectStyle}
         >
           <option value="">All Providers</option>
-          {(logsData?.provider_ids || []).map((p) => (
+          {providerIds.map((p) => (
             <option key={p} value={p}>
               {p}
             </option>
