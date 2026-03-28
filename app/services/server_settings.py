@@ -50,7 +50,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "MEMORY_FLUSH_ENABLED": {"group": "Chat History", "label": "Memory Flush Before Compaction", "description": "Run a dedicated memory flush before compaction — bot saves memories/knowledge/persona while it still sees full context", "type": "bool"},
     "MEMORY_FLUSH_MODEL": {"group": "Chat History", "label": "Memory Flush Model", "description": "Model for memory flush (empty = use bot's model)", "type": "string", "widget": "model"},
     "MEMORY_FLUSH_DEFAULT_PROMPT": {"group": "Chat History", "label": "Memory Flush Default Prompt", "description": "Default prompt for the memory flush pass. Tells the bot what to save before context is archived.", "type": "string", "widget": "textarea"},
-    "MEMORY_SCHEME_PROMPT": {"group": "Chat History", "label": "Memory Scheme System Prompt", "description": "Override the built-in system prompt for workspace-files memory mode. Leave empty to use the recommended default. Use {memory_rel} for the bot-relative memory path.", "type": "string", "widget": "textarea", "nullable": True},
+    "MEMORY_SCHEME_PROMPT": {"group": "Chat History", "label": "Memory Scheme System Prompt (Override)", "description": "Custom override for the workspace-files memory prompt. Leave empty to use the built-in default.", "type": "string", "widget": "textarea", "nullable": True, "ui_hidden": True},
     "PREVIOUS_SUMMARY_INJECT_CHARS": {"group": "Chat History", "label": "Previous Summary Max Chars", "description": "Max characters of existing summary injected into heartbeat/memory-flush context. Truncates at sentence boundary.", "type": "int", "min": 0, "max": 5000},
     "SECTION_INDEX_COUNT": {"group": "Chat History", "label": "Section Index Count", "description": "Number of recent sections shown in the index (file mode)", "type": "int", "min": 0, "max": 100},
     "SECTION_INDEX_VERBOSITY": {"group": "Chat History", "label": "Section Index Verbosity", "description": "Detail level for section index entries", "type": "string", "options": ["compact", "standard", "detailed"]},
@@ -219,6 +219,8 @@ async def get_all_settings() -> list[dict[str, Any]]:
             entry["nullable"] = True
         if "widget" in schema:
             entry["widget"] = schema["widget"]
+        if schema.get("ui_hidden"):
+            entry["ui_hidden"] = True
 
         groups.setdefault(group, []).append(entry)
 

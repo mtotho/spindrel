@@ -2,9 +2,10 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, BookOpen, FileText, Plug } from "lucide-react";
-import { useSkills, useFileSync, type SkillItem } from "@/src/api/hooks/useSkills";
+import { Plus, RefreshCw, BookOpen, FileText, Plug, AlertTriangle } from "lucide-react";
+import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useState } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
@@ -116,13 +117,58 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
   );
 }
 
+function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDismiss: () => void }) {
+  const hasErrors = result.errors && result.errors.length > 0;
+  const bg = hasErrors ? "rgba(127,29,29,0.3)" : "rgba(34,197,94,0.1)";
+  const border = hasErrors ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.2)";
+  const color = hasErrors ? "#fca5a5" : "#86efac";
+  return (
+    <div style={{
+      padding: "10px 16px", background: bg, border: `1px solid ${border}`,
+      margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color, lineHeight: 1.6,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <strong>Sync complete:</strong> +{result.added} added, ~{result.updated} updated,
+          {" "}{result.unchanged} unchanged, -{result.deleted} deleted
+          {result._diagnostics && (
+            <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+              {result._diagnostics.files_on_disk.length} files found on disk
+              {" "}(cwd: <code>{result._diagnostics.cwd}</code>)
+            </div>
+          )}
+          {hasErrors && result.errors.map((e, i) => (
+            <div key={i} style={{ color: "#fca5a5", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={12} /> {e}
+            </div>
+          ))}
+        </div>
+        <button onClick={onDismiss} style={{
+          background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16, padding: "0 4px",
+        }}>&times;</button>
+      </div>
+    </div>
+  );
+}
+
 export default function SkillsScreen() {
   const router = useRouter();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
+  const [syncResult, setSyncResult] = useState<FileSyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+
+  const handleSync = () => {
+    setSyncResult(null);
+    setSyncError(null);
+    syncMut.mutate(undefined, {
+      onSuccess: (data) => setSyncResult(data),
+      onError: (err) => setSyncError((err as Error).message || "Sync failed"),
+    });
+  };
 
   if (isLoading) {
     return (
@@ -139,7 +185,7 @@ export default function SkillsScreen() {
         right={
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => syncMut.mutate()}
+              onClick={handleSync}
               disabled={syncMut.isPending}
               style={{
                 display: "flex", alignItems: "center", gap: 6,
@@ -166,6 +212,24 @@ export default function SkillsScreen() {
           </div>
         }
       />
+
+      {/* Sync result banner */}
+      {syncResult && (
+        <SyncResultBanner result={syncResult} onDismiss={() => setSyncResult(null)} />
+      )}
+      {syncError && (
+        <div style={{
+          padding: "10px 16px", background: "rgba(127,29,29,0.3)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: "#fca5a5",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>
+          <button onClick={() => setSyncError(null)} style={{
+            background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16,
+          }}>&times;</button>
+        </div>
+      )}
 
       {/* Table header (desktop only) */}
       {isWide && skills && skills.length > 0 && (

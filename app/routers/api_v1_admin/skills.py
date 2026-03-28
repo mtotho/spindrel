@@ -252,5 +252,5 @@ async def admin_file_sync(
 ):
     """Trigger a full file sync for skills and knowledge."""
     from app.services.file_sync import sync_all_files
-    counts = await sync_all_files()
-    return {"ok": True, **counts}
+    result = await sync_all_files()
+    return {"ok": True, **result}

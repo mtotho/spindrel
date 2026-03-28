@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.embeddings import embed_text as _embed_text, embed_batch as _embed_batch
@@ -188,16 +188,32 @@ def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
     return items
 
 
-async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
+async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
     """Scan all file-drop directories, upsert changed rows, delete orphaned rows.
 
-    Returns a dict with counts: {added, updated, deleted}.
+    Returns a dict with counts and diagnostic details.
     """
-    counts: dict[str, int] = {"added": 0, "updated": 0, "deleted": 0}
+    counts: dict[str, Any] = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0, "errors": []}
 
     # --- Skills ---
     skill_files = _collect_skill_files()
     seen_skill_ids: set[str] = set()
+
+    cwd = str(Path.cwd().resolve())
+    skills_dir = Path("skills")
+    skills_dir_resolved = str(skills_dir.resolve()) if skills_dir.exists() else None
+    skills_dir_exists = skills_dir.is_dir()
+    logger.info(
+        "file_sync: cwd=%s, skills_dir exists=%s, resolved=%s, found %d skill files on disk: %s",
+        cwd, skills_dir_exists, skills_dir_resolved, len(skill_files),
+        [f"{sid} ({p})" for p, sid, _ in skill_files],
+    )
+    counts["_diagnostics"] = {
+        "cwd": cwd,
+        "skills_dir_resolved": skills_dir_resolved,
+        "skills_dir_exists": skills_dir_exists,
+        "files_on_disk": [{"id": sid, "path": str(p), "source_type": st} for p, sid, st in skill_files],
+    }
 
     for path, skill_id, source_type in skill_files:
         seen_skill_ids.add(skill_id)
@@ -205,6 +221,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
             raw = path.read_text(encoding="utf-8")
         except Exception:
             logger.exception("Cannot read skill file %s", path)
+            counts["errors"].append(f"Cannot read {path}")
             continue
 
         content_hash = _sha256(raw)
@@ -212,53 +229,78 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
         display_name = meta.get("name", skill_id.replace("_", " ").replace("/", " / ").title())
         source_path = str(path.resolve())
 
-        async with async_session() as session:
-            existing = await session.get(SkillRow, skill_id)
-            if existing is None:
-                row = SkillRow(
-                    id=skill_id,
-                    name=display_name,
-                    content=raw,
-                    content_hash=content_hash,
-                    source_path=source_path,
-                    source_type=source_type,
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.commit()
-                counts["added"] += 1
-                logger.info("file_sync: added skill '%s' from %s", skill_id, path)
-                await _embed_skill_from_content(skill_id, raw, content_hash)
-            elif existing.content_hash != content_hash:
-                existing.name = display_name
-                existing.content = raw
-                existing.content_hash = content_hash
-                existing.source_path = source_path
-                existing.source_type = source_type
-                existing.updated_at = datetime.now(timezone.utc)
-                await session.commit()
-                counts["updated"] += 1
-                logger.info("file_sync: updated skill '%s' from %s", skill_id, path)
-                await _embed_skill_from_content(skill_id, raw, content_hash)
-            else:
-                # Ensure source metadata is up to date even if content unchanged
-                if existing.source_type != source_type or existing.source_path != source_path:
-                    existing.source_type = source_type
-                    existing.source_path = source_path
+        try:
+            async with async_session() as session:
+                existing = await session.get(SkillRow, skill_id)
+                if existing is None:
+                    row = SkillRow(
+                        id=skill_id,
+                        name=display_name,
+                        content=raw,
+                        content_hash=content_hash,
+                        source_path=source_path,
+                        source_type=source_type,
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    session.add(row)
                     await session.commit()
+                    counts["added"] += 1
+                    logger.info("file_sync: added skill '%s' from %s", skill_id, path)
+                    await _embed_skill_from_content(skill_id, raw, content_hash)
+                elif existing.content_hash != content_hash:
+                    existing.name = display_name
+                    existing.content = raw
+                    existing.content_hash = content_hash
+                    existing.source_path = source_path
+                    existing.source_type = source_type
+                    existing.updated_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    counts["updated"] += 1
+                    logger.info("file_sync: updated skill '%s' from %s", skill_id, path)
+                    await _embed_skill_from_content(skill_id, raw, content_hash)
+                else:
+                    counts["unchanged"] += 1
+                    # Ensure source metadata is up to date even if content unchanged
+                    if existing.source_type != source_type or existing.source_path != source_path:
+                        existing.source_type = source_type
+                        existing.source_path = source_path
+                        await session.commit()
+        except Exception:
+            logger.exception("file_sync: DB error syncing skill '%s'", skill_id)
+            counts["errors"].append(f"DB error for skill '{skill_id}'")
 
     # Delete orphaned file/integration skills no longer on disk
-    async with async_session() as session:
-        stmt = select(SkillRow).where(
-            SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
-        )
-        all_file_skills = list((await session.execute(stmt)).scalars().all())
-        for row in all_file_skills:
-            if row.id not in seen_skill_ids:
-                await session.delete(row)
-                counts["deleted"] += 1
-                logger.info("file_sync: deleted orphaned skill '%s'", row.id)
-        await session.commit()
+    # Safety: skip orphan deletion if we found zero files — likely a mount/CWD issue
+    if skill_files:
+        async with async_session() as session:
+            stmt = select(SkillRow).where(
+                SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            )
+            all_file_skills = list((await session.execute(stmt)).scalars().all())
+            for row in all_file_skills:
+                if row.id not in seen_skill_ids:
+                    await session.delete(row)
+                    counts["deleted"] += 1
+                    logger.info("file_sync: deleted orphaned skill '%s'", row.id)
+            await session.commit()
+    elif not skill_files:
+        # Log a warning — zero files found might mean a mount issue
+        async with async_session() as session:
+            existing_count = (await session.execute(
+                select(func.count()).select_from(SkillRow).where(
+                    SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+                )
+            )).scalar_one()
+        if existing_count > 0:
+            logger.warning(
+                "file_sync: found 0 skill files on disk but %d file-sourced skills in DB. "
+                "Skipping orphan deletion — possible volume mount issue. cwd=%s",
+                existing_count, cwd,
+            )
+            counts["errors"].append(
+                f"Found 0 files on disk but {existing_count} file-sourced skills in DB — "
+                f"skipping orphan deletion (possible mount issue, cwd={cwd})"
+            )
 
     # --- Knowledge ---
     knowledge_files = _collect_knowledge_files()
@@ -404,9 +446,12 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, int]:
         await session.commit()
 
     logger.info(
-        "file_sync complete: +%d added, ~%d updated, -%d deleted",
-        counts["added"], counts["updated"], counts["deleted"],
+        "file_sync complete: +%d added, ~%d updated, =%d unchanged, -%d deleted, %d errors",
+        counts["added"], counts["updated"], counts["unchanged"],
+        counts["deleted"], len(counts["errors"]),
     )
+    if counts["errors"]:
+        logger.warning("file_sync errors: %s", counts["errors"])
     return counts
 
 
@@ -606,36 +651,45 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
 
 
 async def watch_files() -> None:
-    """Background watcher — monitors all file-drop directories for .md changes."""
+    """Background watcher — monitors all file-drop directories for .md changes.
+
+    Auto-restarts on crash with exponential backoff (max 60s).
+    """
     try:
         from watchfiles import awatch, Change
     except ImportError:
         logger.warning("watchfiles not installed; file watching disabled")
         return
 
-    watch_dirs: list[str] = []
-    for d in ["skills", "knowledge", "bots", "integrations", "prompts"]:
-        p = Path(d)
-        if p.exists():
-            watch_dirs.append(str(p))
+    backoff = 1.0
+    while True:
+        watch_dirs: list[str] = []
+        for d in ["skills", "knowledge", "bots", "integrations", "prompts"]:
+            p = Path(d)
+            if p.exists():
+                watch_dirs.append(str(p))
 
-    if not watch_dirs:
-        logger.info("file_sync watcher: no directories to watch")
-        return
+        if not watch_dirs:
+            logger.info("file_sync watcher: no directories to watch")
+            return
 
-    logger.info("file_sync watcher: watching %s", watch_dirs)
+        logger.info("file_sync watcher: watching %s", watch_dirs)
 
-    try:
-        async for changes in awatch(*watch_dirs):
-            for change_type, changed_path in changes:
-                p = Path(changed_path)
-                if p.suffix != ".md":
-                    continue
-                try:
-                    await sync_changed_file(p)
-                except Exception:
-                    logger.exception("file_sync watcher error handling %s", changed_path)
-    except asyncio.CancelledError:
-        logger.info("file_sync watcher cancelled")
-    except Exception:
-        logger.exception("file_sync watcher crashed")
+        try:
+            async for changes in awatch(*watch_dirs):
+                backoff = 1.0  # reset backoff on successful event
+                for change_type, changed_path in changes:
+                    p = Path(changed_path)
+                    if p.suffix != ".md":
+                        continue
+                    try:
+                        await sync_changed_file(p)
+                    except Exception:
+                        logger.exception("file_sync watcher error handling %s", changed_path)
+        except asyncio.CancelledError:
+            logger.info("file_sync watcher cancelled")
+            return
+        except Exception:
+            logger.exception("file_sync watcher crashed, restarting in %.0fs", backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60.0)

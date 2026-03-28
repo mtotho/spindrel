@@ -2,11 +2,12 @@
  * Global Memory Scheme settings section for the Chat History group.
  * Enables/disables workspace-files memory mode across all bots at once.
  */
-import { useState, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { useState, useCallback, useEffect } from "react";
+import { View, Text, Pressable, ActivityIndicator, Switch } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, HelpCircle, X } from "lucide-react";
+import { Check, ChevronDown, HelpCircle, Save, X } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
+import { useSettings, useUpdateSettings } from "@/src/api/hooks/useSettings";
 import { apiFetch } from "@/src/api/client";
 
 // ---------------------------------------------------------------------------
@@ -227,16 +228,51 @@ export function MemorySchemeSection() {
   const [justEnabled, setJustEnabled] = useState(false);
   const [justDisabled, setJustDisabled] = useState(false);
 
+  // Custom prompt override (ui_hidden setting, managed here instead of in the settings list)
+  const { data: settingsData } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+
+  // Load saved override from settings data
+  useEffect(() => {
+    const val = settingsData?.groups
+      ?.flatMap((g: any) => g.settings)
+      ?.find((s: any) => s.key === "MEMORY_SCHEME_PROMPT")?.value as string | undefined;
+    if (val) {
+      setUseCustomPrompt(true);
+      setCustomPrompt(val);
+    }
+  }, [settingsData]);
+
+  const handleSavePrompt = useCallback(async () => {
+    const val = useCustomPrompt ? customPrompt : "";
+    await updateSettings.mutateAsync({ MEMORY_SCHEME_PROMPT: val });
+    setPromptDirty(false);
+    setPromptSaved(true);
+    setTimeout(() => setPromptSaved(false), 2000);
+  }, [useCustomPrompt, customPrompt, updateSettings]);
+
+  const handleToggleCustom = useCallback((v: boolean) => {
+    setUseCustomPrompt(v);
+    if (v && !customPrompt) {
+      setCustomPrompt(BUILT_IN_PROMPT);
+    }
+    setPromptDirty(true);
+    setPromptSaved(false);
+  }, [customPrompt]);
+
   const enabledCount = bots?.filter((b) => b.memory_scheme === "workspace-files").length ?? 0;
   const totalCount = bots?.length ?? 0;
   const allEnabled = totalCount > 0 && enabledCount === totalCount;
   const noneEnabled = enabledCount === 0;
 
   const handleEnableAll = useCallback(async () => {
-    if (!bots) return;
-    const toEnable = bots.filter((b) => b.memory_scheme !== "workspace-files").map((b) => b.id);
-    if (!toEnable.length) return;
-    await enableAll.mutateAsync(toEnable);
+    if (!bots?.length) return;
+    // Always re-bootstrap all bots (fixes paths for orchestrators, idempotent for others)
+    await enableAll.mutateAsync(bots.map((b) => b.id));
     setJustEnabled(true);
     setJustDisabled(false);
     setTimeout(() => setJustEnabled(false), 2000);
@@ -407,7 +443,7 @@ export function MemorySchemeSection() {
               </Pressable>
             </View>
 
-            {/* Built-in prompt (collapsible) */}
+            {/* System prompt — view built-in or edit custom override */}
             <View style={{
               backgroundColor: "#0a0a0a", borderRadius: 8,
               borderWidth: 1, borderColor: "#1a1a1a",
@@ -426,32 +462,86 @@ export function MemorySchemeSection() {
                   style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
                 />
                 <Text style={{ fontSize: 12, fontWeight: "600", color: "#888" }}>
-                  Built-in System Prompt
+                  System Prompt
                 </Text>
                 <View style={{
-                  backgroundColor: "rgba(168,85,247,0.1)",
+                  backgroundColor: useCustomPrompt ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
                   paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
                   marginLeft: 4,
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: "600", color: "#a78bfa" }}>
-                    auto-injected
+                  <Text style={{ fontSize: 9, fontWeight: "600", color: useCustomPrompt ? "#f59e0b" : "#a78bfa" }}>
+                    {useCustomPrompt ? "custom" : "built-in"}
                   </Text>
                 </View>
               </Pressable>
               {showPrompt && (
-                <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
-                  <pre style={{
-                    margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
-                    fontFamily: "monospace", whiteSpace: "pre-wrap",
-                    background: "#111", borderRadius: 6, padding: 12,
-                  }}>{BUILT_IN_PROMPT}</pre>
-                  <Text style={{
-                    fontSize: 10, color: "#555", marginTop: 8, fontStyle: "italic",
-                  }}>
-                    This prompt is automatically prepended to the system prompt for all bots with
-                    workspace-files memory enabled. Overridable via the "Memory Scheme System Prompt"
-                    setting above (not recommended).
-                  </Text>
+                <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
+                  {/* Toggle for custom override */}
+                  <Pressable
+                    onPress={() => handleToggleCustom(!useCustomPrompt)}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                  >
+                    <Switch
+                      value={useCustomPrompt}
+                      onValueChange={handleToggleCustom}
+                      trackColor={{ false: "#374151", true: "#92400e" }}
+                      thumbColor="#e5e5e5"
+                    />
+                    <Text style={{ fontSize: 11, color: useCustomPrompt ? "#f59e0b" : "#666" }}>
+                      Use custom prompt (not recommended)
+                    </Text>
+                  </Pressable>
+
+                  {useCustomPrompt ? (
+                    <>
+                      <textarea
+                        value={customPrompt}
+                        onChange={(e: any) => { setCustomPrompt(e.target.value); setPromptDirty(true); setPromptSaved(false); }}
+                        style={{
+                          width: "100%", minHeight: 280,
+                          fontSize: 11, lineHeight: "1.7", color: "#ccc",
+                          fontFamily: "monospace", whiteSpace: "pre-wrap",
+                          background: "#111", borderRadius: 6, padding: 12,
+                          border: "1px solid #2a2a2a", resize: "vertical",
+                        }}
+                      />
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Pressable
+                          onPress={handleSavePrompt}
+                          disabled={!promptDirty || updateSettings.isPending}
+                          style={{
+                            flexDirection: "row", alignItems: "center", gap: 6,
+                            backgroundColor: promptDirty ? "#92400e" : "#1a1a1a",
+                            paddingHorizontal: 12, paddingVertical: 6,
+                            borderRadius: 6, opacity: promptDirty ? 1 : 0.5,
+                          }}
+                        >
+                          {updateSettings.isPending ? (
+                            <ActivityIndicator size="small" color="#f59e0b" />
+                          ) : promptSaved ? (
+                            <Check size={12} color="#f59e0b" />
+                          ) : (
+                            <Save size={12} color="#f59e0b" />
+                          )}
+                          <Text style={{ fontSize: 11, fontWeight: "600", color: "#f59e0b" }}>
+                            {promptSaved ? "Saved" : "Save"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => { setCustomPrompt(BUILT_IN_PROMPT); setPromptDirty(true); }}
+                          style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                        >
+                          <Text style={{ fontSize: 10, color: "#555" }}>Reset to default</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <pre style={{
+                      margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
+                      fontFamily: "monospace", whiteSpace: "pre-wrap",
+                      background: "#111", borderRadius: 6, padding: 12,
+                    }}>{BUILT_IN_PROMPT}</pre>
+                  )}
                 </View>
               )}
             </View>
