@@ -118,15 +118,21 @@ async def get_policy_settings(
 async def update_policy_settings(
     body: PolicySettingsUpdate,
     _auth=Depends(verify_admin_auth),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Update tool policy settings at runtime (persists until restart)."""
+    """Update tool policy settings (persisted to DB, survives restart)."""
+    from app.services.server_settings import update_settings
+
+    updates: dict = {}
     if body.default_action is not None:
         if body.default_action not in ("allow", "deny", "require_approval"):
             raise HTTPException(status_code=422, detail="default_action must be 'allow', 'deny', or 'require_approval'")
-        settings.TOOL_POLICY_DEFAULT_ACTION = body.default_action
+        updates["TOOL_POLICY_DEFAULT_ACTION"] = body.default_action
     if body.enabled is not None:
-        settings.TOOL_POLICY_ENABLED = body.enabled
-    invalidate_cache()
+        updates["TOOL_POLICY_ENABLED"] = body.enabled
+    if updates:
+        await update_settings(updates, db)
+        invalidate_cache()
     return PolicySettingsOut(
         default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
         enabled=settings.TOOL_POLICY_ENABLED,

@@ -57,7 +57,24 @@ def _compute_cost(
 async def _load_pricing_map(
     db: AsyncSession,
 ) -> dict[tuple[str, str], tuple[str | None, str | None]]:
-    """Bulk load ProviderModel pricing → {(provider_id, model_id): (input_cost, output_cost)}"""
+    """Bulk load pricing from DB ProviderModel rows + LiteLLM model info cache.
+
+    LiteLLM cached entries are added first, then DB rows override so that
+    user-configured pricing always wins.
+    """
+    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+    # Seed from LiteLLM model info cache (auto-fetched from /model/info at startup)
+    from app.services.providers import _model_info_cache
+    for provider_id, models in _model_info_cache.items():
+        pid = provider_id or "__env__"
+        for model_id, info in models.items():
+            inp = info.get("input_cost_per_1m")
+            out = info.get("output_cost_per_1m")
+            if inp or out:
+                result[(pid, model_id)] = (inp, out)
+
+    # DB rows override LiteLLM cache
     rows = (await db.execute(
         select(
             ProviderModel.provider_id,
@@ -66,9 +83,9 @@ async def _load_pricing_map(
             ProviderModel.output_cost_per_1m,
         )
     )).all()
-    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
     for r in rows:
-        result[(r.provider_id, r.model_id)] = (r.input_cost_per_1m, r.output_cost_per_1m)
+        if r.input_cost_per_1m or r.output_cost_per_1m:
+            result[(r.provider_id, r.model_id)] = (r.input_cost_per_1m, r.output_cost_per_1m)
     return result
 
 

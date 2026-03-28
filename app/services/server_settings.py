@@ -92,6 +92,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WHISPER_COMPUTE_TYPE": {"group": "Speech-to-Text", "label": "Compute Type", "description": "Compute precision", "type": "string", "options": ["auto", "int8", "float16", "float32"]},
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},
     "WHISPER_LANGUAGE": {"group": "Speech-to-Text", "label": "Language", "description": "Transcription language code", "type": "string"},
+    # --- Tool Policies ---
+    "TOOL_POLICY_ENABLED": {"group": "Tool Policies", "label": "Enabled", "description": "Master switch for the tool policy engine", "type": "bool"},
+    "TOOL_POLICY_DEFAULT_ACTION": {"group": "Tool Policies", "label": "Default Action", "description": "Action when no rule matches: allow, deny, or require_approval", "type": "string", "options": ["allow", "deny", "require_approval"]},
     # --- Heartbeat ---
     "HEARTBEAT_QUIET_HOURS": {"group": "Heartbeat", "label": "Quiet Hours", "description": "Time window where heartbeats slow (e.g. 23:00-07:00)", "type": "string"},
     "HEARTBEAT_QUIET_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Quiet Interval (min)", "description": "Interval during quiet hours (0 = disabled)", "type": "int", "min": 0, "max": 1440},
@@ -115,7 +118,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 GROUP_ORDER = [
     "System", "General", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
-    "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
+    "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]
 
 
