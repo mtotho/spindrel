@@ -625,8 +625,7 @@ async def assemble_context(
             messages.append({
                 "role": "system",
                 "content": (
-                    "Relevant memories from past conversations (automatically recalled "
-                    "based on the user's message; you can use these directly):\n\n"
+                    "Relevant memories:\n\n"
                     + "\n\n---\n\n".join(memories)
                 ),
             })
