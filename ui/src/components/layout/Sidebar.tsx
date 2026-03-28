@@ -69,20 +69,21 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
 
 const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, active, mobile }: { item: NavItem; active: boolean; mobile?: boolean }) {
   const Icon = item.icon;
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   return (
     <Link href={item.href as any} asChild>
       <Pressable
         onPress={closeMobile}
-        className={`flex-row items-center gap-3 rounded-md px-3 py-2 ${
+        className={`flex-row items-center gap-3 rounded-md px-3 ${mobile ? "py-3" : "py-2"} ${
           active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
         }`}
       >
-        <Icon size={16} color={active ? "#3b82f6" : "#666666"} />
+        <Icon size={mobile ? 20 : 16} color={active ? "#3b82f6" : "#666666"} />
         <Text
-          className={`text-sm ${active ? "text-accent font-medium" : "text-text-muted"}`}
+          style={mobile ? { fontSize: 15 } : undefined}
+          className={`${mobile ? "" : "text-sm"} ${active ? "text-accent font-medium" : "text-text-muted"}`}
           numberOfLines={1}
         >
           {item.label}
@@ -146,7 +147,7 @@ function ChannelSkeletons() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -238,11 +239,16 @@ export function Sidebar() {
   }
 
   // -----------------------------------------------------------------------
-  // Expanded sidebar (260px — Slack-width)
+  // Expanded sidebar (260px desktop, flex on mobile)
   // -----------------------------------------------------------------------
+  const navPy = mobile ? "py-3" : "py-2";
+  const navIconSize = mobile ? 20 : 16;
+  const channelIconSize = mobile ? 20 : 16;
+  const channelPy = mobile ? "py-3" : "py-2";
+
   return (
-    <View className="bg-surface border-r border-surface-border" style={{ width: 260, flexShrink: 0, height: '100%' }}>
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+    <View className="bg-surface border-r border-surface-border" style={{ width: mobile ? "100%" : 260, flexShrink: 0, height: '100%' }}>
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
         {/* Header */}
         <View className="flex-row items-center justify-between px-4 py-4">
           <Link href="/" asChild>
@@ -292,18 +298,19 @@ export function Sidebar() {
                 >
                   <Pressable
                     onPress={closeMobile}
-                    className={`flex-row items-center gap-2.5 rounded-md px-3 py-2 ${
+                    className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
                       isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
                   >
                     {channel.private ? (
-                      <Lock size={16} color={isActive ? "#3b82f6" : "#555555"} />
+                      <Lock size={channelIconSize} color={isActive ? "#3b82f6" : "#555555"} />
                     ) : (
-                      <Hash size={16} color={isActive ? "#3b82f6" : "#555555"} />
+                      <Hash size={channelIconSize} color={isActive ? "#3b82f6" : "#555555"} />
                     )}
                     <View className="flex-1 min-w-0">
                       <Text
-                        className={`text-sm ${
+                        style={mobile ? { fontSize: 15 } : undefined}
+                        className={`${mobile ? "" : "text-sm"} ${
                           isActive ? "text-white font-medium" : "text-text-muted"
                         }`}
                         numberOfLines={1}
@@ -311,7 +318,7 @@ export function Sidebar() {
                         {displayName}
                       </Text>
                       {bot && (
-                        <Text className="text-[11px] text-text-dim" numberOfLines={1}>
+                        <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
                           {bot.name}
                         </Text>
                       )}
@@ -356,17 +363,18 @@ export function Sidebar() {
                 >
                   <Pressable
                     onPress={closeMobile}
-                    className={`flex-row items-center gap-2.5 rounded-md px-3 py-2 ${
+                    className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
                       isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
                   >
                     <Container
-                      size={16}
+                      size={channelIconSize}
                       color={isActive ? "#3b82f6" : "#555555"}
                     />
                     <View className="flex-1 min-w-0">
                       <Text
-                        className={`text-sm ${
+                        style={mobile ? { fontSize: 15 } : undefined}
+                        className={`${mobile ? "" : "text-sm"} ${
                           isActive ? "text-white font-medium" : "text-text-muted"
                         }`}
                         numberOfLines={1}
@@ -375,7 +383,7 @@ export function Sidebar() {
                       </Text>
                       <View className="flex-row items-center gap-1">
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: statusColor }} />
-                        <Text className="text-[11px] text-text-dim" numberOfLines={1}>
+                        <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
                           {ws.status}
                         </Text>
                       </View>
@@ -390,7 +398,7 @@ export function Sidebar() {
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
           <View key={section.title} className="px-2 py-1.5">
-            <Text className="text-text-dim text-[11px] font-semibold tracking-wider px-3 py-1.5">
+            <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
               {section.title}
             </Text>
             {section.items.map((item) => (
@@ -398,6 +406,7 @@ export function Sidebar() {
                 key={item.href}
                 item={item}
                 active={pathname.startsWith(item.href)}
+                mobile={mobile}
               />
             ))}
           </View>
@@ -409,17 +418,18 @@ export function Sidebar() {
         <Link href={"/(app)/profile" as any} asChild>
           <Pressable
             onPress={closeMobile}
-            className={`flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
+            className={`flex-row items-center gap-3 rounded-md px-3 ${mobile ? "py-3.5" : "py-2.5"} ${
               pathname === "/profile" ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
             }`}
           >
-            <View className="w-8 h-8 rounded items-center justify-center" style={{ backgroundColor: "rgba(99,102,241,0.2)" }}>
-              <Text style={{ fontSize: 12, color: "#6366f1", fontWeight: "700" }}>
+            <View className={`${mobile ? "w-9 h-9" : "w-8 h-8"} rounded items-center justify-center`} style={{ backgroundColor: "rgba(99,102,241,0.2)" }}>
+              <Text style={{ fontSize: mobile ? 14 : 12, color: "#6366f1", fontWeight: "700" }}>
                 {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
               </Text>
             </View>
             <Text
-              className={`text-sm flex-1 ${
+              style={mobile ? { fontSize: 15 } : undefined}
+              className={`${mobile ? "" : "text-sm"} flex-1 ${
                 pathname === "/profile" ? "text-accent font-medium" : "text-text-muted"
               }`}
               numberOfLines={1}

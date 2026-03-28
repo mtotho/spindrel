@@ -9,7 +9,7 @@ from sqlalchemy import select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Message, User
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.auth import create_local_user, get_user_by_id, hash_password
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def _user_out(u: User) -> UserOut:
 @router.get("", response_model=list[UserOut])
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:read")),
 ):
     result = await db.execute(select(User).order_by(User.created_at))
     return [_user_out(u) for u in result.scalars().all()]
@@ -71,7 +71,7 @@ async def list_users(
 async def create_user(
     req: CreateUserRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     user = await create_local_user(db, req.email, req.display_name, req.password)
     return _user_out(user)
@@ -82,7 +82,7 @@ async def update_user(
     user_id: str,
     req: UpdateUserRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     from uuid import UUID
     user = await get_user_by_id(db, UUID(user_id))
@@ -109,7 +109,7 @@ async def update_user(
 async def deactivate_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     from uuid import UUID
     user = await get_user_by_id(db, UUID(user_id))
@@ -124,7 +124,7 @@ async def deactivate_user(
 async def identity_suggestions(
     integration: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:read")),
 ):
     """Return distinct sender IDs for an integration, excluding already-claimed ones."""
     prefix = f"{integration}:"

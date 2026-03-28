@@ -17,32 +17,154 @@ from app.db.models import ApiKey, Bot as BotRow
 
 ALL_SCOPES = [
     "admin",
+    # Channels (broad)
     "channels:read", "channels:write",
+    # Channels (granular)
+    "channels.messages:read", "channels.messages:write",
+    "channels.config:read", "channels.config:write",
+    "channels.heartbeat:read", "channels.heartbeat:write",
+    "channels.integrations:read", "channels.integrations:write",
+    # Chat
     "chat",
+    # Sessions
     "sessions:read", "sessions:write",
+    # Bots
     "bots:read", "bots:write",
+    # Tasks
     "tasks:read", "tasks:write",
+    # Workspaces (broad)
     "workspaces:read", "workspaces:write",
+    "workspaces.files:read", "workspaces.files:write",
+    # Documents
+    "documents:read", "documents:write",
+    # Knowledge
     "knowledge:read", "knowledge:write",
+    # Todos
+    "todos:read", "todos:write",
+    # Attachments
+    "attachments:read",
+    # Tools
     "tools:read",
+    # Providers
     "providers:read", "providers:write",
+    # Users
     "users:read", "users:write",
+    # Settings
     "settings:read", "settings:write",
 ]
 
-SCOPE_GROUPS: dict[str, list[str]] = {
-    "Admin": ["admin"],
-    "Channels": ["channels:read", "channels:write"],
-    "Chat": ["chat"],
-    "Sessions": ["sessions:read", "sessions:write"],
-    "Bots": ["bots:read", "bots:write"],
-    "Tasks": ["tasks:read", "tasks:write"],
-    "Workspaces": ["workspaces:read", "workspaces:write"],
-    "Knowledge": ["knowledge:read", "knowledge:write"],
-    "Tools": ["tools:read"],
-    "Providers": ["providers:read", "providers:write"],
-    "Users": ["users:read", "users:write"],
-    "Settings": ["settings:read", "settings:write"],
+# Scope descriptions (shown in admin UI)
+SCOPE_DESCRIPTIONS: dict[str, str] = {
+    "admin": "Full access to all endpoints including admin panel",
+    "channels:read": "List and get channel details",
+    "channels:write": "Create, update, delete channels (includes all channel sub-scopes)",
+    "channels.messages:read": "Search messages within channels",
+    "channels.messages:write": "Inject messages into a channel's session",
+    "channels.config:read": "Read channel settings (model overrides, compaction, tools, etc.)",
+    "channels.config:write": "Modify channel settings (model, compaction, tools, skills, etc.)",
+    "channels.heartbeat:read": "Read heartbeat schedule and configuration",
+    "channels.heartbeat:write": "Enable/disable heartbeats, change schedule and prompt",
+    "channels.integrations:read": "List integration bindings on channels",
+    "channels.integrations:write": "Bind/unbind integrations, adopt bindings",
+    "chat": "Send chat messages (blocking and streaming), cancel, submit tool results",
+    "sessions:read": "Get session details and message history",
+    "sessions:write": "Create sessions, inject messages into sessions",
+    "bots:read": "List bots and get bot configuration",
+    "bots:write": "Create and update bot configuration",
+    "tasks:read": "List and poll task status",
+    "tasks:write": "Create and delete tasks",
+    "workspaces:read": "List workspaces, get status, logs, and bot config",
+    "workspaces:write": "Create, update, start, stop, recreate workspaces",
+    "workspaces.files:read": "List and read workspace files",
+    "workspaces.files:write": "Write, upload, and delete workspace files",
+    "documents:read": "Semantic search over ingested documents",
+    "documents:write": "Ingest and delete documents",
+    "knowledge:read": "Read knowledge entries",
+    "knowledge:write": "Create and manage knowledge entries",
+    "todos:read": "List todos",
+    "todos:write": "Create, update, and delete todos",
+    "attachments:read": "Get attachment metadata and download files",
+    "tools:read": "List available tools",
+    "providers:read": "List provider configurations and models",
+    "providers:write": "Create and manage provider configurations",
+    "users:read": "List users and get user details",
+    "users:write": "Create and manage users",
+    "settings:read": "Read server settings",
+    "settings:write": "Modify server settings",
+}
+
+# Grouped scopes for the UI — each group has a description and ordered scope list.
+# The API returns this structure; the frontend renders grouped checkboxes.
+SCOPE_GROUPS: dict[str, dict] = {
+    "Admin": {
+        "description": "Full administrative access — use with caution",
+        "scopes": ["admin"],
+    },
+    "Channels": {
+        "description": "Channel CRUD and sub-resources (messages, config, heartbeat, integrations)",
+        "scopes": [
+            "channels:read", "channels:write",
+            "channels.messages:read", "channels.messages:write",
+            "channels.config:read", "channels.config:write",
+            "channels.heartbeat:read", "channels.heartbeat:write",
+            "channels.integrations:read", "channels.integrations:write",
+        ],
+    },
+    "Chat": {
+        "description": "Send messages to bots via the chat API",
+        "scopes": ["chat"],
+    },
+    "Sessions": {
+        "description": "Low-level session access (prefer channels for most use cases)",
+        "scopes": ["sessions:read", "sessions:write"],
+    },
+    "Bots": {
+        "description": "Read and manage bot configurations",
+        "scopes": ["bots:read", "bots:write"],
+    },
+    "Tasks": {
+        "description": "Async task polling and creation",
+        "scopes": ["tasks:read", "tasks:write"],
+    },
+    "Workspaces": {
+        "description": "Shared workspace management and file operations",
+        "scopes": [
+            "workspaces:read", "workspaces:write",
+            "workspaces.files:read", "workspaces.files:write",
+        ],
+    },
+    "Documents": {
+        "description": "Ingest text for RAG and search over embedded documents",
+        "scopes": ["documents:read", "documents:write"],
+    },
+    "Knowledge": {
+        "description": "Bot knowledge entries (LLM-written persistent docs)",
+        "scopes": ["knowledge:read", "knowledge:write"],
+    },
+    "Todos": {
+        "description": "Persistent work items scoped to bot + channel",
+        "scopes": ["todos:read", "todos:write"],
+    },
+    "Attachments": {
+        "description": "Access file attachments from conversations",
+        "scopes": ["attachments:read"],
+    },
+    "Tools": {
+        "description": "Read registered tool schemas",
+        "scopes": ["tools:read"],
+    },
+    "Providers": {
+        "description": "LLM provider configurations and model lists",
+        "scopes": ["providers:read", "providers:write"],
+    },
+    "Users": {
+        "description": "User management",
+        "scopes": ["users:read", "users:write"],
+    },
+    "Settings": {
+        "description": "Server-wide settings",
+        "scopes": ["settings:read", "settings:write"],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -50,7 +172,7 @@ SCOPE_GROUPS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 
 ENDPOINT_CATALOG: list[dict] = [
-    # Channels
+    # Channels — core CRUD
     {
         "scope": "channels:read", "method": "GET", "path": "/api/v1/channels",
         "description": "List channels",
@@ -63,28 +185,6 @@ ENDPOINT_CATALOG: list[dict] = [
         "response": "{id, name, bot_id, active_session_id, integrations: [...], ...}",
     },
     {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/config",
-        "description": "Get full channel config (settings, effective tools, etc.)",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/messages/search",
-        "description": "Search channel messages",
-        "params": "?q=&role=&limit=50",
-        "response": "[{id, role, content, created_at, ...}]",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/knowledge",
-        "description": "List knowledge docs for a channel",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/attachment-stats",
-        "description": "Get attachment statistics for a channel",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/integrations",
-        "description": "List integration bindings for a channel",
-    },
-    {
         "scope": "channels:write", "method": "POST", "path": "/api/v1/channels",
         "description": "Create or retrieve a channel",
         "body": '{"bot_id": "str", "client_id": "str", "name?": "str"}',
@@ -92,40 +192,77 @@ ENDPOINT_CATALOG: list[dict] = [
     },
     {
         "scope": "channels:write", "method": "PUT", "path": "/api/v1/channels/{id}",
-        "description": "Update channel settings",
-        "body": '{"name?": "str", "channel_prompt?": "str", "max_iterations?": int, ...}',
+        "description": "Update basic channel settings",
     },
     {
         "scope": "channels:write", "method": "DELETE", "path": "/api/v1/channels/{id}",
-        "description": "Delete a channel",
+        "description": "Delete a channel and all associated data",
+    },
+    # Channels — messages
+    {
+        "scope": "channels.messages:read", "method": "GET", "path": "/api/v1/channels/{id}/messages/search",
+        "description": "Search messages across all sessions in a channel",
+        "params": "?q=&role=&limit=50",
+        "response": "[{id, role, content, created_at, ...}]",
     },
     {
-        "scope": "channels:write", "method": "POST", "path": "/api/v1/channels/{id}/messages",
+        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/messages",
         "description": "Inject message into a channel's active session",
         "body": '{"content": "str", "role?": "user", "source?": "str", "run_agent?": false}',
         "notes": "If run_agent=true, returns {task_id} for async processing.",
     },
     {
-        "scope": "channels:write", "method": "POST", "path": "/api/v1/channels/{id}/reset",
+        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/reset",
         "description": "Reset channel session (creates new session, preserves config)",
     },
     {
-        "scope": "channels:write", "method": "POST", "path": "/api/v1/channels/{id}/switch-session",
+        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/switch-session",
         "description": "Switch channel to a specific session",
         "body": '{"session_id": "uuid"}',
     },
+    # Channels — config
     {
-        "scope": "channels:write", "method": "POST", "path": "/api/v1/channels/{id}/integrations",
+        "scope": "channels.config:read", "method": "GET", "path": "/api/v1/channels/{id}/config",
+        "description": "Get full channel config (settings, heartbeat, effective tools)",
+        "notes": "Also requires channels.heartbeat:read for heartbeat fields (covered by channels.config:read via parent scope).",
+    },
+    {
+        "scope": "channels.config:write", "method": "PUT", "path": "/api/v1/channels/{id}/config",
+        "description": "Update channel settings (model overrides, compaction, tools, skills)",
+        "notes": "Heartbeat fields require channels.heartbeat:write. channels.config:write covers both.",
+    },
+    # Channels — heartbeat (via config endpoint)
+    {
+        "scope": "channels.heartbeat:write", "method": "PUT", "path": "/api/v1/channels/{id}/config",
+        "description": "Update heartbeat schedule, prompt, and quiet hours (subset of config endpoint)",
+        "notes": "Send only heartbeat_* fields. channels.config:write also covers this.",
+    },
+    # Channels — knowledge & attachments (read via channel scope)
+    {
+        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/knowledge",
+        "description": "List knowledge docs accessible to a channel",
+    },
+    {
+        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/attachment-stats",
+        "description": "Get attachment storage stats for a channel",
+    },
+    # Channels — integrations
+    {
+        "scope": "channels.integrations:read", "method": "GET", "path": "/api/v1/channels/{id}/integrations",
+        "description": "List integration bindings for a channel",
+    },
+    {
+        "scope": "channels.integrations:write", "method": "POST", "path": "/api/v1/channels/{id}/integrations",
         "description": "Bind an integration to a channel",
         "body": '{"integration_type": "str", "client_id": "str"}',
     },
     {
-        "scope": "channels:write", "method": "DELETE",
+        "scope": "channels.integrations:write", "method": "DELETE",
         "path": "/api/v1/channels/{id}/integrations/{binding_id}",
         "description": "Unbind integration from channel",
     },
     {
-        "scope": "channels:write", "method": "POST",
+        "scope": "channels.integrations:write", "method": "POST",
         "path": "/api/v1/channels/{id}/integrations/{binding_id}/adopt",
         "description": "Adopt integration binding from another channel",
     },
@@ -140,18 +277,31 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "chat", "method": "POST", "path": "/chat/stream",
         "description": "Send chat message (SSE streaming)",
         "body": '{"message": "str", "bot_id": "str", "client_id": "str", "channel_id?": "uuid"}',
-        "notes": "Returns Server-Sent Events stream. Events: skill_context, memory_context, tool_start, tool_result, response, error.",
+        "notes": "Returns Server-Sent Events. Events: skill_context, memory_context, tool_start, tool_result, response, error.",
     },
     {
         "scope": "chat", "method": "POST", "path": "/chat/cancel",
-        "description": "Cancel in-progress chat for a session",
+        "description": "Cancel in-progress chat",
         "body": '{"session_id": "uuid"}',
+    },
+    # Bots
+    {
+        "scope": "bots:read", "method": "GET", "path": "/bots",
+        "description": "List available bots with id, name, and model",
+        "response": "[{id, name, model, audio_input?}]",
     },
     # Sessions
     {
-        "scope": "sessions:read", "method": "GET", "path": "/api/v1/sessions/{id}",
-        "description": "Get session details",
-        "response": "{id, bot_id, channel_id, created_at, updated_at, summary}",
+        "scope": "sessions:write", "method": "POST", "path": "/api/v1/sessions",
+        "description": "Create or retrieve a session for an integration client",
+        "body": '{"bot_id": "str", "client_id": "str", "dispatch_config?": {}}',
+        "response": "{session_id, created}",
+    },
+    {
+        "scope": "sessions:write", "method": "POST", "path": "/api/v1/sessions/{id}/messages",
+        "description": "Inject message into session (optionally trigger agent or fan out to dispatch targets)",
+        "body": '{"content": "str", "role?": "user", "source?": "str", "run_agent?": false, "notify?": true}',
+        "response": "{message_id, session_id, task_id?}",
     },
     {
         "scope": "sessions:read", "method": "GET", "path": "/api/v1/sessions/{id}/messages",
@@ -160,12 +310,6 @@ ENDPOINT_CATALOG: list[dict] = [
         "response": "[{id, role, content, tool_calls, created_at, ...}]",
     },
     # Tasks
-    {
-        "scope": "tasks:read", "method": "GET", "path": "/api/v1/tasks",
-        "description": "List tasks",
-        "params": "?status=&bot_id=&limit=50",
-        "response": "[{id, status, type, bot_id, created_at, ...}]",
-    },
     {
         "scope": "tasks:read", "method": "GET", "path": "/api/v1/tasks/{id}",
         "description": "Get task details and result",
@@ -180,6 +324,128 @@ ENDPOINT_CATALOG: list[dict] = [
     {
         "scope": "tasks:write", "method": "DELETE", "path": "/api/v1/tasks/{id}",
         "description": "Delete a task",
+    },
+    # Documents
+    {
+        "scope": "documents:write", "method": "POST", "path": "/api/v1/documents",
+        "description": "Ingest and embed a document for semantic search",
+        "body": '{"title": "str", "content": "str", "integration_id?": "str", "metadata?": {}}',
+    },
+    {
+        "scope": "documents:read", "method": "GET", "path": "/api/v1/documents/search",
+        "description": "Semantic search over ingested documents",
+        "params": "?q=&integration_id=&limit=10",
+    },
+    {
+        "scope": "documents:read", "method": "GET", "path": "/api/v1/documents/{id}",
+        "description": "Get document by ID",
+    },
+    {
+        "scope": "documents:write", "method": "DELETE", "path": "/api/v1/documents/{id}",
+        "description": "Delete a document",
+    },
+    # Todos
+    {
+        "scope": "todos:read", "method": "GET", "path": "/api/v1/todos",
+        "description": "List todos",
+        "params": "?bot_id=&channel_id=&status=pending",
+    },
+    {
+        "scope": "todos:write", "method": "POST", "path": "/api/v1/todos",
+        "description": "Create a todo",
+        "body": '{"bot_id": "str", "channel_id": "str", "content": "str", "priority?": int}',
+    },
+    {
+        "scope": "todos:write", "method": "PATCH", "path": "/api/v1/todos/{id}",
+        "description": "Update a todo",
+        "body": '{"content?": "str", "status?": "str", "priority?": int}',
+    },
+    {
+        "scope": "todos:write", "method": "DELETE", "path": "/api/v1/todos/{id}",
+        "description": "Delete a todo",
+    },
+    # Attachments
+    {
+        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments",
+        "description": "List attachments",
+        "params": "?channel_id=&message_id=&type=image&limit=50",
+    },
+    {
+        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments/{id}",
+        "description": "Get attachment metadata",
+    },
+    {
+        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments/{id}/file",
+        "description": "Download raw attachment file",
+    },
+    # Workspaces
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces",
+        "description": "List workspaces",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces",
+        "description": "Create a workspace",
+        "body": '{"name": "str", "docker_image": "str", "mounts?": [...], "env?": {...}}',
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}",
+        "description": "Get workspace details",
+    },
+    {
+        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}",
+        "description": "Update workspace configuration",
+    },
+    {
+        "scope": "workspaces:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}",
+        "description": "Delete a workspace",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/start",
+        "description": "Start workspace container",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/stop",
+        "description": "Stop workspace container",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/recreate",
+        "description": "Recreate workspace container from scratch",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/status",
+        "description": "Get workspace container status",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/logs",
+        "description": "Get workspace container logs",
+        "params": "?tail=300",
+    },
+    # Workspace files
+    {
+        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files",
+        "description": "Browse workspace file tree",
+        "params": "?path=/",
+    },
+    {
+        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files/content",
+        "description": "Read a file from workspace",
+        "params": "?path=/path/to/file",
+    },
+    {
+        "scope": "workspaces.files:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/files/content",
+        "description": "Write content to a file in workspace",
+        "params": "?path=/path/to/file",
+        "body": '{"content": "str"}',
+    },
+    {
+        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/upload",
+        "description": "Upload a file to workspace",
+    },
+    {
+        "scope": "workspaces.files:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}/files",
+        "description": "Delete a file or directory from workspace",
+        "params": "?path=/path/to/delete",
     },
     # Discovery
     {
@@ -259,42 +525,62 @@ def generate_api_docs(scopes: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
+def _parse_scope(scope: str) -> tuple[str, str]:
+    """Parse scope into (resource, action). Handles 'resource:action' and 'resource.sub:action'."""
+    parts = scope.split(":")
+    if len(parts) >= 2:
+        return parts[0], parts[1]
+    return scope, ""
+
+
 def has_scope(key_scopes: list[str], required: str) -> bool:
     """Check if key_scopes satisfy the required scope.
 
     Rules:
     - 'admin' bypasses all checks
+    - Exact match always works
     - Write implies read (e.g. 'channels:write' grants 'channels:read')
-    - Broader scopes cover narrower ones (e.g. 'channels:write' covers
-      'channels:write:abc123') — future resource-level scoping
+    - Parent resource covers child (e.g. 'channels:write' covers 'channels.messages:write')
+    - Broader scopes cover narrower (e.g. 'channels:write' covers 'channels:write:abc123')
+    - Wildcard: 'channels:*' covers any 'channels:action'
 
-    Scope format: <resource>:<action>[:<resource_id>]
-    This allows future granular permissions without changing the enforcement logic.
-    For example:
-        'channels:read' — read all channels
-        'channels:read:abc123' — read only channel abc123
-        'channels:*' — all channel actions (wildcard, future)
+    Scope format: <resource>[.sub]:action[:<resource_id>]
+    Examples:
+        'channels:read'               — read all channels
+        'channels.messages:write'     — inject messages only
+        'channels:write'              — all channel write ops (covers channels.messages:write)
+        'channels:read:abc123'        — read specific channel (future)
+        'channels:*'                  — all channel actions
     """
     if "admin" in key_scopes:
         return True
     if required in key_scopes:
         return True
-    # Write implies read
-    if required.endswith(":read"):
-        write_scope = required.replace(":read", ":write")
-        if write_scope in key_scopes:
-            return True
-    # Broader scope covers narrower (e.g. key has 'channels:write',
-    # required is 'channels:write:abc123')
+
+    req_resource, req_action = _parse_scope(required)
+
     for s in key_scopes:
+        s_resource, s_action = _parse_scope(s)
+
+        # Write implies read (same resource)
+        if req_action == "read" and s_action == "write" and req_resource == s_resource:
+            return True
+
+        # Parent resource covers child: 'channels:write' covers 'channels.messages:write'
+        if req_resource.startswith(s_resource + "."):
+            if s_action == req_action:
+                return True
+            if s_action == "write" and req_action == "read":
+                return True
+
+        # Broader scope covers narrower: 'channels:write' covers 'channels:write:abc123'
         if required.startswith(s + ":"):
             return True
-    # Wildcard support (future): 'channels:*' covers 'channels:read'
-    req_parts = required.split(":")
-    if len(req_parts) >= 2:
-        wildcard = f"{req_parts[0]}:*"
-        if wildcard in key_scopes:
+
+        # Wildcard: 'channels:*' covers 'channels:read', 'channels.messages:write', etc.
+        if s_action == "*" and (req_resource == s_resource or req_resource.startswith(s_resource + ".")):
             return True
+
     return False
 
 

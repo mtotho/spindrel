@@ -67,6 +67,8 @@ export interface BotConfig {
   attachment_text_max_chars?: number | null;
   attachment_vision_concurrency?: number | null;
   api_permissions?: string[] | null;
+  api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
+  memory_scheme?: string | null;  // "workspace-files"|null
   created_at?: string;
   updated_at?: string;
 }

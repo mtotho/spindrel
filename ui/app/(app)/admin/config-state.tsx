@@ -1,9 +1,9 @@
-import { useState, useCallback } from "react";
-import { View, Text, ActivityIndicator, Pressable } from "react-native";
+import { useState, useCallback, useRef } from "react";
+import { View, Text, ActivityIndicator, Pressable, Platform } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useQuery } from "@tanstack/react-query";
-import { Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Copy, Check, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 
@@ -179,8 +179,8 @@ function BotsSection({ data }: { data: any[] }) {
             <Tag label="tools" value={b.local_tools?.length ?? 0} />
             <Tag label="mcp" value={b.mcp_servers?.length ?? 0} />
             <Tag label="skills" value={b.skills?.length ?? 0} />
-            <Tag label="memory" value={b.memory?.enabled ? "on" : "off"} on={b.memory?.enabled} />
-            <Tag label="knowledge" value={b.knowledge?.enabled ? "on" : "off"} on={b.knowledge?.enabled} />
+            <Tag label="memory" value={b.memory_config?.enabled ? "on" : "off"} on={b.memory_config?.enabled} />
+            <Tag label="knowledge" value={b.knowledge_config?.enabled ? "on" : "off"} on={b.knowledge_config?.enabled} />
             <Tag label="compaction" value={b.context_compaction ? "on" : "off"} on={b.context_compaction} />
             {b.elevation_enabled && <Tag label="elevation" value="on" on />}
           </View>
@@ -216,11 +216,6 @@ function ChannelsSection({ data }: { data: any[] }) {
                 {ch.integration}
               </Text>
             )}
-            {Object.keys(ch.overrides || {}).length > 0 && (
-              <Text style={{ fontSize: 11, color: "#3b82f6", fontFamily: "monospace" }}>
-                {Object.keys(ch.overrides).length} overrides
-              </Text>
-            )}
           </View>
           <DetailJSON data={ch} />
         </View>
@@ -254,6 +249,7 @@ function WorkspacesSection({ data }: { data: any[] }) {
               {ws.bots?.length ?? 0} bots
             </Text>
           </View>
+          <DetailJSON data={ws} />
         </View>
       ))}
     </>
@@ -282,7 +278,7 @@ function SkillsSection({ data }: { data: any[] }) {
 
 function TasksSection({ data }: { data: any[] }) {
   if (data.length === 0) {
-    return <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>No active or recurring tasks</Text>;
+    return <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>No recurring tasks</Text>;
   }
   return (
     <>
@@ -339,10 +335,44 @@ function UsersSection({ data }: { data: any[] }) {
   );
 }
 
+function GenericListSection({ data }: { data: any[] }) {
+  if (data.length === 0) {
+    return <Text style={{ fontSize: 12, color: "#555", fontFamily: "monospace" }}>None</Text>;
+  }
+  return (
+    <>
+      {data.map((item, i) => (
+        <View key={item.id ?? item.bot_id ?? i} style={{ marginBottom: 4 }}>
+          <DetailJSON data={item} />
+        </View>
+      ))}
+    </>
+  );
+}
+
+function downloadJson(data: any, filename: string) {
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function ConfigStatePage() {
   const { data, isLoading, error } = useConfigState();
+  const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePageRefresh();
   const [copied, setCopied] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<{ status: string; summary: Record<string, any> } | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [confirmPayload, setConfirmPayload] = useState<Record<string, any> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopy = useCallback(async () => {
     if (!data) return;
@@ -355,29 +385,219 @@ export default function ConfigStatePage() {
     }
   }, [data]);
 
-  const CopyButton = (
-    <Pressable
-      onPress={handleCopy}
-      disabled={!data}
-      className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
-      style={{ opacity: data ? 1 : 0.4 }}
-    >
-      {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color="#888" />}
-      <Text style={{ fontSize: 12, color: copied ? "#22c55e" : "#888" }}>
-        {copied ? "Copied" : "Copy JSON"}
-      </Text>
-    </Pressable>
+  const handleBackup = useCallback(() => {
+    if (!data) return;
+    const date = new Date().toISOString().slice(0, 10);
+    downloadJson(data, `config-backup-${date}.json`);
+  }, [data]);
+
+  const handleFileSelect = useCallback(() => {
+    if (Platform.OS !== "web") return;
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      setConfirmPayload(payload);
+      setRestoreError(null);
+      setRestoreResult(null);
+    } catch {
+      setRestoreError("Invalid JSON file");
+    }
+    // Reset file input so same file can be selected again
+    e.target.value = "";
+  }, []);
+
+  const handleRestore = useCallback(async () => {
+    if (!confirmPayload) return;
+    setRestoring(true);
+    setRestoreError(null);
+    setRestoreResult(null);
+    try {
+      const result = await apiFetch<{ status: string; summary: Record<string, any> }>(
+        "/api/v1/admin/config-state/restore",
+        { method: "POST", body: JSON.stringify(confirmPayload) }
+      );
+      setRestoreResult(result);
+      setConfirmPayload(null);
+      // Refresh the config state data
+      queryClient.invalidateQueries({ queryKey: ["config-state"] });
+    } catch (err: any) {
+      setRestoreError(err?.message || "Restore failed");
+    } finally {
+      setRestoring(false);
+    }
+  }, [confirmPayload, queryClient]);
+
+  const handleCancelRestore = useCallback(() => {
+    setConfirmPayload(null);
+    setRestoreError(null);
+  }, []);
+
+  const HeaderButtons = (
+    <View className="flex-row items-center gap-1">
+      <Pressable
+        onPress={handleBackup}
+        disabled={!data}
+        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        style={{ opacity: data ? 1 : 0.4 }}
+      >
+        <Download size={14} color="#3b82f6" />
+        <Text style={{ fontSize: 12, color: "#3b82f6" }}>Backup</Text>
+      </Pressable>
+      <Pressable
+        onPress={handleFileSelect}
+        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+      >
+        <Upload size={14} color="#eab308" />
+        <Text style={{ fontSize: 12, color: "#eab308" }}>Restore</Text>
+      </Pressable>
+      <Pressable
+        onPress={handleCopy}
+        disabled={!data}
+        className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+        style={{ opacity: data ? 1 : 0.4 }}
+      >
+        {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color="#888" />}
+        <Text style={{ fontSize: 12, color: copied ? "#22c55e" : "#888" }}>
+          {copied ? "Copied" : "Copy"}
+        </Text>
+      </Pressable>
+    </View>
   );
+
+  // Count sections in confirm payload
+  const confirmSections = confirmPayload
+    ? Object.entries(confirmPayload)
+        .filter(([, v]) => Array.isArray(v) && v.length > 0)
+        .map(([k, v]) => `${k}: ${(v as any[]).length}`)
+    : [];
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0a0a0a" }}>
-      <MobileHeader title="Config State" right={CopyButton} />
+      {/* Hidden file input for restore */}
+      {Platform.OS === "web" && (
+        <input
+          ref={fileInputRef as any}
+          type="file"
+          accept=".json"
+          style={{ display: "none" }}
+          onChange={handleFileChange as any}
+        />
+      )}
+
+      <MobileHeader title="Config State" right={HeaderButtons} />
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, maxWidth: 960 }}
       >
+        {/* Restore confirmation dialog */}
+        {confirmPayload && (
+          <View
+            style={{
+              backgroundColor: "#1a1a2e",
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#eab308",
+            }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#eab308", marginBottom: 8 }}>
+              Confirm Restore
+            </Text>
+            <Text style={{ fontSize: 12, color: "#ccc", marginBottom: 8 }}>
+              This will upsert the following sections:
+            </Text>
+            {confirmSections.map((s) => (
+              <Text key={s} style={{ fontSize: 11, color: "#888", fontFamily: "monospace", paddingLeft: 8 }}>
+                {s}
+              </Text>
+            ))}
+            <View className="flex-row gap-3" style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={handleRestore}
+                disabled={restoring}
+                style={{
+                  backgroundColor: "#eab308",
+                  paddingHorizontal: 16,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  opacity: restoring ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: "#000" }}>
+                  {restoring ? "Restoring..." : "Confirm Restore"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handleCancelRestore}
+                disabled={restoring}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: "#555",
+                }}
+              >
+                <Text style={{ fontSize: 12, color: "#888" }}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Restore result */}
+        {restoreResult && (
+          <View
+            style={{
+              backgroundColor: "#0a2e0a",
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#22c55e",
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: "#22c55e", marginBottom: 8 }}>
+              Restore Complete
+            </Text>
+            {Object.entries(restoreResult.summary).map(([section, counts]) => (
+              <Text key={section} style={{ fontSize: 11, color: "#888", fontFamily: "monospace", paddingLeft: 8 }}>
+                {section}: {(counts as any).updated ?? 0} upserted
+              </Text>
+            ))}
+            <Pressable onPress={() => setRestoreResult(null)} style={{ marginTop: 8 }}>
+              <Text style={{ fontSize: 11, color: "#555" }}>Dismiss</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Restore error */}
+        {restoreError && (
+          <View
+            style={{
+              backgroundColor: "#2e0a0a",
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: "#ef4444",
+            }}
+          >
+            <Text style={{ fontSize: 12, color: "#ef4444" }}>{restoreError}</Text>
+            <Pressable onPress={() => setRestoreError(null)} style={{ marginTop: 4 }}>
+              <Text style={{ fontSize: 11, color: "#555" }}>Dismiss</Text>
+            </Pressable>
+          </View>
+        )}
+
         {isLoading ? (
           <View style={{ padding: 40, alignItems: "center" }}>
             <ActivityIndicator color="#3b82f6" />
@@ -440,6 +660,34 @@ export default function ConfigStatePage() {
 
             <CollapsibleSection title="Users" badge={`${data.users?.length ?? 0}`}>
               <UsersSection data={data.users || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Sandbox Profiles" badge={`${data.sandbox_profiles?.length ?? 0}`}>
+              <GenericListSection data={data.sandbox_profiles || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Sandbox Bot Access" badge={`${data.sandbox_bot_access?.length ?? 0}`}>
+              <GenericListSection data={data.sandbox_bot_access || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Tool Policy Rules" badge={`${data.tool_policy_rules?.length ?? 0}`}>
+              <GenericListSection data={data.tool_policy_rules || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Prompt Templates" badge={`${data.prompt_templates?.length ?? 0}`}>
+              <GenericListSection data={data.prompt_templates || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Bot Personas" badge={`${data.bot_personas?.length ?? 0}`}>
+              <GenericListSection data={data.bot_personas || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Channel Integrations" badge={`${data.channel_integrations?.length ?? 0}`}>
+              <GenericListSection data={data.channel_integrations || []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Channel Heartbeats" badge={`${data.channel_heartbeats?.length ?? 0}`}>
+              <GenericListSection data={data.channel_heartbeats || []} />
             </CollapsibleSection>
           </View>
         ) : null}

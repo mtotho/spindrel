@@ -486,7 +486,7 @@ async def index_directory(
             )
             # Insert new chunks
             for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                db.add(FilesystemChunk(
+                row = FilesystemChunk(
                     bot_id=bot_id,
                     client_id=client_id,
                     root=str(root_path),
@@ -500,7 +500,15 @@ async def index_directory(
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
                     embedding_model=effective_model,
-                ))
+                )
+                db.add(row)
+            await db.flush()
+            # Populate tsvector column via raw SQL for full-text search
+            from sqlalchemy import text as _sa_text
+            await db.execute(_sa_text(
+                "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
+            ).bindparams(fp=rel, rt=str(root_path)))
             await db.commit()
 
         stats["indexed"] += 1

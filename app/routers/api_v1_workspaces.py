@@ -18,7 +18,7 @@ from app.db.models import (
     Channel, ChannelHeartbeat, ChannelIntegration, Message, PromptTemplate,
     Session, SharedWorkspace, SharedWorkspaceBot,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
 @router.get("", response_model=list[WorkspaceOut])
 async def list_workspaces(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     workspaces = (await db.execute(
         select(SharedWorkspace).order_by(SharedWorkspace.name)
@@ -204,7 +204,7 @@ async def list_workspaces(
 async def create_workspace(
     body: WorkspaceCreate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     now = datetime.now(timezone.utc)
     ws = SharedWorkspace(
@@ -235,7 +235,7 @@ async def create_workspace(
 async def get_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -252,7 +252,7 @@ async def update_workspace(
     workspace_id: str,
     body: WorkspaceUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -281,7 +281,7 @@ async def update_workspace(
 async def delete_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -303,7 +303,7 @@ async def delete_workspace(
 async def start_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -324,7 +324,7 @@ async def start_workspace(
 async def stop_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -342,7 +342,7 @@ async def stop_workspace(
 async def recreate_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -363,7 +363,7 @@ async def recreate_workspace(
 async def pull_workspace_image(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -377,7 +377,7 @@ async def pull_workspace_image(
 async def workspace_status(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -392,7 +392,7 @@ async def workspace_logs(
     workspace_id: str,
     tail: int = Query(300, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -409,7 +409,7 @@ async def add_bot_to_workspace(
     workspace_id: str,
     body: WorkspaceBotAdd,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -440,7 +440,7 @@ async def get_workspace_bot(
     workspace_id: str,
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """Get a bot's full config within a workspace context."""
     ws_id = uuid.UUID(workspace_id)
@@ -484,7 +484,7 @@ async def update_workspace_bot(
     bot_id: str,
     body: WorkspaceBotUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Update a bot's workspace membership and/or config fields."""
     ws_id = uuid.UUID(workspace_id)
@@ -528,7 +528,7 @@ async def remove_bot_from_workspace(
     workspace_id: str,
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     result = await db.execute(
@@ -549,7 +549,7 @@ async def remove_bot_from_workspace(
 async def list_workspace_channels(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """List all channels for bots in this workspace, with inline heartbeat/compaction config."""
     ws_id = uuid.UUID(workspace_id)
@@ -676,7 +676,7 @@ async def workspace_files(
     workspace_id: str,
     path: str = Query("/", description="Directory path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:read")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -694,7 +694,7 @@ async def read_workspace_file(
     workspace_id: str,
     path: str = Query(..., description="File path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:read")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -715,7 +715,7 @@ async def write_workspace_file(
     body: FileWriteBody,
     path: str = Query(..., description="File path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -735,7 +735,7 @@ async def mkdir_workspace(
     workspace_id: str,
     path: str = Query(..., description="Directory path to create"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -755,7 +755,7 @@ async def delete_workspace_file(
     workspace_id: str,
     path: str = Query(..., description="File or directory path to delete"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -778,7 +778,7 @@ async def upload_workspace_file(
     file: UploadFile = File(...),
     target_dir: str = Form("/"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -802,7 +802,7 @@ async def upload_workspace_file(
 async def reindex_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -840,7 +840,7 @@ async def reindex_workspace(
 async def reindex_workspace_skills(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Re-discover and re-embed workspace skill .md files."""
     ws_id = uuid.UUID(workspace_id)
@@ -857,7 +857,7 @@ async def reindex_workspace_skills(
 async def list_workspace_skills(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """List discovered workspace skill files with metadata."""
     ws_id = uuid.UUID(workspace_id)
@@ -899,7 +899,7 @@ class BotIndexingUpdate(BaseModel):
 async def get_workspace_indexing(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """Full indexing visibility: global defaults, workspace defaults, and per-bot resolved config."""
     from app.agent.fs_indexer import _SKIP_EXTENSIONS, _SKIP_DIRS
@@ -975,7 +975,7 @@ async def update_bot_indexing(
     bot_id: str,
     body: BotIndexingUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit)."""
     from app.db.models import Bot as BotRow

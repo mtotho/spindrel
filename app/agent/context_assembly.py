@@ -213,6 +213,99 @@ async def assemble_context(
             if _ch_row.fallback_models:
                 result.channel_fallback_models = _ch_row.fallback_models
 
+    # --- memory scheme: tool hiding + tool injection ---
+    _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
+    if bot.memory_scheme == "workspace-files":
+        _MEMORY_SCHEME_HIDDEN_TOOLS = {
+            "save_memory", "search_memories", "purge_memory",
+            "merge_memories", "promote_memories_to_knowledge",
+            "upsert_knowledge", "append_to_knowledge", "edit_knowledge",
+            "delete_knowledge", "get_knowledge", "list_knowledge_bases",
+            "search_knowledge", "pin_knowledge", "unpin_knowledge",
+            "set_knowledge_similarity_threshold",
+        }
+        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file"]
+        _filtered_tools = [t for t in bot.local_tools if t not in _MEMORY_SCHEME_HIDDEN_TOOLS]
+        # Add memory file tools if not already present
+        for _mt in _MEMORY_SCHEME_INJECT_TOOLS:
+            if _mt not in _filtered_tools:
+                _filtered_tools.append(_mt)
+        bot = _dc_replace(
+            bot,
+            local_tools=_filtered_tools,
+            pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _MEMORY_SCHEME_INJECT_TOOLS)),
+        )
+
+    # --- memory scheme: file injection ---
+    if bot.memory_scheme == "workspace-files":
+        import os as _mem_os
+        from datetime import date as _mem_date
+        from app.services.memory_scheme import get_memory_root
+        try:
+            from app.services.workspace import workspace_service as _mem_ws
+            _mem_ws_root = _mem_ws.get_workspace_root(bot.id, bot)
+            _mem_root = get_memory_root(bot, ws_root=_mem_ws_root)
+
+            # 1. MEMORY.md — always inject
+            _mem_md_path = _mem_os.path.join(_mem_root, "MEMORY.md")
+            if _mem_os.path.isfile(_mem_md_path):
+                _mem_md_content = open(_mem_md_path).read()
+                if _mem_md_content.strip():
+                    _inject_chars["memory_bootstrap"] = len(_mem_md_content)
+                    messages.append({
+                        "role": "system",
+                        "content": f"Your persistent memory (MEMORY.md — curated stable facts):\n\n{_mem_md_content}",
+                    })
+                    _memory_scheme_injected_paths.add("memory/MEMORY.md")
+                    yield {"type": "memory_scheme_bootstrap", "chars": len(_mem_md_content)}
+
+            # 2. Today's daily log
+            _today = _mem_date.today().isoformat()
+            _today_path = _mem_os.path.join(_mem_root, "logs", f"{_today}.md")
+            if _mem_os.path.isfile(_today_path):
+                _today_content = open(_today_path).read()
+                if _today_content.strip():
+                    _inject_chars["memory_today_log"] = len(_today_content)
+                    messages.append({
+                        "role": "system",
+                        "content": f"Today's daily log (memory/logs/{_today}.md):\n\n{_today_content}",
+                    })
+                    _memory_scheme_injected_paths.add(f"memory/logs/{_today}.md")
+                    yield {"type": "memory_scheme_today_log", "chars": len(_today_content)}
+
+            # 3. Yesterday's daily log
+            from datetime import timedelta as _mem_td
+            _yesterday = (_mem_date.today() - _mem_td(days=1)).isoformat()
+            _yesterday_path = _mem_os.path.join(_mem_root, "logs", f"{_yesterday}.md")
+            if _mem_os.path.isfile(_yesterday_path):
+                _yesterday_content = open(_yesterday_path).read()
+                if _yesterday_content.strip():
+                    _inject_chars["memory_yesterday_log"] = len(_yesterday_content)
+                    messages.append({
+                        "role": "system",
+                        "content": f"Yesterday's daily log (memory/logs/{_yesterday}.md):\n\n{_yesterday_content}",
+                    })
+                    _memory_scheme_injected_paths.add(f"memory/logs/{_yesterday}.md")
+                    yield {"type": "memory_scheme_yesterday_log", "chars": len(_yesterday_content)}
+
+            # 4. List reference/ files
+            _ref_dir = _mem_os.path.join(_mem_root, "reference")
+            if _mem_os.path.isdir(_ref_dir):
+                _ref_files = sorted(
+                    f for f in _mem_os.listdir(_ref_dir)
+                    if f.endswith(".md") and _mem_os.path.isfile(_mem_os.path.join(_ref_dir, f))
+                )
+                if _ref_files:
+                    _ref_list = "\n".join(f"  - {f}" for f in _ref_files)
+                    messages.append({
+                        "role": "system",
+                        "content": f"Reference documents in memory/reference/ (use get_memory_file to read):\n{_ref_list}",
+                    })
+                    yield {"type": "memory_scheme_reference_index", "count": len(_ref_files)}
+
+        except Exception:
+            logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
+
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(
         message=user_message,
@@ -410,23 +503,65 @@ async def assemble_context(
                 yield evt
 
     # --- dynamic API access docs (for bots with scoped API keys) ---
-    if bot.api_permissions:
+    if bot.api_permissions and bot.api_docs_mode:
         try:
-            from app.services.api_keys import generate_api_docs
-            _api_docs = generate_api_docs(bot.api_permissions)
-            _api_docs_chars = len(_api_docs)
-            _inject_chars["api_docs"] = _api_docs_chars
-            messages.append({
-                "role": "system",
-                "content": (
-                    "You have a scoped API key for the agent server. "
-                    "The following endpoints are available to you.\n"
-                    "Use the `agent` CLI tool (`agent api`, `agent chat`, `agent channels`, etc.) "
-                    "or `agent-api` for raw HTTP calls.\n\n"
-                    + _api_docs
-                ),
-            })
-            yield {"type": "api_docs_context", "scopes": bot.api_permissions, "chars": _api_docs_chars}
+            _mode = bot.api_docs_mode
+            if _mode == "pinned":
+                # Always inject full docs
+                from app.services.api_keys import generate_api_docs
+                _api_docs = generate_api_docs(bot.api_permissions)
+                _api_docs_chars = len(_api_docs)
+                _inject_chars["api_docs"] = _api_docs_chars
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "You have a scoped API key for the agent server. "
+                        "The following endpoints are available to you.\n"
+                        "Use the `agent` CLI tool (`agent api`, `agent chat`, `agent channels`, etc.) "
+                        "or `agent-api` for raw HTTP calls.\n\n"
+                        + _api_docs
+                    ),
+                })
+                yield {"type": "api_docs_context", "mode": "pinned", "scopes": bot.api_permissions, "chars": _api_docs_chars}
+
+            elif _mode == "rag":
+                # Only inject when the user message is related to API usage
+                _api_keywords = {
+                    "api", "endpoint", "agent-api", "agent api", "curl", "http",
+                    "channel", "channels", "session", "task", "discover",
+                    "inject", "message", "server", "request", "post", "get",
+                    "delete", "put", "agent docs", "agent discover",
+                }
+                _user_lower = user_message.lower()
+                if any(kw in _user_lower for kw in _api_keywords):
+                    from app.services.api_keys import generate_api_docs
+                    _api_docs = generate_api_docs(bot.api_permissions)
+                    _api_docs_chars = len(_api_docs)
+                    _inject_chars["api_docs"] = _api_docs_chars
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "You have a scoped API key for the agent server. "
+                            "The following endpoints are available to you.\n"
+                            "Use the `agent` CLI tool or `agent-api` for HTTP calls.\n\n"
+                            + _api_docs
+                        ),
+                    })
+                    yield {"type": "api_docs_context", "mode": "rag", "scopes": bot.api_permissions, "chars": _api_docs_chars}
+
+            elif _mode == "on_demand":
+                # Just inject a short hint — bot uses `agent docs` when needed
+                _hint = (
+                    "You have a scoped API key for the agent server "
+                    f"(scopes: {', '.join(bot.api_permissions)}). "
+                    "Run `agent docs` to see full API documentation for your permissions, "
+                    "or `agent discover` for a quick endpoint list. "
+                    "Use `agent api METHOD /path [body]` for raw API calls."
+                )
+                _inject_chars["api_docs"] = len(_hint)
+                messages.append({"role": "system", "content": _hint})
+                yield {"type": "api_docs_context", "mode": "on_demand", "scopes": bot.api_permissions, "chars": len(_hint)}
+
         except Exception:
             logger.warning("Failed to inject API docs for bot %s", bot.id, exc_info=True)
 
@@ -664,6 +799,12 @@ async def assemble_context(
             segments=_resolved.get("segments"),
             channel_id=str(channel_id) if channel_id else None,
         )
+        # Filter out chunks already injected by memory scheme
+        if _memory_scheme_injected_paths:
+            fs_chunks = [
+                c for c in fs_chunks
+                if not any(p in c for p in _memory_scheme_injected_paths)
+            ]
         if fs_chunks:
             yield {"type": "fs_context", "count": len(fs_chunks)}
             if correlation_id is not None:

@@ -32,9 +32,15 @@ export interface ApiKeyUpdatePayload {
   expires_at?: string | null;
 }
 
+export interface ScopeGroupInfo {
+  description: string;
+  scopes: string[];
+}
+
 export interface ScopeGroupsResponse {
-  groups: Record<string, string[]>;
+  groups: Record<string, ScopeGroupInfo>;
   all_scopes: string[];
+  descriptions: Record<string, string>;
 }
 
 export function useApiKeys() {

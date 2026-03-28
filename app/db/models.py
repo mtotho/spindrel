@@ -530,6 +530,7 @@ class FilesystemChunk(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata_", JSONB, server_default=text("'{}'::jsonb")
     )
+    tsv = mapped_column("tsv", Text, nullable=True)  # TSVECTOR column; populated via raw SQL in indexer
     indexed_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
@@ -702,6 +703,8 @@ class Bot(Base):
         ForeignKey("api_keys.id", ondelete="SET NULL"),
         nullable=True,
     )
+    api_docs_mode: Mapped[str | None] = mapped_column(Text, nullable=True)  # "pinned"|"rag"|"on_demand"|null
+    memory_scheme: Mapped[str | None] = mapped_column(Text, nullable=True)  # "workspace-files"|null
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)

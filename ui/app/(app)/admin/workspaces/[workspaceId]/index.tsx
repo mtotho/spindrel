@@ -1162,7 +1162,7 @@ export default function WorkspaceDetailScreen() {
           {/* Workspace Skills */}
           <Section title="Workspace Skills" description="Auto-discover skill .md files from workspace filesystem and inject into bot context.">
             <FormRow label="Enable workspace skills injection">
-              <Toggle value={skillsEnabled} onValueChange={setSkillsEnabled} />
+              <Toggle value={skillsEnabled} onChange={setSkillsEnabled} />
             </FormRow>
             <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>Directory conventions:</div>
@@ -1204,7 +1204,7 @@ export default function WorkspaceDetailScreen() {
           {/* Workspace Base Prompt */}
           <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
             <FormRow label="Enable workspace base prompt override">
-              <Toggle value={basePromptEnabled} onValueChange={setBasePromptEnabled} />
+              <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
             </FormRow>
             <div style={{ padding: "8px 0", fontSize: 12, color: "#888", lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: "#bbb", marginBottom: 4 }}>File conventions:</div>

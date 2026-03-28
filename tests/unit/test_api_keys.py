@@ -76,6 +76,50 @@ class TestHasScope:
     def test_wildcard_does_not_cross_resources(self):
         assert has_scope(["channels:*"], "tasks:read") is False
 
+    # --- Hierarchical parent.child scopes ---
+
+    def test_parent_covers_child_same_action(self):
+        """'channels:write' covers 'channels.messages:write'."""
+        assert has_scope(["channels:write"], "channels.messages:write") is True
+        assert has_scope(["channels:read"], "channels.messages:read") is True
+        assert has_scope(["channels:read"], "channels.config:read") is True
+        assert has_scope(["workspaces:write"], "workspaces.files:write") is True
+
+    def test_parent_write_covers_child_read(self):
+        """'channels:write' covers 'channels.messages:read' (write implies read + parent covers child)."""
+        assert has_scope(["channels:write"], "channels.messages:read") is True
+        assert has_scope(["channels:write"], "channels.config:read") is True
+
+    def test_parent_read_does_not_cover_child_write(self):
+        """'channels:read' does NOT cover 'channels.messages:write'."""
+        assert has_scope(["channels:read"], "channels.messages:write") is False
+
+    def test_child_does_not_cover_parent(self):
+        """'channels.messages:write' does NOT cover 'channels:write'."""
+        assert has_scope(["channels.messages:write"], "channels:write") is False
+        assert has_scope(["channels.messages:read"], "channels:read") is False
+
+    def test_child_does_not_cover_sibling(self):
+        """'channels.messages:write' does NOT cover 'channels.config:write'."""
+        assert has_scope(["channels.messages:write"], "channels.config:write") is False
+
+    def test_wildcard_covers_child_resources(self):
+        """'channels:*' covers 'channels.messages:read' etc."""
+        assert has_scope(["channels:*"], "channels.messages:read") is True
+        assert has_scope(["channels:*"], "channels.messages:write") is True
+        assert has_scope(["channels:*"], "channels.config:write") is True
+        assert has_scope(["channels:*"], "channels.integrations:read") is True
+
+    def test_granular_scope_exact_match(self):
+        """Granular scopes work by exact match."""
+        assert has_scope(["channels.messages:write"], "channels.messages:write") is True
+        assert has_scope(["channels.config:read"], "channels.config:read") is True
+
+    def test_granular_write_implies_read(self):
+        """Write implies read for granular sub-resources."""
+        assert has_scope(["channels.messages:write"], "channels.messages:read") is True
+        assert has_scope(["workspaces.files:write"], "workspaces.files:read") is True
+
 
 class TestGenerateApiDocs:
     def test_full_access_returns_all(self):
