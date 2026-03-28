@@ -55,10 +55,10 @@ backups/
 rclone.conf
 
 # User content (create your own via UI or drop files here)
-bots/
-!bots/.gitkeep
-skills/
-!skills/.gitkeep
+/bots/
+!/bots/.gitkeep
+/skills/
+!/skills/.gitkeep
 
 # User tools (see tools/README.md)
 tools/*.py
