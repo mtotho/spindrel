@@ -30,9 +30,9 @@ def register_approval_handlers(app) -> None:
 
 async def _decide(approval_id: str, *, approved: bool, decided_by: str, say) -> None:
     """Call the agent server's approval decide endpoint."""
-    from slack_settings import AGENT_SERVER_URL, API_KEY
+    from slack_settings import AGENT_BASE_URL, API_KEY
 
-    url = f"{AGENT_SERVER_URL}/api/v1/approvals/{approval_id}/decide"
+    url = f"{AGENT_BASE_URL}/api/v1/approvals/{approval_id}/decide"
     payload = {"approved": approved, "decided_by": decided_by}
     verdict = "approved" if approved else "denied"
 
