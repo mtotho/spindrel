@@ -162,7 +162,12 @@ def _effective_system_prompt(
 
     parts.append(bot.system_prompt.rstrip())
     if getattr(bot, "memory_scheme", None) == "workspace-files":
-        parts.append(_MEMORY_SCHEME_PROMPT.strip())
+        from app.config import settings as _cfg
+        from app.services.memory_scheme import get_memory_rel_path
+        _mem_rel = get_memory_rel_path(bot)
+        _tmpl = _cfg.MEMORY_SCHEME_PROMPT.strip() if _cfg.MEMORY_SCHEME_PROMPT else ""
+        _prompt = (_tmpl or _MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
+        parts.append(_prompt)
     elif bot.memory.enabled and bot.memory.prompt:
         parts.append(bot.memory.prompt.strip())
     return "\n\n".join(parts)
@@ -171,7 +176,7 @@ def _effective_system_prompt(
 _MEMORY_SCHEME_PROMPT = """\
 ## Memory
 
-Your persistent memory lives in `memory/` relative to your workspace directory.
+Your persistent memory lives in `{memory_rel}/` relative to your workspace directory.
 MEMORY.md and recent daily logs are in your context — do not re-read them.
 
 ### MEMORY.md — Curated Knowledge

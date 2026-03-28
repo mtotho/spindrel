@@ -92,14 +92,14 @@ async def test_policy_test_endpoint(client):
     assert r.json()["action"] == "deny"
     assert r.json()["reason"] == "No rm allowed"
 
-    # Test: ls command should be allowed (no matching rule)
+    # Test: ls command should fall through to default action (deny by default)
     r = await client.post("/api/v1/tool-policies/test", json={
         "bot_id": "test-bot",
         "tool_name": "exec_command",
         "arguments": {"command": "ls -la"},
     }, headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert r.json()["action"] == "allow"
+    assert r.json()["action"] == "deny"  # default is deny when no rule matches
 
 
 @pytest.mark.asyncio

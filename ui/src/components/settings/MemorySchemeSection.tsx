@@ -42,6 +42,12 @@ Use get_memory_file("name") or search_memory("query") to access.
 - Search memory before assuming you don't know something
 - Write important learnings immediately, don't wait for session end`;
 
+const BUILT_IN_FLUSH_PROMPT = `Before this conversation is compacted, save important context to your memory files:
+- Append key decisions and events to today's daily log
+- Promote any new stable facts to MEMORY.md
+- Write anything you'll need to remember in future sessions
+Use exec_command to write to the appropriate files.`;
+
 const ARCHITECTURE_DIAGRAM = `
 ┌─────────────────────────────────────────────────────────────────┐
 │                    WORKSPACE FILES MEMORY MODE                   │
@@ -217,6 +223,7 @@ export function MemorySchemeSection() {
   const disableAll = useDisableAllMemoryScheme();
   const [showHelp, setShowHelp] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [showFlush, setShowFlush] = useState(false);
   const [justEnabled, setJustEnabled] = useState(false);
   const [justDisabled, setJustDisabled] = useState(false);
 
@@ -442,8 +449,55 @@ export function MemorySchemeSection() {
                     fontSize: 10, color: "#555", marginTop: 8, fontStyle: "italic",
                   }}>
                     This prompt is automatically prepended to the system prompt for all bots with
-                    workspace-files memory enabled. Per-bot customization is available in the bot editor.
+                    workspace-files memory enabled. Overridable via the "Memory Scheme System Prompt"
+                    setting above (not recommended).
                   </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Flush prompt override notice */}
+            <View style={{
+              backgroundColor: "#0a0a0a", borderRadius: 8,
+              borderWidth: 1, borderColor: "#1a1a1a",
+              overflow: "hidden",
+            }}>
+              <Pressable
+                onPress={() => setShowFlush(!showFlush)}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 8,
+                  paddingVertical: 10, paddingHorizontal: 14,
+                }}
+              >
+                <ChevronDown
+                  size={14}
+                  color="#888"
+                  style={{ transform: showFlush ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+                />
+                <Text style={{ fontSize: 12, fontWeight: "600", color: "#888" }}>
+                  Memory Flush Prompt
+                </Text>
+                <View style={{
+                  backgroundColor: "rgba(245,158,11,0.1)",
+                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
+                  marginLeft: 4,
+                }}>
+                  <Text style={{ fontSize: 9, fontWeight: "600", color: "#f59e0b" }}>
+                    overridden
+                  </Text>
+                </View>
+              </Pressable>
+              {showFlush && (
+                <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+                  <Text style={{ fontSize: 11, color: "#f59e0b", marginBottom: 8 }}>
+                    The "Memory Flush Default Prompt" setting above is ignored for bots with
+                    workspace-files enabled. This prompt is used instead:
+                  </Text>
+                  <pre style={{
+                    margin: 0, fontSize: 11, lineHeight: 1.7, color: "#888",
+                    fontFamily: "monospace", whiteSpace: "pre-wrap",
+                    background: "#111", borderRadius: 6, padding: 12,
+                  }}>{BUILT_IN_FLUSH_PROMPT}</pre>
                 </View>
               )}
             </View>

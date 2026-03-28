@@ -832,13 +832,13 @@ export default function SettingsScreen() {
             </View>
           ))}
 
-          {/* Chat History extras: memory scheme + section index preview + deviations */}
+          {/* Chat History extras: section index preview + deviations + memory scheme */}
           {activeGroup === "Chat History" && (
             <>
-              <MemorySchemeSection />
               <ChatHistoryExtras
                 verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
               />
+              <MemorySchemeSection />
             </>
           )}
         </RefreshableScrollView>

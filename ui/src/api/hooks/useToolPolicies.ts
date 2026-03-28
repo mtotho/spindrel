@@ -118,3 +118,31 @@ export function useTestToolPolicy() {
       }),
   });
 }
+
+// --- Policy settings (default action, enabled) ---
+
+export interface PolicySettings {
+  default_action: "allow" | "deny";
+  enabled: boolean;
+}
+
+export function usePolicySettings() {
+  return useQuery({
+    queryKey: ["tool-policy-settings"],
+    queryFn: () => apiFetch<PolicySettings>("/api/v1/tool-policies/settings"),
+  });
+}
+
+export function useUpdatePolicySettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<PolicySettings>) =>
+      apiFetch<PolicySettings>("/api/v1/tool-policies/settings", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tool-policy-settings"] });
+    },
+  });
+}

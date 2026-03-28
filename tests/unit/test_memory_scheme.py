@@ -118,6 +118,35 @@ class TestBootstrapMemoryScheme:
             result = get_memory_root(bot, ws_root=tmpdir)
             assert result == os.path.join(tmpdir, "memory")
 
+    def test_orchestrator_gets_per_bot_memory(self):
+        """Orchestrators in shared workspaces get isolated memory dirs."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bot = _bot(
+                id="orch_bot",
+                memory_scheme="workspace-files",
+                shared_workspace_id="ws-123",
+                shared_workspace_role="orchestrator",
+            )
+            from app.services.memory_scheme import bootstrap_memory_scheme, get_memory_rel_path
+            rel = get_memory_rel_path(bot)
+            assert rel == os.path.join("bots", "orch_bot", "memory")
+
+            result = bootstrap_memory_scheme(bot, ws_root=tmpdir)
+            assert result == os.path.join(tmpdir, "bots", "orch_bot", "memory")
+            assert os.path.isdir(os.path.join(tmpdir, "bots", "orch_bot", "memory", "logs"))
+            assert os.path.isfile(os.path.join(tmpdir, "bots", "orch_bot", "memory", "MEMORY.md"))
+
+    def test_non_orchestrator_gets_standard_memory(self):
+        """Non-orchestrator shared workspace bots use standard memory/ path."""
+        bot = _bot(
+            id="worker_bot",
+            memory_scheme="workspace-files",
+            shared_workspace_id="ws-123",
+            shared_workspace_role="worker",
+        )
+        from app.services.memory_scheme import get_memory_rel_path
+        assert get_memory_rel_path(bot) == "memory"
+
 
 # ---------------------------------------------------------------------------
 # Memory file path resolution

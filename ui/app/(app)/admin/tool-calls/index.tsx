@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { AlertTriangle, Clock, Wrench } from "lucide-react";
+import { AlertTriangle, Clock, Wrench, ExternalLink } from "lucide-react";
 import {
   useToolCalls,
   useToolCallStats,
@@ -177,7 +177,13 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
   );
 }
 
-function StatsPanel({ botId }: { botId?: string }) {
+function StatsPanel({
+  botId,
+  onDrillDown,
+}: {
+  botId?: string;
+  onDrillDown: (filters: { toolName?: string; botId?: string; errorOnly: boolean }) => void;
+}) {
   const [groupBy, setGroupBy] = useState<"tool_name" | "bot_id" | "tool_type">(
     "tool_name"
   );
@@ -226,16 +232,55 @@ function StatsPanel({ botId }: { botId?: string }) {
               >
                 {s.key}
               </span>
-              <span style={{ fontSize: 12, color: "#888" }}>
-                {s.count} calls
-              </span>
+              <button
+                onClick={() => {
+                  const filters: { toolName?: string; botId?: string; errorOnly: boolean } = { errorOnly: false };
+                  if (groupBy === "tool_name") filters.toolName = s.key;
+                  else if (groupBy === "bot_id") filters.botId = s.key;
+                  onDrillDown(filters);
+                }}
+                style={{
+                  fontSize: 12,
+                  color: "#93c5fd",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: 0,
+                }}
+                title="View all calls"
+              >
+                {s.count} calls <ExternalLink size={10} />
+              </button>
               <span style={{ fontSize: 12, color: "#666" }}>
                 avg {s.avg_duration_ms}ms
               </span>
               {s.error_count > 0 && (
-                <span style={{ fontSize: 12, color: "#fca5a5" }}>
-                  {s.error_count} errors
-                </span>
+                <button
+                  onClick={() => {
+                    const filters: { toolName?: string; botId?: string; errorOnly: boolean } = { errorOnly: true };
+                    if (groupBy === "tool_name") filters.toolName = s.key;
+                    else if (groupBy === "bot_id") filters.botId = s.key;
+                    onDrillDown(filters);
+                  }}
+                  style={{
+                    fontSize: 12,
+                    color: "#fca5a5",
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.15)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    padding: "2px 8px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                  }}
+                  title="View errors only"
+                >
+                  {s.error_count} errors <ExternalLink size={10} />
+                </button>
               )}
             </div>
           ))}
@@ -266,6 +311,13 @@ export default function ToolCallsScreen() {
   };
   const { data: calls, isLoading } = useToolCalls(filters);
 
+  const handleDrillDown = (drillFilters: { toolName?: string; botId?: string; errorOnly: boolean }) => {
+    if (drillFilters.toolName) setToolName(drillFilters.toolName);
+    if (drillFilters.botId) setBotId(drillFilters.botId);
+    setErrorOnly(drillFilters.errorOnly);
+    setTab("calls");
+  };
+
   return (
     <View className="flex-1 bg-surface">
       <MobileHeader title="Tool Calls" />
@@ -284,7 +336,7 @@ export default function ToolCallsScreen() {
           </div>
 
           {tab === "stats" ? (
-            <StatsPanel botId={botId || undefined} />
+            <StatsPanel botId={botId || undefined} onDrillDown={handleDrillDown} />
           ) : (
             <>
               {/* Filters */}
@@ -322,7 +374,45 @@ export default function ToolCallsScreen() {
                   onChange={setErrorOnly}
                   label="Errors only"
                 />
+                {(toolName || botId || errorOnly) && (
+                  <button
+                    onClick={() => {
+                      setToolName("");
+                      setBotId("");
+                      setErrorOnly(false);
+                    }}
+                    style={{
+                      fontSize: 12,
+                      color: "#888",
+                      background: "#1a1a1a",
+                      border: "1px solid #333",
+                      borderRadius: 5,
+                      padding: "6px 12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
               </div>
+
+              {/* Active filter indicator */}
+              {(toolName || botId || errorOnly) && (
+                <div style={{
+                  fontSize: 11,
+                  color: "#93c5fd",
+                  marginBottom: 12,
+                  padding: "6px 12px",
+                  background: "rgba(59,130,246,0.06)",
+                  borderRadius: 6,
+                  border: "1px solid rgba(59,130,246,0.1)",
+                }}>
+                  Filtered:{" "}
+                  {toolName && <span>tool=<strong>{toolName}</strong> </span>}
+                  {botId && <span>bot=<strong>{botId}</strong> </span>}
+                  {errorOnly && <span><strong>errors only</strong></span>}
+                </div>
+              )}
 
               {/* Results */}
               {isLoading ? (

@@ -103,11 +103,13 @@ async def search_memory(query: str) -> str:
     if not query:
         return "No search query provided."
 
+    from app.services.memory_scheme import get_memory_rel_path
     from app.services.memory_search import hybrid_memory_search
     results = await hybrid_memory_search(
         query=query,
         bot_id=bot_id,
         root=str(Path(ws_root).resolve()),
+        memory_prefix=get_memory_rel_path(bot),
         top_k=10,
     )
 
@@ -159,7 +161,8 @@ async def get_memory_file(name: str) -> str:
     if not name:
         return "No file name provided."
 
-    memory_root = os.path.join(ws_root, "memory")
+    from app.services.memory_scheme import get_memory_root
+    memory_root = get_memory_root(bot, ws_root=ws_root)
     path = _resolve_memory_path(name, memory_root)
 
     if path is None:

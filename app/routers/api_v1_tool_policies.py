@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import ToolPolicyRule
 from app.dependencies import get_db, verify_admin_auth
 from app.services.tool_policies import PolicyDecision, evaluate_tool_policy, invalidate_cache
@@ -58,6 +59,16 @@ class PolicyRuleOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PolicySettingsOut(BaseModel):
+    default_action: str
+    enabled: bool
+
+
+class PolicySettingsUpdate(BaseModel):
+    default_action: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class PolicyTestRequest(BaseModel):
@@ -181,4 +192,34 @@ async def test_policy(
         rule_id=decision.rule_id,
         reason=decision.reason,
         timeout=decision.timeout,
+    )
+
+
+@router.get("/settings", response_model=PolicySettingsOut)
+async def get_policy_settings(
+    _auth=Depends(verify_admin_auth),
+):
+    """Get current tool policy settings (default action, enabled state)."""
+    return PolicySettingsOut(
+        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
+        enabled=settings.TOOL_POLICY_ENABLED,
+    )
+
+
+@router.put("/settings", response_model=PolicySettingsOut)
+async def update_policy_settings(
+    body: PolicySettingsUpdate,
+    _auth=Depends(verify_admin_auth),
+):
+    """Update tool policy settings at runtime (persists until restart)."""
+    if body.default_action is not None:
+        if body.default_action not in ("allow", "deny"):
+            raise HTTPException(status_code=422, detail="default_action must be 'allow' or 'deny'")
+        settings.TOOL_POLICY_DEFAULT_ACTION = body.default_action
+    if body.enabled is not None:
+        settings.TOOL_POLICY_ENABLED = body.enabled
+    invalidate_cache()
+    return PolicySettingsOut(
+        default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
+        enabled=settings.TOOL_POLICY_ENABLED,
     )
