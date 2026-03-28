@@ -62,6 +62,7 @@ async def _index_filesystems_and_start_watchers() -> None:
 
     # Clean up chunks from stale roots (e.g. after workspace root path changes)
     logger.info("Background: cleaning up stale filesystem index roots...")
+    _cleaned_bot_ids: set[str] = set()
     for bot in list_bots():
         if bot.workspace.enabled and bot.workspace.indexing.enabled:
             try:
@@ -69,6 +70,19 @@ async def _index_filesystems_and_start_watchers() -> None:
                 removed = await cleanup_stale_roots(bot.id, valid)
                 if removed:
                     logger.info("Cleaned up %d stale chunks for bot %s", removed, bot.id)
+                _cleaned_bot_ids.add(bot.id)
+            except Exception:
+                logger.exception("Failed to clean up stale roots for bot %s", bot.id)
+    # Also clean up memory-only bots (workspace-files but no general indexing)
+    for bot in list_bots():
+        if bot.id in _cleaned_bot_ids:
+            continue
+        if bot.workspace.enabled and bot.memory_scheme == "workspace-files":
+            try:
+                valid = get_all_roots(bot, workspace_service)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    logger.info("Cleaned up %d stale memory chunks for bot %s", removed, bot.id)
             except Exception:
                 logger.exception("Failed to clean up stale roots for bot %s", bot.id)
 

@@ -105,11 +105,21 @@ async def search_memory(query: str) -> str:
 
     from app.services.memory_scheme import get_memory_rel_path
     from app.services.memory_search import hybrid_memory_search
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+
+    # Use the RESOLVED embedding model (same as FS_CONTEXT / indexer) — not the bare default
+    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+    embedding_model = _resolved["embedding_model"]
+
+    # Search all roots (own + include_bots), not just own root
+    roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+
     results = await hybrid_memory_search(
         query=query,
         bot_id=bot_id,
-        root=str(Path(ws_root).resolve()),
+        roots=roots,
         memory_prefix=get_memory_rel_path(bot),
+        embedding_model=embedding_model,
         top_k=10,
     )
 
@@ -242,15 +252,24 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     # Each bot indexes its own workspace root and stores chunks under its own
     # bot_id. Query the target's chunks directly.
     from app.services.memory_search import hybrid_memory_search
-    from app.services.workspace import workspace_service
     from app.services.memory_scheme import get_memory_rel_path
-    target_ws_root = workspace_service.get_workspace_root(target_bot_id, target_bot)
-    target_mem_prefix = get_memory_rel_path(target_bot)  # "memory"
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+
+    # Use the target bot's resolved embedding model
+    _resolved = resolve_indexing(
+        target_bot.workspace.indexing, target_bot._workspace_raw, target_bot._ws_indexing_config,
+    )
+    embedding_model = _resolved["embedding_model"]
+
+    target_mem_prefix = get_memory_rel_path(target_bot)
+    roots = [str(Path(r).resolve()) for r in get_all_roots(target_bot)]
+
     results = await hybrid_memory_search(
         query=query,
         bot_id=target_bot_id,
-        root=str(Path(target_ws_root).resolve()),
+        roots=roots,
         memory_prefix=target_mem_prefix,
+        embedding_model=embedding_model,
         top_k=10,
     )
 

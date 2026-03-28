@@ -447,7 +447,8 @@ async def update_channel_config(
 
         # Auto-schedule / clear next_run_at
         if heartbeat.enabled and heartbeat.next_run_at is None:
-            heartbeat.next_run_at = now + timedelta(minutes=heartbeat.interval_minutes)
+            from app.services.heartbeat import next_aligned_time
+            heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes)
         elif not heartbeat.enabled:
             heartbeat.next_run_at = None
 

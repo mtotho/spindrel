@@ -1,9 +1,9 @@
 """Tests for heartbeat quiet-hours logic and prompt fallback."""
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 import pytest
 
-from app.services.heartbeat import is_quiet_hours, parse_quiet_hours, get_effective_interval
+from app.services.heartbeat import is_quiet_hours, parse_quiet_hours, get_effective_interval, next_aligned_time
 
 
 class TestParseQuietHours:
@@ -136,6 +136,51 @@ class TestGetEffectiveInterval:
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             result = get_effective_interval(5)
         assert result == 5
+
+
+class TestNextAlignedTime:
+    """next_aligned_time should snap to clock boundaries."""
+
+    def test_30min_mid_slot(self):
+        now = datetime(2026, 3, 28, 14, 47, 12, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 30)
+        assert result == datetime(2026, 3, 28, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_30min_exactly_on_boundary(self):
+        now = datetime(2026, 3, 28, 15, 0, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 30)
+        assert result == datetime(2026, 3, 28, 15, 30, 0, tzinfo=timezone.utc)
+
+    def test_30min_just_after_boundary(self):
+        now = datetime(2026, 3, 28, 15, 0, 1, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 30)
+        assert result == datetime(2026, 3, 28, 15, 30, 0, tzinfo=timezone.utc)
+
+    def test_60min_interval(self):
+        now = datetime(2026, 3, 28, 14, 15, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 60)
+        assert result == datetime(2026, 3, 28, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_15min_interval(self):
+        now = datetime(2026, 3, 28, 14, 47, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 15)
+        assert result == datetime(2026, 3, 28, 15, 0, 0, tzinfo=timezone.utc)
+
+    def test_15min_early_in_slot(self):
+        now = datetime(2026, 3, 28, 14, 31, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 15)
+        assert result == datetime(2026, 3, 28, 14, 45, 0, tzinfo=timezone.utc)
+
+    def test_wraps_past_midnight(self):
+        now = datetime(2026, 3, 28, 23, 45, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 30)
+        assert result == datetime(2026, 3, 29, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zero_interval_returns_safety_fallback(self):
+        now = datetime(2026, 3, 28, 14, 0, 0, tzinfo=timezone.utc)
+        result = next_aligned_time(now, 0)
+        # Should not crash; returns now + 30 min
+        assert result > now
 
 
 class TestHeartbeatDefaultPrompt:

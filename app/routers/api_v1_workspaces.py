@@ -872,6 +872,13 @@ async def workspace_index_status(
             continue  # skip files outside this workspace
         rel_path = os.path.relpath(real_abs, host_root)
 
+        # Determine source: memory if path starts with memory/ or bots/*/memory/
+        parts = rel_path.split("/")
+        if parts[0] == "memory" or (len(parts) >= 3 and parts[0] == "bots" and parts[2] == "memory"):
+            source = "memory"
+        else:
+            source = "patterns"
+
         if rel_path not in indexed:
             indexed[rel_path] = {
                 "chunk_count": 0,
@@ -879,6 +886,7 @@ async def workspace_index_status(
                 "bots": [],
                 "language": row.language,
                 "embedding_model": row.embedding_model,
+                "source": source,
             }
         entry = indexed[rel_path]
         entry["chunk_count"] += row.chunk_count
