@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     # Memory flush (dedicated pre-compaction memory save)
     MEMORY_FLUSH_ENABLED: bool = False
     MEMORY_FLUSH_MODEL: str = ""  # empty = use bot's model
+    PREVIOUS_SUMMARY_INJECT_CHARS: int = 500  # max chars of existing summary injected into heartbeat/memory-flush context
     MEMORY_FLUSH_DEFAULT_PROMPT: str = """\
 [MEMORY FLUSH — PRE-COMPACTION]
 The conversation context is about to be compacted. Older messages will be archived and removed from your active context.
@@ -196,6 +197,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     HEARTBEAT_QUIET_INTERVAL_MINUTES: int = 60  # interval during quiet hours (0 = disabled entirely)
     HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
     HEARTBEAT_DEFAULT_PROMPT: str = ""  # fallback prompt when channel heartbeat has no prompt/template/workspace file
+    HEARTBEAT_PREVIOUS_CONCLUSION_CHARS: int = 500  # max chars of previous heartbeat conclusion injected into next heartbeat
 
     # Attachments
     ATTACHMENT_SUMMARY_ENABLED: bool = True

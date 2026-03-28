@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFileBrowserStore, type PaneId } from "../../stores/fileBrowser";
 import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
-import { Save, X, Edit3, FileText } from "lucide-react";
+import { Save, X, Edit3, FileText, Copy, Check } from "lucide-react";
 
 interface FileViewerProps {
   workspaceId: string;
@@ -22,6 +22,16 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
   const openFile = paneState.openFiles.find((f) => f.path === filePath);
   const isEditing = openFile?.editContent !== null && openFile?.editContent !== undefined;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const text = isEditing ? openFile?.editContent ?? "" : data?.content ?? "";
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
 
   const handleStartEdit = () => {
     if (data?.content != null) {
@@ -130,6 +140,17 @@ export function FileViewer({ workspaceId, filePath, pane }: FileViewerProps) {
             </button>
           </>
         ) : (
+          <button
+            onClick={handleCopy}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              background: "none", color: copied ? "#22c55e" : "#999", border: "1px solid #333",
+              borderRadius: 4, padding: "3px 10px", fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+          </button>
           <button
             onClick={handleStartEdit}
             style={{

@@ -209,6 +209,8 @@ class BotConfig:
     context_pruning_keep_turns: int | None = None
     # History mode: "file" (default) | "summary" | "structured"
     history_mode: str = "file"
+    # Scoped API key permissions (populated from linked ApiKey)
+    api_permissions: list[str] = field(default_factory=list)
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -545,6 +547,25 @@ async def load_bots() -> None:
                 .where(SharedWorkspace.id.in_(ws_ids))
             )).all()
             ws_indexing_map = {str(r.id): r.indexing_config for r in ws_objs}
+    # Batch-fetch API key scopes for bots with api_key_id
+    _api_key_scopes: dict[str, list[str]] = {}  # bot_id -> scopes
+    _bot_key_ids = {row.id: row.api_key_id for row in rows if getattr(row, "api_key_id", None)}
+    if _bot_key_ids:
+        try:
+            from app.db.models import ApiKey
+            _key_ids = list(set(_bot_key_ids.values()))
+            async with async_session() as _ak_db:
+                _ak_rows = (await _ak_db.execute(
+                    select(ApiKey.id, ApiKey.scopes, ApiKey.is_active)
+                    .where(ApiKey.id.in_(_key_ids))
+                )).all()
+            _key_scope_map = {r.id: r.scopes for r in _ak_rows if r.is_active}
+            for bot_id, key_id in _bot_key_ids.items():
+                if key_id in _key_scope_map:
+                    _api_key_scopes[bot_id] = _key_scope_map[key_id] or []
+        except Exception:
+            logger.warning("Failed to load API key scopes for bots", exc_info=True)
+
     sw_by_bot = {r.bot_id: r for r in sw_rows}
     for row in rows:
         # Attach shared workspace info as transient attributes
@@ -561,6 +582,9 @@ async def load_bots() -> None:
         # Cache workspace-level indexing config for three-tier resolution
         if sw and sw.workspace_id:
             bot._ws_indexing_config = ws_indexing_map.get(str(sw.workspace_id))
+        # Populate API permissions from linked key
+        if row.id in _api_key_scopes:
+            bot.api_permissions = _api_key_scopes[row.id]
         _registry[bot.id] = bot
         logger.info("Loaded bot: %s (%s)", bot.id, bot.name)
     logger.info("Loaded %d bot(s) from DB", len(_registry))

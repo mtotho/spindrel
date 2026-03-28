@@ -1,7 +1,7 @@
 """Unit tests for API key generation and scope checking."""
 import pytest
 
-from app.services.api_keys import generate_key, hash_key, has_scope
+from app.services.api_keys import generate_key, hash_key, has_scope, generate_api_docs
 
 
 class TestGenerateKey:
@@ -57,3 +57,46 @@ class TestHasScope:
 
     def test_write_implies_read_only_same_resource(self):
         assert has_scope(["channels:write"], "tasks:read") is False
+
+    def test_broader_scope_covers_narrower(self):
+        """e.g. 'channels:write' covers 'channels:write:abc123' (resource-level)."""
+        assert has_scope(["channels:write"], "channels:write:abc123") is True
+        assert has_scope(["channels:read"], "channels:read:abc123") is True
+
+    def test_narrower_does_not_cover_broader(self):
+        """Resource-level scope doesn't grant access to other resources."""
+        assert has_scope(["channels:read:abc123"], "channels:read") is False
+
+    def test_wildcard_scope(self):
+        """Wildcard scope covers all actions on that resource."""
+        assert has_scope(["channels:*"], "channels:read") is True
+        assert has_scope(["channels:*"], "channels:write") is True
+        assert has_scope(["channels:*"], "channels:write:abc") is True
+
+    def test_wildcard_does_not_cross_resources(self):
+        assert has_scope(["channels:*"], "tasks:read") is False
+
+
+class TestGenerateApiDocs:
+    def test_full_access_returns_all(self):
+        docs = generate_api_docs(None)
+        assert "# Agent Server API Reference" in docs
+        assert "/chat" in docs
+        assert "/api/v1/channels" in docs
+
+    def test_scoped_filters(self):
+        docs = generate_api_docs(["chat"])
+        assert "/chat" in docs
+        # Should not include channels endpoints
+        assert "channels:write" not in docs
+
+    def test_empty_scopes_returns_general_only(self):
+        docs = generate_api_docs([])
+        assert "/api/v1/discover" in docs  # scope=None, always included
+        assert "POST" not in docs or "/chat" not in docs  # chat not included
+
+    def test_admin_returns_all(self):
+        docs = generate_api_docs(["admin"])
+        assert "/chat" in docs
+        assert "/api/v1/channels" in docs
+        assert "/api/v1/tasks" in docs
