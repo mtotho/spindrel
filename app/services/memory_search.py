@@ -31,6 +31,7 @@ async def hybrid_memory_search(
     bot_id: str,
     root: str,
     *,
+    memory_prefix: str = "memory",
     top_k: int = 10,
     vector_candidates: int = 20,
     text_candidates: int = 20,
@@ -38,6 +39,10 @@ async def hybrid_memory_search(
     """Run hybrid vector + full-text search over memory files.
 
     Returns results ranked by Reciprocal Rank Fusion score.
+
+    ``memory_prefix`` is the relative path prefix for memory files within
+    the workspace root (e.g. ``"memory"`` for standalone bots or
+    ``"bots/dev_bot/memory"`` for shared-workspace orchestrators).
     """
     if not query.strip():
         return []
@@ -51,6 +56,9 @@ async def hybrid_memory_search(
     # Convert embedding list to PostgreSQL vector literal
     vec_literal = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
+    # SQL LIKE pattern — e.g. "memory/%" or "bots/dev_bot/memory/%"
+    path_pattern = memory_prefix.rstrip("/") + "/%"
+
     sql = text("""
         WITH vector_hits AS (
             SELECT id, file_path, content,
@@ -58,7 +66,7 @@ async def hybrid_memory_search(
                    ROW_NUMBER() OVER (ORDER BY embedding <=> :vec::vector) AS rn
             FROM filesystem_chunks
             WHERE bot_id = :bot_id AND root = :root
-              AND file_path LIKE 'memory/%%'
+              AND file_path LIKE :path_pattern
               AND embedding IS NOT NULL
             ORDER BY embedding <=> :vec::vector
             LIMIT :v_limit
@@ -71,7 +79,7 @@ async def hybrid_memory_search(
                    ) AS rn
             FROM filesystem_chunks
             WHERE bot_id = :bot_id AND root = :root
-              AND file_path LIKE 'memory/%%'
+              AND file_path LIKE :path_pattern
               AND tsv @@ websearch_to_tsquery('english', :query)
             ORDER BY rank DESC
             LIMIT :t_limit
@@ -96,6 +104,7 @@ async def hybrid_memory_search(
                 "vec": vec_literal,
                 "bot_id": bot_id,
                 "root": root,
+                "path_pattern": path_pattern,
                 "query": query,
                 "v_limit": vector_candidates,
                 "t_limit": text_candidates,

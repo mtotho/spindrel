@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     MEMORY_SIMILARITY_THRESHOLD: float = 0.75
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
 
+    # Tool policies
+    TOOL_POLICY_DEFAULT_ACTION: str = "deny"  # "allow" or "deny" — what happens when no rule matches
+    TOOL_POLICY_ENABLED: bool = True  # master switch for the policy engine
+
     # Host execution
     HOST_EXEC_ENABLED: bool = False
     HOST_EXEC_DEFAULT_TIMEOUT: int = 30
@@ -167,6 +171,10 @@ Review the recent conversation and save anything important:
 - Use update_persona if the user revealed preferences about how they want to interact
 
 Focus on what would be LOST if you couldn't see these messages anymore. Don't save things that are already in your memories or knowledge. Be selective — only save what matters."""
+
+    # Memory scheme system prompt (workspace-files mode).
+    # Use {memory_rel} placeholder for the bot-relative memory path.
+    MEMORY_SCHEME_PROMPT: str = ""
 
     # Context pruning (trim old tool results at assembly time)
     CONTEXT_PRUNING_ENABLED: bool = True

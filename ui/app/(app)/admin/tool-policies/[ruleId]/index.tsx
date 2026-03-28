@@ -25,7 +25,8 @@ const ACTION_OPTIONS = [
 ];
 
 export default function ToolPolicyDetailScreen() {
-  const { ruleId } = useLocalSearchParams<{ ruleId: string }>();
+  const params = useLocalSearchParams<{ ruleId: string; bot_id?: string }>();
+  const ruleId = params.ruleId;
   const isNew = ruleId === "new";
   const goBack = useGoBack("/admin/tool-policies");
 
@@ -39,7 +40,7 @@ export default function ToolPolicyDetailScreen() {
 
   const [toolName, setToolName] = useState("");
   const [action, setAction] = useState("deny");
-  const [botId, setBotId] = useState("");
+  const [botId, setBotId] = useState(isNew && params.bot_id ? params.bot_id : "");
   const [priority, setPriority] = useState("100");
   const [reason, setReason] = useState("");
   const [enabled, setEnabled] = useState(true);

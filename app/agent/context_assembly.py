@@ -240,11 +240,12 @@ async def assemble_context(
     if bot.memory_scheme == "workspace-files":
         import os as _mem_os
         from datetime import date as _mem_date
-        from app.services.memory_scheme import get_memory_root
+        from app.services.memory_scheme import get_memory_root, get_memory_rel_path
         try:
             from app.services.workspace import workspace_service as _mem_ws
             _mem_ws_root = _mem_ws.get_workspace_root(bot.id, bot)
             _mem_root = get_memory_root(bot, ws_root=_mem_ws_root)
+            _mem_rel = get_memory_rel_path(bot)
 
             # 1. MEMORY.md — always inject
             _mem_md_path = _mem_os.path.join(_mem_root, "MEMORY.md")
@@ -256,7 +257,7 @@ async def assemble_context(
                         "role": "system",
                         "content": f"Your persistent memory (MEMORY.md — curated stable facts):\n\n{_mem_md_content}",
                     })
-                    _memory_scheme_injected_paths.add("memory/MEMORY.md")
+                    _memory_scheme_injected_paths.add(f"{_mem_rel}/MEMORY.md")
                     yield {"type": "memory_scheme_bootstrap", "chars": len(_mem_md_content)}
 
             # 2. Today's daily log
@@ -268,9 +269,9 @@ async def assemble_context(
                     _inject_chars["memory_today_log"] = len(_today_content)
                     messages.append({
                         "role": "system",
-                        "content": f"Today's daily log (memory/logs/{_today}.md):\n\n{_today_content}",
+                        "content": f"Today's daily log ({_mem_rel}/logs/{_today}.md):\n\n{_today_content}",
                     })
-                    _memory_scheme_injected_paths.add(f"memory/logs/{_today}.md")
+                    _memory_scheme_injected_paths.add(f"{_mem_rel}/logs/{_today}.md")
                     yield {"type": "memory_scheme_today_log", "chars": len(_today_content)}
 
             # 3. Yesterday's daily log
@@ -283,9 +284,9 @@ async def assemble_context(
                     _inject_chars["memory_yesterday_log"] = len(_yesterday_content)
                     messages.append({
                         "role": "system",
-                        "content": f"Yesterday's daily log (memory/logs/{_yesterday}.md):\n\n{_yesterday_content}",
+                        "content": f"Yesterday's daily log ({_mem_rel}/logs/{_yesterday}.md):\n\n{_yesterday_content}",
                     })
-                    _memory_scheme_injected_paths.add(f"memory/logs/{_yesterday}.md")
+                    _memory_scheme_injected_paths.add(f"{_mem_rel}/logs/{_yesterday}.md")
                     yield {"type": "memory_scheme_yesterday_log", "chars": len(_yesterday_content)}
 
             # 4. List reference/ files
@@ -299,7 +300,7 @@ async def assemble_context(
                     _ref_list = "\n".join(f"  - {f}" for f in _ref_files)
                     messages.append({
                         "role": "system",
-                        "content": f"Reference documents in memory/reference/ (use get_memory_file to read):\n{_ref_list}",
+                        "content": f"Reference documents in {_mem_rel}/reference/ (use get_memory_file to read):\n{_ref_list}",
                     })
                     yield {"type": "memory_scheme_reference_index", "count": len(_ref_files)}
 

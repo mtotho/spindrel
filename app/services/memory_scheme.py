@@ -35,6 +35,18 @@ _Updated: {date}_
 """
 
 
+def get_memory_rel_path(bot: BotConfig) -> str:
+    """Return the relative path to memory/ from the bot's workspace root.
+
+    For shared workspace orchestrators, memory is scoped to a per-bot
+    subdirectory (``bots/{bot_id}/memory``) to avoid collisions when
+    multiple orchestrators share the same workspace root.
+    """
+    if bot.shared_workspace_id and getattr(bot, "shared_workspace_role", None) == "orchestrator":
+        return os.path.join("bots", bot.id, MEMORY_DIR)
+    return MEMORY_DIR
+
+
 def bootstrap_memory_scheme(bot: BotConfig, *, ws_root: str | None = None) -> str:
     """Create memory directory structure for a bot.
 
@@ -48,9 +60,10 @@ def bootstrap_memory_scheme(bot: BotConfig, *, ws_root: str | None = None) -> st
 
     os.makedirs(ws_root, exist_ok=True)
 
-    memory_root = os.path.join(ws_root, MEMORY_DIR)
-    logs_dir = os.path.join(ws_root, LOGS_DIR)
-    reference_dir = os.path.join(ws_root, REFERENCE_DIR)
+    rel = get_memory_rel_path(bot)
+    memory_root = os.path.join(ws_root, rel)
+    logs_dir = os.path.join(memory_root, "logs")
+    reference_dir = os.path.join(memory_root, "reference")
 
     os.makedirs(memory_root, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
@@ -72,4 +85,4 @@ def get_memory_root(bot: BotConfig, *, ws_root: str | None = None) -> str:
     from app.services.workspace import workspace_service
     if ws_root is None:
         ws_root = workspace_service.get_workspace_root(bot.id, bot)
-    return os.path.join(ws_root, MEMORY_DIR)
+    return os.path.join(ws_root, get_memory_rel_path(bot))

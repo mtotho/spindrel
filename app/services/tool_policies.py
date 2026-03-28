@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import ToolPolicyRule
 
 logger = logging.getLogger(__name__)
@@ -148,4 +149,9 @@ async def evaluate_tool_policy(
                 timeout=rule.approval_timeout,
             )
 
-    return PolicyDecision(action="allow")
+    # No rule matched — use configured default
+    default_action = settings.TOOL_POLICY_DEFAULT_ACTION
+    return PolicyDecision(
+        action=default_action,
+        reason=f"No matching policy rule (default: {default_action})",
+    )

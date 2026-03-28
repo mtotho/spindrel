@@ -317,14 +317,17 @@ async def dispatch_tool_call(
 # ---------------------------------------------------------------------------
 
 async def _check_tool_policy(bot_id: str, tool_name: str, arguments: dict) -> Any:
-    """Evaluate tool policy. Returns PolicyDecision or None (allow by default)."""
+    """Evaluate tool policy. Returns PolicyDecision or None (allow = skip overhead)."""
+    from app.config import settings
     from app.db.engine import async_session
     from app.services.tool_policies import evaluate_tool_policy
 
+    if not settings.TOOL_POLICY_ENABLED:
+        return None
+
     async with async_session() as db:
         decision = await evaluate_tool_policy(db, bot_id, tool_name, arguments)
-    if decision.action == "allow" and decision.rule_id is None:
-        # Default allow (no rule matched) — return None to skip overhead
+    if decision.action == "allow":
         return None
     return decision
 
