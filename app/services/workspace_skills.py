@@ -150,10 +150,14 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
                 all_skills.append(bs)
                 existing_paths.add(bs.source_path)
 
-    stats = {"total": len(all_skills), "embedded": 0, "unchanged": 0, "errors": 0}
+    stats = {"total": len(all_skills), "embedded": 0, "unchanged": 0, "errors": 0, "orphans_deleted": 0}
+
+    # Track all current source values to detect orphans later
+    current_sources: set[str] = set()
 
     for skill in all_skills:
         source = f"{SOURCE_PREFIX}:{workspace_id}:{skill.source_path}"
+        current_sources.add(source)
         # Check if already embedded with same hash
         async with async_session() as db:
             existing_hash = (await db.execute(
@@ -215,9 +219,27 @@ async def embed_workspace_skills(workspace_id: str) -> dict:
         stats["embedded"] += 1
         logger.info("Embedded workspace skill %s (%d chunks)", skill.source_path, len(chunk_results))
 
+    # Delete orphaned workspace skill documents (files renamed/moved/deleted from disk)
+    source_prefix = f"{SOURCE_PREFIX}:{workspace_id}:"
+    async with async_session() as db:
+        orphan_sources = (await db.execute(
+            select(Document.source)
+            .where(Document.source.like(f"{source_prefix}%"))
+            .group_by(Document.source)
+        )).scalars().all()
+        orphan_set = {s for s in orphan_sources if s not in current_sources}
+        if orphan_set:
+            await db.execute(
+                delete(Document).where(Document.source.in_(orphan_set))
+            )
+            await db.commit()
+            stats["orphans_deleted"] = len(orphan_set)
+            for orphan in sorted(orphan_set):
+                logger.info("Deleted orphaned workspace skill documents: %s", orphan)
+
     logger.info(
-        "Workspace skill embedding complete for %s: %d total, %d embedded, %d unchanged, %d errors",
-        workspace_id, stats["total"], stats["embedded"], stats["unchanged"], stats["errors"],
+        "Workspace skill embedding complete for %s: %d total, %d embedded, %d unchanged, %d errors, %d orphans deleted",
+        workspace_id, stats["total"], stats["embedded"], stats["unchanged"], stats["errors"], stats["orphans_deleted"],
     )
     return stats
 

@@ -497,7 +497,7 @@ export function KnowledgeSection({ draft, update }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5" }}>Knowledge</div>
 
-      {isWorkspaceFiles && (
+      {isWorkspaceFiles ? (
         <div style={{
           background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.15)",
           borderRadius: 8, padding: "14px 16px",
@@ -508,34 +508,35 @@ export function KnowledgeSection({ draft, update }: {
             </span>
           </div>
           <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
-            Knowledge is handled through <code style={{ color: "#a78bfa" }}>memory/reference/</code> files
-            when workspace-files memory mode is active. DB knowledge tools are hidden and replaced
-            with file-based search and retrieval. You can still enable DB knowledge below if you want both.
+            Knowledge lives in <code style={{ color: "#a78bfa" }}>memory/reference/</code> files.
+            Searchable via <code style={{ color: "#a78bfa" }}>search_memory</code> and readable
+            via <code style={{ color: "#a78bfa" }}>get_memory_file</code>. DB knowledge tools are
+            hidden automatically.
           </div>
         </div>
-      )}
-
-      {!isWorkspaceFiles && (
-        <div style={{
-          background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
-          borderRadius: 6, padding: "10px 14px", marginBottom: 4,
-        }}>
-          <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
-            Stores longer-form documents in the database via pgvector embeddings. The bot can
-            create, update, append to, and search knowledge documents via dedicated tools.
-            Relevant documents are automatically injected into context each turn via semantic
-            similarity.
+      ) : (
+        <>
+          <div style={{
+            background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
+            borderRadius: 6, padding: "10px 14px", marginBottom: 4,
+          }}>
+            <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+              Stores longer-form documents in the database via pgvector embeddings. The bot can
+              create, update, append to, and search knowledge documents via dedicated tools.
+              Relevant documents are automatically injected into context each turn via semantic
+              similarity.
+            </div>
           </div>
-        </div>
-      )}
 
-      <Toggle value={draft.knowledge?.enabled ?? false} onChange={(v) => update({ knowledge: { ...draft.knowledge, enabled: v } })} label="Enable Knowledge" />
-      <div style={{ maxWidth: 300 }}>
-        <FormRow label="Max Inject Chars">
-          <TextInput value={String(draft.knowledge_max_inject_chars ?? "")}
-            onChangeText={(v) => update({ knowledge_max_inject_chars: v ? parseInt(v) : null })} placeholder="8000" type="number" />
-        </FormRow>
-      </div>
+          <Toggle value={draft.knowledge?.enabled ?? false} onChange={(v) => update({ knowledge: { ...draft.knowledge, enabled: v } })} label="Enable Knowledge" />
+          <div style={{ maxWidth: 300 }}>
+            <FormRow label="Max Inject Chars">
+              <TextInput value={String(draft.knowledge_max_inject_chars ?? "")}
+                onChangeText={(v) => update({ knowledge_max_inject_chars: v ? parseInt(v) : null })} placeholder="8000" type="number" />
+            </FormRow>
+          </div>
+        </>
+      )}
     </div>
   );
 }

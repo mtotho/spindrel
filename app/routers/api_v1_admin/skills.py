@@ -249,8 +249,25 @@ async def admin_delete_skill(
 @router.post("/file-sync")
 async def admin_file_sync(
     _auth: str = Depends(verify_auth_or_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a full file sync for skills and knowledge."""
+    """Trigger a full file sync for skills, knowledge, and workspace skills."""
     from app.services.file_sync import sync_all_files
     result = await sync_all_files()
-    return {"ok": True, **result}
+
+    # Also re-embed workspace skills (with orphan cleanup)
+    ws_stats: list[dict] = []
+    from app.db.models import SharedWorkspace as SW
+    ws_rows = (await db.execute(
+        select(SW).where(SW.workspace_skills_enabled == True)  # noqa: E712
+    )).scalars().all()
+    if ws_rows:
+        from app.services.workspace_skills import embed_workspace_skills
+        for ws in ws_rows:
+            try:
+                stats = await embed_workspace_skills(str(ws.id))
+                ws_stats.append({"workspace": ws.name, **stats})
+            except Exception:
+                ws_stats.append({"workspace": ws.name, "error": True})
+
+    return {"ok": True, **result, "workspace_skills": ws_stats}

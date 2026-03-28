@@ -195,13 +195,17 @@ Use get_memory_file("name") or search_memory("query") to access.
 ### Tools
 - search_memory(query) — hybrid semantic+keyword search across all memory files
 - get_memory_file(name) — read a specific memory file
+- Writing: use exec_command (sed, echo, heredoc, etc.) to write/edit memory files
 
-### Rules
-- Use exec_command to write/edit memory files (sed, echo, heredoc, etc.)
-- Write session events and decisions to today's daily log
+### Memory Protocol
+- Before answering about past work or context: search_memory first
+- Before starting any new task: check today's memory log (already in context)
+- When you learn something important: write it to the daily log immediately, don't wait
+- When corrected on a mistake or preference: add it as a rule to MEMORY.md
+- When context is getting large: summarize key points to today's daily log before they're lost
+- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md
 - Promote stable facts to MEMORY.md — keep it curated and under ~100 lines
-- Search memory before assuming you don't know something
-- Write important learnings immediately, don't wait for session end"""
+- Format MEMORY.md sections with _Updated: YYYY-MM-DD_ headers; edit in place"""
 
 
 async def load_or_create(
