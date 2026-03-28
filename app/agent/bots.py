@@ -316,8 +316,11 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
     ws_docker_raw = ws_raw.get("docker", {})
     ws_host_raw = ws_raw.get("host", {})
     ws_indexing_raw = ws_raw.get("indexing", {})
+    # Shared workspace bots always have workspace enabled — the shared workspace
+    # manages the container/root, so the bot-level toggle is irrelevant.
+    _in_shared_ws = bool(getattr(row, "_sw_workspace_id", None))
     workspace_cfg = WorkspaceConfig(
-        enabled=ws_raw.get("enabled", False),
+        enabled=ws_raw.get("enabled", False) or _in_shared_ws,
         type=ws_raw.get("type", "docker"),
         docker=WorkspaceDockerConfig(
             image=ws_docker_raw.get("image", "python:3.12-slim"),

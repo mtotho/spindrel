@@ -84,10 +84,11 @@ class TestGetBotCwd:
         cwd = svc.get_bot_cwd("bot-1", "member", None)
         assert cwd == "/workspace/bots/bot-1"
 
-    def test_orchestrator_gets_workspace_root(self):
+    def test_orchestrator_gets_scoped_cwd(self):
+        """Orchestrators now get the same scoped cwd as members."""
         svc = SharedWorkspaceService()
         cwd = svc.get_bot_cwd("orch-bot", "orchestrator", None)
-        assert cwd == "/workspace"
+        assert cwd == "/workspace/bots/orch-bot"
 
     def test_cwd_override(self):
         svc = SharedWorkspaceService()

@@ -1,9 +1,8 @@
 """Tests verifying memory files get indexed with correct root/file_path
 and that search_memory queries match those stored values.
 
-Critical for shared workspace bots where path resolution differs between
-orchestrators (root = shared_ws_root, prefix = bots/{id}/memory) and
-members (root = shared_ws_root/bots/{id}, prefix = memory).
+All shared workspace bots (orchestrators and members) now have their
+workspace root scoped to bots/{id}/ and use a simple "memory" prefix.
 """
 import os
 import tempfile
@@ -61,7 +60,8 @@ class TestMemoryRelPath:
             shared_workspace_id="ws-abc",
             shared_workspace_role="orchestrator",
         )
-        assert get_memory_rel_path(bot) == os.path.join("bots", "orch_bot", "memory")
+        # Orchestrators now have workspace root scoped to bots/{id}/, so prefix is just "memory"
+        assert get_memory_rel_path(bot) == "memory"
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +107,8 @@ class TestWorkspaceRootResolution:
             return_value="/base/shared/ws-123",
         ):
             root = ws.get_workspace_root("orch", bot)
-        assert root == "/base/shared/ws-123"
+        # Orchestrators now get the same scoped root as members
+        assert root == "/base/shared/ws-123/bots/orch"
 
 
 # ---------------------------------------------------------------------------
@@ -144,13 +145,14 @@ class TestAutoInjectedDoesNotSkipMemory:
         from app.agent.fs_indexer import _is_auto_injected
         assert _is_auto_injected(("persona.md",)) is True
 
-    def test_bots_persona_IS_skipped(self):
+    def test_bots_prefix_not_seen_by_indexer(self):
+        """Since orchestrators now index from their own root, paths never start
+        with bots/. _is_auto_injected does not need to handle bots/* patterns."""
         from app.agent.fs_indexer import _is_auto_injected
-        assert _is_auto_injected(("bots", "orch", "persona.md")) is True
-
-    def test_bots_skills_IS_skipped(self):
-        from app.agent.fs_indexer import _is_auto_injected
-        assert _is_auto_injected(("bots", "orch", "skills", "foo.md")) is True
+        # These paths would never appear in practice (indexer root is bots/{id}/)
+        # but verify the function doesn't match them
+        assert _is_auto_injected(("bots", "orch", "persona.md")) is False
+        assert _is_auto_injected(("bots", "orch", "skills", "foo.md")) is False
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +209,11 @@ class TestMemoryPathConsistency:
             assert sample_file_path.startswith(search_prefix + "/")
 
     def test_shared_orchestrator_bot_paths_match(self):
-        """Orchestrator: root = {shared}, prefix = bots/{id}/memory."""
+        """Orchestrator: root = {shared}/bots/{id}, prefix = memory (same as member)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             shared_root = os.path.join(tmpdir, "shared", "ws-123")
-            os.makedirs(shared_root, exist_ok=True)
+            ws_root = os.path.join(shared_root, "bots", "orch_bot")
+            os.makedirs(ws_root, exist_ok=True)
             bot = _bot(
                 bot_id="orch_bot",
                 shared_workspace_id="ws-123",
@@ -218,17 +221,14 @@ class TestMemoryPathConsistency:
             )
 
             from app.services.memory_scheme import get_memory_rel_path
-            orch_root = str(Path(shared_root).resolve())
             orch_prefix = get_memory_rel_path(bot)
 
-            # Orchestrator indexes from shared root — memory at bots/orch_bot/memory/
-            assert orch_prefix == os.path.join("bots", "orch_bot", "memory")
+            # Orchestrator now indexes from bots/orch_bot/ — prefix is just "memory"
+            assert orch_prefix == "memory"
 
-            # Indexed file_path would be "bots/orch_bot/memory/MEMORY.md"
-            # Search LIKE "bots/orch_bot/memory/%"
+            # Indexed file_path would be "memory/MEMORY.md"
+            # Search LIKE "memory/%"
             sample_file_path = f"{orch_prefix}/MEMORY.md"
-            search_pattern = orch_prefix + "/%"
-            # SQL LIKE match simulation
             assert sample_file_path.startswith(orch_prefix + "/")
 
 
@@ -281,4 +281,5 @@ class TestDiagnosticsMemoryPrefix:
         bot = _bot(bot_id="orch", shared_workspace_id="ws-1", shared_workspace_role="orchestrator")
         prefix = get_memory_rel_path(bot)
         pattern = prefix.rstrip("/") + "/%"
-        assert pattern == "bots/orch/memory/%"
+        # Orchestrators now use the same "memory" prefix as all other bots
+        assert pattern == "memory/%"

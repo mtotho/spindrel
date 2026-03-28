@@ -38,12 +38,9 @@ _Updated: {date}_
 def get_memory_rel_path(bot: BotConfig) -> str:
     """Return the relative path to memory/ from the bot's workspace root.
 
-    For shared workspace orchestrators, memory is scoped to a per-bot
-    subdirectory (``bots/{bot_id}/memory``) to avoid collisions when
-    multiple orchestrators share the same workspace root.
+    Always ``memory/`` — each bot's workspace root is already scoped to
+    ``bots/{bot_id}/`` within the shared workspace.
     """
-    if bot.shared_workspace_id and getattr(bot, "shared_workspace_role", None) == "orchestrator":
-        return os.path.join("bots", bot.id, MEMORY_DIR)
     return MEMORY_DIR
 
 

@@ -35,7 +35,7 @@ _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cac
 # Workspace convention files that are auto-injected via dedicated mechanisms
 # (persona, skills, base prompt).  Indexing them would cause double-injection.
 _AUTO_INJECTED_PATTERNS: list[tuple[str, ...]] = [
-    # persona.md at bot root or bots/*/persona.md for orchestrators
+    # persona.md at bot root
     ("persona.md",),
     # skills/ subtree (pinned, rag, on-demand, top-level) — bot or common
     ("skills",),
@@ -59,11 +59,6 @@ def _is_auto_injected(rel_parts: tuple[str, ...]) -> bool:
         else:
             if rel_parts[:len(pattern)] == pattern:
                 return True
-    # Also match bots/*/skills/... and bots/*/prompts/base.md and bots/*/persona.md
-    # for orchestrator roots that index the full workspace
-    if len(rel_parts) >= 3 and rel_parts[0] == "bots":
-        sub_parts = rel_parts[2:]  # strip bots/<id>/
-        return _is_auto_injected(sub_parts)
     return False
 
 

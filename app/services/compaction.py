@@ -121,13 +121,7 @@ def _get_history_dir(bot: BotConfig, channel: Channel | None = None) -> str | No
     from app.services.workspace import workspace_service
     try:
         root = workspace_service.get_workspace_root(bot.id, bot)
-        # Orchestrators see the full shared workspace root — always nest under
-        # bots/<bot_id>/ so history doesn't pollute the top level and avoids
-        # collisions between multiple orchestrators.
-        if bot.shared_workspace_id and bot.shared_workspace_role == "orchestrator":
-            bot_dir = os.path.join(root, "bots", bot.id)
-        else:
-            bot_dir = root
+        bot_dir = root
 
         if channel:
             ch_slug = _re_mod.sub(r'[^a-z0-9]+', '_', channel.name.lower())[:40].strip('_') or str(channel.id)[:8]

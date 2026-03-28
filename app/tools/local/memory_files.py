@@ -214,8 +214,8 @@ async def get_memory_file(name: str) -> str:
 async def search_bot_memory(bot_id: str, query: str) -> str:
     """Search another bot's memory files (for orchestrators).
 
-    Uses the calling orchestrator's indexed chunks with the target bot's
-    memory path prefix, since orchestrators index the full shared workspace.
+    Queries the target bot's own indexed chunks — each bot indexes its own
+    workspace root (bots/{bot_id}/) and stores chunks under its own bot_id.
     """
     caller_bot, caller_bot_id, caller_ws_root = _get_bot_and_root()
     if not caller_bot or not caller_ws_root:
@@ -239,15 +239,17 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     if target_bot.memory_scheme != "workspace-files":
         return f"Bot {target_bot_id} does not use workspace-files memory scheme."
 
-    # The orchestrator indexed the full workspace under its own bot_id.
-    # Target bot's memory lives at "bots/{target_bot_id}/memory/" relative
-    # to the shared workspace root.
+    # Each bot indexes its own workspace root and stores chunks under its own
+    # bot_id. Query the target's chunks directly.
     from app.services.memory_search import hybrid_memory_search
-    target_mem_prefix = os.path.join("bots", target_bot_id, "memory")
+    from app.services.workspace import workspace_service
+    from app.services.memory_scheme import get_memory_rel_path
+    target_ws_root = workspace_service.get_workspace_root(target_bot_id, target_bot)
+    target_mem_prefix = get_memory_rel_path(target_bot)  # "memory"
     results = await hybrid_memory_search(
         query=query,
-        bot_id=caller_bot_id,
-        root=str(Path(caller_ws_root).resolve()),
+        bot_id=target_bot_id,
+        root=str(Path(target_ws_root).resolve()),
         memory_prefix=target_mem_prefix,
         top_k=10,
     )

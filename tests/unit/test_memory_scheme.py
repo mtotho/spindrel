@@ -119,7 +119,7 @@ class TestBootstrapMemoryScheme:
             assert result == os.path.join(tmpdir, "memory")
 
     def test_orchestrator_gets_per_bot_memory(self):
-        """Orchestrators in shared workspaces get isolated memory dirs."""
+        """Orchestrators use standard memory/ under their ws_root (already scoped to bots/{id}/)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             bot = _bot(
                 id="orch_bot",
@@ -129,12 +129,13 @@ class TestBootstrapMemoryScheme:
             )
             from app.services.memory_scheme import bootstrap_memory_scheme, get_memory_rel_path
             rel = get_memory_rel_path(bot)
-            assert rel == os.path.join("bots", "orch_bot", "memory")
+            # Orchestrators now use the same "memory" prefix — ws_root is already bots/{id}/
+            assert rel == "memory"
 
             result = bootstrap_memory_scheme(bot, ws_root=tmpdir)
-            assert result == os.path.join(tmpdir, "bots", "orch_bot", "memory")
-            assert os.path.isdir(os.path.join(tmpdir, "bots", "orch_bot", "memory", "logs"))
-            assert os.path.isfile(os.path.join(tmpdir, "bots", "orch_bot", "memory", "MEMORY.md"))
+            assert result == os.path.join(tmpdir, "memory")
+            assert os.path.isdir(os.path.join(tmpdir, "memory", "logs"))
+            assert os.path.isfile(os.path.join(tmpdir, "memory", "MEMORY.md"))
 
     def test_non_orchestrator_gets_standard_memory(self):
         """Non-orchestrator shared workspace bots use standard memory/ path."""
