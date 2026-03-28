@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     WIPE_MEMORY_ON_SESSION_DELETE: bool = False
 
     # Tool policies
-    TOOL_POLICY_DEFAULT_ACTION: str = "deny"  # "allow" or "deny" — what happens when no rule matches
+    TOOL_POLICY_DEFAULT_ACTION: str = "deny"  # "allow", "deny", or "require_approval" — what happens when no rule matches
     TOOL_POLICY_ENABLED: bool = True  # master switch for the policy engine
 
     # Host execution
