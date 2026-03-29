@@ -1,6 +1,9 @@
 """Workspace code editor service — on-demand code-server inside workspace containers."""
 import asyncio
 import logging
+import os
+import platform
+import shutil
 
 from sqlalchemy import select, update
 
@@ -12,35 +15,132 @@ from app.services.shared_workspace import shared_workspace_service
 logger = logging.getLogger(__name__)
 
 CODE_SERVER_VERSION = "4.96.4"
+CACHE_DIR = os.path.expanduser("~/.agent-workspaces/.cache/code-server")
+CONTAINER_INSTALL_DIR = "/usr/local/lib/code-server"
+
+_download_lock = asyncio.Lock()
 
 
 async def _docker_exec(container_name: str, cmd: str) -> tuple[int, str]:
-    """Run a command in the container. Returns (exit_code, combined_output)."""
     return await shared_workspace_service._docker_exec(container_name, cmd)
 
 
-async def install_code_server(container_name: str) -> None:
-    """Install code-server via npm inside the container."""
-    logger.info("Installing code-server %s via npm in %s", CODE_SERVER_VERSION, container_name)
-    rc, out = await _docker_exec(
-        container_name,
-        f"npm install -g code-server@{CODE_SERVER_VERSION} 2>&1",
+def _download_url() -> str:
+    arch = platform.machine()
+    if arch in ("x86_64", "AMD64"):
+        arch = "amd64"
+    elif arch in ("aarch64", "arm64"):
+        arch = "arm64"
+    return (
+        f"https://github.com/coder/code-server/releases/download/"
+        f"v{CODE_SERVER_VERSION}/code-server-{CODE_SERVER_VERSION}-linux-{arch}.tar.gz"
     )
+
+
+def _cached_tarball() -> str:
+    return os.path.join(CACHE_DIR, f"code-server-{CODE_SERVER_VERSION}-linux.tar.gz")
+
+
+def _cached_dir() -> str:
+    return os.path.join(CACHE_DIR, f"code-server-{CODE_SERVER_VERSION}")
+
+
+async def _ensure_downloaded() -> str:
+    """Download + extract code-server tarball to host cache. Returns unpacked dir."""
+    async with _download_lock:
+        unpacked = _cached_dir()
+        marker = os.path.join(unpacked, ".patched")
+        if os.path.isfile(marker):
+            return unpacked
+
+        # Clear broken extraction
+        if os.path.isdir(unpacked):
+            shutil.rmtree(unpacked)
+
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tarball = _cached_tarball()
+
+        if not os.path.isfile(tarball):
+            url = _download_url()
+            logger.info("Downloading code-server %s from %s", CODE_SERVER_VERSION, url)
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-fSL", "-o", tarball, url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                if os.path.exists(tarball):
+                    os.remove(tarball)
+                raise RuntimeError(f"Failed to download code-server: {stderr.decode()}")
+
+        logger.info("Extracting code-server tarball to %s", unpacked)
+        os.makedirs(unpacked, exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            "tar", "xzf", tarball, "--strip-components=1", "-C", unpacked,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"tar extract failed: {stderr.decode()}")
+
+        # Patch the wrapper script to use system node instead of bundled lib/node.
+        # The bundled node binary often fails in slim containers (dynamic linker mismatch).
+        wrapper = os.path.join(unpacked, "bin", "code-server")
+        if os.path.isfile(wrapper):
+            with open(wrapper) as f:
+                content = f.read()
+            # Replace the exec line that runs the bundled node
+            patched = content.replace(
+                'exec "$ROOT/lib/node"',
+                'exec node',
+            )
+            with open(wrapper, "w") as f:
+                f.write(patched)
+            os.chmod(wrapper, 0o755)
+            logger.info("Patched code-server wrapper to use system node")
+
+        # Write marker so we know extraction + patching is complete
+        with open(marker, "w") as f:
+            f.write("ok")
+
+        logger.info("code-server %s ready at %s", CODE_SERVER_VERSION, unpacked)
+    return unpacked
+
+
+async def install_code_server(container_name: str) -> None:
+    """Copy cached code-server into a running container via docker cp."""
+    src = await _ensure_downloaded()
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "cp", f"{src}/.", f"{container_name}:{CONTAINER_INSTALL_DIR}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"docker cp failed: {stderr.decode()}")
+
+    # Ensure wrapper is executable
+    await _docker_exec(container_name, f"chmod +x {CONTAINER_INSTALL_DIR}/bin/code-server")
+
+    # Verify it works
+    rc, out = await _docker_exec(container_name, f"{CONTAINER_INSTALL_DIR}/bin/code-server --version")
     if rc != 0:
-        raise RuntimeError(f"npm install code-server failed (rc={rc}): {out[-1000:]}")
-    logger.info("code-server installed successfully in %s", container_name)
+        logger.error("code-server --version failed after install: %s", out)
+        raise RuntimeError(f"code-server verify failed: {out}")
+    logger.info("code-server installed and verified in %s: %s", container_name, out.split('\n')[0])
 
 
 async def is_code_server_installed(container_name: str) -> bool:
-    """Check if code-server is installed in the container."""
-    rc, out = await _docker_exec(container_name, "code-server --version 2>/dev/null")
+    rc, _ = await _docker_exec(container_name, f"test -f {CONTAINER_INSTALL_DIR}/bin/code-server")
     return rc == 0
 
 
 async def start_code_server(container_name: str, workspace_id: str, port: int = 8443) -> None:
-    """Start code-server inside the container (detached)."""
     cmd = (
-        f"code-server "
+        f"{CONTAINER_INSTALL_DIR}/bin/code-server "
         f"--bind-addr 0.0.0.0:{port} "
         f"--auth none "
         f"--disable-telemetry "
@@ -51,19 +151,17 @@ async def start_code_server(container_name: str, workspace_id: str, port: int = 
     wrapped = f"nohup {cmd} > /tmp/code-server.log 2>&1 &"
     rc, out = await _docker_exec(container_name, wrapped)
     if rc != 0:
-        logger.error("Failed to start code-server in %s: rc=%d output=%s", container_name, rc, out)
+        logger.error("Failed to start code-server: rc=%d output=%s", rc, out)
         return
     logger.info("Started code-server in %s on port %d", container_name, port)
 
-    # Give it a moment then check if it's actually alive
     await asyncio.sleep(2)
     if not await is_code_server_running(container_name):
-        rc, log = await _docker_exec(container_name, "cat /tmp/code-server.log")
-        logger.error("code-server died immediately in %s. Log:\n%s", container_name, log[-2000:])
+        _, log = await _docker_exec(container_name, "cat /tmp/code-server.log")
+        logger.error("code-server died in %s. Log:\n%s", container_name, log[-2000:])
 
 
 async def is_code_server_running(container_name: str) -> bool:
-    """Check if code-server process is alive inside the container."""
     proc = await asyncio.create_subprocess_exec(
         "docker", "exec", container_name, "pgrep", "-f", "code-server",
         stdout=asyncio.subprocess.PIPE,
@@ -73,10 +171,8 @@ async def is_code_server_running(container_name: str) -> bool:
     return proc.returncode == 0
 
 
-async def _wait_for_healthy(port: int, timeout: int = 15) -> None:
-    """Poll code-server's HTTP port until it responds or timeout."""
+async def _wait_for_healthy(port: int, timeout: int = 30) -> None:
     import httpx
-
     host = "host.docker.internal" if settings.WORKSPACE_LOCAL_DIR else "127.0.0.1"
     url = f"http://{host}:{port}/healthz"
     deadline = asyncio.get_event_loop().time() + timeout
@@ -90,11 +186,10 @@ async def _wait_for_healthy(port: int, timeout: int = 15) -> None:
         except (httpx.ConnectError, httpx.RemoteProtocolError, OSError):
             pass
         await asyncio.sleep(1)
-    logger.warning("code-server on port %d did not become healthy within %ds", port, timeout)
+    logger.warning("code-server on port %d not healthy within %ds", port, timeout)
 
 
 async def allocate_editor_port() -> int:
-    """Find the first unused port in the configured range."""
     start = settings.EDITOR_PORT_RANGE_START
     end = settings.EDITOR_PORT_RANGE_END
     async with async_session() as db:
@@ -111,7 +206,6 @@ async def allocate_editor_port() -> int:
 
 
 async def _container_actually_running(container_name: str) -> bool:
-    """Check if a Docker container actually exists and is running."""
     proc = await asyncio.create_subprocess_exec(
         "docker", "inspect", "-f", "{{.State.Running}}", container_name,
         stdout=asyncio.subprocess.PIPE,
@@ -122,15 +216,11 @@ async def _container_actually_running(container_name: str) -> bool:
 
 
 async def ensure_editor(ws: SharedWorkspace) -> dict:
-    """Orchestrate: allocate port -> ensure container with port -> install -> start.
-
-    Returns {"editor_url": str, "editor_port": int}.
-    """
+    """Ensure editor is enabled, container has port mapping, code-server is installed and running."""
     logger.info(
         "ensure_editor: ws=%s container=%s status=%s port=%s enabled=%s",
         ws.id, ws.container_name, ws.status, ws.editor_port, ws.editor_enabled,
     )
-    need_recreate = False
 
     # 1. Allocate port if not set
     if not ws.editor_port:
@@ -145,7 +235,6 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             await db.commit()
         ws.editor_port = port
         ws.editor_enabled = True
-        need_recreate = True
     elif not ws.editor_enabled:
         async with async_session() as db:
             await db.execute(
@@ -155,22 +244,18 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             )
             await db.commit()
         ws.editor_enabled = True
-        need_recreate = True
 
     # 2. Ensure container is running with editor port mapped
     container_alive = ws.container_name and await _container_actually_running(ws.container_name)
 
     if container_alive:
-        # Check if port 8443 is actually mapped
         proc = await asyncio.create_subprocess_exec(
             "docker", "port", ws.container_name, "8443",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
-        if proc.returncode == 0 and stdout.strip():
-            logger.info("Port 8443 mapped: %s", stdout.decode().strip())
-        else:
+        if not (proc.returncode == 0 and stdout.strip()):
             logger.info("Recreating %s to add editor port mapping", ws.container_name)
             await shared_workspace_service.recreate(ws)
             async with async_session() as db:
@@ -184,7 +269,7 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
     if not ws.container_name:
         raise RuntimeError("No container after ensure_container")
 
-    # 3. Install code-server if needed
+    # 3. Install code-server if not present (docker cp, no network needed)
     if not await is_code_server_installed(ws.container_name):
         await install_code_server(ws.container_name)
 
@@ -206,7 +291,6 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
 
 
 async def disable_editor(ws: SharedWorkspace) -> None:
-    """Disable the editor (doesn't stop code-server, just marks as disabled)."""
     async with async_session() as db:
         await db.execute(
             update(SharedWorkspace)
@@ -217,7 +301,6 @@ async def disable_editor(ws: SharedWorkspace) -> None:
 
 
 async def editor_status(ws: SharedWorkspace) -> dict:
-    """Get current editor status."""
     running = False
     if ws.container_name and ws.editor_enabled:
         running = await is_code_server_running(ws.container_name)

@@ -64,7 +64,8 @@ export default function ChannelSettingsScreen() {
 
   // Check if the channel's bot is in a workspace
   const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
-  const hasWorkspace = !!currentBot?.shared_workspace_id;
+  const resolvedWorkspaceId = settings?.resolved_workspace_id ?? currentBot?.shared_workspace_id;
+  const hasWorkspace = !!resolvedWorkspaceId;
   const TABS = useMemo(() => {
     if (hasWorkspace) {
       const idx = BASE_TABS.findIndex((t) => t.key === "context");
@@ -219,7 +220,7 @@ export default function ChannelSettingsScreen() {
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "files" && (
-          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id ?? undefined} />
+          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={resolvedWorkspaceId ?? undefined} />
         )}
         {tab === "workspace" && (
           <WorkspaceOverrideTab

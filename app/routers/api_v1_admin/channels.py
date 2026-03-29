@@ -3,6 +3,7 @@ knowledge, enriched."""
 from __future__ import annotations
 
 import json
+import time as _time
 import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Optional
@@ -38,6 +39,39 @@ from ._schemas import MemoryListOut, MemoryOut
 from .turns import TurnToolCall
 
 router = APIRouter()
+
+
+def _resolve_workspace_id(bot_id: str) -> str | None:
+    """Get the shared workspace ID for a bot, if any."""
+    try:
+        bot = get_bot(bot_id)
+        return bot.shared_workspace_id
+    except Exception:
+        return None
+
+
+def _resolve_index_segment_defaults(bot_id: str) -> dict:
+    """Resolve effective default values for index segment fields from bot config."""
+    try:
+        bot = get_bot(bot_id)
+        from app.services.workspace_indexing import resolve_indexing
+        resolved = resolve_indexing(
+            bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config,
+        )
+        return {
+            "embedding_model": resolved["embedding_model"],
+            "patterns": resolved["patterns"],
+            "similarity_threshold": resolved["similarity_threshold"],
+            "top_k": resolved["top_k"],
+        }
+    except Exception:
+        from app.config import settings as _s
+        return {
+            "embedding_model": _s.EMBEDDING_MODEL,
+            "patterns": ["**/*.py", "**/*.md", "**/*.yaml"],
+            "similarity_threshold": _s.FS_INDEX_SIMILARITY_THRESHOLD,
+            "top_k": _s.FS_INDEX_TOP_K,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +350,10 @@ class ChannelSettingsOut(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     index_segments: list[dict] = []
+    # Resolved defaults for index segment fields (computed, not stored)
+    index_segment_defaults: Optional[dict] = None
+    # Resolved workspace ID from bot config (computed, not stored)
+    resolved_workspace_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -479,7 +517,10 @@ async def admin_channel_settings(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ChannelSettingsOut.model_validate(channel)
+    out = ChannelSettingsOut.model_validate(channel)
+    out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
+    out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    return out
 
 
 @router.api_route("/channels/{channel_id}/settings", methods=["PUT", "PATCH"], response_model=ChannelSettingsOut)
@@ -511,10 +552,22 @@ async def admin_channel_settings_update(
         channel.compaction_workspace_id = None
         channel.compaction_prompt_template_id = None
 
+    # Eagerly create channel workspace directory when enabling
+    if updates.get("channel_workspace_enabled"):
+        try:
+            bot = get_bot(channel.bot_id)
+            from app.services.channel_workspace import ensure_channel_workspace
+            ensure_channel_workspace(str(channel_id), bot)
+        except Exception:
+            pass  # non-fatal — will be created on next message
+
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(channel)
-    return ChannelSettingsOut.model_validate(channel)
+    out = ChannelSettingsOut.model_validate(channel)
+    out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
+    out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1628,8 +1681,38 @@ async def admin_channel_context_preview(
 # Enriched (display name resolution)
 # ---------------------------------------------------------------------------
 
+# TTL cache for Slack channel names: {slack_channel_id: (display_name, timestamp)}
+_slack_name_cache: dict[str, tuple[str, float]] = {}
+_SLACK_NAME_CACHE_TTL = 600  # 10 minutes
+
+
+async def _fetch_slack_name(client, token: str, slack_id: str) -> str | None:
+    """Fetch a single Slack channel name, using TTL cache."""
+    cached = _slack_name_cache.get(slack_id)
+    if cached and (_time.monotonic() - cached[1]) < _SLACK_NAME_CACHE_TTL:
+        return cached[0]
+    try:
+        r = await client.get(
+            "https://slack.com/api/conversations.info",
+            params={"channel": slack_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        data = r.json()
+        if data.get("ok"):
+            info = data.get("channel") or {}
+            name = info.get("name_normalized") or info.get("name")
+            if name:
+                _slack_name_cache[slack_id] = (name, _time.monotonic())
+                return name
+    except Exception:
+        pass
+    return None
+
+
 async def _resolve_display_names(channels: list) -> dict[uuid.UUID, str]:
     """Resolve display names for channels from their integrations."""
+    import asyncio
+
     from app.config import settings as app_settings
 
     result: dict[uuid.UUID, str] = {}
@@ -1644,24 +1727,15 @@ async def _resolve_display_names(channels: list) -> dict[uuid.UUID, str]:
         import httpx
         token = app_settings.SLACK_BOT_TOKEN
         async with httpx.AsyncClient(timeout=5.0) as client:
-            for ch in slack_channels:
+            async def _resolve_one(ch):
                 if not ch.client_id:
-                    continue
+                    return
                 slack_id = ch.client_id.removeprefix("slack:")
-                try:
-                    r = await client.get(
-                        "https://slack.com/api/conversations.info",
-                        params={"channel": slack_id},
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    data = r.json()
-                    if data.get("ok"):
-                        info = data.get("channel") or {}
-                        name = info.get("name_normalized") or info.get("name")
-                        if name:
-                            result[ch.id] = f"#{name}"
-                except Exception:
-                    pass
+                name = await _fetch_slack_name(client, token, slack_id)
+                if name:
+                    result[ch.id] = f"#{name}"
+
+            await asyncio.gather(*[_resolve_one(ch) for ch in slack_channels])
 
     return result
 

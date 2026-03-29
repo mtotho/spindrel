@@ -66,27 +66,24 @@ async def _build_completions_json(db) -> str:
 
 
 async def _fetch_slack_channel_names(channel_ids: list[str]) -> dict[str, str]:
-    """Call Slack conversations.info for each channel. Returns {channel_id: name}."""
+    """Call Slack conversations.info for each channel. Returns {channel_id: name}.
+
+    Uses the shared TTL cache from api_v1_admin.channels.
+    """
+    from app.routers.api_v1_admin.channels import _fetch_slack_name
+
     token = settings.SLACK_BOT_TOKEN
     if not token or not channel_ids:
         return {}
+    import asyncio
     names: dict[str, str] = {}
     async with httpx.AsyncClient(timeout=5.0) as client:
-        for cid in channel_ids:
-            try:
-                r = await client.get(
-                    "https://slack.com/api/conversations.info",
-                    params={"channel": cid},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                data = r.json()
-                if data.get("ok"):
-                    ch = data.get("channel") or {}
-                    name = ch.get("name_normalized") or ch.get("name")
-                    if name:
-                        names[cid] = name
-            except Exception as exc:
-                logger.warning("Failed to fetch Slack channel name for %s: %s", cid, exc)
+        async def _resolve(cid: str):
+            name = await _fetch_slack_name(client, token, cid)
+            if name:
+                names[cid] = name
+
+        await asyncio.gather(*[_resolve(cid) for cid in channel_ids])
     return names
 
 
