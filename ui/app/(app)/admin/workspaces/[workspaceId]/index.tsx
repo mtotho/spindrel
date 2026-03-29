@@ -15,7 +15,7 @@ import {
   useAddBotToWorkspace, useUpdateWorkspaceBot, useRemoveBotFromWorkspace,
   useWorkspaceFiles, useReindexWorkspace,
   useWorkspaceFileContent, useWriteWorkspaceFile, useMkdirWorkspace, useDeleteWorkspaceFile,
-  useEnableEditor, useDisableEditor, useEditorStatus, createEditorSession,
+  useEnableEditor, useDisableEditor, useEditorStatus,
 } from "@/src/api/hooks/useWorkspaces";
 import { useBots } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
@@ -372,10 +372,10 @@ function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
       if (!editorEnabled) {
         await enableMut.mutateAsync();
       }
-      await createEditorSession(workspace.id);
-      const { useAuthStore } = await import("@/src/stores/auth");
+      const { useAuthStore, getAuthToken } = await import("@/src/stores/auth");
       const { serverUrl } = useAuthStore.getState();
-      const url = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/`;
+      const token = getAuthToken();
+      const url = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/?tkn=${encodeURIComponent(token || "")}`;
       window.open(url, `editor-${workspace.id}`);
     } catch (err) {
       console.error("Failed to open editor:", err);

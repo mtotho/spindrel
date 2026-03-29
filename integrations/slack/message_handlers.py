@@ -1,6 +1,7 @@
 """Slack message and app_mention → agent /chat."""
 import base64
 import logging
+import time
 
 from agent_client import http, ensure_channel, store_passive_message_http, stream_chat, cancel_session
 from formatting import format_response_for_slack, format_thinking_for_slack, format_tool_status, split_for_slack
@@ -76,6 +77,75 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
 
 _DEFAULT_UPLOAD_USERNAME = "Attachment"
 _DEFAULT_UPLOAD_ICON = ":camera:"
+
+_STREAM_FLUSH_INTERVAL = 0.8  # seconds between Slack chat_update calls
+_STREAM_MAX_CHARS = 3500  # Slack message limit during streaming
+
+
+class SlackStreamBuffer:
+    """Accumulates streaming text_delta/thinking tokens and flushes to Slack periodically."""
+
+    def __init__(self, client, channel: str, ts: str, identity: dict, thinking_display: str):
+        self._client = client
+        self._channel = channel
+        self._ts = ts
+        self._identity = identity
+        self._thinking_display = thinking_display
+        self._content: list[str] = []
+        self._thinking: list[str] = []
+        self._last_flush: float = 0.0
+        self.has_streamed: bool = False
+
+    def add_content(self, delta: str) -> None:
+        self._content.append(delta)
+
+    def add_thinking(self, delta: str) -> None:
+        self._thinking.append(delta)
+
+    async def maybe_flush(self) -> None:
+        now = time.monotonic()
+        if now - self._last_flush >= _STREAM_FLUSH_INTERVAL:
+            await self.flush()
+
+    async def flush(self) -> None:
+        text = self._build_display()
+        if not text:
+            return
+        self.has_streamed = True
+        self._last_flush = time.monotonic()
+        try:
+            await self._client.chat_update(
+                channel=self._channel,
+                ts=self._ts,
+                text=text,
+                **self._identity,
+            )
+        except Exception:
+            logger.debug("SlackStreamBuffer flush failed", exc_info=True)
+
+    def _build_display(self) -> str:
+        parts: list[str] = []
+        thinking_text = "".join(self._thinking)
+        content_text = "".join(self._content)
+
+        # Show thinking if not hidden and there's thinking content
+        if thinking_text and self._thinking_display != "hidden":
+            # Blockquote format for thinking
+            quoted = "\n".join(f"> {line}" for line in thinking_text.splitlines())
+            if not content_text:
+                quoted += " ..."
+            parts.append(quoted)
+
+        if content_text:
+            parts.append(content_text + " ...")
+        elif not parts:
+            # Nothing to show yet
+            return ""
+
+        result = "\n\n".join(parts)
+        if len(result) > _STREAM_MAX_CHARS:
+            result = result[-_STREAM_MAX_CHARS:]
+        return result
 
 
 async def _handle_client_actions(client, channel: str, actions: list, *,
@@ -163,6 +233,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
         client_actions: list = []
         _delegation_posts_seen = False
         _assistant_texts_posted = False
+        stream_buffer: SlackStreamBuffer | None = None
         async for event in stream_chat(
             message=full_message,
             bot_id=bot_id,
@@ -179,7 +250,29 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                 # the task dispatcher.  Nothing was posted, nothing to clean up.
                 return
             await _ensure_thinking()
-            if etype == "tool_start":
+            if etype == "text_delta":
+                if stream_buffer is None:
+                    stream_buffer = SlackStreamBuffer(
+                        client, thinking_channel, thinking_ts, identity, thinking_display,
+                    )
+                stream_buffer.add_content(event.get("delta", ""))
+                await stream_buffer.maybe_flush()
+            elif etype == "thinking":
+                if stream_buffer is None:
+                    stream_buffer = SlackStreamBuffer(
+                        client, thinking_channel, thinking_ts, identity, thinking_display,
+                    )
+                stream_buffer.add_thinking(event.get("delta", ""))
+                await stream_buffer.maybe_flush()
+            elif etype == "thinking_content":
+                # Redundant — streaming thinking events already covered this
+                pass
+            elif etype == "tool_start":
+                # Force flush any streaming content before showing tool status
+                if stream_buffer and stream_buffer.has_streamed:
+                    await stream_buffer.flush()
+                    _assistant_texts_posted = True
+                    stream_buffer = None
                 tool = event.get("tool", "tool")
                 status = format_tool_status(tool, event.get("args"))
                 await client.chat_update(
@@ -189,6 +282,25 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     **identity,
                 )
             elif etype == "assistant_text":
+                # If streaming already showed this content, skip the batch event
+                if stream_buffer and stream_buffer.has_streamed:
+                    _assistant_texts_posted = True
+                    await stream_buffer.flush()
+                    stream_buffer = None
+                    # In append mode, post a fresh placeholder for the next iteration
+                    if thinking_display == "append":
+                        _working_kwargs: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _working_kwargs["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_working_kwargs)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
+                    continue
+
                 _at_text = (event.get("text") or "").strip()
                 if _at_text:
                     if thinking_display == "hidden":
@@ -231,14 +343,14 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                                 **identity,
                             )
                         # Post a fresh thinking placeholder for the next iteration
-                        _working_kwargs: dict = {
+                        _wk: dict = {
                             "channel": thinking_channel,
                             "text": "⏳ _working..._",
                             **identity,
                         }
                         if thread_ts:
-                            _working_kwargs["thread_ts"] = thread_ts
-                        msg = await client.chat_postMessage(**_working_kwargs)
+                            _wk["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_wk)
                         thinking_ts = msg["ts"]
                         thinking_channel = msg["channel"]
             elif etype == "cancelled":
@@ -310,6 +422,12 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     await _handle_client_actions(client, thinking_channel, child_actions,
                                                 thread_ts=thread_ts, identity=child_identity)
             elif etype == "response":
+                # Force flush any remaining streamed content
+                if stream_buffer and stream_buffer.has_streamed:
+                    await stream_buffer.flush()
+                    _assistant_texts_posted = True
+                    stream_buffer = None
+
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []
 

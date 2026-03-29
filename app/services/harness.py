@@ -117,17 +117,6 @@ class HarnessService:
         cfg = self._configs[harness_name]
         timeout = cfg.timeout
 
-        # Translate shared-workspace paths for the harness container.
-        # In a shared workspace, the bot sees its files at /workspace/bots/{bot_id}/…
-        # but the harness mounts only that subdirectory at /workspace, so we strip
-        # the bot-specific prefix.
-        if bot.shared_workspace_id and working_directory:
-            prefix = f"/workspace/bots/{bot.id}"
-            if working_directory.startswith(prefix + "/"):
-                working_directory = "/workspace" + working_directory[len(prefix):]
-            elif working_directory == prefix:
-                working_directory = "/workspace"
-
         if sandbox_instance_id is not None:
             return await self._run_in_sandbox(
                 harness_name=harness_name,
@@ -171,12 +160,22 @@ class HarnessService:
 
     @staticmethod
     def _workspace_to_sandbox_config(bot: "BotConfig") -> "BotSandboxConfig":
-        """Build a BotSandboxConfig from workspace.docker config."""
+        """Build a BotSandboxConfig from workspace.docker config.
+
+        For shared workspace bots, mount the entire shared workspace root at /workspace
+        so paths match the shared container (repos, common/, etc. are all accessible).
+        For standalone bots, mount just the bot's workspace directory.
+        """
         from app.agent.bots import BotSandboxConfig
         from app.services.workspace import workspace_service
 
         docker = bot.workspace.docker
-        host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
+
+        if bot.shared_workspace_id:
+            from app.services.shared_workspace import shared_workspace_service
+            host_root = shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
+        else:
+            host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
 
         workspace_mount = {
             "host_path": local_to_host(host_root),

@@ -11,9 +11,8 @@ import {
   useStartWorkspace,
   useStopWorkspace,
   useEnableEditor,
-  createEditorSession,
 } from "../../api/hooks/useWorkspaces";
-import { useAuthStore } from "../../stores/auth";
+import { useAuthStore, getAuthToken } from "../../stores/auth";
 import type { SharedWorkspace } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -50,10 +49,10 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       if (!workspace.editor_enabled) {
         await enableEditorMutation.mutateAsync();
       }
-      // Set session cookie, then open in new tab
-      await createEditorSession(workspace.id);
+      // Open editor with token as query param — proxy sets cookie and redirects
       const { serverUrl } = useAuthStore.getState();
-      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/`;
+      const token = getAuthToken();
+      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/?tkn=${encodeURIComponent(token || "")}`;
       window.open(editorUrl, `editor-${workspace.id}`);
     } catch (err) {
       console.error("Failed to open editor:", err);
@@ -210,12 +209,29 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
         />
       )}
 
-      <ToolbarButton
-        icon={<Code size={14} />}
-        title={workspace.editor_enabled ? "Open Editor" : "Enable & Open Editor"}
+      <button
         onClick={handleOpenEditor}
         disabled={!isRunning || editorOpening || enableEditorMutation.isPending}
-      />
+        title={workspace.editor_enabled ? "Open VS Code in new tab" : "Enable editor & open in new tab"}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "4px 10px",
+          borderRadius: 5,
+          border: `1px solid ${t.accent}40`,
+          background: `${t.accent}12`,
+          color: (!isRunning || editorOpening) ? t.textDim : t.accent,
+          cursor: (!isRunning || editorOpening) ? "not-allowed" : "pointer",
+          fontSize: 12,
+          fontWeight: 600,
+          flexShrink: 0,
+          opacity: (!isRunning || editorOpening) ? 0.5 : 1,
+        }}
+      >
+        <Code size={13} />
+        {editorOpening || enableEditorMutation.isPending ? "Opening..." : "Editor"}
+      </button>
 
       <ToolbarButton
         icon={<Settings size={14} />}

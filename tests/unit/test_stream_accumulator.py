@@ -1,9 +1,9 @@
-"""Tests for StreamAccumulator and AccumulatedMessage."""
+"""Tests for StreamAccumulator, AccumulatedMessage, and ThinkTagParser."""
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.agent.llm import AccumulatedMessage, StreamAccumulator
+from app.agent.llm import AccumulatedMessage, StreamAccumulator, ThinkTagParser, strip_think_tags
 
 
 def _make_chunk(
@@ -206,3 +206,161 @@ class TestAccumulatedMessage:
         d = msg.to_msg_dict()
         assert "thinking_content" not in d
         assert d["content"] == "Answer"
+
+
+class TestThinkTagParser:
+    def test_no_think_tags(self):
+        p = ThinkTagParser()
+        content, thinking = p.feed("Hello world")
+        assert content == "Hello world"
+        assert thinking == ""
+        fc, ft = p.flush()
+        assert fc == ""
+        assert ft == ""
+
+    def test_complete_think_block(self):
+        p = ThinkTagParser()
+        content, thinking = p.feed("<think>reasoning</think>answer")
+        assert content == "answer"
+        assert thinking == "reasoning"
+
+    def test_tag_split_across_chunks(self):
+        """<think> tag split: '<th' + 'ink>reason</think>answer'"""
+        p = ThinkTagParser()
+        c1, t1 = p.feed("<th")
+        assert c1 == ""
+        assert t1 == ""
+        c2, t2 = p.feed("ink>reason</think>answer")
+        assert t2 == "reason"
+        assert c2 == "answer"
+
+    def test_close_tag_split(self):
+        """Close tag split: '<think>reason</thi' + 'nk>answer'"""
+        p = ThinkTagParser()
+        c1, t1 = p.feed("<think>reason</thi")
+        assert c1 == ""
+        assert t1 == "reason"
+        c2, t2 = p.feed("nk>answer")
+        assert t2 == ""
+        assert c2 == "answer"
+
+    def test_multiple_think_blocks(self):
+        p = ThinkTagParser()
+        c, t = p.feed("<think>a</think>b<think>c</think>d")
+        assert c == "bd"
+        assert t == "ac"
+
+    def test_unclosed_think_with_flush(self):
+        p = ThinkTagParser()
+        c, t = p.feed("<think>still thinking")
+        assert c == ""
+        assert t == "still thinking"
+        fc, ft = p.flush()
+        assert fc == ""
+        assert ft == ""
+
+    def test_empty_think_block(self):
+        p = ThinkTagParser()
+        c, t = p.feed("<think></think>content")
+        assert c == "content"
+        assert t == ""
+
+    def test_angle_brackets_not_think(self):
+        """<b>bold</b> should not be confused with <think>."""
+        p = ThinkTagParser()
+        c, t = p.feed("<b>bold</b>")
+        assert t == ""
+        fc, _ = p.flush()
+        assert c + fc == "<b>bold</b>"
+
+    def test_partial_tag_false_alarm(self):
+        """'<thinking' should not match '<think>' — it goes past the tag."""
+        p = ThinkTagParser()
+        c, t = p.feed("<thinking is not a tag")
+        assert t == ""
+        fc, _ = p.flush()
+        # The text after '<think' is consumed as thinking because '<think' matches
+        # the open tag prefix, but 'ing is not a tag' starts with 'i' not '>'.
+        # Actually, let's check the real behavior: '<thinking' starts with '<think'
+        # but the parser looks for the exact '<think>' string.
+        # '<thinking is not a tag' — the parser finds '<think' at index 0, but
+        # the full tag is '<think>' (7 chars), and text[0:7] = '<thinki' != '<think>'
+        # So it won't match. Let's verify.
+        full = c + fc
+        assert "<thinking is not a tag" == full
+
+    def test_incremental_single_chars(self):
+        """Feed one character at a time."""
+        p = ThinkTagParser()
+        text = "<think>hi</think>bye"
+        all_content = []
+        all_thinking = []
+        for ch in text:
+            c, t = p.feed(ch)
+            all_content.append(c)
+            all_thinking.append(t)
+        fc, ft = p.flush()
+        all_content.append(fc)
+        all_thinking.append(ft)
+        assert "".join(all_content) == "bye"
+        assert "".join(all_thinking) == "hi"
+
+
+class TestStripThinkTags:
+    def test_basic(self):
+        assert strip_think_tags("<think>reasoning</think>answer") == "answer"
+
+    def test_multiple(self):
+        assert strip_think_tags("<think>a</think>b<think>c</think>d") == "bd"
+
+    def test_no_tags(self):
+        assert strip_think_tags("just text") == "just text"
+
+    def test_multiline(self):
+        assert strip_think_tags("<think>line1\nline2</think>answer") == "answer"
+
+
+class TestStreamAccumulatorThinkTags:
+    def test_think_tags_in_content(self):
+        """Content with <think> tags should emit thinking events, not text_delta."""
+        acc = StreamAccumulator()
+        events, _ = acc.feed(_make_chunk(content="<think>reasoning</think>answer"))
+        types = [e["type"] for e in events]
+        assert "thinking" in types
+        assert "text_delta" in types
+        # The thinking event has the reasoning
+        thinking_events = [e for e in events if e["type"] == "thinking"]
+        assert thinking_events[0]["delta"] == "reasoning"
+        # The text event has the answer
+        text_events = [e for e in events if e["type"] == "text_delta"]
+        assert text_events[0]["delta"] == "answer"
+
+    def test_think_tags_split_across_chunks(self):
+        acc = StreamAccumulator()
+        e1, _ = acc.feed(_make_chunk(content="<th"))
+        e2, _ = acc.feed(_make_chunk(content="ink>reason</think>answer"))
+        _, done = acc.feed(_make_chunk(finish_reason="stop"))
+        msg = acc.build()
+        assert msg.content == "answer"
+        assert msg.thinking_content == "reason"
+
+    def test_build_strips_think_content(self):
+        """accumulated_msg.content should have no <think> tags."""
+        acc = StreamAccumulator()
+        acc.feed(_make_chunk(content="<think>thought</think>clean text"))
+        acc.feed(_make_chunk(finish_reason="stop"))
+        msg = acc.build()
+        assert "<think>" not in (msg.content or "")
+        assert msg.content == "clean text"
+        assert msg.thinking_content == "thought"
+
+    def test_think_tags_with_reasoning_content_attr(self):
+        """Both reasoning_content attr and <think> tags should accumulate thinking."""
+        acc = StreamAccumulator()
+        acc.feed(_make_chunk(reasoning_content="from attr"))
+        acc.feed(_make_chunk(content="<think>from tag</think>answer"))
+        acc.feed(_make_chunk(finish_reason="stop"))
+        msg = acc.build()
+        assert msg.content == "answer"
+        assert "from attr" in msg.thinking_content
+        assert "from tag" in msg.thinking_content
