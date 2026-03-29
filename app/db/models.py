@@ -97,6 +97,10 @@ class Channel(Base):
         nullable=True,
     )
     channel_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_prompt_workspace_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_prompt_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shared_workspaces.id", ondelete="SET NULL"), nullable=True,
+    )
     section_index_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -722,6 +726,8 @@ class Bot(Base):
     )
     api_docs_mode: Mapped[str | None] = mapped_column(Text, nullable=True)  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Mapped[str | None] = mapped_column(Text, nullable=True)  # "workspace-files"|null
+    system_prompt_workspace_file: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
+    system_prompt_write_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)

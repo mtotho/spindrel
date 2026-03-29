@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -66,25 +66,30 @@ async def _build_completions_json(db) -> str:
 
 
 async def _fetch_slack_channel_names(channel_ids: list[str]) -> dict[str, str]:
-    """Call Slack conversations.info for each channel. Returns {channel_id: name}.
+    """Resolve Slack channel names via integration hooks.
 
-    Uses the shared TTL cache from api_v1_admin.channels.
+    Returns {slack_channel_id: name}.
     """
-    from app.routers.api_v1_admin.channels import _fetch_slack_name
-
-    token = settings.SLACK_BOT_TOKEN
-    if not token or not channel_ids:
+    if not channel_ids:
         return {}
-    import asyncio
-    names: dict[str, str] = {}
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        async def _resolve(cid: str):
-            name = await _fetch_slack_name(client, token, cid)
-            if name:
-                names[cid] = name
 
-        await asyncio.gather(*[_resolve(cid) for cid in channel_ids])
-    return names
+    from app.agent.hooks import get_integration_meta
+
+    meta = get_integration_meta("slack")
+    if not meta or not meta.resolve_display_names:
+        return {}
+
+    # Build lightweight channel-like objects so the hook can extract client_id
+    class _FakeChannel:
+        def __init__(self, slack_id: str):
+            self.id = slack_id  # used as key in the result
+            self.integration = "slack"
+            self.client_id = f"slack:{slack_id}"
+
+    fake_channels = [_FakeChannel(sid) for sid in channel_ids]
+    names_by_id = await meta.resolve_display_names(fake_channels)
+    # The hook returns {fake.id: "#name"}, convert to {slack_id: name_without_hash}
+    return {sid: names_by_id[sid].lstrip("#") for sid in channel_ids if sid in names_by_id}
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +117,7 @@ async def admin_channels(request: Request):
         "channels": channels,
         "all_bots": all_bots,
         "slack_names": slack_names,
-        "has_token": bool(settings.SLACK_BOT_TOKEN),
+        "has_token": bool(os.environ.get("SLACK_BOT_TOKEN")),
     })
 
 
@@ -1049,4 +1054,4 @@ async def api_slack_config(request: Request):
         for row in bot_rows
     }
 
-    return JSONResponse({"default_bot": settings.SLACK_DEFAULT_BOT, "channels": channels, "bots": bots})
+    return JSONResponse({"default_bot": os.environ.get("SLACK_DEFAULT_BOT", "default"), "channels": channels, "bots": bots})

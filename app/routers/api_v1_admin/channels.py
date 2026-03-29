@@ -3,6 +3,7 @@ knowledge, enriched."""
 from __future__ import annotations
 
 import json
+import logging
 import time as _time
 import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
@@ -37,6 +38,8 @@ from app.services.channels import apply_channel_visibility
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
 from ._schemas import MemoryListOut, MemoryOut
 from .turns import TurnToolCall
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -309,6 +312,9 @@ class ChannelSettingsOut(BaseModel):
     thinking_display: str = "append"
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
+    channel_prompt: Optional[str] = None
+    channel_prompt_workspace_file_path: Optional[str] = None
+    channel_prompt_workspace_id: Optional[uuid.UUID] = None
     context_compaction: bool = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
@@ -371,6 +377,9 @@ class ChannelSettingsUpdate(BaseModel):
     thinking_display: Optional[str] = None
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
+    channel_prompt: Optional[str] = None
+    channel_prompt_workspace_file_path: Optional[str] = None
+    channel_prompt_workspace_id: Optional[uuid.UUID] = None
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
@@ -1043,16 +1052,20 @@ GUIDELINES:
 
     model = app_settings.PROMPT_GENERATION_MODEL or app_settings.COMPACTION_MODEL
     client = get_llm_client(None)
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": meta_prompt},
-            {"role": "user", "content": "Generate the heartbeat prompt now."},
-        ],
-        temperature=0.7,
-        max_tokens=2000,
-    )
-    prompt_text = (resp.choices[0].message.content or "").strip()
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": meta_prompt},
+                {"role": "user", "content": "Generate the heartbeat prompt now."},
+            ],
+            temperature=0.7,
+            max_tokens=2000,
+        )
+        prompt_text = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:
+        logger.error("Heartbeat infer LLM call failed (model=%s): %s", model, exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}")
 
     # Write to channel workspace data/heartbeat.md if workspace is available
     ws_file_path = None
@@ -1681,63 +1694,10 @@ async def admin_channel_context_preview(
 # Enriched (display name resolution)
 # ---------------------------------------------------------------------------
 
-# TTL cache for Slack channel names: {slack_channel_id: (display_name, timestamp)}
-_slack_name_cache: dict[str, tuple[str, float]] = {}
-_SLACK_NAME_CACHE_TTL = 600  # 10 minutes
-
-
-async def _fetch_slack_name(client, token: str, slack_id: str) -> str | None:
-    """Fetch a single Slack channel name, using TTL cache."""
-    cached = _slack_name_cache.get(slack_id)
-    if cached and (_time.monotonic() - cached[1]) < _SLACK_NAME_CACHE_TTL:
-        return cached[0]
-    try:
-        r = await client.get(
-            "https://slack.com/api/conversations.info",
-            params={"channel": slack_id},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        data = r.json()
-        if data.get("ok"):
-            info = data.get("channel") or {}
-            name = info.get("name_normalized") or info.get("name")
-            if name:
-                _slack_name_cache[slack_id] = (name, _time.monotonic())
-                return name
-    except Exception:
-        pass
-    return None
-
-
 async def _resolve_display_names(channels: list) -> dict[uuid.UUID, str]:
-    """Resolve display names for channels from their integrations."""
-    import asyncio
-
-    from app.config import settings as app_settings
-
-    result: dict[uuid.UUID, str] = {}
-
-    by_integration: dict[str, list] = {}
-    for ch in channels:
-        if ch.integration:
-            by_integration.setdefault(ch.integration, []).append(ch)
-
-    slack_channels = by_integration.get("slack", [])
-    if slack_channels and app_settings.SLACK_BOT_TOKEN:
-        import httpx
-        token = app_settings.SLACK_BOT_TOKEN
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            async def _resolve_one(ch):
-                if not ch.client_id:
-                    return
-                slack_id = ch.client_id.removeprefix("slack:")
-                name = await _fetch_slack_name(client, token, slack_id)
-                if name:
-                    result[ch.id] = f"#{name}"
-
-            await asyncio.gather(*[_resolve_one(ch) for ch in slack_channels])
-
-    return result
+    """Resolve display names for channels via integration hooks."""
+    from app.agent.hooks import resolve_all_display_names
+    return await resolve_all_display_names(channels)
 
 
 @router.get("/channels-enriched", response_model=ChannelListOut)

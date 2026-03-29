@@ -215,6 +215,9 @@ class BotConfig:
     api_docs_mode: str | None = None
     # Memory scheme: "workspace-files" = file-based memory (replaces DB memory/knowledge)
     memory_scheme: str | None = None
+    # System prompt from workspace file
+    system_prompt_workspace_file: bool = False
+    system_prompt_write_protected: bool = False
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -429,6 +432,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         history_mode=row.history_mode or "file",
         api_docs_mode=getattr(row, "api_docs_mode", None),
         memory_scheme=getattr(row, "memory_scheme", None),
+        system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
+        system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         shared_workspace_cwd=_sw_cwd,
         _workspace_raw=ws_raw,
     )

@@ -145,6 +145,14 @@ async def assemble_context(
 
     Mutates `messages` in-place. Populates `result` with side-channel outputs.
     """
+    # Fire before_context_assembly lifecycle hook
+    from app.agent.hooks import fire_hook, HookContext
+    await fire_hook("before_context_assembly", HookContext(
+        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={"user_message": user_message},
+    ))
+
     _inject_chars: dict[str, int] = {}
 
     # --- datetime ---
@@ -224,8 +232,7 @@ async def assemble_context(
             from app.db.models import SharedWorkspace as _WsSW
             from app.agent.bots import _parse_skill_entry
             async with _ws_session() as _ws_db:
-                import uuid as _uuid_mod
-                _ws_row = await _ws_db.get(_WsSW, _uuid_mod.UUID(bot.shared_workspace_id))
+                _ws_row = await _ws_db.get(_WsSW, uuid.UUID(bot.shared_workspace_id))
             if _ws_row and _ws_row.skills:
                 _bot_skill_ids = {s.id for s in bot.skills}
                 _ws_skills = [_parse_skill_entry(e) for e in _ws_row.skills if
@@ -430,21 +437,16 @@ async def assemble_context(
             # Background re-index (content-hash makes it a no-op if nothing changed)
             from app.services.channel_workspace_indexing import index_channel_workspace as _cw_index
             _cw_segments = getattr(_ch_row, "index_segments", None) or []
-            asyncio.create_task(_cw_index(_cw_ch_id, bot, channel_segments=_cw_segments or None))
+            asyncio.create_task(_cw_index(_cw_ch_id, bot, channel_segments=_cw_segments if _cw_segments else None))
 
             # --- Channel index segment RAG retrieval ---
             if _cw_segments:
                 try:
                     from app.agent.fs_indexer import retrieve_filesystem_context as _rfc
-                    _sentinel = f"channel:{_ch_row.id}"
-                    _seg_dicts = [{
-                        "path_prefix": f"channels/{_cw_ch_id}/workspace/{seg['path_prefix'].strip('/')}",
-                        "embedding_model": seg.get("embedding_model") or _resolved_ws.get("embedding_model") if "_resolved_ws" in dir() else seg.get("embedding_model"),
-                    } for seg in _cw_segments]
-                    # Resolve embedding model for query
                     from app.services.workspace_indexing import resolve_indexing as _ri
+                    _sentinel = f"channel:{_ch_row.id}"
                     _ws_res = _ri(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-                    _seg_dicts_final = [{
+                    _seg_dicts = [{
                         "path_prefix": f"channels/{_cw_ch_id}/workspace/{seg['path_prefix'].strip('/')}",
                         "embedding_model": seg.get("embedding_model") or _ws_res["embedding_model"],
                     } for seg in _cw_segments]
@@ -455,7 +457,7 @@ async def assemble_context(
                         _sentinel,
                         roots=[str(Path(_cw_root).parent.parent.parent)],
                         embedding_model=_ws_res["embedding_model"],
-                        segments=_seg_dicts_final,
+                        segments=_seg_dicts,
                         top_k=_seg_top_k,
                         threshold=_seg_threshold,
                     )
@@ -1139,7 +1141,14 @@ async def assemble_context(
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:
-        _ch_prompt = getattr(_ch_row, "channel_prompt", None)
+        _ch_ws_path = getattr(_ch_row, "channel_prompt_workspace_file_path", None)
+        _ch_ws_id = getattr(_ch_row, "channel_prompt_workspace_id", None)
+        _ch_inline = getattr(_ch_row, "channel_prompt", None)
+        if _ch_ws_path and _ch_ws_id:
+            from app.services.prompt_resolution import resolve_workspace_file_prompt
+            _ch_prompt = resolve_workspace_file_prompt(str(_ch_ws_id), _ch_ws_path, _ch_inline or "")
+        else:
+            _ch_prompt = _ch_inline
         if _ch_prompt:
             messages.append({"role": "system", "content": _ch_prompt})
             _inject_chars["channel_prompt"] = len(_ch_prompt)

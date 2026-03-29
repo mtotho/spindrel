@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
 from app.agent.bots import get_bot, list_bots
 from app.db.models import (
     Bot as BotRow,
@@ -17,6 +20,7 @@ from app.db.models import (
     Memory,
     SandboxProfile,
     SharedWorkspace,
+    SharedWorkspaceBot,
     Skill as SkillRow,
     ToolEmbedding,
 )
@@ -366,6 +370,8 @@ class BotUpdateIn(BaseModel):
     api_permissions: Optional[list[str]] = None
     api_docs_mode: Optional[str] = None  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Optional[str] = None  # "workspace-files"|null
+    system_prompt_workspace_file: Optional[bool] = None
+    system_prompt_write_protected: Optional[bool] = None
 
 
 @router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
@@ -416,6 +422,26 @@ async def admin_bot_update(
 
     if persona_content_val is not None:
         await write_persona(bot_id, persona_content_val)
+
+    # Sync write protection for system_prompt workspace file
+    if "system_prompt_write_protected" in updates:
+        try:
+            sw_row = (await db.execute(
+                select(SharedWorkspaceBot.workspace_id).where(SharedWorkspaceBot.bot_id == bot_id)
+            )).scalar_one_or_none()
+            if sw_row:
+                sp_path = f"bots/{bot_id}/system_prompt.md"
+                ws = await db.get(SharedWorkspace, sw_row)
+                if ws:
+                    wp = list(ws.write_protected_paths or [])
+                    if updates["system_prompt_write_protected"] and sp_path not in wp:
+                        wp.append(sp_path)
+                    elif not updates["system_prompt_write_protected"] and sp_path in wp:
+                        wp.remove(sp_path)
+                    ws.write_protected_paths = wp
+                    await db.commit()
+        except Exception:
+            logger.warning("Failed to sync write protection for bot %s", bot_id, exc_info=True)
 
     await reload_bots()
 

@@ -194,8 +194,8 @@ async def _mirror_to_integration(
         # For anonymous user messages: fall back to [web] prefix
         user_attrs: dict = {}
         if is_user_message and user:
-            from integrations.slack.client import user_attribution
-            user_attrs = user_attribution(user)
+            from app.agent.hooks import get_user_attribution
+            user_attrs = get_user_attribution(channel.integration, user)
         elif is_user_message:
             text = f"[web] {text}"
 

@@ -106,6 +106,8 @@ def _bot_to_out(
         api_permissions=api_permissions,
         api_docs_mode=getattr(bot, "api_docs_mode", None),
         memory_scheme=getattr(bot, "memory_scheme", None),
+        system_prompt_workspace_file=getattr(bot, "system_prompt_workspace_file", False),
+        system_prompt_write_protected=getattr(bot, "system_prompt_write_protected", False),
     )
 
 

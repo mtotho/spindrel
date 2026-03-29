@@ -6,6 +6,7 @@ Returns [(integration_id, router), ...] for each discovered integration with a r
 
 Each integration can also provide:
   - dispatcher.py  — calls app.agent.dispatchers.register() at import time
+  - hooks.py       — calls app.agent.hooks.register_integration() / register_hook()
   - process.py     — declares CMD/REQUIRED_ENV for dev-server auto-start
 
 Supports external integration directories via INTEGRATION_DIRS config.
@@ -94,6 +95,15 @@ def discover_integrations() -> list[tuple[str, APIRouter]]:
                 logger.debug("Loaded dispatcher for integration: %s", integration_id)
             except Exception:
                 logger.exception("Failed to load dispatcher for integration %r", integration_id)
+
+        # Auto-import hooks.py to trigger register_integration() / register_hook()
+        hooks_file = candidate / "hooks.py"
+        if hooks_file.exists():
+            try:
+                _import_module(integration_id, "hooks", hooks_file, is_external)
+                logger.debug("Loaded hooks for integration: %s", integration_id)
+            except Exception:
+                logger.exception("Failed to load hooks for integration %r", integration_id)
 
         # Register router if present
         router_file = candidate / "router.py"

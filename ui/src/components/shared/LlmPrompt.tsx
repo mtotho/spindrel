@@ -41,9 +41,9 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
 };
 
 // ---------------------------------------------------------------------------
-// Generate button (shared between inline + fullscreen)
+// Generate button (shared between inline + fullscreen + standalone)
 // ---------------------------------------------------------------------------
-function GenerateButton({
+export function GenerateButton({
   generateContext,
   value,
   onChange,
@@ -57,14 +57,19 @@ function GenerateButton({
   const t = useThemeTokens();
   const gen = useGeneratePrompt();
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
+  const [showGuidance, setShowGuidance] = useState(false);
+  const [guidance, setGuidance] = useState("");
+  const btnRef = useRef<HTMLButtonElement>(null);
 
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = useCallback((guidanceText: string) => {
     gen.mutate(
-      { context: generateContext, user_input: value },
+      { context: generateContext, user_input: value, guidance: guidanceText || undefined },
       {
         onSuccess: (data) => {
           onChange(data.prompt);
           setFlash("success");
+          setShowGuidance(false);
+          setGuidance("");
           setTimeout(() => setFlash(null), 1200);
         },
         onError: () => {
@@ -91,19 +96,86 @@ function GenerateButton({
   const flashColor = flash === "success" ? t.success : flash === "error" ? t.danger : undefined;
 
   return (
-    <button
-      onClick={handleGenerate}
-      disabled={gen.isPending}
-      style={{
-        ...baseStyle,
-        ...(flash ? { borderColor: flashColor, color: flashColor } : {}),
-        ...(gen.isPending ? { opacity: 0.6, cursor: "wait" } : {}),
-      }}
-      onMouseEnter={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; } }}
-      onMouseLeave={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = isSmall ? t.textDim : t.textMuted; } }}
-    >
-      {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
-    </button>
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        ref={btnRef}
+        onClick={() => setShowGuidance(!showGuidance)}
+        disabled={gen.isPending}
+        style={{
+          ...baseStyle,
+          ...(flash ? { borderColor: flashColor, color: flashColor } : {}),
+          ...(gen.isPending ? { opacity: 0.6, cursor: "wait" } : {}),
+        }}
+        onMouseEnter={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; } }}
+        onMouseLeave={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = isSmall ? t.textDim : t.textMuted; } }}
+      >
+        {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
+      </button>
+
+      {showGuidance && !gen.isPending && typeof document !== "undefined" && (() => {
+        const ReactDOM = require("react-dom");
+        return ReactDOM.createPortal(
+          <>
+            <div onClick={() => { setShowGuidance(false); setGuidance(""); }} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
+            <div style={{
+              position: "fixed",
+              top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+              left: Math.min(btnRef.current?.getBoundingClientRect().left ?? 0, window.innerWidth - 320),
+              width: 300,
+              zIndex: 10011,
+              background: t.surfaceRaised,
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 8,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+              padding: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>What should be generated?</div>
+              <input
+                type="text"
+                autoFocus
+                value={guidance}
+                onChange={(e: any) => setGuidance(e.target.value)}
+                onKeyDown={(e: any) => {
+                  if (e.key === "Enter") { handleGenerate(guidance); }
+                  if (e.key === "Escape") { setShowGuidance(false); setGuidance(""); }
+                }}
+                placeholder="Optional — describe what you want..."
+                style={{
+                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                  padding: "6px 10px", fontSize: 12, color: t.text, outline: "none", width: "100%",
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                <button
+                  onClick={() => { setShowGuidance(false); setGuidance(""); }}
+                  style={{
+                    padding: "4px 10px", fontSize: 11,
+                    background: "transparent", border: `1px solid ${t.surfaceBorder}`,
+                    borderRadius: 4, color: t.textMuted, cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleGenerate(guidance)}
+                  style={{
+                    padding: "4px 12px", fontSize: 11, fontWeight: 600,
+                    background: t.accent, color: "#fff", border: "none",
+                    borderRadius: 4, cursor: "pointer",
+                  }}
+                >
+                  Go
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
+        );
+      })()}
+    </div>
   );
 }
 

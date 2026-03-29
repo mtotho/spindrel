@@ -18,6 +18,7 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { apiFetch } from "@/src/api/client";
 import type { ChannelSettings } from "@/src/types/api";
 
@@ -120,6 +121,15 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   const t = useThemeTokens();
   const enableEditorMutation = useEnableEditor(workspaceId);
   const [editorOpening, setEditorOpening] = useState(false);
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
+
+  const handleBrowse = () => {
+    // Expand the tree to the channel workspace folder before navigating
+    const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
+    for (const seg of segments) {
+      expandDir(seg);
+    }
+  };
 
   const handleOpenEditor = async () => {
     setEditorOpening(true);
@@ -141,6 +151,7 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
       <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
         <Pressable
+          onPress={handleBrowse}
           style={{
             flexDirection: "row",
             alignItems: "center",
@@ -463,11 +474,13 @@ export function ChannelWorkspaceTab({
   patch,
   channelId,
   workspaceId,
+  indexSegmentDefaults,
 }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
   workspaceId?: string;
+  indexSegmentDefaults?: SegmentDefaults | null;
 }) {
   const t = useThemeTokens();
   const enabled = !!form.channel_workspace_enabled;
@@ -504,7 +517,7 @@ export function ChannelWorkspaceTab({
             segments={form.index_segments ?? []}
             onChange={(segs) => patch("index_segments", segs)}
             channelId={channelId}
-            defaults={form.index_segment_defaults}
+            defaults={indexSegmentDefaults}
           />
 
           <Section title="Active Files" description="Markdown files in the channel workspace root. Injected into context automatically.">

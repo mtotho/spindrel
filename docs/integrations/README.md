@@ -57,6 +57,7 @@ integrations/
     ├── config.py        # integration-specific settings (Pydantic BaseSettings)
     ├── router.py        # HTTP endpoints → registered at /integrations/mygithub/
     ├── dispatcher.py    # task result delivery → called by the task worker
+    ├── hooks.py         # integration metadata + lifecycle hooks
     ├── process.py       # background process → auto-started by dev-server.sh
     └── tools/
         ├── __init__.py
@@ -69,6 +70,7 @@ integrations/
 |---|---|---|
 | `router.py` | Yes — registered at `/integrations/<name>/` | Receive webhooks, expose config endpoints |
 | `dispatcher.py` | Yes — imported to trigger `register()` | Deliver completed task results to your service |
+| `hooks.py` | Yes — imported to trigger `register_integration()` / `register_hook()` | Integration metadata + lifecycle hooks |
 | `process.py` | Via `dev-server.sh` | Declare a background process (e.g. a Bolt app) |
 | `__init__.py` | Yes (as package) | Optional metadata: `id`, `name`, `version` |
 | `config.py` | No (imported by your tools) | Integration-specific env var settings |
@@ -234,7 +236,67 @@ register("mygithub", MyDispatcher())
 The dispatcher is called when a task has `dispatch_type="mygithub"`. To create such a
 task, set `dispatch_type` and `dispatch_config` when calling `utils.inject_message()`.
 
-### 5. Add a background process (`process.py`)
+### 5. Add hooks (`hooks.py`)
+
+Hooks let your integration register metadata (client ID prefix, user attribution,
+display name resolution) and subscribe to agent lifecycle events — without touching
+core code.
+
+**Integration metadata** — register at import time:
+
+```python
+from app.agent.hooks import IntegrationMeta, register_integration
+
+def _user_attribution(user) -> dict:
+    """Return payload fields for user identity (username, icon)."""
+    attrs = {}
+    if user.display_name:
+        attrs["username"] = user.display_name
+    cfg = (user.integration_config or {}).get("mygithub", {})
+    if cfg.get("avatar_url"):
+        attrs["icon_url"] = cfg["avatar_url"]
+    return attrs
+
+register_integration(IntegrationMeta(
+    integration_type="mygithub",
+    client_id_prefix="mygithub:",
+    user_attribution=_user_attribution,
+))
+```
+
+This registers your integration's client ID prefix (used by `is_integration_client_id()`),
+user attribution (used when mirroring messages), and optionally a `resolve_display_names`
+callback for the admin UI channel list.
+
+**Lifecycle hooks** — subscribe to agent events:
+
+```python
+from app.agent.hooks import HookContext, register_hook
+
+async def _on_after_tool_call(ctx: HookContext, **kwargs) -> None:
+    tool = ctx.extra.get("tool_name", "")
+    ms = ctx.extra.get("duration_ms", 0)
+    print(f"Tool {tool} took {ms}ms for bot {ctx.bot_id}")
+
+register_hook("after_tool_call", _on_after_tool_call)
+```
+
+Available lifecycle events:
+
+| Event | Fired when | `ctx.extra` keys |
+|-------|-----------|-----------------|
+| `after_tool_call` | After each tool execution | `tool_name`, `tool_args`, `duration_ms` |
+| `after_response` | After agent returns final response | `response_length`, `tool_calls_made` |
+| `before_context_assembly` | Before context is built for an LLM call | `user_message` |
+
+All lifecycle hooks are fire-and-forget — errors are logged but never propagate.
+Both sync and async callbacks are supported. Hooks receive a `HookContext` with
+`bot_id`, `session_id`, `channel_id`, `client_id`, `correlation_id`, and `extra`.
+
+See `integrations/slack/hooks.py` for a real example: Slack uses `after_tool_call`
+to add emoji reactions as tool indicators and log tool calls to an audit channel.
+
+### 6. Add a background process (`process.py`)
 
 If your integration needs a long-running process (e.g. a bot framework using socket mode),
 declare it here. `dev-server.sh` will auto-start it when all required env vars are set.

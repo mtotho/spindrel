@@ -111,6 +111,8 @@ export default function ChannelSettingsScreen() {
         model_provider_id_override: settings.model_provider_id_override,
         fallback_models: settings.fallback_models ?? [],
         channel_prompt: settings.channel_prompt,
+        channel_prompt_workspace_file_path: settings.channel_prompt_workspace_file_path,
+        channel_prompt_workspace_id: settings.channel_prompt_workspace_id,
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
         channel_workspace_enabled: settings.channel_workspace_enabled,
@@ -220,7 +222,7 @@ export default function ChannelSettingsScreen() {
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "files" && (
-          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={resolvedWorkspaceId ?? undefined} />
+          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={resolvedWorkspaceId ?? undefined} indexSegmentDefaults={settings?.index_segment_defaults} />
         )}
         {tab === "workspace" && (
           <WorkspaceOverrideTab

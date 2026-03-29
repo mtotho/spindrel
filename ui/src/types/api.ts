@@ -69,6 +69,8 @@ export interface BotConfig {
   api_permissions?: string[] | null;
   api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
   memory_scheme?: string | null;  // "workspace-files"|null
+  system_prompt_workspace_file?: boolean;
+  system_prompt_write_protected?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -179,6 +181,8 @@ export interface ChannelSettings {
   max_iterations?: number;
   task_max_run_seconds?: number | null;
   channel_prompt?: string;
+  channel_prompt_workspace_file_path?: string | null;
+  channel_prompt_workspace_id?: string | null;
   context_compaction: boolean;
   compaction_interval?: number;
   compaction_keep_turns?: number;
