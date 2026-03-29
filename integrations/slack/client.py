@@ -25,6 +25,7 @@ def bot_attribution(bot_id: str) -> dict:
     try:
         bot = get_bot(bot_id)
     except Exception:
+        logger.warning("bot_attribution: failed to resolve bot_id=%s", bot_id, exc_info=True)
         return {}
 
     attrs: dict = {}

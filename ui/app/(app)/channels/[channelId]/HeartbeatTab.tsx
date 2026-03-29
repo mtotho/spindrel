@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Play, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
@@ -133,6 +133,92 @@ function HeartbeatHistoryList({ history }: { history: any[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Context Preview Builder
+// ---------------------------------------------------------------------------
+function buildMetadataPreview(form: any, data: any): string {
+  const interval = form?.interval_minutes ?? 60;
+  const dispatchResults = form?.dispatch_results ?? true;
+  const dispatchMode = form?.dispatch_mode ?? "always";
+  const prevMaxChars = form?.previous_result_max_chars;
+  const globalDefault = data?.default_previous_result_chars ?? 500;
+  const effectiveMax = prevMaxChars ?? globalDefault;
+
+  const lines = [
+    "[SCHEDULED HEARTBEAT]",
+    "You are running a scheduled heartbeat — an automated periodic prompt (not a user message).",
+    "Your job: follow the prompt below, analyze what is relevant, and produce a concise result.",
+    "Current time: {current_time}",
+    `Channel: ${data?.channel_name ?? "{channel_name}"}`,
+    `Heartbeat interval: every ${interval} minutes`,
+    "Run number: {run_number}",
+    "Last heartbeat: {last_run_time}",
+    "Activity since last heartbeat: {activity_summary}",
+  ];
+
+  if (effectiveMax === 0) {
+    lines.push("Previous heartbeat conclusion: {full_previous_result}");
+  } else {
+    lines.push(`Previous heartbeat conclusion: {previous_result_truncated_to_${effectiveMax}_chars}`);
+    lines.push("(Use get_last_heartbeat tool for full previous output if needed)");
+  }
+
+  if (dispatchResults && dispatchMode === "optional") {
+    lines.push(
+      "Dispatch: Your response will NOT be automatically posted. " +
+      "You have a post_heartbeat_to_channel tool \u2014 call it ONLY if you have " +
+      "something worth sharing. If nothing noteworthy, just respond normally " +
+      "and nothing will be posted to the channel."
+    );
+  } else if (dispatchResults) {
+    lines.push("Dispatch: Your response will be posted to the channel.");
+  }
+
+  lines.push(
+    "",
+    "--- [system: current-turn marker] ---",
+    "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+    "",
+    "--- [user message: heartbeat prompt] ---",
+    "{heartbeat_prompt}",
+  );
+  return lines.join("\n");
+}
+
+function ContextPreview({ form, data }: { form: any; data: any }) {
+  const t = useThemeTokens();
+  const [expanded, setExpanded] = useState(false);
+  const preview = useMemo(() => buildMetadataPreview(form, data), [form, data]);
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+          fontSize: 11, fontWeight: 600, color: t.textDim,
+          letterSpacing: "0.05em", textTransform: "uppercase",
+        }}
+      >
+        {expanded ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
+        Context Preview
+      </div>
+      {expanded && (
+        <pre style={{
+          marginTop: 8, padding: 12, background: "#111", borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+          maxHeight: 400, overflowY: "auto",
+          fontFamily: "monospace",
+        }}>
+          {preview}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Heartbeat Tab
 // ---------------------------------------------------------------------------
 export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
@@ -155,11 +241,13 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
         fallback_models: data.config.fallback_models ?? [],
         prompt: data.config.prompt ?? "",
         dispatch_results: data.config.dispatch_results ?? true,
+        dispatch_mode: data.config.dispatch_mode ?? "always",
         trigger_response: data.config.trigger_response ?? false,
         prompt_template_id: data.config.prompt_template_id ?? null,
         workspace_file_path: data.config.workspace_file_path ?? null,
         workspace_id: data.config.workspace_id ?? null,
         max_run_seconds: data.config.max_run_seconds ?? null,
+        previous_result_max_chars: data.config.previous_result_max_chars ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -169,11 +257,13 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
         fallback_models: [],
         prompt: "",
         dispatch_results: true,
+        dispatch_mode: "always",
         trigger_response: false,
         prompt_template_id: null,
         workspace_file_path: null,
         workspace_id: null,
         max_run_seconds: null,
+        previous_result_max_chars: null,
       });
     }
   }, [data]);
@@ -296,6 +386,18 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
             onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
             label="Post results to channel"
           />
+          {hbForm.dispatch_results && (
+            <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
+              <SelectInput
+                value={hbForm.dispatch_mode ?? "always"}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
+                options={[
+                  { label: "Always post", value: "always" },
+                  { label: "LLM decides (via tool)", value: "optional" },
+                ]}
+              />
+            </FormRow>
+          )}
           <Toggle
             value={hbForm.trigger_response ?? false}
             onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
@@ -304,12 +406,20 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
           />
         </div>
 
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
           <FormRow label="Max run time (seconds)">
             <TextInput
               value={hbForm.max_run_seconds?.toString() ?? ""}
               onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
               placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
+              type="number"
+            />
+          </FormRow>
+          <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
+            <TextInput
+              value={hbForm.previous_result_max_chars?.toString() ?? ""}
+              onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
+              placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
               type="number"
             />
           </FormRow>
@@ -343,6 +453,9 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
           </button>
         </div>
       </div>
+
+      {/* Context Preview */}
+      <ContextPreview form={hbForm} data={data} />
 
       {/* Status + History */}
       {data?.config && (

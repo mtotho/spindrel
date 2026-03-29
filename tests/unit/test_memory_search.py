@@ -160,7 +160,7 @@ class TestSearchMemoryResolvesModel:
         ):
             result = await search_memory("test query")
 
-        assert result == "No matching memory content found."
+        assert "No matching memory content found." in result
         mock_search.assert_called_once()
         call_kwargs = mock_search.call_args
         assert call_kwargs.kwargs.get("embedding_model") == "custom/model"

@@ -26,6 +26,54 @@ class MemorySearchResult:
     score: float
 
 
+async def _diagnose_empty_results(
+    bot_id: str,
+    roots: list[str],
+    path_pattern: str,
+    embedding_model: str | None,
+) -> None:
+    """Log diagnostic counts to identify why memory search returned empty.
+
+    Called only when hybrid search returns 0 results — helps debug indexing/query mismatches.
+    """
+    try:
+        root_placeholders = ", ".join(f":root_{i}" for i in range(len(roots)))
+        root_params = {f"root_{i}": r for i, r in enumerate(roots)}
+
+        diag_sql = text(f"""
+            SELECT
+                count(*) AS total_chunks,
+                count(*) FILTER (WHERE bot_id = :bot_id) AS matching_bot,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders})) AS matching_root,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern) AS matching_path,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern AND embedding IS NOT NULL) AS with_embedding,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern AND tsv IS NOT NULL) AS with_tsv,
+                (SELECT array_agg(DISTINCT embedding_model) FROM filesystem_chunks WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern) AS models,
+                (SELECT array_agg(DISTINCT file_path) FROM filesystem_chunks WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern LIMIT 10) AS sample_paths,
+                (SELECT array_agg(DISTINCT root) FROM filesystem_chunks WHERE bot_id = :bot_id LIMIT 5) AS bot_roots
+            FROM filesystem_chunks
+        """)
+
+        async with async_session() as db:
+            row = (await db.execute(diag_sql, {
+                "bot_id": bot_id,
+                "path_pattern": path_pattern,
+                **root_params,
+            })).one()
+
+        logger.warning(
+            "MEMORY SEARCH DIAGNOSTIC: "
+            "total_chunks=%s, matching_bot=%s, matching_root=%s, matching_path=%s, "
+            "with_embedding=%s, with_tsv=%s, models=%s, sample_paths=%s, bot_roots=%s, "
+            "query_roots=%s, query_path_pattern=%s, query_model=%s",
+            row.total_chunks, row.matching_bot, row.matching_root, row.matching_path,
+            row.with_embedding, row.with_tsv, row.models, row.sample_paths, row.bot_roots,
+            roots, path_pattern, embedding_model,
+        )
+    except Exception:
+        logger.exception("Failed to run memory search diagnostics")
+
+
 async def hybrid_memory_search(
     query: str,
     bot_id: str,
@@ -139,14 +187,23 @@ async def hybrid_memory_search(
         async with async_session() as db:
             rows = (await db.execute(sql, params)).all()
     except Exception:
-        logger.exception("Hybrid memory search query failed")
+        logger.exception(
+            "Hybrid memory search query FAILED: bot_id=%s, roots=%s, path_pattern=%s, "
+            "embedding_model=%s, vec_dims=%d",
+            bot_id, search_roots, path_pattern, embedding_model,
+            len(query_embedding) if query_embedding else 0,
+        )
+        # Run diagnostics to understand the state
+        await _diagnose_empty_results(bot_id, search_roots, path_pattern, embedding_model)
         return []
 
     if not rows:
-        logger.debug(
-            "hybrid_memory_search returned 0 results: bot_id=%s, roots=%s, path_pattern=%s",
-            bot_id, search_roots, path_pattern,
+        logger.warning(
+            "hybrid_memory_search returned 0 results: bot_id=%s, roots=%s, path_pattern=%s, model=%s",
+            bot_id, search_roots, path_pattern, embedding_model,
         )
+        # Run diagnostic count queries to identify the failure point
+        await _diagnose_empty_results(bot_id, search_roots, path_pattern, embedding_model)
 
     return [
         MemorySearchResult(file_path=r.file_path, content=r.content, score=r.rrf_score)

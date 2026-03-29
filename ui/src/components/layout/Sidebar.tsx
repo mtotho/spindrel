@@ -22,6 +22,7 @@ import {
   HardDrive,
   Key,
   Code2,
+  Server,
   Sun,
   Moon,
 } from "lucide-react";
@@ -71,6 +72,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "SYSTEM",
     items: [
+      { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "Tools", href: "/admin/tools", icon: Wrench },
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
       { label: "Users", href: "/admin/users", icon: Users },

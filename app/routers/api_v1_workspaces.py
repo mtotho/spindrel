@@ -929,9 +929,9 @@ async def reindex_workspace(
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
                 _patterns = _resolved["patterns"]
                 _segments = _resolved.get("segments")
-                # Scope patterns for shared workspace bots without segments
+                # Shared workspace bots without segments: skip — only memory indexing
                 if bot.shared_workspace_id and not _segments:
-                    _patterns = [f"bots/{bot.id}/{p}" for p in _patterns]
+                    continue
                 bot_results = []
                 for root in get_all_roots(bot):
                     stats = await index_directory(

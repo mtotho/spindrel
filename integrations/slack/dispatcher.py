@@ -39,6 +39,7 @@ class SlackDispatcher:
             if not ok:
                 break
         if not ok:
+            logger.error("SlackDispatcher.deliver: post_message failed for task %s channel %s", task.id, channel_id)
             return
 
         from app.services.sessions import store_dispatch_echo

@@ -376,6 +376,24 @@ export function useWorkspaceIndexing(workspaceId: string | undefined) {
   });
 }
 
+// Update bot indexing config (segments, patterns, etc.) from workspace page
+
+export function useUpdateBotIndexing(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { bot_id: string; indexing: Record<string, any> }) =>
+      apiFetch(`/api/v1/workspaces/${workspaceId}/bots/${data.bot_id}/indexing`, {
+        method: "PUT",
+        body: JSON.stringify(data.indexing),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-indexing", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-index-status", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["bots"] });
+    },
+  });
+}
+
 // Reindex
 
 export function useReindexWorkspace(workspaceId: string) {

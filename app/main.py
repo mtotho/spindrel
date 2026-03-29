@@ -53,8 +53,11 @@ async def _index_filesystems_and_start_watchers() -> None:
 
     Runs as a background task so it doesn't block server startup.
     """
+    from sqlalchemy import delete
+
     from app.agent.fs_indexer import index_directory, cleanup_stale_roots
     from app.agent.fs_watcher import start_watchers
+    from app.db.models import FilesystemChunk
     from app.services.workspace import workspace_service
     from app.services.memory_indexing import index_memory_for_bot
 
@@ -97,7 +100,9 @@ async def _index_filesystems_and_start_watchers() -> None:
             except Exception:
                 logger.exception("Failed to index memory for bot %s", bot.id)
 
-    # Phase 2: General workspace indexing (only for bots with indexing.enabled)
+    # Phase 2: Segment-based workspace indexing (only for bots with indexing.enabled)
+    # For shared workspace bots, indexing REQUIRES segments — without segments,
+    # only memory (Phase 1) is indexed.  Standalone bots use blanket patterns.
     logger.info("Background: indexing configured filesystem directories...")
     for bot in list_bots():
         # Workspace-based indexing
@@ -105,10 +110,29 @@ async def _index_filesystems_and_start_watchers() -> None:
             _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
             _patterns = _resolved["patterns"]
             _segments = _resolved.get("segments")
-            # For shared workspace bots without segments, scope patterns to the bot's
-            # own directory so blanket patterns don't crawl the entire workspace.
+            # Shared workspace bots without segments: skip Phase 2 entirely.
+            # Only memory gets indexed (Phase 1).  Clean up any stale non-memory
+            # chunks from previous blanket indexing runs.
             if bot.shared_workspace_id and not _segments:
-                _patterns = [f"bots/{bot.id}/{p}" for p in _patterns]
+                from app.services.memory_scheme import get_memory_index_prefix
+                _mem_prefix = get_memory_index_prefix(bot)
+                for root in get_all_roots(bot, workspace_service):
+                    try:
+                        _resolved_root = str(Path(root).resolve())
+                        async with async_session() as _db:
+                            _del = await _db.execute(
+                                delete(FilesystemChunk).where(
+                                    FilesystemChunk.bot_id == bot.id,
+                                    FilesystemChunk.root == _resolved_root,
+                                    ~FilesystemChunk.file_path.like(_mem_prefix.rstrip("/") + "/%"),
+                                )
+                            )
+                            if _del.rowcount:
+                                logger.info("Cleaned up %d non-memory chunks for bot %s (no segments)", _del.rowcount, bot.id)
+                            await _db.commit()
+                    except Exception:
+                        logger.exception("Failed to clean up non-memory chunks for bot %s", bot.id)
+                continue
             for root in get_all_roots(bot, workspace_service):
                 try:
                     stats = await index_directory(

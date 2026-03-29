@@ -173,12 +173,17 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         dispatch_type = "none"
         dispatch_config = None
+        injected_tools: list[dict] | None = None
+        _dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
         if hb.dispatch_results and channel.dispatch_config:
             dispatch_type = channel.integration or "none"
             dispatch_config = dict(channel.dispatch_config)
-            # Heartbeats should post as top-level channel messages, not thread replies
             dispatch_config.pop("thread_ts", None)
             dispatch_config["reply_in_thread"] = False
+            if _dispatch_mode == "optional":
+                # LLM gets a tool to post if it wants; result NOT auto-dispatched
+                from app.tools.local.heartbeat_tools import POST_HEARTBEAT_TO_CHANNEL_SCHEMA
+                injected_tools = [POST_HEARTBEAT_TO_CHANNEL_SCHEMA]
 
         # Resolve prompt: workspace file > template > inline
         from app.services.prompt_resolution import resolve_prompt
@@ -193,7 +198,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # --- Build heartbeat metadata header ---
         metadata_lines = [
             "[SCHEDULED HEARTBEAT]",
-            "This is an automated scheduled heartbeat — not a user message.",
+            "You are running a scheduled heartbeat — an automated periodic prompt (not a user message).",
+            "Your job: follow the prompt below, analyze what is relevant, and produce a concise result.",
             f"Current time: {now.strftime('%Y-%m-%d %H:%M UTC')}",
             f"Channel: {channel.name}",
             f"Heartbeat interval: every {hb.interval_minutes} minutes",
@@ -279,14 +285,32 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         # Previous result — truncated at sentence boundary to avoid mid-sentence cuts
         if last_run and last_run.result:
-            max_chars = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
-            conclusion = _truncate_at_sentence(last_run.result, max_chars)
-            metadata_lines.append(f"Previous heartbeat conclusion: {conclusion}")
-            if len(last_run.result) > max_chars:
-                metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
+            _prev_max = hb.previous_result_max_chars if hb.previous_result_max_chars is not None else settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
+            if _prev_max == 0:
+                # 0 = no truncation, include full result
+                metadata_lines.append(f"Previous heartbeat conclusion: {last_run.result}")
+            else:
+                conclusion = _truncate_at_sentence(last_run.result, _prev_max)
+                metadata_lines.append(f"Previous heartbeat conclusion: {conclusion}")
+                if len(last_run.result) > _prev_max:
+                    metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
+
+        # Dispatch mode guidance
+        if _dispatch_mode == "optional":
+            metadata_lines.append(
+                "Dispatch: Your response will NOT be automatically posted. "
+                "You have a post_heartbeat_to_channel tool — call it ONLY if you have "
+                "something worth sharing. If nothing noteworthy, just respond normally "
+                "and nothing will be posted to the channel."
+            )
+        elif hb.dispatch_results:
+            metadata_lines.append("Dispatch: Your response will be posted to the channel.")
 
         metadata_header = "\n".join(metadata_lines)
-        prompt = f"{metadata_header}\n\n---\n\n{prompt}"
+        # The metadata is injected as a system_preamble (not part of the user message).
+        # This keeps RAG retrieval clean — skills, tools, and memory are retrieved based
+        # on the actual heartbeat prompt, not the metadata noise.
+        heartbeat_preamble = metadata_header
 
         # Create a heartbeat_run record
         run_record = HeartbeatRun(
@@ -354,6 +378,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 model_override=model_override,
                 provider_id_override=provider_id_override,
                 fallback_models=_hb_fallback_models,
+                injected_tools=injected_tools,
+                system_preamble=heartbeat_preamble,
             ),
             timeout=_hb_timeout,
         )
@@ -364,16 +390,19 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         async with async_session() as db:
             await persist_turn(db, eff_session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=channel_id, is_heartbeat=True)
 
-        # Dispatch result
-        from app.agent import dispatchers
-        dispatcher = dispatchers.get(dispatch_type)
-        task_proxy = Task(
-            id=uuid.uuid4(),
-            bot_id=bot_id,
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
-        )
-        await dispatcher.deliver(task_proxy, result_text, client_actions=run_result.client_actions)
+        # Dispatch result (skip for "optional" mode — the LLM used the tool if it wanted to post)
+        if _dispatch_mode != "optional":
+            from app.agent import dispatchers
+            dispatcher = dispatchers.get(dispatch_type)
+            task_proxy = Task(
+                id=uuid.uuid4(),
+                bot_id=bot_id,
+                session_id=eff_session_id,
+                client_id=client_id,
+                dispatch_type=dispatch_type,
+                dispatch_config=dispatch_config,
+            )
+            await dispatcher.deliver(task_proxy, result_text, client_actions=run_result.client_actions)
 
         # trigger_rag_loop: create a follow-up Task so the bot can react
         if trigger_rag_loop and result_text:

@@ -36,6 +36,10 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
 current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
+# Dynamically injected tool schemas (e.g. heartbeat_post_to_thread for channel_and_thread mode).
+# Set explicitly in run_stream; NOT managed by set_agent_context.
+current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_injected_tools", default=None)
+
 current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
@@ -106,6 +110,7 @@ class AgentContextSnapshot:
     memory_cross_bot: bool | None
     dispatch_type: str | None
     dispatch_config: dict | None
+    injected_tools: list[dict] | None
     session_depth: int
     root_session_id: uuid.UUID | None
     ephemeral_delegates: list
@@ -124,6 +129,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         memory_cross_bot=current_memory_cross_bot.get(),
         dispatch_type=current_dispatch_type.get(),
         dispatch_config=current_dispatch_config.get(),
+        injected_tools=current_injected_tools.get(),
         session_depth=current_session_depth.get(),
         root_session_id=current_root_session_id.get(),
         ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
@@ -142,6 +148,7 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_memory_cross_bot.set(snap.memory_cross_bot)
     current_dispatch_type.set(snap.dispatch_type)
     current_dispatch_config.set(snap.dispatch_config)
+    current_injected_tools.set(snap.injected_tools)
     current_session_depth.set(snap.session_depth)
     current_root_session_id.set(snap.root_session_id)
     current_ephemeral_delegates.set(list(snap.ephemeral_delegates))

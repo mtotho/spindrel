@@ -8,6 +8,7 @@ export interface UsageParams {
   model?: string;
   provider_id?: string;
   channel_id?: string;
+  [key: string]: string | number | undefined;
 }
 
 export interface CostByDimension {
@@ -36,6 +37,7 @@ export interface UsageSummary {
 export interface UsageLogEntry {
   id: string;
   created_at: string;
+  correlation_id: string | null;
   model: string | null;
   provider_id: string | null;
   provider_name: string | null;

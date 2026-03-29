@@ -483,6 +483,13 @@ async def store_dispatch_echo(
                     if not channel.passive_memory:
                         return
                     include_in_memory = channel.passive_memory
+            # Resolve display name for UI attribution
+            _sender_display_name = posting_bot_id
+            try:
+                _bot = get_bot(posting_bot_id)
+                _sender_display_name = _bot.display_name or _bot.name or posting_bot_id
+            except Exception:
+                pass
             metadata = {
                 "passive": True,
                 "include_in_memory": include_in_memory,
@@ -490,6 +497,7 @@ async def store_dispatch_echo(
                 "source": source,
                 "sender_type": "bot",
                 "sender_id": f"bot:{posting_bot_id}",
+                "sender_display_name": _sender_display_name,
             }
             await store_passive_message(db, session_id, content, metadata)
     except Exception:
