@@ -1,8 +1,9 @@
+import { useEffect } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useTool } from "@/src/api/hooks/useTools";
 import { X } from "lucide-react";
 
-export function ToolSchemaModal({
+function ToolSchemaModalContent({
   toolName,
   onClose,
 }: {
@@ -12,17 +13,25 @@ export function ToolSchemaModal({
   const t = useThemeTokens();
   const { data: tool, isLoading, error } = useTool(toolName);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
     <div
       onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.6)",
+        background: "rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 100,
+        zIndex: 10000,
       }}
     >
       <div
@@ -37,6 +46,7 @@ export function ToolSchemaModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
         }}
       >
         {/* Header */}
@@ -154,5 +164,19 @@ export function ToolSchemaModal({
         </div>
       </div>
     </div>
+  );
+}
+
+export function ToolSchemaModal({
+  toolName,
+  onClose,
+}: {
+  toolName: string;
+  onClose: () => void;
+}) {
+  const ReactDOM = require("react-dom");
+  return ReactDOM.createPortal(
+    <ToolSchemaModalContent toolName={toolName} onClose={onClose} />,
+    document.body,
   );
 }
