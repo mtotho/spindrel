@@ -239,11 +239,21 @@ async def _watch_shared_workspace(
                                 getattr(bot, "_workspace_raw", {}),
                                 getattr(bot, "_ws_indexing_config", None),
                             )
+                            _segments = _resolved.get("segments")
+                            # Shared workspace bots without segments: skip file
+                            # indexing — only memory gets indexed.  Without this
+                            # guard, segments=[] is falsy and index_directory()
+                            # falls through to blanket-glob the entire workspace.
+                            if not _segments:
+                                if getattr(bot, "memory_scheme", None) == "workspace-files":
+                                    from app.services.memory_indexing import index_memory_for_bot
+                                    await index_memory_for_bot(bot, force=True)
+                                continue
                             for root in get_all_roots(bot):
                                 await index_directory(
                                     root, bot.id, _resolved["patterns"], force=True,
                                     embedding_model=_resolved["embedding_model"],
-                                    segments=_resolved.get("segments"),
+                                    segments=_segments,
                                 )
                         except Exception:
                             logger.exception("Shared workspace watcher: index failed for bot %s", bot.id)

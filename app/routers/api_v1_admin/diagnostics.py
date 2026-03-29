@@ -1,11 +1,14 @@
 """Indexing diagnostics: /diagnostics/indexing — shows health of all indexing systems."""
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -177,7 +180,7 @@ async def diagnostics_indexing(
             select(func.count()).select_from(FilesystemChunk)
             .where(
                 FilesystemChunk.bot_id == bot.id,
-                FilesystemChunk.root == ws_root_resolved,
+                _root_filter,
                 FilesystemChunk.tsv.isnot(None),
             )
         )).scalar_one()
@@ -233,6 +236,15 @@ async def diagnostics_indexing(
     return result
 
 
+@router.get("/diagnostics/operations")
+async def diagnostics_operations(
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return in-progress background operations (lightweight, no DB)."""
+    from app.services import progress
+    return {"operations": progress.list_operations()}
+
+
 @router.post("/diagnostics/reindex")
 async def diagnostics_reindex(
     db: AsyncSession = Depends(get_db),
@@ -241,77 +253,116 @@ async def diagnostics_reindex(
     """Force re-index ALL filesystem directories and workspace skills."""
     from app.agent.bots import list_bots
     from app.agent.fs_indexer import index_directory
+    from app.services import progress
     from app.services.workspace import workspace_service
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
+    reindex_op = progress.start("reindex", "Full reindex")
     results = {"filesystem": [], "workspace_skills": []}
 
-    # Re-index filesystem chunks
-    from app.services.memory_indexing import index_memory_for_bot
+    try:
+        # Re-index filesystem chunks
+        from app.services.memory_indexing import index_memory_for_bot
 
-    memory_indexed_bot_ids: set[str] = set()
-    for bot in list_bots():
-        if not (bot.workspace.enabled and bot.workspace.indexing.enabled):
-            continue
-        _resolved = resolve_indexing(
-            bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
-        )
-        _segments = _resolved.get("segments")
-        # Shared workspace bots without segments: skip — only memory indexing
-        if bot.shared_workspace_id and not _segments:
+        bots = list_bots()
+        indexable = [b for b in bots if b.workspace.enabled and b.workspace.indexing.enabled]
+        bot_count = len(indexable)
+        done = 0
+
+        memory_indexed_bot_ids: set[str] = set()
+        for bot in indexable:
+            _resolved = resolve_indexing(
+                bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
+            )
+            _segments = _resolved.get("segments")
+            # Shared workspace bots without segments: skip file indexing,
+            # but clean up stale non-memory chunks from previous segment configs.
+            if bot.shared_workspace_id and not _segments:
+                from app.services.memory_scheme import get_memory_index_prefix
+                _mem_prefix = get_memory_index_prefix(bot)
+                for root in get_all_roots(bot, workspace_service):
+                    try:
+                        _resolved_root = str(Path(root).resolve())
+                        _del = await db.execute(
+                            delete(FilesystemChunk).where(
+                                FilesystemChunk.bot_id == bot.id,
+                                FilesystemChunk.root == _resolved_root,
+                                ~FilesystemChunk.file_path.like(_mem_prefix.rstrip("/") + "/%"),
+                            )
+                        )
+                        if _del.rowcount:
+                            logger.info("Cleaned up %d stale non-memory chunks for bot %s", _del.rowcount, bot.id)
+                        await db.commit()
+                    except Exception:
+                        logger.exception("Failed to clean up stale chunks for bot %s", bot.id)
+                if bot.memory_scheme == "workspace-files":
+                    memory_indexed_bot_ids.add(bot.id)
+                done += 1
+                progress.update(reindex_op, current=done, total=bot_count, message=f"Cleaned up {bot.id} (shared, no segments)")
+                continue
+
+            # Per-bot sub-operation for file-level progress
+            for root in get_all_roots(bot, workspace_service):
+                fs_op = progress.start("fs_index", f"Indexing {bot.id}", op_id=f"fs_{bot.id}")
+                try:
+                    stats = await index_directory(
+                        root, bot.id, _resolved["patterns"], force=True,
+                        embedding_model=_resolved["embedding_model"],
+                        segments=_segments,
+                        _progress_op_id=fs_op,
+                    )
+                    progress.complete(fs_op, message=f"{stats.get('indexed', 0)} indexed, {stats.get('skipped', 0)} skipped")
+                    results["filesystem"].append({
+                        "bot_id": bot.id, "root": root, **stats,
+                    })
+                except Exception as e:
+                    progress.fail(fs_op, message=str(e))
+                    results["filesystem"].append({
+                        "bot_id": bot.id, "root": root, "error": str(e),
+                    })
             if bot.memory_scheme == "workspace-files":
                 memory_indexed_bot_ids.add(bot.id)
-            continue
-        for root in get_all_roots(bot, workspace_service):
-            try:
-                stats = await index_directory(
-                    root, bot.id, _resolved["patterns"], force=True,
-                    embedding_model=_resolved["embedding_model"],
-                    segments=_segments,
-                )
-                results["filesystem"].append({
-                    "bot_id": bot.id, "root": root, **stats,
-                })
-            except Exception as e:
-                results["filesystem"].append({
-                    "bot_id": bot.id, "root": root, "error": str(e),
-                })
-        if bot.memory_scheme == "workspace-files":
-            memory_indexed_bot_ids.add(bot.id)
+            done += 1
+            progress.update(reindex_op, current=done, total=bot_count, message=f"Done {bot.id}")
 
-    # Memory-only reindex for bots with workspace-files but no general indexing
-    for bot in list_bots():
-        if (
-            bot.memory_scheme == "workspace-files"
-            and bot.workspace.enabled
-            and bot.id not in memory_indexed_bot_ids
-        ):
-            try:
-                stats = await index_memory_for_bot(bot, force=True)
-                if stats:
+        # Memory-only reindex for bots with workspace-files but no general indexing
+        for bot in bots:
+            if (
+                bot.memory_scheme == "workspace-files"
+                and bot.workspace.enabled
+                and bot.id not in memory_indexed_bot_ids
+            ):
+                try:
+                    stats = await index_memory_for_bot(bot, force=True)
+                    if stats:
+                        results["filesystem"].append({
+                            "bot_id": bot.id, "source": "memory-only", **stats,
+                        })
+                except Exception as e:
                     results["filesystem"].append({
-                        "bot_id": bot.id, "source": "memory-only", **stats,
+                        "bot_id": bot.id, "source": "memory-only", "error": str(e),
                     })
-            except Exception as e:
-                results["filesystem"].append({
-                    "bot_id": bot.id, "source": "memory-only", "error": str(e),
-                })
 
-    # Re-embed workspace skills
-    from app.db.models import SharedWorkspace as SW
-    ws_rows = (await db.execute(select(SW).where(SW.workspace_skills_enabled == True))).scalars().all()  # noqa: E712
-    if ws_rows:
-        from app.services.workspace_skills import embed_workspace_skills
-        for ws in ws_rows:
-            try:
-                stats = await embed_workspace_skills(str(ws.id))
-                results["workspace_skills"].append({
-                    "workspace": ws.name, **stats,
-                })
-            except Exception as e:
-                results["workspace_skills"].append({
-                    "workspace": ws.name, "error": str(e),
-                })
+        # Re-embed workspace skills
+        from app.db.models import SharedWorkspace as SW
+        ws_rows = (await db.execute(select(SW).where(SW.workspace_skills_enabled == True))).scalars().all()  # noqa: E712
+        if ws_rows:
+            from app.services.workspace_skills import embed_workspace_skills
+            for ws in ws_rows:
+                try:
+                    stats = await embed_workspace_skills(str(ws.id))
+                    results["workspace_skills"].append({
+                        "workspace": ws.name, **stats,
+                    })
+                except Exception as e:
+                    results["workspace_skills"].append({
+                        "workspace": ws.name, "error": str(e),
+                    })
+
+        progress.complete(reindex_op, message="Reindex complete")
+    except Exception as e:
+        progress.fail(reindex_op, message=str(e))
+        raise
 
     return {"ok": True, **results}
 

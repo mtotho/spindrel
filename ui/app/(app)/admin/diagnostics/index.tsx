@@ -11,6 +11,7 @@ import {
   type FsIndexDiag,
   type ReindexResult,
 } from "@/src/api/hooks/useDiagnostics";
+import { OperationsPanel } from "./OperationsPanel";
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -258,6 +259,9 @@ export default function DiagnosticsScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: 16, gap: 16, maxWidth: 900,
       }}>
+        {/* Active operations (progress bars) */}
+        <OperationsPanel />
+
         {/* Reindex result banner */}
         {reindexResult && (
           <ReindexResultBanner result={reindexResult} onDismiss={() => setReindexResult(null)} />
