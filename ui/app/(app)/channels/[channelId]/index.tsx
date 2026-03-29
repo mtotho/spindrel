@@ -165,8 +165,11 @@ export default function ChatScreen() {
     [channelId, channel, turnModelOverride]
   );
 
-  // For inverted FlatList, data must be newest-first
-  const invertedData = [...chatState.messages].reverse();
+  // Filter out assistant messages with no visible content (e.g. think-tag-only iterations)
+  // then reverse for inverted FlatList (newest-first)
+  const invertedData = chatState.messages
+    .filter((m) => m.role !== "assistant" || (m.content ?? "").trim().length > 0)
+    .reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {

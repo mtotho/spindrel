@@ -273,6 +273,19 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     await stream_buffer.flush()
                     _assistant_texts_posted = True
                     stream_buffer = None
+                    # In append mode, preserve the streamed content in its message
+                    # and post a new placeholder for the tool status
+                    if thinking_display == "append":
+                        _tool_ph: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _tool_ph["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_tool_ph)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
                 tool = event.get("tool", "tool")
                 status = format_tool_status(tool, event.get("args"))
                 await client.chat_update(
@@ -427,6 +440,19 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     await stream_buffer.flush()
                     _assistant_texts_posted = True
                     stream_buffer = None
+                    # In append mode, preserve the streamed content and post a
+                    # new placeholder so the final response doesn't overwrite it
+                    if thinking_display == "append":
+                        _resp_ph: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _resp_ph["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_resp_ph)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
 
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []

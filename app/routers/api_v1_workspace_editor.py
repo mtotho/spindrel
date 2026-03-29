@@ -121,23 +121,32 @@ async def proxy_editor_http(
     if request.url.query:
         target_url += f"?{request.url.query}"
 
-    # Forward request
+    # Forward request with retry for startup race
     body = await request.body()
     headers = dict(request.headers)
     for h in ("host", "connection", "transfer-encoding"):
         headers.pop(h, None)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                content=body,
-                follow_redirects=False,
-            )
-        except httpx.ConnectError:
-            raise HTTPException(502, "Editor not reachable — it may still be starting up")
+    import asyncio
+
+    last_exc = None
+    for attempt in range(4):  # up to ~6s of retries
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                resp = await client.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=headers,
+                    content=body,
+                    follow_redirects=False,
+                )
+                break
+            except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+                last_exc = exc
+                if attempt < 3:
+                    await asyncio.sleep(2)
+    else:
+        raise HTTPException(502, f"Editor not reachable — it may still be starting up ({last_exc})")
 
     # Build response, preserving status and headers
     response_headers = dict(resp.headers)

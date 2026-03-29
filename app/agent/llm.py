@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
-_MAX_TAG_LEN = len(_THINK_CLOSE)  # 8 — longest tag we need to buffer for
 
 
 class ThinkTagParser:
@@ -226,6 +225,11 @@ class StreamAccumulator:
     def build(self) -> AccumulatedMessage:
         """Build the final accumulated message."""
         content = "".join(self._content_parts) if self._content_parts else None
+        # Normalize whitespace-only content to None (e.g. "\n\n" after stripped think tags)
+        if content is not None and not content.strip():
+            content = None
+        elif content is not None:
+            content = content.strip()
         thinking = "".join(self._thinking_parts) if self._thinking_parts else None
         tool_calls = (
             [self._tool_calls[i] for i in sorted(self._tool_calls)]

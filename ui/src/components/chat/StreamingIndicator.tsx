@@ -116,11 +116,11 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         )}
 
         {/* Streaming text */}
-        {content ? (
+        {content.trimStart() ? (
           <View>
             {Platform.OS === "web" ? (
               <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText }}>
-                {content}
+                {content.trimStart()}
                 <span
                   style={{
                     display: "inline-block",
@@ -135,7 +135,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
                 />
               </div>
             ) : (
-              <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{content}</Text>
+              <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{content.trimStart()}</Text>
             )}
           </View>
         ) : toolCalls.length === 0 ? (
