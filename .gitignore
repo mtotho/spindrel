@@ -57,7 +57,7 @@ rclone.conf
 # User content (create your own via UI or drop files here)
 /bots/
 !/bots/.gitkeep
-/skills/
+#/skills/
 !/skills/.gitkeep
 
 # User tools (see tools/README.md)
