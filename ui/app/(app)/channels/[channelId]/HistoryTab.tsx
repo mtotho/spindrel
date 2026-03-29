@@ -22,16 +22,6 @@ const HISTORY_MODES: ReadonlyArray<{
   recommended?: boolean;
 }> = [
   {
-    value: "",
-    label: "Inherit",
-    icon: "\u2193",
-    accentColor: "#6b7280",
-    bg: "rgba(107,114,128,0.06)",
-    border: "rgba(107,114,128,0.25)",
-    summary: "Use the bot's default history mode.",
-    detail: null,
-  },
-  {
     value: "summary",
     label: "Summary",
     icon: "\ud83d\udcdd",
@@ -89,24 +79,26 @@ const VERBOSITY_OPTIONS = [
 // ---------------------------------------------------------------------------
 // History Mode section — visual mode selector with contextual details
 // ---------------------------------------------------------------------------
-function HistoryModeSection({ form, patch }: {
+function HistoryModeSection({ form, patch, botHistoryMode }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  botHistoryMode?: string | null;
 }) {
   const t = useThemeTokens();
-  const selected = form.history_mode ?? "";
-  const mode = HISTORY_MODES.find((m) => m.value === selected) || HISTORY_MODES[0];
+  const isInherited = !form.history_mode;
+  const effectiveMode = form.history_mode || botHistoryMode || "file";
+  const mode = HISTORY_MODES.find((m) => m.value === effectiveMode) || HISTORY_MODES[0];
 
   return (
     <Section title="History Mode">
       {/* Mode selector cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
         {HISTORY_MODES.map((m) => {
-          const isSelected = selected === m.value;
+          const isSelected = effectiveMode === m.value;
           return (
             <button
               key={m.value}
-              onClick={() => patch("history_mode", m.value || null)}
+              onClick={() => patch("history_mode", m.value)}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
                 padding: "14px 10px", borderRadius: 8, cursor: "pointer",
@@ -127,6 +119,11 @@ function HistoryModeSection({ form, patch }: {
                   Recommended
                 </span>
               )}
+              {isSelected && isInherited && (
+                <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, letterSpacing: "0.03em" }}>
+                  Inherited from bot
+                </span>
+              )}
               <span style={{
                 fontSize: 10, color: isSelected ? t.textMuted : t.textDim,
                 textAlign: "center", lineHeight: "1.3",
@@ -137,6 +134,20 @@ function HistoryModeSection({ form, patch }: {
           );
         })}
       </div>
+
+      {/* Reset to inherited when channel has an explicit override */}
+      {!isInherited && (
+        <button
+          onClick={() => patch("history_mode", null)}
+          style={{
+            marginTop: 4, padding: "4px 10px", fontSize: 11, fontWeight: 600,
+            color: t.textDim, background: "none", border: "none", cursor: "pointer",
+            textDecoration: "underline", textUnderlineOffset: 2,
+          }}
+        >
+          Reset to bot default{botHistoryMode ? ` (${botHistoryMode})` : ""}
+        </button>
+      )}
 
       {/* Detail panel for selected mode */}
       {mode.detail && (
@@ -620,21 +631,22 @@ function SectionIndexSettings({ form, patch, channelId }: {
 // ---------------------------------------------------------------------------
 // History Tab — history mode, compaction settings, backfill
 // ---------------------------------------------------------------------------
-export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme }: {
+export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, botHistoryMode }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
   workspaceId?: string | null;
   memoryScheme?: string | null;
+  botHistoryMode?: string | null;
 }) {
   const t = useThemeTokens();
-  const selected = form.history_mode ?? "";
-  const isFileOrStructured = selected === "file" || selected === "structured";
+  const effectiveMode = form.history_mode || botHistoryMode || "file";
+  const isFileOrStructured = effectiveMode === "file" || effectiveMode === "structured";
 
   return (
     <>
       {/* 1. History Mode cards — always visible at top */}
-      <HistoryModeSection form={form} patch={patch} />
+      <HistoryModeSection form={form} patch={patch} botHistoryMode={botHistoryMode} />
 
       {/* 2. Compaction settings — conditional on mode */}
       {isFileOrStructured ? (
@@ -645,7 +657,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme }
             padding: "10px 14px", background: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.25)",
             borderRadius: 8, fontSize: 12, color: "#b45309", fontWeight: 600,
           }}>
-            Auto-compaction is always on in {selected} mode — it creates the archived sections the bot navigates.
+            Auto-compaction is always on in {effectiveMode} mode — it creates the archived sections the bot navigates.
           </div>
 
           {/* File-mode guidance */}
@@ -768,7 +780,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme }
             500 messages at chunk size 50 = ~11 LLM calls using your compaction model. Set your interval and keep
             turns first. Resume only processes uncovered messages; re-chunk deletes everything and starts fresh.
           </div>
-          <BackfillButton channelId={channelId} historyMode={selected} />
+          <BackfillButton channelId={channelId} historyMode={effectiveMode} />
         </Section>
 
         <Section title="Archived Sections" description="Browse and manage archived conversation sections.">

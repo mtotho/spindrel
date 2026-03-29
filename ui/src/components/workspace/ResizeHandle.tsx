@@ -1,4 +1,5 @@
 import { useRef, useCallback } from "react";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface ResizeHandleProps {
   direction: "horizontal" | "vertical";
@@ -6,6 +7,7 @@ interface ResizeHandleProps {
 }
 
 export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
+  const t = useThemeTokens();
   const dragging = useRef(false);
   const lastPos = useRef(0);
 
@@ -60,7 +62,7 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
           [isHorizontal ? "left" : "top"]: 2,
           [isHorizontal ? "width" : "height"]: 1,
           [isHorizontal ? "height" : "width"]: "100%",
-          background: "#333",
+          background: t.surfaceBorder,
           top: isHorizontal ? 0 : undefined,
           left: isHorizontal ? undefined : 0,
         }}

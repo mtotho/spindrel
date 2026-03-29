@@ -58,7 +58,7 @@ export default function WorkspaceFileBrowser() {
 
   if (isLoading || !workspace) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0d0d0d" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
         <ActivityIndicator color={t.accent} />
       </View>
     );
@@ -69,7 +69,7 @@ export default function WorkspaceFileBrowser() {
   // Not-running state
   if (!isRunning) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#0d0d0d", height: "100%" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
         <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
         <div
           style={{
@@ -127,7 +127,7 @@ export default function WorkspaceFileBrowser() {
   const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || "/" : "/";
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#0d0d0d", height: "100%" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
       <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>

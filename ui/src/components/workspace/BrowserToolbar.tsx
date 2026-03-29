@@ -12,6 +12,7 @@ import {
   useStopWorkspace,
 } from "../../api/hooks/useWorkspaces";
 import type { SharedWorkspace } from "../../types/api";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface BrowserToolbarProps {
   workspace: SharedWorkspace;
@@ -20,6 +21,7 @@ interface BrowserToolbarProps {
 }
 
 export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbarProps) {
+  const t = useThemeTokens();
   const router = useRouter();
   const splitMode = useFileBrowserStore((s) => s.splitMode);
   const toggleSplit = useFileBrowserStore((s) => s.toggleSplit);
@@ -65,7 +67,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
   // Status colors
   const statusColor =
     workspace.status === "running" ? "#22c55e" :
-    workspace.status === "creating" ? "#3b82f6" : "#666";
+    workspace.status === "creating" ? "#3b82f6" : t.textDim;
 
   return (
     <div
@@ -74,8 +76,8 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
         alignItems: "center",
         gap: isMobile ? 4 : 8,
         padding: isMobile ? "6px 8px" : "6px 12px",
-        background: "#141414",
-        borderBottom: "1px solid #222",
+        background: t.surfaceRaised,
+        borderBottom: `1px solid ${t.surfaceBorder}`,
         flexShrink: 0,
         minHeight: 40,
         flexWrap: isMobile ? "nowrap" : undefined,
@@ -97,7 +99,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
           style={{
             fontSize: isMobile ? 13 : 14,
             fontWeight: 600,
-            color: "#e5e5e5",
+            color: t.text,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -109,8 +111,8 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
 
       {/* Breadcrumb — hide on mobile */}
       {!isMobile && leftActive && (
-        <div style={{ display: "flex", alignItems: "center", gap: 2, color: "#555", fontSize: 12, overflow: "hidden" }}>
-          <ChevronRight size={12} color="#444" />
+        <div style={{ display: "flex", alignItems: "center", gap: 2, color: t.textDim, fontSize: 12, overflow: "hidden" }}>
+          <ChevronRight size={12} color={t.textDim} />
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {leftActive}
           </span>
@@ -123,7 +125,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       {creating && (
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {!isMobile && (
-            <span style={{ fontSize: 11, color: "#666" }}>
+            <span style={{ fontSize: 11, color: t.textDim }}>
               New {creating}:
             </span>
           )}
@@ -135,11 +137,11 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
             onBlur={() => { setCreating(null); setNewName(""); }}
             placeholder={creating === "file" ? "filename.txt" : "folder-name"}
             style={{
-              background: "#0a0a0a",
-              border: "1px solid #333",
+              background: t.inputBg,
+              border: `1px solid ${t.inputBorder}`,
               borderRadius: 4,
               padding: "2px 8px",
-              color: "#e5e5e5",
+              color: t.inputText,
               fontSize: 12,
               outline: "none",
               width: isMobile ? 120 : 160,
@@ -156,7 +158,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       {/* Split — hide on mobile */}
       {!isMobile && (
         <>
-          <div style={{ width: 1, height: 20, background: "#333", flexShrink: 0 }} />
+          <div style={{ width: 1, height: 20, background: t.surfaceBorder, flexShrink: 0 }} />
           <ToolbarButton
             icon={<Columns2 size={14} />}
             title={splitMode ? "Close Split" : "Split View"}
@@ -166,7 +168,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
         </>
       )}
 
-      <div style={{ width: 1, height: 20, background: "#333", flexShrink: 0 }} />
+      <div style={{ width: 1, height: 20, background: t.surfaceBorder, flexShrink: 0 }} />
 
       {/* Container controls */}
       {isRunning ? (
@@ -207,6 +209,7 @@ function ToolbarButton({
   disabled?: boolean;
   active?: boolean;
 }) {
+  const t = useThemeTokens();
   return (
     <button
       onClick={onClick}
@@ -220,8 +223,8 @@ function ToolbarButton({
         height: 28,
         borderRadius: 4,
         border: "none",
-        background: active ? "rgba(59,130,246,0.15)" : "transparent",
-        color: active ? "#3b82f6" : disabled ? "#444" : "#888",
+        background: active ? `${t.accent}26` : "transparent",
+        color: active ? t.accent : disabled ? t.textDim : t.textMuted,
         cursor: disabled ? "not-allowed" : "pointer",
         flexShrink: 0,
         padding: 0,

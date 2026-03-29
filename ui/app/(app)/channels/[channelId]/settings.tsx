@@ -199,7 +199,7 @@ export default function ChannelSettingsScreen() {
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
         )}
         {tab === "history" && (
-          <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} />
+          <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workspace" && (

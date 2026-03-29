@@ -1,11 +1,13 @@
 import { useFileBrowserStore, type PaneId, type OpenFile } from "../../stores/fileBrowser";
 import { X } from "lucide-react";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface PaneTabBarProps {
   pane: PaneId;
 }
 
 export function PaneTabBar({ pane }: PaneTabBarProps) {
+  const t = useThemeTokens();
   const paneState = useFileBrowserStore((s) => s[pane === "left" ? "leftPane" : "rightPane"]);
   const setActiveFile = useFileBrowserStore((s) => s.setActiveFile);
   const closeFile = useFileBrowserStore((s) => s.closeFile);
@@ -17,8 +19,8 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
       style={{
         display: "flex",
         overflow: "auto",
-        background: "#141414",
-        borderBottom: "1px solid #222",
+        background: t.surfaceRaised,
+        borderBottom: `1px solid ${t.surfaceBorder}`,
         flexShrink: 0,
         height: 34,
       }}
@@ -35,9 +37,9 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
               gap: 6,
               padding: "0 12px",
               cursor: "pointer",
-              background: isActive ? "#1a1a1a" : "transparent",
-              borderBottom: isActive ? "2px solid #3b82f6" : "2px solid transparent",
-              borderRight: "1px solid #1a1a1a",
+              background: isActive ? t.surfaceOverlay : "transparent",
+              borderBottom: isActive ? `2px solid ${t.accent}` : "2px solid transparent",
+              borderRight: `1px solid ${t.surfaceBorder}`,
               whiteSpace: "nowrap",
               minWidth: 0,
               flexShrink: 0,
@@ -57,7 +59,7 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
             <span
               style={{
                 fontSize: 12,
-                color: isActive ? "#e5e5e5" : "#888",
+                color: isActive ? t.text : t.textMuted,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
@@ -79,7 +81,7 @@ export function PaneTabBar({ pane }: PaneTabBarProps) {
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
             >
-              <X size={12} color="#888" />
+              <X size={12} color={t.textMuted} />
             </span>
           </div>
         );
