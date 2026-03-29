@@ -45,8 +45,14 @@ def _cached_dir() -> str:
 async def _ensure_downloaded() -> str:
     """Download code-server tarball to host cache if not present. Returns path to unpacked dir."""
     unpacked = _cached_dir()
-    if os.path.isdir(unpacked) and os.path.isfile(os.path.join(unpacked, "bin", "code-server")):
+    bin_ok = os.path.isfile(os.path.join(unpacked, "bin", "code-server"))
+    node_ok = os.path.isfile(os.path.join(unpacked, "lib", "node"))
+    if os.path.isdir(unpacked) and bin_ok and node_ok and os.access(os.path.join(unpacked, "lib", "node"), os.X_OK):
         return unpacked
+    # Clear broken extraction
+    if os.path.isdir(unpacked):
+        import shutil
+        shutil.rmtree(unpacked)
 
     os.makedirs(CACHE_DIR, exist_ok=True)
     tarball = _cached_tarball()
@@ -79,7 +85,8 @@ async def _ensure_downloaded() -> str:
                     member.name = member.name[len(prefix) + 1:]
                 if not member.name:
                     continue
-                tf.extract(member, unpacked, filter="data")
+                # Use filter=None to preserve permissions (executables need +x)
+                tf.extract(member, unpacked, filter=None)
 
     await asyncio.to_thread(_extract)
 
@@ -108,10 +115,10 @@ async def install_code_server(container_name: str) -> None:
     if proc.returncode != 0:
         raise RuntimeError(f"docker cp failed: {stderr.decode()}")
 
-    # Make binary executable
+    # Make binaries executable (bin/code-server is a shell script, lib/node is the runtime)
     proc = await asyncio.create_subprocess_exec(
-        "docker", "exec", container_name, "chmod", "+x",
-        f"{CONTAINER_INSTALL_DIR}/bin/code-server",
+        "docker", "exec", container_name, "sh", "-c",
+        f"chmod +x {CONTAINER_INSTALL_DIR}/bin/code-server {CONTAINER_INSTALL_DIR}/lib/node",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -306,13 +313,13 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             ws.container_name, ws.status, ws.editor_port,
         )
 
-    # 3. Install code-server (idempotent — checks if binary exists)
+    # 3. Install code-server (idempotent — checks if binary AND node runtime exist)
     if ws.container_name:
         rc, _ = await shared_workspace_service._docker_exec(
-            ws.container_name, f"test -f {CONTAINER_INSTALL_DIR}/bin/code-server"
+            ws.container_name, f"test -x {CONTAINER_INSTALL_DIR}/lib/node"
         )
         if rc != 0:
-            logger.info("Installing code-server in %s", ws.container_name)
+            logger.info("Installing code-server in %s (node binary missing or not executable)", ws.container_name)
             await install_code_server(ws.container_name)
         else:
             logger.info("code-server already installed in %s", ws.container_name)

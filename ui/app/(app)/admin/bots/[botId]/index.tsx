@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Save, Search, X } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
 import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { useHashTab } from "@/src/hooks/useHashTab";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -15,7 +16,7 @@ import {
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { MemorySection, KnowledgeSection } from "./MemoryKnowledgeSections";
-import { SECTIONS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
+import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
 import { BigTextarea } from "./BigTextarea";
 import { SectionNav } from "./SectionNav";
 import { ModelParamsSection } from "./ModelParamsSection";
@@ -45,7 +46,7 @@ export default function BotEditorScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
 
-  const [activeSection, setActiveSection] = useState<SectionKey>("identity");
+  const [activeSection, setActiveSection] = useHashTab<SectionKey>("identity", SECTION_KEYS);
   const [filter, setFilter] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState<BotConfig | null>(null);
@@ -433,6 +434,10 @@ export default function BotEditorScreen() {
                 meets or exceeds the <strong style={{ color: t.text }}>threshold</strong>, the turn is sent to the
                 {" "}<strong style={{ color: t.text }}>elevated model</strong> instead of this bot's default model.
                 No elevation occurs during compaction turns, or if the elevated model is the same as the bot's model.
+                {" "}
+                <a href="/settings#Model%20Elevation" style={{ color: t.accent, textDecoration: "none" }}>
+                  Edit global elevation defaults &rarr;
+                </a>
               </div>
 
               <div style={{
@@ -577,9 +582,54 @@ export default function BotEditorScreen() {
           )}
 
           {activeSection === "attachments" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Attachment Summarization</div>
-              <div style={{ fontSize: 11, color: t.textDim }}>Override global attachment summarization settings.</div>
+              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
+                When enabled, incoming attachments are eagerly summarized before the agent loop begins.
+                Override the global defaults here, or{" "}
+                <a href="/settings#Attachments" style={{ color: t.accent, textDecoration: "none" }}>
+                  edit global attachment settings &rarr;
+                </a>
+              </div>
+
+              <div style={{
+                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Processing Pipeline</div>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
+                  <strong style={{ color: t.text }}>Images</strong> are sent to the vision/summary model and replaced with
+                  a text description. <strong style={{ color: t.text }}>Text files</strong> (code, markdown, PDF text, etc.)
+                  are extracted and truncated to the max-chars limit. Multiple vision requests run concurrently up to
+                  the concurrency cap. All summarization happens before the first LLM call.
+                </div>
+              </div>
+
+              <div style={{
+                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Supported Types</div>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.7, fontFamily: "monospace" }}>
+                  <div><span style={{ color: "#6b9" }}>Images</span> — JPEG, PNG, GIF, WebP (sent to vision model)</div>
+                  <div><span style={{ color: "#6b9" }}>Text</span> — .txt, .md, .csv, .json, .py, .js, .ts, etc. (extracted &amp; truncated)</div>
+                  <div><span style={{ color: "#6b9" }}>PDF</span> — text extracted, then truncated to max-chars</div>
+                  <div><span style={{ color: "#e66" }}>Audio/Video</span> — not supported (ignored)</div>
+                </div>
+              </div>
+
+              <div style={{
+                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Config Resolution</div>
+                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
+                  Settings resolve with priority: <strong style={{ color: t.text }}>Bot</strong> &gt;{" "}
+                  <strong style={{ color: t.text }}>Global (.env / Settings)</strong>. There is no channel-level override
+                  for attachment settings. Set to "Inherit" to use the global value.
+                </div>
+              </div>
+
               <SelectInput
                 value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""}
                 onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })}

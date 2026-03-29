@@ -2,11 +2,11 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, BookOpen, FileText, Plug, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, BookOpen, FileText, Plug, AlertTriangle, Search } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
@@ -164,6 +164,19 @@ export default function SkillsScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const [search, setSearch] = useState("");
+
+  const filteredSkills = useMemo(() => {
+    if (!skills) return [];
+    if (!search.trim()) return skills;
+    const q = search.toLowerCase();
+    return skills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.source_type.toLowerCase().includes(q),
+    );
+  }, [skills, search]);
 
   const handleSync = () => {
     setSyncResult(null);
@@ -217,6 +230,30 @@ export default function SkillsScreen() {
         }
       />
 
+      {/* Search bar */}
+      <div style={{
+        padding: isWide ? "8px 16px" : "8px 12px",
+        borderBottom: `1px solid ${t.surfaceRaised}`,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 6, padding: "5px 10px",
+          maxWidth: isWide ? 300 : undefined,
+        }}>
+          <Search size={13} color={t.textDim} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter skills..."
+            style={{
+              background: "none", border: "none", outline: "none",
+              color: t.text, fontSize: 12, flex: 1, width: "100%",
+            }}
+          />
+        </div>
+      </div>
+
       {/* Sync result banner */}
       {syncResult && (
         <SyncResultBanner result={syncResult} onDismiss={() => setSyncResult(null)} />
@@ -236,7 +273,7 @@ export default function SkillsScreen() {
       )}
 
       {/* Table header (desktop only) */}
-      {isWide && skills && skills.length > 0 && (
+      {isWide && filteredSkills.length > 0 && (
         <div style={{
           display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
           gap: 12, padding: "8px 16px",
@@ -264,7 +301,12 @@ export default function SkillsScreen() {
             <code style={{ color: t.textMuted }}>skills/</code> and click Sync Files.
           </div>
         )}
-        {skills?.map((skill) => (
+        {skills && skills.length > 0 && filteredSkills.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+            No skills match "{search}"
+          </div>
+        )}
+        {filteredSkills.map((skill) => (
           <SkillRow
             key={skill.id}
             skill={skill}

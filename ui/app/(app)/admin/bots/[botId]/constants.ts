@@ -18,4 +18,6 @@ export const SECTIONS = [
 
 export type SectionKey = (typeof SECTIONS)[number]["key"];
 
+export const SECTION_KEYS = SECTIONS.map((s) => s.key) as unknown as readonly SectionKey[];
+
 export const MOBILE_NAV_BREAKPOINT = 768;

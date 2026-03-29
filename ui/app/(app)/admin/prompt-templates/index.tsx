@@ -1,9 +1,10 @@
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useState, useMemo } from "react";
 import type { PromptTemplate } from "@/src/types/api";
 
 function SourceBadge({ type }: { type: string }) {
@@ -122,6 +123,19 @@ export default function PromptTemplatesScreen() {
   const { data: templates, isLoading } = usePromptTemplates();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const [search, setSearch] = useState("");
+
+  const filteredTemplates = useMemo(() => {
+    if (!templates) return [];
+    if (!search.trim()) return templates;
+    const q = search.toLowerCase();
+    return templates.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.category || "").toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q),
+    );
+  }, [templates, search]);
 
   if (isLoading) {
     return (
@@ -151,8 +165,32 @@ export default function PromptTemplatesScreen() {
         }
       />
 
+      {/* Search bar */}
+      <div style={{
+        padding: isWide ? "8px 16px" : "8px 12px",
+        borderBottom: `1px solid ${tk.surfaceRaised}`,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          background: tk.surfaceRaised, border: `1px solid ${tk.surfaceBorder}`,
+          borderRadius: 6, padding: "5px 10px",
+          maxWidth: isWide ? 300 : undefined,
+        }}>
+          <Search size={13} color={tk.textDim} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter templates..."
+            style={{
+              background: "none", border: "none", outline: "none",
+              color: tk.text, fontSize: 12, flex: 1, width: "100%",
+            }}
+          />
+        </div>
+      </div>
+
       {/* Table header (desktop only) */}
-      {isWide && templates && templates.length > 0 && (
+      {isWide && filteredTemplates.length > 0 && (
         <div style={{
           display: "grid", gridTemplateColumns: "1fr 100px 80px 80px 100px",
           gap: 12, padding: "8px 16px",
@@ -180,12 +218,17 @@ export default function PromptTemplatesScreen() {
             <code style={{ color: tk.textMuted }}>prompts/</code>.
           </div>
         )}
-        {templates?.map((t) => (
+        {templates && templates.length > 0 && filteredTemplates.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: tk.textDim, fontSize: 13 }}>
+            No templates match "{search}"
+          </div>
+        )}
+        {filteredTemplates.map((tmpl) => (
           <TemplateRow
-            key={t.id}
-            template={t}
+            key={tmpl.id}
+            template={tmpl}
             isWide={isWide}
-            onPress={() => router.push(`/admin/prompt-templates/${t.id}` as any)}
+            onPress={() => router.push(`/admin/prompt-templates/${tmpl.id}` as any)}
           />
         ))}
       </ScrollView>

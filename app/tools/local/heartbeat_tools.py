@@ -39,7 +39,7 @@ async def get_last_heartbeat(limit: int = 1) -> str:
     if not channel_id:
         return "No channel context available."
 
-    limit = min(max(1, limit), 10)
+    limit = min(max(1, int(limit)), 10)
 
     async with async_session() as db:
         stmt = (

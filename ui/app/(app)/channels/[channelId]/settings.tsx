@@ -1,11 +1,12 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
+import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, Link } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
@@ -72,7 +73,8 @@ export default function ChannelSettingsScreen() {
     return BASE_TABS;
   }, [hasWorkspace]);
 
-  const [tab, setTab] = useState("general");
+  const tabKeys = useMemo(() => TABS.map((t) => t.key), [TABS]);
+  const [tab, setTab] = useHashTab("general", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
@@ -149,9 +151,19 @@ export default function ChannelSettingsScreen() {
           <Text className="text-text font-semibold" style={{ fontSize: 16 }} numberOfLines={1}>
             {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
           </Text>
-          <Text className="text-text-dim text-xs" numberOfLines={1}>
-            Channel Settings
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text className="text-text-dim text-xs" numberOfLines={1}>
+              Channel Settings
+            </Text>
+            {settings?.bot_id && (
+              <Link href={`/admin/bots/${settings.bot_id}` as any} asChild>
+                <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                  <ExternalLink size={10} color={t.accent} />
+                  <Text style={{ fontSize: 11, color: t.accent }}>{currentBot?.name || settings.bot_id}</Text>
+                </Pressable>
+              </Link>
+            )}
+          </View>
         </View>
         {(tab === "general" || tab === "history" || tab === "workspace") && (
           <Pressable
