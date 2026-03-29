@@ -17,6 +17,7 @@ import {
 } from "@/src/api/hooks/useUsage";
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { LimitsTab } from "./LimitsTab";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,7 +31,7 @@ const TIME_PRESETS: { label: string; value: string }[] = [
   { label: "30d", value: "30d" },
 ];
 
-const TABS = ["Overview", "Logs", "Charts"] as const;
+const TABS = ["Overview", "Logs", "Charts", "Limits"] as const;
 type Tab = (typeof TABS)[number];
 
 function fmtCost(v: number | null | undefined): string {
@@ -1052,6 +1053,7 @@ export default function UsageScreen() {
           {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} />}
           {tab === "Logs" && <LogsTab params={params} />}
           {tab === "Charts" && <ChartsTab params={params} />}
+          {tab === "Limits" && <LimitsTab knownModels={modelNames} />}
         </div>
       </RefreshableScrollView>
     </View>

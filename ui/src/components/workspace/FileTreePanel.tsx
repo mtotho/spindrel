@@ -173,6 +173,8 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           if (!srcPath) return;
           // Don't move if already at root level (no directory separator beyond first segment)
           if (!srcPath.includes("/")) return;
+          const srcName = srcPath.split("/").pop() || srcPath;
+          if (!window.confirm(`Move "${srcName}" to root?`)) return;
           moveMutation.mutate({ src: srcPath, dst: "/" }, {
             onSuccess: () => {
               closeFile(srcPath, "left");

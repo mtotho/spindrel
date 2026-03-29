@@ -32,6 +32,14 @@ function formatTimestamp(ts: number | null | undefined): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatSize(bytes: number | null | undefined): string {
+  if (bytes == null) return "";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
+}
+
 /** Select filename without extension in an input */
 function selectNameWithoutExt(input: HTMLInputElement) {
   const val = input.value;
@@ -127,13 +135,15 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
     const srcPath = e.dataTransfer.getData("text/plain");
     if (!srcPath || srcPath === entry.path) return;
     if (entry.path.startsWith(srcPath + "/")) return;
+    const srcName = srcPath.split("/").pop() || srcPath;
+    if (!window.confirm(`Move "${srcName}" into "${entry.name}"?`)) return;
     moveMutation.mutate({ src: srcPath, dst: entry.path }, {
       onSuccess: () => {
         closeFile(srcPath, "left");
         closeFile(srcPath, "right");
       },
     });
-  }, [entry.path, entry.is_dir, moveMutation, closeFile]);
+  }, [entry.path, entry.name, entry.is_dir, moveMutation, closeFile]);
 
   // Search filter visibility
   const nameMatches = !searchFilter || fuzzyMatch(searchFilter, entry.name);
@@ -338,9 +348,9 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
           </span>
         )}
 
-        {!renaming && !entry.is_dir && entry.modified_at && (
-          <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, paddingRight: 4 }}>
-            {formatTimestamp(entry.modified_at)}
+        {!renaming && !entry.is_dir && (
+          <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, paddingRight: 4, whiteSpace: "nowrap" }}>
+            {[formatSize(entry.size), formatTimestamp(entry.modified_at)].filter(Boolean).join(" · ")}
           </span>
         )}
       </div>
