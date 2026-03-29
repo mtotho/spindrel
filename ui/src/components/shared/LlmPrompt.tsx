@@ -31,6 +31,8 @@ export function scoreMatch(value: string, label: string, query: string): number 
   return 1;
 }
 
+// TAG_COLORS uses intentional domain-specific dark background colors
+// paired with semantic token foregrounds where possible
 const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   skill: { bg: "#1e1b4b", fg: "#4f46e5" },
   tool: { bg: "#14532d", fg: "#16a34a" },
@@ -86,7 +88,7 @@ function GenerateButton({
         transition: "all 0.15s", fontWeight: 600, whiteSpace: "nowrap",
       };
 
-  const flashColor = flash === "success" ? "#22c55e" : flash === "error" ? "#ef4444" : undefined;
+  const flashColor = flash === "success" ? t.success : flash === "error" ? t.danger : undefined;
 
   return (
     <button

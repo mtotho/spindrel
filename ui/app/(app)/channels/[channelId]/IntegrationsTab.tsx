@@ -64,7 +64,7 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
                   onPress={() => unbindMutation.mutate(b.id)}
                   className="p-1 rounded hover:bg-surface-overlay"
                 >
-                  <X size={14} color="#ef4444" />
+                  <X size={14} color={t.danger} />
                 </Pressable>
               </View>
             ))}

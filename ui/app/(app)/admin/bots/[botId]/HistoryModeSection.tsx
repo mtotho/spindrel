@@ -66,16 +66,16 @@ export function HistoryModeSection({ draft, update }: {
         <>
           {/* Presets info */}
           <div style={{
-            background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.15)",
+            background: t.successSubtle, border: `1px solid ${t.success}22`,
             borderRadius: 8, padding: "14px 16px",
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#22c55e", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.success, marginBottom: 10 }}>
               {isFileMode ? "File mode — applying presets" : "Structured mode — applying presets"}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {FILE_MODE_PRESETS.map((p, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <Check size={12} color="#22c55e" style={{ marginTop: 2, flexShrink: 0 } as any} />
+                  <Check size={12} color={t.success} style={{ marginTop: 2, flexShrink: 0 } as any} />
                   <div>
                     <span style={{ fontSize: 12, color: t.text }}>{p.label}</span>
                     <span style={{ fontSize: 11, color: t.textDim }}> — {p.detail}</span>
@@ -105,7 +105,7 @@ export function HistoryModeSection({ draft, update }: {
               <span style={{ fontSize: 12, fontWeight: 600 }}>Built-in Context (section index + tool)</span>
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(34,197,94,0.1)", color: "#4ade80",
+                background: t.successSubtle, color: t.success,
                 marginLeft: 4,
               }}>auto-injected</span>
             </button>

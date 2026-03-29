@@ -194,7 +194,7 @@ function SegmentEditor({
           {seg.top_k != null && <span style={{ color: t.textDim, fontSize: 10 }}>k: {seg.top_k}</span>}
           <button
             onClick={() => removeSegment(i)}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "#f87171", fontSize: 12, lineHeight: 1 }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: t.dangerMuted, fontSize: 12, lineHeight: 1 }}
             title="Remove directory"
           >
             <X size={12} />
@@ -241,7 +241,7 @@ function SegmentEditor({
         </button>
       </div>
       {updateIndexing.isPending && (
-        <div style={{ fontSize: 10, color: "#8b5cf6", marginTop: 4 }}>Saving...</div>
+        <div style={{ fontSize: 10, color: t.purple, marginTop: 4 }}>Saving...</div>
       )}
     </div>
   );
@@ -316,7 +316,7 @@ function BotIndexCard({
         <span style={{
           width: 8, height: 8, borderRadius: 4, flexShrink: 0,
           background: bot.indexing_enabled ? "#14b8a6"
-            : bot.memory_scheme === "workspace-files" ? "#8b5cf6"
+            : bot.memory_scheme === "workspace-files" ? t.purple
             : t.surfaceBorder,
         }} />
         {/* Clickable bot name → bot edit page */}
@@ -334,8 +334,8 @@ function BotIndexCard({
         </span>
         <span style={{
           padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-          background: bot.role === "orchestrator" ? "rgba(168,85,247,0.12)" : "rgba(59,130,246,0.08)",
-          color: bot.role === "orchestrator" ? "#8b5cf6" : "#60a5fa",
+          background: bot.role === "orchestrator" ? t.purpleSubtle : t.accentSubtle,
+          color: bot.role === "orchestrator" ? t.purple : t.accentMuted,
         }}>
           {bot.role}
         </span>
@@ -348,7 +348,7 @@ function BotIndexCard({
           </span>
         )}
         {overrideKeys.length > 0 && (
-          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}>
+          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.warningSubtle, color: t.warning }}>
             {overrideKeys.length} override{overrideKeys.length > 1 ? "s" : ""}
           </span>
         )}
@@ -358,7 +358,7 @@ function BotIndexCard({
           </span>
         )}
         {!bot.indexing_enabled && bot.memory_scheme === "workspace-files" && (
-          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: "rgba(139,92,246,0.1)", color: "#8b5cf6" }}>
+          <span style={{ padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.purpleSubtle, color: t.purple }}>
             memory only
           </span>
         )}
@@ -376,11 +376,11 @@ function BotIndexCard({
           {/* Memory auto-indexing note */}
           {bot.memory_scheme === "workspace-files" && (
             <div style={{
-              padding: "8px 12px", background: "rgba(139,92,246,0.06)",
-              border: "1px solid rgba(139,92,246,0.12)", borderRadius: 6,
+              padding: "8px 12px", background: t.purpleSubtle,
+              border: `1px solid ${t.purpleBorder}`, borderRadius: 6,
               fontSize: 11, color: t.textMuted, lineHeight: 1.5,
             }}>
-              <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory auto-indexed</span>
+              <span style={{ fontWeight: 600, color: t.purple }}>Memory auto-indexed</span>
               {" "}&mdash; <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> is always indexed for search_memory, independent of the settings below.
             </div>
           )}
@@ -407,7 +407,7 @@ function BotIndexCard({
               <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
                 Indexed File Patterns
                 {bot.explicit_overrides.patterns && (
-                  <span style={{ color: "#f59e0b", fontWeight: 600, marginLeft: 6, textTransform: "none" }}>overridden</span>
+                  <span style={{ color: t.warning, fontWeight: 600, marginLeft: 6, textTransform: "none" }}>overridden</span>
                 )}
                 {!bot.explicit_overrides.patterns && (
                   <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>inherited from defaults</span>
@@ -445,7 +445,7 @@ function BotIndexCard({
                     <span style={{ color: t.textMuted }}>model: <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>{seg.embedding_model}</span></span>
                   )}
                   {seg.channel_id && (
-                    <span style={{ color: "#f59e0b", fontSize: 10 }}>channel-gated</span>
+                    <span style={{ color: t.warning, fontSize: 10 }}>channel-gated</span>
                   )}
                   {seg.patterns && <span style={{ color: t.textDim }}>patterns: {seg.patterns.length}</span>}
                   {seg.similarity_threshold != null && <span style={{ color: t.textDim }}>thresh: {seg.similarity_threshold}</span>}
@@ -500,11 +500,11 @@ function ConfigChip({ label, value, overridden }: { label: string; value: any; o
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 4,
       padding: "3px 8px", borderRadius: 4, fontSize: 11,
-      background: overridden ? "rgba(245,158,11,0.06)" : t.inputBg,
-      border: overridden ? "1px solid rgba(245,158,11,0.2)" : "1px solid transparent",
+      background: overridden ? t.warningSubtle : t.inputBg,
+      border: overridden ? `1px solid ${t.warningBorder}` : "1px solid transparent",
     }}>
       <span style={{ color: t.textDim, fontSize: 10 }}>{label}</span>
-      <span style={{ fontFamily: "monospace", color: overridden ? "#f59e0b" : t.text }}>{String(value)}</span>
+      <span style={{ fontFamily: "monospace", color: overridden ? t.warning : t.text }}>{String(value)}</span>
     </span>
   );
 }
@@ -548,7 +548,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
         <span style={{ color: t.text, fontWeight: 600 }}>
           {enabledCount}/{data.bots.length} bots indexing
           {memoryOnlyCount > 0 && (
-            <span style={{ fontWeight: 400, color: "#8b5cf6", marginLeft: 6, fontSize: 11 }}>
+            <span style={{ fontWeight: 400, color: t.purple, marginLeft: 6, fontSize: 11 }}>
               +{memoryOnlyCount} memory only
             </span>
           )}
@@ -583,7 +583,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
           <span style={{ fontSize: 10, color: "#14b8a6" }}>Done</span>
         )}
         {reindex.isError && (
-          <span style={{ fontSize: 10, color: "#f87171" }}>Failed</span>
+          <span style={{ fontSize: 10, color: t.dangerMuted }}>Failed</span>
         )}
       </div>
 

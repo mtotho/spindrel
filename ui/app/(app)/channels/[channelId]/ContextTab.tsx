@@ -10,18 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 // ---------------------------------------------------------------------------
 // Category & source badge colors (only used by this tab)
 // ---------------------------------------------------------------------------
-const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
-  static:       { bar: "#3b82f6", dot: "#60a5fa" },
-  rag:          { bar: "#22c55e", dot: "#4ade80" },
-  conversation: { bar: "#f59e0b", dot: "#d97706" },
-  compaction:   { bar: "#a855f7", dot: "#9333ea" },
-};
-
-const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  channel: { bg: "#1e3a5f", fg: "#2563eb" },
-  bot:     { bg: "#365314", fg: "#65a30d" },
-  global:  { bg: "#333",    fg: "#999"    },
-};
+// Category and source colors moved into components that need theme tokens
 
 const ROLE_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
   system:    { bg: "#0d1117", fg: "#8b949e", border: "#1e3a5f" },
@@ -174,6 +163,19 @@ export function ContextTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
   const { data, isLoading } = useChannelContextBreakdown(channelId);
 
+  const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
+    static:       { bar: t.accent, dot: "#60a5fa" },
+    rag:          { bar: t.success, dot: "#4ade80" },
+    conversation: { bar: "#f59e0b", dot: t.warningMuted },
+    compaction:   { bar: t.purple, dot: "#9333ea" },
+  };
+
+  const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
+    channel: { bg: t.accentMuted, fg: t.accent },
+    bot:     { bg: "#365314", fg: "#65a30d" },
+    global:  { bg: t.surfaceBorder, fg: t.textMuted },
+  };
+
   if (isLoading) return <ActivityIndicator color={t.accent} />;
   if (!data) return <EmptyState message="No context data available." />;
 
@@ -298,7 +300,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
               }}>
                 <div style={{
                   fontSize: 16, fontWeight: 600,
-                  color: label === "Would Compress" && data.compression.would_compress ? "#4ade80" : t.text,
+                  color: label === "Would Compress" && data.compression.would_compress ? t.success : t.text,
                 }}>{String(val)}</div>
                 <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
               </div>
@@ -327,7 +329,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
               }}>
                 <div style={{
                   fontSize: 16, fontWeight: 600,
-                  color: label === "Would Rerank" && data.reranking.would_rerank ? "#4ade80" : t.text,
+                  color: label === "Would Rerank" && data.reranking.would_rerank ? t.success : t.text,
                 }}>{String(val)}</div>
                 <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
               </div>

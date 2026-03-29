@@ -215,9 +215,13 @@ export interface ChannelSettings {
   pinned_tools_override?: string[] | null;
   skills_override?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   skills_disabled?: string[] | null;
+  skills_extra?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   // Workspace overrides
   workspace_skills_enabled?: boolean | null;
   workspace_base_prompt_enabled?: boolean | null;
+  // Channel workspace
+  channel_workspace_enabled?: boolean | null;
+  index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;
 }
 
 export interface EffectiveTools {
@@ -225,8 +229,10 @@ export interface EffectiveTools {
   mcp_servers: string[];
   client_tools: string[];
   pinned_tools: string[];
-  skills: { id: string; mode: string; similarity_threshold?: number }[];
+  skills: { id: string; mode: string; similarity_threshold?: number; name?: string }[];
   mode: Record<string, "inherit" | "override" | "disabled">;
+  disabled: Record<string, string[]>;
+  skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
 }
 
 // Elevation types
@@ -450,6 +456,7 @@ export interface SharedWorkspace {
   editor_enabled: boolean;
   editor_port?: number | null;
   write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -477,6 +484,7 @@ export interface WorkspaceCreate {
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
   created_by_user_id?: string;
 }
 
@@ -496,6 +504,7 @@ export interface WorkspaceUpdate {
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
 }
 
 export interface WorkspaceFileEntry {

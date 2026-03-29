@@ -81,20 +81,20 @@ function ScopeCheckboxGroup({
                     borderRadius: 5,
                     border: checked
                       ? isAdmin
-                        ? "1px solid rgba(239,68,68,0.4)"
-                        : "1px solid rgba(59,130,246,0.4)"
+                        ? `1px solid ${t.dangerBorder}`
+                        : `1px solid ${t.accentBorder}`
                       : `1px solid ${t.surfaceBorder}`,
                     background: checked
                       ? isAdmin
-                        ? "rgba(239,68,68,0.1)"
-                        : "rgba(59,130,246,0.1)"
+                        ? t.dangerSubtle
+                        : t.accentSubtle
                       : "transparent",
                     cursor: "pointer",
                     fontSize: 12,
                     color: checked
                       ? isAdmin
-                        ? "#dc2626"
-                        : "#2563eb"
+                        ? t.danger
+                        : t.accent
                       : t.textDim,
                     fontWeight: checked ? 600 : 400,
                   }}
@@ -109,7 +109,7 @@ function ScopeCheckboxGroup({
                         : `1px solid ${t.surfaceBorder}`,
                       background: checked
                         ? isAdmin
-                          ? "#ef4444"
+                          ? t.danger
                           : t.accent
                         : "transparent",
                       display: "flex",
@@ -274,11 +274,11 @@ export default function ApiKeyDetailScreen() {
               gap: 4,
               padding: "6px 12px",
               borderRadius: 6,
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.2)",
+              background: t.dangerSubtle,
+              border: `1px solid ${t.dangerBorder}`,
               cursor: "pointer",
               fontSize: 12,
-              color: "#f87171",
+              color: t.dangerMuted,
             }}
           >
             <Trash2 size={13} /> Delete
@@ -314,8 +314,8 @@ export default function ApiKeyDetailScreen() {
               style={{
                 padding: 16,
                 borderRadius: 10,
-                background: "rgba(34,197,94,0.08)",
-                border: "1px solid rgba(34,197,94,0.2)",
+                background: t.successSubtle,
+                border: `1px solid ${t.successBorder}`,
                 marginBottom: 20,
               }}
             >
@@ -327,9 +327,9 @@ export default function ApiKeyDetailScreen() {
                   marginBottom: 8,
                 }}
               >
-                <AlertTriangle size={14} color="#d97706" />
+                <AlertTriangle size={14} color={t.warningMuted} />
                 <span
-                  style={{ fontSize: 13, fontWeight: 600, color: "#d97706" }}
+                  style={{ fontSize: 13, fontWeight: 600, color: t.warningMuted }}
                 >
                   Save this key now. It won't be shown again.
                 </span>
@@ -348,7 +348,7 @@ export default function ApiKeyDetailScreen() {
                     borderRadius: 6,
                     background: t.surfaceRaised,
                     fontSize: 12,
-                    color: "#16a34a",
+                    color: t.success,
                     wordBreak: "break-all",
                     fontFamily: "monospace",
                   }}
@@ -367,7 +367,7 @@ export default function ApiKeyDetailScreen() {
                     alignItems: "center",
                     gap: 4,
                     fontSize: 12,
-                    color: copied ? "#16a34a" : t.textMuted,
+                    color: copied ? t.success : t.textMuted,
                   }}
                 >
                   {copied ? (
@@ -436,12 +436,12 @@ export default function ApiKeyDetailScreen() {
                             ? `1px solid ${t.accent}`
                             : `1px solid ${t.surfaceBorder}`,
                           background: active
-                            ? "rgba(59,130,246,0.12)"
+                            ? t.accentSubtle
                             : t.surfaceOverlay,
                           cursor: "pointer",
                           fontSize: 13,
                           fontWeight: active ? 600 : 400,
-                          color: active ? "#2563eb" : t.textMuted,
+                          color: active ? t.accent : t.textMuted,
                         }}
                       >
                         <div>{preset.name}</div>
@@ -469,13 +469,13 @@ export default function ApiKeyDetailScreen() {
                         : `1px solid ${t.surfaceBorder}`,
                     background:
                       activePreset === null
-                        ? "rgba(59,130,246,0.12)"
+                        ? t.accentSubtle
                         : t.surfaceOverlay,
                     cursor: "pointer",
                     fontSize: 13,
                     fontWeight: activePreset === null ? 600 : 400,
                     color:
-                      activePreset === null ? "#2563eb" : t.textMuted,
+                      activePreset === null ? t.accent : t.textMuted,
                   }}
                 >
                   <div>Custom</div>
@@ -499,8 +499,8 @@ export default function ApiKeyDetailScreen() {
               style={{
                 padding: 14,
                 borderRadius: 10,
-                background: "rgba(59,130,246,0.06)",
-                border: "1px solid rgba(59,130,246,0.15)",
+                background: t.accentSubtle,
+                border: `1px solid ${t.accentBorder}`,
                 marginBottom: 16,
               }}
             >
@@ -512,7 +512,7 @@ export default function ApiKeyDetailScreen() {
                   marginBottom: 8,
                   fontSize: 12,
                   fontWeight: 600,
-                  color: "#2563eb",
+                  color: t.accent,
                 }}
               >
                 <Info size={13} />
@@ -539,10 +539,10 @@ export default function ApiKeyDetailScreen() {
                 style={{
                   padding: "8px 12px",
                   borderRadius: 6,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.15)",
+                  background: t.dangerSubtle,
+                  border: `1px solid ${t.dangerBorder}`,
                   fontSize: 12,
-                  color: "#dc2626",
+                  color: t.danger,
                   marginBottom: 12,
                 }}
               >

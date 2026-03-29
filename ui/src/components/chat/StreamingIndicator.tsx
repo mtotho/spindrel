@@ -1,6 +1,7 @@
 import { View, Text, Platform } from "react-native";
 import { Loader2, Wrench } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
+import { MarkdownContent } from "./MessageBubble";
 
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
@@ -100,15 +101,15 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
                   alignSelf: "flex-start",
                 }}
               >
-                <Wrench size={12} color={tc.status === "running" ? "#8b5cf6" : "#4ade80"} />
+                <Wrench size={12} color={tc.status === "running" ? t.purple : t.success} />
                 <Text style={{ fontSize: 12, color: t.textMuted, fontFamily: Platform.OS === "web" ? "'Menlo', monospace" : undefined }}>
                   {tc.name}
                 </Text>
                 {tc.status === "running" && (
-                  <Loader2 size={10} color="#8b5cf6" />
+                  <Loader2 size={10} color={t.purple} />
                 )}
                 {tc.status === "done" && (
-                  <Text style={{ fontSize: 11, color: "#4ade80" }}>done</Text>
+                  <Text style={{ fontSize: 11, color: t.success }}>done</Text>
                 )}
               </View>
             ))}
@@ -119,14 +120,14 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         {content.trimStart() ? (
           <View>
             {Platform.OS === "web" ? (
-              <div style={{ fontSize: 15, lineHeight: "1.6", color: t.contentText }}>
-                {content.trimStart()}
+              <div>
+                <MarkdownContent text={content.trimStart()} t={t} />
                 <span
                   style={{
                     display: "inline-block",
                     width: 2,
                     height: 17,
-                    backgroundColor: "#8b5cf6",
+                    backgroundColor: t.purple,
                     marginLeft: 2,
                     verticalAlign: "text-bottom",
                     opacity: 0.8,

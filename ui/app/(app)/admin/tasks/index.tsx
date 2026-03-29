@@ -276,6 +276,7 @@ function detectScheduleConflicts(schedules: TaskItem[]): Map<string, string[]> {
 // Current time indicator line
 // ---------------------------------------------------------------------------
 function NowLine() {
+  const t = useThemeTokens();
   const now = new Date();
   const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
   const pct = (minutesSinceMidnight / 1440) * 100;
@@ -284,8 +285,8 @@ function NowLine() {
       position: "absolute", left: 0, right: 0, top: `${pct}%`,
       display: "flex", alignItems: "center", zIndex: 5, pointerEvents: "none",
     }}>
-      <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444", marginLeft: -4 }} />
-      <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+      <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger, marginLeft: -4 }} />
+      <div style={{ flex: 1, height: 1, background: t.danger }} />
     </div>
   );
 }
@@ -384,20 +385,21 @@ function BotDot({ botId, size = 8 }: { botId: string; size?: number }) {
 // Schedule conflict warning banner
 // ---------------------------------------------------------------------------
 function ConflictBanner({ warnings }: { warnings: string[] }) {
+  const t = useThemeTokens();
   return (
     <div style={{
       display: "flex", alignItems: "flex-start", gap: 8,
       padding: "8px 16px 8px 36px",
-      background: "rgba(245,158,11,0.08)",
-      borderLeft: "3px solid #f59e0b",
+      background: t.warningSubtle,
+      borderLeft: `3px solid ${t.warning}`,
     }}>
-      <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+      <AlertTriangle size={14} color={t.warning} style={{ flexShrink: 0, marginTop: 1 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#d97706", marginBottom: 2 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: t.warningMuted, marginBottom: 2 }}>
           Schedule Overlap — Schedules fire within 2 hours of each other
         </div>
         {warnings.map((w, i) => (
-          <div key={i} style={{ fontSize: 10, color: "#b45309" }}>
+          <div key={i} style={{ fontSize: 10, color: t.warningMuted }}>
             {w}
           </div>
         ))}
@@ -468,12 +470,12 @@ function TaskCard({
         {isRecurring && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,
-            background: "rgba(217,119,6,0.12)", color: "#ca8a04",
+            background: t.warningSubtle, color: t.warning,
             padding: compact ? "0px 5px" : "1px 7px", borderRadius: 10,
             fontSize: compact ? 8 : 10, fontWeight: 700,
             flexShrink: 0,
           }}>
-            <RefreshCw size={compact ? 7 : 9} color="#ca8a04" />
+            <RefreshCw size={compact ? 7 : 9} color={t.warning} />
             {task.recurrence}
           </span>
         )}
@@ -496,7 +498,7 @@ function TaskCard({
         )}
       </div>
       {!compact && task.error && (
-        <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: t.danger, marginTop: 4 }}>
           {task.error.substring(0, 100)}
         </div>
       )}
@@ -542,7 +544,7 @@ function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: T
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
       <div style={{
         padding: "8px 12px", borderBottom: `1px solid ${t.surfaceOverlay}`,
-        background: showNow ? "rgba(59,130,246,0.08)" : "transparent",
+        background: showNow ? t.accentSubtle : "transparent",
         position: "sticky", top: 0, zIndex: 3,
       }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? t.accent : t.text }}>
@@ -759,10 +761,10 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
               {botConflicts && (
                 <span style={{
                   display: "inline-flex", alignItems: "center", gap: 4,
-                  fontSize: 10, fontWeight: 700, color: "#d97706",
-                  background: "rgba(245,158,11,0.15)", padding: "2px 8px", borderRadius: 4,
+                  fontSize: 10, fontWeight: 700, color: t.warningMuted,
+                  background: t.warningSubtle, padding: "2px 8px", borderRadius: 4,
                 }}>
-                  <AlertTriangle size={10} color="#d97706" />
+                  <AlertTriangle size={10} color={t.warningMuted} />
                   Overlap
                 </span>
               )}
@@ -815,10 +817,10 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                           padding: "6px 20px 6px 36px",
                           borderLeft: `3px solid ${c.border}`,
                         }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444" }} />
-                          <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
-                          <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+                          <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
+                          <div style={{ flex: 1, height: 1, background: t.danger }} />
+                          <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                          <div style={{ flex: 1, height: 1, background: t.danger }} />
                         </div>
                       )}
                       <div
@@ -854,12 +856,12 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                         {tk.recurrence && (
                           <span style={{
                             display: "inline-flex", alignItems: "center", gap: 3,
-                            background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
-                            color: isCancelled ? t.textDim : "#ca8a04",
+                            background: isCancelled ? t.surfaceRaised : t.warningSubtle,
+                            color: isCancelled ? t.textDim : t.warning,
                             padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                             flexShrink: 0,
                           }}>
-                            <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
+                            <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
                             {tk.recurrence}
                           </span>
                         )}
@@ -880,10 +882,10 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                     padding: "6px 20px 6px 36px",
                     borderLeft: `3px solid ${c.border}`,
                   }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444" }} />
-                    <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
-                    <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+                    <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
+                    <div style={{ flex: 1, height: 1, background: t.danger }} />
+                    <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                    <div style={{ flex: 1, height: 1, background: t.danger }} />
                   </div>
                 )}
               </div>
@@ -946,7 +948,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
       {/* Active schedules section */}
       {activeSchedules.length > 0 && (
         <>
-          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: "#ca8a04", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: t.warning, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Schedules
           </div>
           {activeSchedules.map((tk) => {
@@ -980,11 +982,11 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
                 {tk.recurrence && (
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 3,
-                    background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
-                    color: isCancelled ? t.textDim : "#ca8a04",
+                    background: isCancelled ? t.surfaceRaised : t.warningSubtle,
+                    color: isCancelled ? t.textDim : t.warning,
                     padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                   }}>
-                    <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
+                    <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
                     {tk.recurrence}
                   </span>
                 )}
@@ -1301,10 +1303,10 @@ export default function TasksScreen() {
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 12,
                 background: statusFilter === f.key
-                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? "rgba(239,68,68,0.15)" : t.accent)
+                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? t.dangerSubtle : t.accent)
                   : t.surfaceRaised,
                 color: statusFilter === f.key
-                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? "#dc2626" : "#fff")
+                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? t.danger : "#fff")
                   : t.textMuted,
                 whiteSpace: "nowrap",
               }}
@@ -1320,10 +1322,10 @@ export default function TasksScreen() {
             <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 11, fontWeight: 700, color: "#d97706",
-              background: "rgba(245,158,11,0.12)", padding: "3px 10px", borderRadius: 12,
+              fontSize: 11, fontWeight: 700, color: t.warningMuted,
+              background: t.warningSubtle, padding: "3px 10px", borderRadius: 12,
             }}>
-              <AlertTriangle size={11} color="#d97706" />
+              <AlertTriangle size={11} color={t.warningMuted} />
               {conflictCount} bot{conflictCount !== 1 ? "s" : ""} with overlapping schedules
             </span>
           </>
@@ -1335,12 +1337,12 @@ export default function TasksScreen() {
         <div style={{
           display: "flex", alignItems: "flex-start", gap: 8,
           padding: "10px 16px",
-          background: "rgba(239,68,68,0.08)",
-          borderBottom: `1px solid rgba(239,68,68,0.2)`,
+          background: t.dangerSubtle,
+          borderBottom: `1px solid ${t.dangerBorder}`,
         }}>
-          <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
+          <AlertCircle size={14} color={t.danger} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: t.danger, marginBottom: 2 }}>
               {invalidSchedules.length} schedule{invalidSchedules.length !== 1 ? "s" : ""} with invalid recurrence — will never fire
             </div>
             {invalidSchedules.map((s) => (
@@ -1349,10 +1351,10 @@ export default function TasksScreen() {
                 onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 4,
-                  fontSize: 11, color: "#dc2626", cursor: "pointer",
+                  fontSize: 11, color: t.danger, cursor: "pointer",
                   marginRight: 12,
                   textDecoration: "underline",
-                  textDecorationColor: "rgba(220,38,38,0.4)",
+                  textDecorationColor: t.dangerBorder,
                 }}
               >
                 {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})
@@ -1365,7 +1367,7 @@ export default function TasksScreen() {
       {/* Body */}
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         </View>
       ) : viewMode === "schedule" ? (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">

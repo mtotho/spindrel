@@ -280,7 +280,7 @@ export function MemorySection({ draft, update, botId }: {
             textAlign: "left", cursor: "pointer",
             padding: "14px 16px", borderRadius: 8,
             border: !isWorkspaceFiles ? `2px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
-            background: !isWorkspaceFiles ? "rgba(59,130,246,0.06)" : "#0f0f0f",
+            background: !isWorkspaceFiles ? t.accentSubtle : t.surface,
             transition: "all 0.15s",
           }}
         >
@@ -296,7 +296,7 @@ export function MemorySection({ draft, update, botId }: {
             {!isWorkspaceFiles && (
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(59,130,246,0.15)", color: "#2563eb",
+                background: t.accentSubtle, color: t.accent,
                 fontWeight: 600, letterSpacing: 0.5,
               }}>ACTIVE</span>
             )}
@@ -314,15 +314,15 @@ export function MemorySection({ draft, update, botId }: {
           style={{
             textAlign: "left", cursor: "pointer",
             padding: "14px 16px", borderRadius: 8,
-            border: isWorkspaceFiles ? "2px solid #a855f7" : `1px solid ${t.surfaceOverlay}`,
-            background: isWorkspaceFiles ? "rgba(168,85,247,0.06)" : "#0f0f0f",
+            border: isWorkspaceFiles ? `2px solid ${t.purple}` : `1px solid ${t.surfaceOverlay}`,
+            background: isWorkspaceFiles ? t.purpleSubtle : t.surface,
             transition: "all 0.15s",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <div style={{
               width: 16, height: 16, borderRadius: 8,
-              border: isWorkspaceFiles ? "5px solid #a855f7" : `2px solid ${t.surfaceBorder}`,
+              border: isWorkspaceFiles ? `5px solid ${t.purple}` : `2px solid ${t.surfaceBorder}`,
               background: "transparent",
             }} />
             <span style={{ fontSize: 13, fontWeight: 600, color: isWorkspaceFiles ? t.text : t.textMuted }}>
@@ -331,7 +331,7 @@ export function MemorySection({ draft, update, botId }: {
             {isWorkspaceFiles && (
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(168,85,247,0.15)", color: "#8b5cf6",
+                background: t.purpleSubtle, color: t.purple,
                 fontWeight: 600, letterSpacing: 0.5,
               }}>ACTIVE</span>
             )}
@@ -349,16 +349,16 @@ export function MemorySection({ draft, update, botId }: {
         <>
           {/* What changes */}
           <div style={{
-            background: "rgba(168,85,247,0.04)", border: "1px solid rgba(168,85,247,0.15)",
+            background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
             borderRadius: 8, padding: "14px 16px",
           }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#8b5cf6", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.purple, marginBottom: 10 }}>
               Applying presets
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {WORKSPACE_FILES_PRESETS.map((p, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <Check size={12} color="#a855f7" style={{ marginTop: 2, flexShrink: 0 } as any} />
+                  <Check size={12} color={t.purple} style={{ marginTop: 2, flexShrink: 0 } as any} />
                   <div>
                     <span style={{ fontSize: 12, color: t.text }}>{p.label}</span>
                     <span style={{ fontSize: 11, color: t.textDim }}> — {p.detail}</span>
@@ -402,7 +402,7 @@ export function MemorySection({ draft, update, botId }: {
               <span style={{ fontSize: 12, fontWeight: 600 }}>Built-in System Prompt</span>
               <span style={{
                 fontSize: 9, padding: "2px 6px", borderRadius: 3,
-                background: "rgba(168,85,247,0.1)", color: "#a78bfa",
+                background: t.purpleSubtle, color: t.purpleMuted,
                 marginLeft: 4,
               }}>auto-injected</span>
             </button>
@@ -423,7 +423,7 @@ export function MemorySection({ draft, update, botId }: {
       {!isWorkspaceFiles && (
         <>
           <div style={{
-            background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
+            background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
             borderRadius: 6, padding: "10px 14px",
           }}>
             <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
@@ -478,25 +478,25 @@ export function KnowledgeSection({ draft, update }: {
 
       {isWorkspaceFiles ? (
         <div style={{
-          background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.15)",
+          background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
           borderRadius: 8, padding: "14px 16px",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#8b5cf6" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.purple }}>
               Managed by Workspace Files
             </span>
           </div>
           <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-            Knowledge lives in <code style={{ color: "#a78bfa" }}>memory/reference/</code> files.
-            Searchable via <code style={{ color: "#a78bfa" }}>search_memory</code> and readable
-            via <code style={{ color: "#a78bfa" }}>get_memory_file</code>. DB knowledge tools are
+            Knowledge lives in <code style={{ color: t.purpleMuted }}>memory/reference/</code> files.
+            Searchable via <code style={{ color: t.purpleMuted }}>search_memory</code> and readable
+            via <code style={{ color: t.purpleMuted }}>get_memory_file</code>. DB knowledge tools are
             hidden automatically.
           </div>
         </div>
       ) : (
         <>
           <div style={{
-            background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",
+            background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
             borderRadius: 6, padding: "10px 14px", marginBottom: 4,
           }}>
             <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>

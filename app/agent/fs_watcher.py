@@ -6,7 +6,7 @@ import logging
 import time
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +353,24 @@ async def periodic_reindex_worker() -> None:
                             )
                         except Exception:
                             logger.exception("Periodic reindex: failed for bot %s root %s", bot.id, root)
+
+            # Workspace skills — re-discover modes and clean orphans.
+            # Uses content_hash checks so no embedding API calls are wasted.
+            try:
+                from app.db.engine import async_session
+                from app.db.models import SharedWorkspace as SW
+                from app.services.workspace_skills import embed_workspace_skills
+                async with async_session() as db:
+                    ws_rows = (await db.execute(
+                        select(SW.id).where(SW.workspace_skills_enabled == True)  # noqa: E712
+                    )).scalars().all()
+                for ws_id in ws_rows:
+                    try:
+                        await embed_workspace_skills(str(ws_id))
+                    except Exception:
+                        logger.exception("Periodic reindex: workspace skills failed for ws %s", ws_id)
+            except Exception:
+                logger.exception("Periodic reindex: workspace skills pass failed")
 
             logger.info("Periodic reindex pass complete")
         except Exception:

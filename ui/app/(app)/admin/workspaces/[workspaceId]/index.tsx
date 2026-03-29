@@ -26,19 +26,24 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { IndexingOverview } from "./IndexingOverview";
 import { WriteProtection } from "./WriteProtection";
+import { WorkspaceSkills } from "./WorkspaceSkills";
 
 // ---------------------------------------------------------------------------
 // Status badge
 // ---------------------------------------------------------------------------
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  running: { bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
-  stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
-  creating: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
-  error: { bg: "rgba(239,68,68,0.15)", fg: "#dc2626" },
-};
+function getStatusColors(t: ReturnType<typeof useThemeTokens>): Record<string, { bg: string; fg: string }> {
+  return {
+    running: { bg: t.successSubtle, fg: t.success },
+    stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
+    creating: { bg: t.accentSubtle, fg: t.accent },
+    error: { bg: t.dangerSubtle, fg: t.danger },
+  };
+}
 
 function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] || STATUS_COLORS.stopped;
+  const t = useThemeTokens();
+  const statusColors = getStatusColors(t);
+  const c = statusColors[status] || statusColors.stopped;
   return (
     <span style={{
       padding: "3px 10px", borderRadius: 5, fontSize: 12, fontWeight: 600,
@@ -71,7 +76,7 @@ function EnvEditor({ entries, onChange }: {
             placeholder="KEY"
             style={{
               flex: 1, background: t.inputBg,
-              border: `1px solid ${!entry.key ? "#7f1d1d" : t.surfaceBorder}`,
+              border: `1px solid ${!entry.key ? t.dangerBorder : t.surfaceBorder}`,
               borderRadius: 6,
               padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
               outline: "none",
@@ -204,9 +209,9 @@ function ConnectedBots({ workspaceId, bots, isWide, writeProtectedPaths }: {
                         display: "inline-flex", alignItems: "center", gap: 3,
                         padding: "2px 8px", fontSize: 10, fontFamily: "monospace",
                         borderRadius: 4, cursor: "pointer",
-                        border: `1px solid ${allowed ? "#16a34a" : t.surfaceBorder}`,
-                        background: allowed ? "rgba(34,197,94,0.1)" : "transparent",
-                        color: allowed ? "#16a34a" : t.textDim,
+                        border: `1px solid ${allowed ? t.success : t.surfaceBorder}`,
+                        background: allowed ? t.successSubtle : "transparent",
+                        color: allowed ? t.success : t.textDim,
                       }}
                       title={allowed ? `Revoke write access to ${p}` : `Grant write access to ${p}`}
                     >
@@ -431,8 +436,8 @@ function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
           {editorEnabled && (
             <span style={{
               fontSize: 11, padding: "2px 8px", borderRadius: 4,
-              background: editorRunning ? "rgba(34,197,94,0.15)" : "rgba(100,100,100,0.15)",
-              color: editorRunning ? "#16a34a" : "#999",
+              background: editorRunning ? t.successSubtle : "rgba(100,100,100,0.15)",
+              color: editorRunning ? t.success : "#999",
               fontWeight: 600,
             }}>
               {editorRunning ? "Running" : "Stopped"}
@@ -461,7 +466,7 @@ function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
         </div>
       )}
       {!isRunning && editorEnabled && (
-        <div style={{ fontSize: 11, color: "#d97706" }}>
+        <div style={{ fontSize: 11, color: t.warningMuted }}>
           Start the workspace to use the editor.
         </div>
       )}
@@ -577,7 +582,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? t.text : "#2563eb", fontSize: 12, padding: 0,
+            color: path === "/" ? t.text : t.accent, fontSize: 12, padding: 0,
             fontFamily: "monospace",
           }}
         >
@@ -595,7 +600,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                   onClick={() => navigateTo(segPath)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? t.text : "#2563eb", fontSize: 12, padding: 0,
+                    color: isLast ? t.text : t.accent, fontSize: 12, padding: 0,
                     fontFamily: "monospace",
                   }}
                 >
@@ -697,7 +702,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
               style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "6px 12px",
-                background: viewingFile === entry.path ? "rgba(59,130,246,0.08)" : "transparent",
+                background: viewingFile === entry.path ? t.accentSubtle : "transparent",
                 borderBottom: `1px solid ${t.inputBg}`,
               }}
             >
@@ -717,7 +722,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 }}
               >
                 {entry.is_dir ? (
-                  <Folder size={13} color="#2563eb" />
+                  <Folder size={13} color={t.accent} />
                 ) : (
                   <FileText size={13} color={t.textDim} />
                 )}
@@ -760,7 +765,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}`,
             background: t.inputBg,
           }}>
-            <FileText size={13} color="#2563eb" />
+            <FileText size={13} color={t.accent} />
             <span style={{ flex: 1, fontSize: 12, color: t.text, fontFamily: "monospace" }}>
               {viewingFile}
             </span>
@@ -817,7 +822,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
               <div style={{ color: t.textDim, fontSize: 12 }}>Loading file...</div>
             )}
             {fileError && (
-              <div style={{ color: "#dc2626", fontSize: 12 }}>
+              <div style={{ color: t.danger, fontSize: 12 }}>
                 {(fileError as any)?.message || "Failed to load file"}
               </div>
             )}
@@ -835,7 +840,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 style={{
-                  width: "100%", minHeight: 200, background: "#0d0d0d",
+                  width: "100%", minHeight: 200, background: t.surface,
                   border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
                   padding: 10, color: t.text, fontSize: 12, fontFamily: "monospace",
                   lineHeight: 1.5, resize: "vertical", outline: "none",
@@ -887,6 +892,7 @@ export default function WorkspaceDetailScreen() {
   const [skillsEnabled, setSkillsEnabled] = useState(true);
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
+  const [dbSkills, setDbSkills] = useState<{ id: string; mode?: string; similarity_threshold?: number }[]>([]);
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {
@@ -911,6 +917,7 @@ export default function WorkspaceDetailScreen() {
     setSkillsEnabled(workspace.workspace_skills_enabled ?? true);
     setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
     setWriteProtectedPaths(workspace.write_protected_paths || []);
+    setDbSkills(workspace.skills || []);
     setInitialized(true);
   }
 
@@ -938,6 +945,7 @@ export default function WorkspaceDetailScreen() {
         workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
+        skills: dbSkills.length ? dbSkills : undefined,
       });
       goBack();
     } else {
@@ -960,13 +968,14 @@ export default function WorkspaceDetailScreen() {
         workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
+        skills: dbSkills,
       });
       // Update snapshot so dirty tracking resets
       savedSnapshot.current = currentSnapshot;
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -977,8 +986,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -1047,8 +1056,8 @@ export default function WorkspaceDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
-              background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -1058,7 +1067,7 @@ export default function WorkspaceDetailScreen() {
         {/* Unsaved indicator */}
         {isDirty && !isNew && !justSaved && (
           <span style={{
-            fontSize: 11, fontWeight: 600, color: "#d97706",
+            fontSize: 11, fontWeight: 600, color: t.warningMuted,
             flexShrink: 0, whiteSpace: "nowrap",
           }}>
             Unsaved changes
@@ -1066,7 +1075,7 @@ export default function WorkspaceDetailScreen() {
         )}
         {justSaved && (
           <span style={{
-            fontSize: 11, fontWeight: 600, color: "#16a34a",
+            fontSize: 11, fontWeight: 600, color: t.success,
             flexShrink: 0,
           }}>
             Saved
@@ -1093,9 +1102,9 @@ export default function WorkspaceDetailScreen() {
       {hasWarnings && (
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
-          padding: "6px 20px", background: "rgba(251,191,36,0.08)",
-          borderBottom: "1px solid rgba(251,191,36,0.15)",
-          fontSize: 12, color: "#d97706",
+          padding: "6px 20px", background: t.warningSubtle,
+          borderBottom: `1px solid ${t.warningBorder}`,
+          fontSize: 12, color: t.warningMuted,
         }}>
           <AlertCircle size={14} />
           <span>
@@ -1109,7 +1118,7 @@ export default function WorkspaceDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -1203,7 +1212,7 @@ export default function WorkspaceDetailScreen() {
                     placeholder="Host port"
                     style={{
                       flex: 1, background: t.inputBg,
-                      border: `1px solid ${!p.host && p.container ? "#7f1d1d" : t.surfaceBorder}`,
+                      border: `1px solid ${!p.host && p.container ? t.dangerBorder : t.surfaceBorder}`,
                       borderRadius: 6,
                       padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
@@ -1220,7 +1229,7 @@ export default function WorkspaceDetailScreen() {
                     placeholder="Container port"
                     style={{
                       flex: 1, background: t.inputBg,
-                      border: `1px solid ${p.host && !p.container ? "#7f1d1d" : t.surfaceBorder}`,
+                      border: `1px solid ${p.host && !p.container ? t.dangerBorder : t.surfaceBorder}`,
                       borderRadius: 6,
                       padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
@@ -1267,7 +1276,7 @@ export default function WorkspaceDetailScreen() {
                     placeholder="Host path"
                     style={{
                       flex: 2, background: t.inputBg,
-                      border: `1px solid ${!m.host_path && m.container_path ? "#7f1d1d" : t.surfaceBorder}`,
+                      border: `1px solid ${!m.host_path && m.container_path ? t.dangerBorder : t.surfaceBorder}`,
                       borderRadius: 6,
                       padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
@@ -1284,7 +1293,7 @@ export default function WorkspaceDetailScreen() {
                     placeholder="Container path"
                     style={{
                       flex: 2, background: t.inputBg,
-                      border: `1px solid ${m.host_path && !m.container_path ? "#7f1d1d" : t.surfaceBorder}`,
+                      border: `1px solid ${m.host_path && !m.container_path ? t.dangerBorder : t.surfaceBorder}`,
                       borderRadius: 6,
                       padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
                       outline: "none",
@@ -1340,11 +1349,11 @@ export default function WorkspaceDetailScreen() {
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>Directory conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#2563eb" }}>common/skills/pinned/*.md</code> — injected into every request</span>
-                <span><code style={{ color: "#2563eb" }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
-                <span><code style={{ color: "#2563eb" }}>common/skills/on-demand/*.md</code> — available via tool call</span>
-                <span><code style={{ color: "#2563eb" }}>common/skills/*.md</code> — top-level defaults to pinned</span>
-                <span style={{ marginTop: 4 }}><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
+                <span><code style={{ color: t.accent }}>common/skills/pinned/*.md</code> — injected into every request</span>
+                <span><code style={{ color: t.accent }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
+                <span><code style={{ color: t.accent }}>common/skills/on-demand/*.md</code> — available via tool call</span>
+                <span><code style={{ color: t.accent }}>common/skills/*.md</code> — top-level defaults to pinned</span>
+                <span style={{ marginTop: 4 }}><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
               </div>
             </div>
             {!isNew && (
@@ -1374,6 +1383,11 @@ export default function WorkspaceDetailScreen() {
             )}
           </Section>
 
+          {/* DB Skills */}
+          <Section title="DB Skills" description="Assign global skills from the skills table to all bots in this workspace.">
+            <WorkspaceSkills skills={dbSkills} onChange={setDbSkills} />
+          </Section>
+
           {/* Write Protection */}
           <Section title="Write Protection" description="Prevent bots from writing to specific directories in the workspace.">
             <WriteProtection paths={writeProtectedPaths} onChange={setWriteProtectedPaths} />
@@ -1387,8 +1401,8 @@ export default function WorkspaceDetailScreen() {
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File conventions:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#2563eb" }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
-                <span><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
+                <span><code style={{ color: t.accent }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
+                <span><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
               </div>
             </div>
           </Section>
@@ -1398,7 +1412,7 @@ export default function WorkspaceDetailScreen() {
             <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File convention:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: "#d97706" }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
+                <span><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
               </div>
             </div>
           </Section>

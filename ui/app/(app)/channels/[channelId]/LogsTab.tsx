@@ -8,19 +8,8 @@ import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 // ---------------------------------------------------------------------------
 // Log type colors (only used by this tab)
 // ---------------------------------------------------------------------------
-const LOG_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
-  tool_call:            { bg: "#312e81", fg: "#4f46e5" },
-  memory_injection:     { bg: "#3b0764", fg: "#7c3aed" },
-  skill_context:        { bg: "#134e4a", fg: "#0d9488" },
-  knowledge_context:    { bg: "#1e3a5f", fg: "#2563eb" },
-  tool_retrieval:       { bg: "#713f12", fg: "#ca8a04" },
-  context_compressed:   { bg: "#365314", fg: "#65a30d" },
-  context_breakdown:    { bg: "#164e63", fg: "#0891b2" },
-  token_usage:          { bg: "#333",    fg: "#999"    },
-  error:                { bg: "#7f1d1d", fg: "#dc2626" },
-  harness:              { bg: "#78350f", fg: "#d97706" },
-  response:             { bg: "#166534", fg: "#16a34a" },
-};
+// Moved inside component — needs theme tokens for some values
+// (non-token colors like teal and indigo are domain-specific and kept as-is)
 
 // ---------------------------------------------------------------------------
 // Logs Tab
@@ -29,6 +18,20 @@ export function LogsTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
   const router = useRouter();
   const { data, isLoading } = useLogs({ channel_id: channelId, page_size: 20 });
+
+  const LOG_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
+    tool_call:            { bg: "#312e81", fg: "#4f46e5" },
+    memory_injection:     { bg: t.purpleSubtle, fg: t.purple },
+    skill_context:        { bg: "#134e4a", fg: "#0d9488" },
+    knowledge_context:    { bg: t.accentMuted, fg: t.accent },
+    tool_retrieval:       { bg: t.warningSubtle, fg: t.warningMuted },
+    context_compressed:   { bg: "#365314", fg: "#65a30d" },
+    context_breakdown:    { bg: "#164e63", fg: "#0891b2" },
+    token_usage:          { bg: t.surfaceBorder, fg: t.textMuted },
+    error:                { bg: t.dangerSubtle, fg: t.danger },
+    harness:              { bg: t.warningSubtle, fg: t.warningMuted },
+    response:             { bg: t.successSubtle, fg: t.success },
+  };
 
   if (isLoading) return <ActivityIndicator color={t.accent} />;
   if (!data?.rows?.length) return <EmptyState message="No log entries yet." />;

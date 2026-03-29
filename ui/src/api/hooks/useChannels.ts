@@ -148,6 +148,72 @@ export function useAvailableIntegrations() {
 }
 
 // ---------------------------------------------------------------------------
+// Channel workspace files
+// ---------------------------------------------------------------------------
+
+interface ChannelWorkspaceFile {
+  name: string;
+  path: string;
+  size: number;
+  modified_at: number;
+  section: "active" | "archive" | "data";
+}
+
+export function useChannelWorkspaceFiles(
+  channelId: string | undefined,
+  opts: { includeArchive?: boolean; includeData?: boolean } = {},
+) {
+  const { includeArchive = false, includeData = false } = opts;
+  return useQuery({
+    queryKey: ["channel-workspace-files", channelId, includeArchive, includeData],
+    queryFn: () =>
+      apiFetch<{ files: ChannelWorkspaceFile[] }>(
+        `/api/v1/channels/${channelId}/workspace/files?include_archive=${includeArchive}&include_data=${includeData}`
+      ),
+    enabled: !!channelId,
+  });
+}
+
+export function useChannelWorkspaceFileContent(channelId: string | undefined, path: string | null) {
+  return useQuery({
+    queryKey: ["channel-workspace-file-content", channelId, path],
+    queryFn: () =>
+      apiFetch<{ path: string; content: string }>(
+        `/api/v1/channels/${channelId}/workspace/files/content?path=${encodeURIComponent(path!)}`
+      ),
+    enabled: !!channelId && !!path,
+  });
+}
+
+export function useWriteChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, content }: { path: string; content: string }) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files/content?path=${encodeURIComponent(path)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-content", channelId] });
+    },
+  });
+}
+
+export function useDeleteChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files?path=${encodeURIComponent(path)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Context breakdown
 // ---------------------------------------------------------------------------
 

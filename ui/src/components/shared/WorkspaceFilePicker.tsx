@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Folder, FileText, ChevronRight } from "lucide-react";
 import { useWorkspaceFiles } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 import type { WorkspaceFileEntry } from "../../types/api";
 
 interface WorkspaceFilePickerProps {
@@ -11,6 +12,7 @@ interface WorkspaceFilePickerProps {
 }
 
 export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }: WorkspaceFilePickerProps) {
+  const t = useThemeTokens();
   const [path, setPath] = useState(() => {
     // Start in the directory of the current value if set
     if (value) {
@@ -50,7 +52,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? "#e5e5e5" : "#2563eb", fontSize: 12, padding: 0,
+            color: path === "/" ? t.text : t.accent, fontSize: 12, padding: 0,
             fontFamily: "monospace",
           }}
         >
@@ -63,12 +65,12 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
             const isLast = i === segments.length - 1;
             return (
               <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
-                <span style={{ color: "#555", margin: "0 1px" }}>/</span>
+                <span style={{ color: t.textDim, margin: "0 1px" }}>/</span>
                 <button
                   onClick={() => navigateTo(segPath)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? "#e5e5e5" : "#2563eb", fontSize: 12, padding: 0,
+                    color: isLast ? t.text : t.accent, fontSize: 12, padding: 0,
                     fontFamily: "monospace",
                   }}
                 >
@@ -82,14 +84,14 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
 
       {/* Entries */}
       {isLoading ? (
-        <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Loading...</div>
+        <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Loading...</div>
       ) : (
         <div style={{
-          background: "#0a0a0a", borderRadius: 8, border: "1px solid #1a1a1a",
+          background: t.inputBg, borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
           overflow: "hidden", maxHeight: 250, overflowY: "auto",
         }}>
           {(!data?.entries || data.entries.length === 0) && (
-            <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Empty directory</div>
+            <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Empty directory</div>
           )}
           {data?.entries?.map((entry) => {
             const matches = matchesFilter(entry);
@@ -110,9 +112,9 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 style={{
                   display: "flex", alignItems: "center", gap: 8, width: "100%",
                   padding: "6px 12px",
-                  background: isSelected ? "rgba(59,130,246,0.12)" : "transparent",
-                  borderBottom: "1px solid #111",
-                  border: "none", borderBlockEnd: "1px solid #111",
+                  background: isSelected ? t.accentSubtle : "transparent",
+                  borderBottom: `1px solid ${t.surfaceBorder}`,
+                  border: "none", borderBlockEnd: `1px solid ${t.surfaceBorder}`,
                   cursor: (entry.is_dir || matches) ? "pointer" : "default",
                   textAlign: "left",
                   opacity: matches ? 1 : 0.35,
@@ -127,22 +129,22 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 }}
               >
                 {entry.is_dir ? (
-                  <Folder size={13} color="#2563eb" />
+                  <Folder size={13} color={t.accent} />
                 ) : (
-                  <FileText size={13} color={isSelected ? "#2563eb" : "#666"} />
+                  <FileText size={13} color={isSelected ? t.accent : t.textDim} />
                 )}
                 <span style={{
                   flex: 1, fontSize: 12,
-                  color: isSelected ? "#2563eb" : entry.is_dir ? "#e5e5e5" : "#999",
+                  color: isSelected ? t.accent : entry.is_dir ? t.text : t.textMuted,
                   fontFamily: "monospace",
                   fontWeight: isSelected ? 600 : 400,
                 }}>
                   {entry.name}
                 </span>
                 {!entry.is_dir && entry.size != null && (
-                  <span style={{ fontSize: 10, color: "#555" }}>{formatSize(entry.size)}</span>
+                  <span style={{ fontSize: 10, color: t.textDim }}>{formatSize(entry.size)}</span>
                 )}
-                {entry.is_dir && <ChevronRight size={12} color="#555" />}
+                {entry.is_dir && <ChevronRight size={12} color={t.textDim} />}
               </button>
             );
           })}
@@ -152,9 +154,9 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
       {/* Selected path display */}
       {value && (
         <div style={{
-          fontSize: 11, color: "#16a34a", fontFamily: "monospace",
-          padding: "4px 8px", background: "rgba(34,197,94,0.08)",
-          borderRadius: 4, border: "1px solid rgba(34,197,94,0.15)",
+          fontSize: 11, color: t.success, fontFamily: "monospace",
+          padding: "4px 8px", background: t.successSubtle,
+          borderRadius: 4, border: `1px solid ${t.successBorder}`,
         }}>
           Selected: {value}
         </div>

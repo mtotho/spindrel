@@ -402,7 +402,7 @@ export default function BotsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }

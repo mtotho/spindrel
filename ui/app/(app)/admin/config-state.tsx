@@ -153,7 +153,7 @@ function ProvidersSection({ data }: { data: any[] }) {
             <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
               {p.provider_type}
             </Text>
-            <Text style={{ fontSize: 11, color: p.is_enabled ? "#22c55e" : "#ef4444", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: p.is_enabled ? t.success : t.danger, fontFamily: "monospace" }}>
               {p.is_enabled ? "enabled" : "disabled"}
             </Text>
             <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
@@ -248,7 +248,7 @@ function WorkspacesSection({ data }: { data: any[] }) {
             <Text
               style={{
                 fontSize: 11,
-                color: ws.status === "running" ? "#22c55e" : t.textDim,
+                color: ws.status === "running" ? t.success : t.textDim,
                 fontFamily: "monospace",
               }}
             >
@@ -309,7 +309,7 @@ function TasksSection({ data }: { data: any[] }) {
           <Text
             style={{
               fontSize: 11,
-              color: t.status === "running" ? "#22c55e" : t.status === "pending" ? "#eab308" : tk.textDim,
+              color: t.status === "running" ? tk.success : t.status === "pending" ? tk.warning : tk.textDim,
               fontFamily: "monospace",
             }}
           >
@@ -337,7 +337,7 @@ function UsersSection({ data }: { data: any[] }) {
             {u.is_admin ? "admin" : "user"}
           </Text>
           {!u.is_active && (
-            <Text style={{ fontSize: 11, color: "#ef4444", fontFamily: "monospace" }}>
+            <Text style={{ fontSize: 11, color: t.danger, fontFamily: "monospace" }}>
               inactive
             </Text>
           )}
@@ -467,8 +467,8 @@ export default function ConfigStatePage() {
         onPress={handleFileSelect}
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
       >
-        <Upload size={14} color="#eab308" />
-        <Text style={{ fontSize: 12, color: "#eab308" }}>Restore</Text>
+        <Upload size={14} color={t.warning} />
+        <Text style={{ fontSize: 12, color: t.warning }}>Restore</Text>
       </Pressable>
       <Pressable
         onPress={handleCopy}
@@ -476,8 +476,8 @@ export default function ConfigStatePage() {
         className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
         style={{ opacity: data ? 1 : 0.4 }}
       >
-        {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color={t.textMuted} />}
-        <Text style={{ fontSize: 12, color: copied ? "#22c55e" : t.textMuted }}>
+        {copied ? <Check size={14} color={t.success} /> : <Copy size={14} color={t.textMuted} />}
+        <Text style={{ fontSize: 12, color: copied ? t.success : t.textMuted }}>
           {copied ? "Copied" : "Copy"}
         </Text>
       </Pressable>
@@ -515,15 +515,15 @@ export default function ConfigStatePage() {
         {confirmPayload && (
           <View
             style={{
-              backgroundColor: "#1a1a2e",
+              backgroundColor: t.surfaceRaised,
               borderRadius: 8,
               padding: 16,
               marginBottom: 16,
               borderWidth: 1,
-              borderColor: "#eab308",
+              borderColor: t.warning,
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#eab308", marginBottom: 8 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: t.warning, marginBottom: 8 }}>
               Confirm Restore
             </Text>
             <Text style={{ fontSize: 12, color: t.text, marginBottom: 8 }}>
@@ -539,7 +539,7 @@ export default function ConfigStatePage() {
                 onPress={handleRestore}
                 disabled={restoring}
                 style={{
-                  backgroundColor: "#eab308",
+                  backgroundColor: t.warning,
                   paddingHorizontal: 16,
                   paddingVertical: 6,
                   borderRadius: 6,
@@ -571,15 +571,15 @@ export default function ConfigStatePage() {
         {restoreResult && (
           <View
             style={{
-              backgroundColor: "#0a2e0a",
+              backgroundColor: t.successSubtle,
               borderRadius: 8,
               padding: 16,
               marginBottom: 16,
               borderWidth: 1,
-              borderColor: "#22c55e",
+              borderColor: t.success,
             }}
           >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: "#22c55e", marginBottom: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: t.success, marginBottom: 8 }}>
               Restore Complete
             </Text>
             {Object.entries(restoreResult.summary).map(([section, counts]) => (
@@ -597,15 +597,15 @@ export default function ConfigStatePage() {
         {restoreError && (
           <View
             style={{
-              backgroundColor: "#2e0a0a",
+              backgroundColor: t.dangerSubtle,
               borderRadius: 8,
               padding: 12,
               marginBottom: 16,
               borderWidth: 1,
-              borderColor: "#ef4444",
+              borderColor: t.danger,
             }}
           >
-            <Text style={{ fontSize: 12, color: "#ef4444" }}>{restoreError}</Text>
+            <Text style={{ fontSize: 12, color: t.danger }}>{restoreError}</Text>
             <Pressable onPress={() => setRestoreError(null)} style={{ marginTop: 4 }}>
               <Text style={{ fontSize: 11, color: t.textDim }}>Dismiss</Text>
             </Pressable>
@@ -617,7 +617,7 @@ export default function ConfigStatePage() {
             <ActivityIndicator color={t.accent} />
           </View>
         ) : error ? (
-          <Text style={{ color: "#ef4444", fontSize: 13 }}>
+          <Text style={{ color: t.danger, fontSize: 13 }}>
             Failed to load config state
           </Text>
         ) : data ? (

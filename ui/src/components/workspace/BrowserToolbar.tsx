@@ -87,8 +87,8 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
 
   // Status colors
   const statusColor =
-    workspace.status === "running" ? "#22c55e" :
-    workspace.status === "creating" ? "#3b82f6" : t.textDim;
+    workspace.status === "running" ? t.success :
+    workspace.status === "creating" ? t.accent : t.textDim;
 
   return (
     <div

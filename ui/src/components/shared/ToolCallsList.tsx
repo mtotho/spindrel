@@ -25,8 +25,8 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
         style={{
           display: "flex", alignItems: "center", gap: 4,
-          background: "rgba(99,102,241,0.08)", border: "none", borderRadius: 4,
-          padding: "3px 8px", fontSize: 11, color: "#4f46e5", cursor: "pointer",
+          background: t.purpleSubtle, border: "none", borderRadius: 4,
+          padding: "3px 8px", fontSize: 11, color: t.purple, cursor: "pointer",
         }}
       >
         {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -35,7 +35,7 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
       {expanded && (
         <div style={{
           marginTop: 4, paddingLeft: 8,
-          borderLeft: "2px solid rgba(99,102,241,0.2)",
+          borderLeft: `2px solid ${t.purpleBorder}`,
         }}>
           {toolCalls.map((tc, i) => (
             <div key={i} style={{
@@ -50,8 +50,8 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
               )}
               {tc.error && (
                 <span style={{
-                  fontSize: 10, fontWeight: 600, color: "#dc2626",
-                  background: "rgba(239,68,68,0.1)", padding: "1px 5px", borderRadius: 3,
+                  fontSize: 10, fontWeight: 600, color: t.danger,
+                  background: t.dangerSubtle, padding: "1px 5px", borderRadius: 3,
                   flexShrink: 0,
                 }}>ERR</span>
               )}

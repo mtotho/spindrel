@@ -62,7 +62,7 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
               padding: "4px 6px",
               borderRadius: 4,
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = t.danger; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = t.textDim; }}
           >
             ✕

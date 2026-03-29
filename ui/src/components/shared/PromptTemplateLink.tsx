@@ -46,8 +46,8 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
               fontSize: 11,
               fontWeight: 600,
               borderRadius: 4,
-              background: "rgba(59,130,246,0.1)",
-              border: "1px solid rgba(59,130,246,0.25)",
+              background: t.accentSubtle,
+              border: `1px solid ${t.accentBorder}`,
               color: t.accent,
             }}
           >

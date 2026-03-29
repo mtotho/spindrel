@@ -187,8 +187,8 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                                   fontSize: 9,
                                   padding: "1px 4px",
                                   borderRadius: 3,
-                                  background: "rgba(59,130,246,0.15)",
-                                  color: "#2563eb",
+                                  background: t.accentSubtle,
+                                  color: t.accent,
                                 }}
                               >
                                 workspace

@@ -89,7 +89,7 @@ function ToolSchemaModalContent({
             <span style={{ fontSize: 12, color: t.textDim }}>Loading...</span>
           )}
           {error && (
-            <span style={{ fontSize: 12, color: "#ef4444" }}>
+            <span style={{ fontSize: 12, color: t.danger }}>
               Failed to load tool schema
             </span>
           )}

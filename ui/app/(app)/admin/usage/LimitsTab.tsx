@@ -19,10 +19,10 @@ function fmtCost(v: number | null | undefined): string {
   return `$${v.toFixed(2)}`;
 }
 
-function progressColor(pct: number): string {
-  if (pct >= 90) return "#ef4444";
-  if (pct >= 70) return "#eab308";
-  return "#22c55e";
+function progressColor(pct: number, t: ReturnType<typeof useThemeTokens>): string {
+  if (pct >= 90) return t.danger;
+  if (pct >= 70) return t.warning;
+  return t.success;
 }
 
 // Matches useSelectStyle() from the parent page
@@ -45,7 +45,7 @@ function useSelectStyle(): React.CSSProperties {
 
 function LimitStatusCard({ s }: { s: UsageLimitStatus }) {
   const t = useThemeTokens();
-  const color = progressColor(s.percentage);
+  const color = progressColor(s.percentage, t);
   return (
     <div
       style={{
@@ -190,7 +190,7 @@ function AddLimitForm({ knownModels }: { knownModels: string[] }) {
       </button>
 
       {createMutation.isError && (
-        <span style={{ color: "#ef4444", fontSize: 12 }}>
+        <span style={{ color: t.danger, fontSize: 12 }}>
           {(createMutation.error as any)?.message || "Failed to create"}
         </span>
       )}
@@ -269,7 +269,7 @@ function LimitsTable() {
                 border: "none",
                 cursor: "pointer",
                 fontSize: 12,
-                color: lim.enabled ? "#22c55e" : t.textDim,
+                color: lim.enabled ? t.success : t.textDim,
                 padding: 0,
                 fontWeight: 500,
               }}

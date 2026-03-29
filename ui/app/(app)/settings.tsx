@@ -45,12 +45,13 @@ function BoolField({
   value: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const t = useThemeTokens();
   return (
     <Switch
       value={value}
       onValueChange={onChange}
       disabled={item.read_only}
-      trackColor={{ false: "#374151", true: "#3b82f6" }}
+      trackColor={{ false: t.surfaceBorder, true: t.accent }}
       thumbColor="#e5e5e5"
     />
   );
@@ -416,24 +417,25 @@ function GlobalSection({
   fbError: boolean;
   fbLoading: boolean;
 }) {
+  const t = useThemeTokens();
   return (
     <View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         <Link href={"/admin/providers" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <Server size={14} color="#3b82f6" />
+            <Server size={14} color={t.accent} />
             <Text className="text-accent" style={{ fontSize: 13 }}>Providers</Text>
           </Pressable>
         </Link>
         <Link href={"/admin/api-keys" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <KeyRound size={14} color="#3b82f6" />
+            <KeyRound size={14} color={t.accent} />
             <Text className="text-accent" style={{ fontSize: 13 }}>API Keys</Text>
           </Pressable>
         </Link>
         <Link href={"/admin/config-state" as any} asChild>
           <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <Eye size={14} color="#3b82f6" />
+            <Eye size={14} color={t.accent} />
             <Text className="text-accent" style={{ fontSize: 13 }}>Config State</Text>
           </Pressable>
         </Link>
@@ -446,7 +448,7 @@ function GlobalSection({
         </Text>
 
         {fbLoading ? (
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         ) : (
           <FallbackModelList value={fbModels} onChange={onFbChange} />
         )}
@@ -460,7 +462,7 @@ function GlobalSection({
             flexDirection: "row",
             alignItems: "center",
             gap: 6,
-            backgroundColor: fbDirty ? "#3b82f6" : "rgba(128,128,128,0.3)",
+            backgroundColor: fbDirty ? t.accent : "rgba(128,128,128,0.3)",
             paddingHorizontal: 16,
             paddingVertical: 8,
             borderRadius: 8,
@@ -479,7 +481,7 @@ function GlobalSection({
           </Text>
         </Pressable>
         {fbError && (
-          <Text style={{ color: "#ef4444", fontSize: 12 }}>Failed to save</Text>
+          <Text style={{ color: t.danger, fontSize: 12 }}>Failed to save</Text>
         )}
       </View>
     </View>
@@ -518,7 +520,7 @@ function AppearanceSection() {
         <Switch
           value={mode === "dark"}
           onValueChange={toggle}
-          trackColor={{ false: "#d1d5db", true: "#3b82f6" }}
+          trackColor={{ false: t.surfaceBorder, true: t.accent }}
           thumbColor="#fff"
         />
       </View>
@@ -624,7 +626,7 @@ function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
             <Text style={{ color: t.accent, fontSize: 13 }}>Show Deviations</Text>
           </Pressable>
         ) : isLoading ? (
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         ) : !data?.channels?.length ? (
           <Text style={{ color: t.textDim, fontSize: 12 }}>All channels use global defaults.</Text>
         ) : (
@@ -682,7 +684,7 @@ function FileModeOnlyBanner({ historyMode }: { historyMode: string }) {
         </Text>
         <View
           style={{
-            backgroundColor: isFileMode ? "rgba(59,130,246,0.1)" : "rgba(100,100,100,0.15)",
+            backgroundColor: isFileMode ? t.accentSubtle : "rgba(100,100,100,0.15)",
             paddingHorizontal: 7,
             paddingVertical: 2,
             borderRadius: 4,
@@ -692,7 +694,7 @@ function FileModeOnlyBanner({ historyMode }: { historyMode: string }) {
             style={{
               fontSize: 9,
               fontWeight: "700",
-              color: isFileMode ? "#3b82f6" : t.textDim,
+              color: isFileMode ? t.accent : t.textDim,
             }}
           >
             file mode only
@@ -842,6 +844,7 @@ function BotOverridesList({ group }: { group: string }) {
 // ---------------------------------------------------------------------------
 
 export default function SettingsScreen() {
+  const t = useThemeTokens();
   const { data, isLoading, error } = useSettings();
   const { refreshing, onRefresh } = usePageRefresh();
   const updateMutation = useUpdateSettings();
@@ -968,7 +971,7 @@ export default function SettingsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color={t.accent} />
       </View>
     );
   }

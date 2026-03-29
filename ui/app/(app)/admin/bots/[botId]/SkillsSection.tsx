@@ -59,14 +59,14 @@ export function SkillsSection({
           return (
             <div key={skill.id} style={{
               padding: 8, borderRadius: 6,
-              background: sel ? "rgba(59,130,246,0.06)" : t.surface,
-              border: `1px solid ${sel ? "#3b82f633" : t.surfaceRaised}`,
+              background: sel ? t.accentSubtle : t.surface,
+              border: `1px solid ${sel ? t.accentBorder : t.surfaceRaised}`,
             }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
-                <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: "#3b82f6", marginTop: 2 }} />
+                <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? "#2563eb" : t.textMuted }}>{skill.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? t.accent : t.textMuted }}>{skill.name}</span>
                     <span style={{ fontSize: 10, color: t.surfaceBorder, fontFamily: "monospace" }}>{skill.id}</span>
                   </div>
                   {skill.description && (

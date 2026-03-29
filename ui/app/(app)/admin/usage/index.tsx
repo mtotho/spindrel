@@ -183,7 +183,7 @@ function CostTable({
             >
               {item.label}
               {!item.has_cost_data && (
-                <span style={{ color: "#ca8a04", fontSize: 10, marginLeft: 6 }}>no pricing</span>
+                <span style={{ color: t.warning, fontSize: 10, marginLeft: 6 }}>no pricing</span>
               )}
             </span>
             <span style={{ width: 60, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
@@ -215,12 +215,13 @@ function OverviewTab({
   params: UsageParams;
   onDrillDown: (filter: { model?: string; bot_id?: string; provider_id?: string }) => void;
 }) {
+  const t = useThemeTokens();
   const { data, isLoading } = useUsageSummary(params);
 
   if (isLoading) {
     return (
       <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -253,11 +254,11 @@ function OverviewTab({
             alignItems: "flex-start",
             gap: 8,
             padding: "10px 14px",
-            background: "rgba(202,138,4,0.1)",
-            border: "1px solid rgba(202,138,4,0.3)",
+            background: t.warningSubtle,
+            border: `1px solid ${t.warning}`,
             borderRadius: 8,
             fontSize: 12,
-            color: "#ca8a04",
+            color: t.warning,
           }}
         >
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -265,7 +266,7 @@ function OverviewTab({
             <strong>{data.calls_without_cost_data}</strong> call(s) across{" "}
             <strong>{data.models_without_cost_data.length}</strong> model(s) have no pricing
             data: {data.models_without_cost_data.join(", ")}.{" "}
-            <a href="/admin/providers" style={{ color: "#eab308", textDecoration: "underline" }}>
+            <a href="/admin/providers" style={{ color: t.warning, textDecoration: "underline" }}>
               Configure pricing
             </a>
           </div>
@@ -370,7 +371,7 @@ function LogsTab({ params }: { params: UsageParams }) {
   if (isLoading) {
     return (
       <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -512,7 +513,7 @@ function LogsTab({ params }: { params: UsageParams }) {
                     textAlign: "right",
                     fontFamily: "monospace",
                     fontWeight: 600,
-                    color: group.has_cost_data ? t.text : "#ca8a04",
+                    color: group.has_cost_data ? t.text : t.warning,
                   }}
                 >
                   {group.has_cost_data ? fmtCost(group.total_cost) : "--"}
@@ -587,7 +588,7 @@ function LogsTab({ params }: { params: UsageParams }) {
                           width: 70,
                           textAlign: "right",
                           fontFamily: "monospace",
-                          color: entry.has_cost_data ? t.textMuted : "#ca8a04",
+                          color: entry.has_cost_data ? t.textMuted : t.warning,
                           fontSize: 10,
                         }}
                       >
@@ -732,7 +733,7 @@ function LogsTab({ params }: { params: UsageParams }) {
                     width: 80,
                     textAlign: "right",
                     fontFamily: "monospace",
-                    color: entry.has_cost_data ? t.text : "#ca8a04",
+                    color: entry.has_cost_data ? t.text : t.warning,
                   }}
                 >
                   {entry.has_cost_data ? fmtCost(entry.cost) : "--"}
@@ -815,7 +816,7 @@ function ChartsTab({ params }: { params: UsageParams }) {
   if (breakdownLoading || tsLoading) {
     return (
       <View className="items-center justify-center" style={{ padding: 40 }}>
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -860,8 +861,8 @@ function ChartsTab({ params }: { params: UsageParams }) {
             value: p.calls,
           }))}
           formatValue={(v) => String(Math.round(v))}
-          lineColor="#22c55e"
-          fillColor="rgba(34,197,94,0.15)"
+          lineColor={t.success}
+          fillColor={t.successSubtle}
         />
       </div>
     </div>
@@ -1007,7 +1008,7 @@ export default function UsageScreen() {
               gap: 4,
               padding: "4px 10px",
               fontSize: 11,
-              background: "rgba(59,130,246,0.15)",
+              background: t.accentSubtle,
               color: t.accent,
               border: `1px solid ${t.accent}`,
               borderRadius: 4,

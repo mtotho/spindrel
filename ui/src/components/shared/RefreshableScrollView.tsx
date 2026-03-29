@@ -7,6 +7,7 @@ import {
   View,
   type ScrollViewProps,
 } from "react-native";
+import { useThemeTokens } from "../../theme/tokens";
 
 const THRESHOLD = 70;
 
@@ -22,6 +23,7 @@ function NativeRefreshableScrollView({
   children,
   ...rest
 }: Props) {
+  const t = useThemeTokens();
   return (
     <ScrollView
       {...rest}
@@ -29,8 +31,8 @@ function NativeRefreshableScrollView({
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#3b82f6"
-          colors={["#3b82f6"]}
+          tintColor={t.accent}
+          colors={[t.accent]}
         />
       }
     >
@@ -49,6 +51,7 @@ function WebRefreshableScrollView({
   contentContainerStyle,
   ...rest
 }: Props) {
+  const t = useThemeTokens();
   const outerRef = useRef<HTMLDivElement>(null);
   const pullY = useRef(0);
   const startY = useRef(0);
@@ -190,7 +193,7 @@ function WebRefreshableScrollView({
           zIndex: 10,
         }}
       >
-        <ActivityIndicator size="small" color="#3b82f6" />
+        <ActivityIndicator size="small" color={t.accent} />
       </div>
 
       {/* Content wrapper */}

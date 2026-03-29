@@ -83,8 +83,8 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
         </Row>
         {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
           <div style={{
-            padding: "10px 14px", background: "#1a1400", border: "1px solid #92400e",
-            borderRadius: 8, fontSize: 11, color: "#ca8a04", lineHeight: "1.5",
+            padding: "10px 14px", background: t.warningSubtle, border: `1px solid ${t.warningMuted}`,
+            borderRadius: 8, fontSize: 11, color: t.warningMuted, lineHeight: "1.5",
             display: "flex", gap: 8, alignItems: "flex-start",
           }}>
             <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -215,16 +215,16 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       {/* Danger Zone */}
       <div style={{
         marginTop: 32,
-        border: "1px solid rgba(239,68,68,0.25)",
+        border: `1px solid ${t.dangerBorder}`,
         borderRadius: 8,
         overflow: "hidden",
       }}>
         <div style={{
           padding: "10px 14px",
-          background: "#7f1d1d33",
-          borderBottom: "1px solid #7f1d1d",
+          background: t.dangerSubtle,
+          borderBottom: `1px solid ${t.dangerBorder}`,
         }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: "#dc2626" }}>Danger Zone</Text>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: t.danger }}>Danger Zone</Text>
         </div>
         <div style={{ padding: 16 }}>
           {!showDeleteConfirm ? (
@@ -240,12 +240,12 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 16px", fontSize: 12, fontWeight: 600,
-                  border: "1px solid #991b1b", borderRadius: 6,
-                  background: "transparent", color: "#dc2626", cursor: "pointer",
+                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.danger, cursor: "pointer",
                   flexShrink: 0,
                 }}
               >
-                <Trash2 size={13} color="#dc2626" />
+                <Trash2 size={13} color={t.danger} />
                 Delete Channel
               </button>
             </div>
@@ -253,15 +253,15 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
-                padding: "10px 14px", background: "#7f1d1d44", borderRadius: 6,
+                padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
               }}>
-                <AlertTriangle size={16} color="#dc2626" />
-                <Text style={{ fontSize: 12, color: "#dc2626", fontWeight: "600" }}>
+                <AlertTriangle size={16} color={t.danger} />
+                <Text style={{ fontSize: 12, color: t.danger, fontWeight: "600" }}>
                   This action cannot be undone.
                 </Text>
               </div>
               <Text style={{ fontSize: 12, color: t.textMuted }}>
-                Type <Text style={{ fontFamily: "monospace", color: "#dc2626", fontWeight: "600" }}>delete</Text> to confirm:
+                Type <Text style={{ fontFamily: "monospace", color: t.danger, fontWeight: "600" }}>delete</Text> to confirm:
               </Text>
               <input
                 type="text"
@@ -282,7 +282,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "8px 20px", fontSize: 12, fontWeight: 700,
                     border: "none", borderRadius: 6, cursor: "pointer",
-                    background: deleteConfirmText === "delete" ? "#dc2626" : t.surfaceBorder,
+                    background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
                     color: deleteConfirmText === "delete" ? "#fff" : t.textDim,
                     opacity: deleteMutation.isPending ? 0.6 : 1,
                   }}
@@ -302,7 +302,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
                 </button>
               </div>
               {deleteMutation.isError && (
-                <Text style={{ fontSize: 11, color: "#dc2626" }}>
+                <Text style={{ fontSize: 11, color: t.danger }}>
                   {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete channel"}
                 </Text>
               )}

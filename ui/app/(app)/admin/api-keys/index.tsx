@@ -8,6 +8,7 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function ScopeBadge({ scope }: { scope: string }) {
+  const t = useThemeTokens();
   const isAdmin = scope === "admin";
   return (
     <span
@@ -16,8 +17,8 @@ function ScopeBadge({ scope }: { scope: string }) {
         borderRadius: 3,
         fontSize: 10,
         fontWeight: 600,
-        background: isAdmin ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.12)",
-        color: isAdmin ? "#dc2626" : "#2563eb",
+        background: isAdmin ? t.dangerSubtle : t.accentSubtle,
+        color: isAdmin ? t.danger : t.accent,
         whiteSpace: "nowrap",
       }}
     >
@@ -55,7 +56,7 @@ function ApiKeyCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Key size={14} color="#2563eb" />
+        <Key size={14} color={t.accent} />
         <span
           style={{
             fontSize: 14,
@@ -71,7 +72,7 @@ function ApiKeyCard({
             width: 8,
             height: 8,
             borderRadius: 4,
-            background: apiKey.is_active ? "#22c55e" : t.textDim,
+            background: apiKey.is_active ? t.success : t.textDim,
           }}
         />
       </div>

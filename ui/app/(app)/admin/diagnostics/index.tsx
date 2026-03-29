@@ -14,10 +14,11 @@ import {
 import { OperationsPanel } from "./OperationsPanel";
 
 function StatusDot({ ok }: { ok: boolean }) {
+  const t = useThemeTokens();
   return (
     <span style={{
       display: "inline-block", width: 8, height: 8, borderRadius: "50%",
-      background: ok ? "#22c55e" : "#ef4444", flexShrink: 0,
+      background: ok ? t.success : t.danger, flexShrink: 0,
     }} />
   );
 }
@@ -27,15 +28,15 @@ function IssuesList({ issues }: { issues: string[] }) {
   if (issues.length === 0) return null;
   return (
     <div style={{
-      padding: "12px 16px", background: "rgba(127,29,29,0.2)",
-      border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8,
+      padding: "12px 16px", background: t.dangerSubtle,
+      border: `1px solid ${t.dangerBorder}`, borderRadius: 8,
       display: "flex", flexDirection: "column", gap: 6,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#dc2626" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: t.danger }}>
         <AlertTriangle size={14} /> {issues.length} issue{issues.length !== 1 ? "s" : ""} detected
       </div>
       {issues.map((issue, i) => (
-        <div key={i} style={{ fontSize: 12, color: "#dc2626", paddingLeft: 20 }}>
+        <div key={i} style={{ fontSize: 12, color: t.danger, paddingLeft: 20 }}>
           {issue}
         </div>
       ))}
@@ -54,7 +55,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
         <Cpu size={14} color={t.textMuted} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Embedding Service</span>
         <StatusDot ok={data.healthy} />
-        <span style={{ fontSize: 11, color: data.healthy ? "#16a34a" : "#dc2626" }}>
+        <span style={{ fontSize: 11, color: data.healthy ? t.success : t.danger }}>
           {data.healthy ? "Healthy" : "DOWN"}
         </span>
       </div>
@@ -63,7 +64,7 @@ function EmbeddingSection({ data }: { data: { healthy: boolean; model: string; l
         <span>URL: <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{data.litellm_base_url}</span></span>
       </div>
       {data.error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "monospace" }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: t.danger, fontFamily: "monospace" }}>
           {data.error}
         </div>
       )}
@@ -76,7 +77,7 @@ function BotIndexCard({ bot }: { bot: FsIndexDiag }) {
   const hasIssues = (bot.root_exists && bot.files_on_disk > 0 && bot.chunks_in_db === 0)
     || (bot.memory_files_on_disk > 0 && bot.memory_chunks_in_db === 0)
     || !bot.root_exists;
-  const borderColor = hasIssues ? "rgba(239,68,68,0.3)" : t.surfaceRaised;
+  const borderColor = hasIssues ? t.dangerBorder : t.surfaceRaised;
 
   return (
     <div style={{
@@ -94,7 +95,7 @@ function BotIndexCard({ bot }: { bot: FsIndexDiag }) {
       {/* Root path */}
       <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace", marginBottom: 10, wordBreak: "break-all" }}>
         {bot.workspace_root}
-        {!bot.root_exists && <span style={{ color: "#dc2626", marginLeft: 6 }}>(NOT FOUND)</span>}
+        {!bot.root_exists && <span style={{ color: t.danger, marginLeft: 6 }}>(NOT FOUND)</span>}
       </div>
 
       {/* Stats grid */}
@@ -125,13 +126,13 @@ function StatBox({ label, value, warn }: { label: string; value: number; warn?: 
   return (
     <div style={{
       padding: "6px 10px", borderRadius: 6,
-      background: warn ? "rgba(127,29,29,0.15)" : t.surface,
-      border: `1px solid ${warn ? "rgba(239,68,68,0.2)" : t.surfaceOverlay}`,
+      background: warn ? t.dangerSubtle : t.surface,
+      border: `1px solid ${warn ? t.dangerBorder : t.surfaceOverlay}`,
     }}>
       <div style={{ fontSize: 10, color: t.textDim, marginBottom: 2 }}>{label}</div>
       <div style={{
         fontSize: 16, fontWeight: 700, fontFamily: "monospace",
-        color: warn ? "#dc2626" : t.text,
+        color: warn ? t.danger : t.text,
       }}>
         {value}
       </div>
@@ -153,15 +154,15 @@ function WorkspaceSkillsSection({ data }: { data: Array<{ workspace_id: string; 
       {data.map((ws) => (
         <div key={ws.workspace_id} style={{
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${ws.skills_enabled && ws.document_chunks === 0 ? "rgba(239,68,68,0.3)" : t.surfaceRaised}`,
+          border: `1px solid ${ws.skills_enabled && ws.document_chunks === 0 ? t.dangerBorder : t.surfaceRaised}`,
           display: "flex", alignItems: "center", gap: 12,
         }}>
           <BookOpen size={14} color={t.textMuted} />
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{ws.workspace_name}</span>
           <span style={{
             padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-            background: ws.skills_enabled ? "rgba(34,197,94,0.15)" : "rgba(100,100,100,0.15)",
-            color: ws.skills_enabled ? "#16a34a" : t.textDim,
+            background: ws.skills_enabled ? t.successSubtle : "rgba(100,100,100,0.15)",
+            color: ws.skills_enabled ? t.success : t.textDim,
           }}>
             {ws.skills_enabled ? "enabled" : "disabled"}
           </span>
@@ -186,19 +187,19 @@ function ReindexResultBanner({ result, onDismiss }: { result: ReindexResult; onD
   return (
     <div style={{
       padding: "12px 16px",
-      background: hasErrors ? "rgba(127,29,29,0.2)" : "rgba(34,197,94,0.1)",
-      border: `1px solid ${hasErrors ? "rgba(239,68,68,0.25)" : "rgba(34,197,94,0.2)"}`,
+      background: hasErrors ? t.dangerSubtle : t.successSubtle,
+      border: `1px solid ${hasErrors ? t.dangerBorder : t.success}33`,
       borderRadius: 8, fontSize: 12, lineHeight: 1.6,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ color: hasErrors ? "#dc2626" : "#16a34a" }}>
+        <div style={{ color: hasErrors ? t.danger : t.success }}>
           <strong>Reindex complete:</strong> {totalIndexed} files indexed,
           {" "}{totalSkills} workspace skills embedded
           {orphansDeleted > 0 && `, ${orphansDeleted} orphans cleaned`}
           {result.filesystem.map((f, i) => (
             <div key={i} style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
               {f.bot_id}: {f.error
-                ? <span style={{ color: "#dc2626" }}>{f.error}</span>
+                ? <span style={{ color: t.danger }}>{f.error}</span>
                 : `${f.indexed} indexed, ${f.skipped} skipped, ${f.removed} removed, ${f.errors} errors`}
             </div>
           ))}
@@ -275,9 +276,9 @@ export default function DiagnosticsScreen() {
             {/* Overall health */}
             {data.healthy && (
               <div style={{
-                padding: "12px 16px", background: "rgba(34,197,94,0.1)",
-                border: "1px solid rgba(34,197,94,0.2)", borderRadius: 8,
-                display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#16a34a",
+                padding: "12px 16px", background: t.successSubtle,
+                border: `1px solid ${t.success}33`, borderRadius: 8,
+                display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: t.success,
               }}>
                 <CheckCircle size={14} /> All indexing systems healthy
               </div>

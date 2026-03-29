@@ -8,6 +8,7 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function TypeBadge({ tool }: { tool: ToolItem }) {
+  const t = useThemeTokens();
   if (tool.server_name) {
     return (
       <span style={{
@@ -22,7 +23,7 @@ function TypeBadge({ tool }: { tool: ToolItem }) {
     return (
       <span style={{
         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: "rgba(168,85,247,0.15)", color: "#8b5cf6",
+        background: t.purpleSubtle, color: t.purple,
       }}>
         integration
       </span>
@@ -31,7 +32,7 @@ function TypeBadge({ tool }: { tool: ToolItem }) {
   return (
     <span style={{
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-      background: "rgba(59,130,246,0.15)", color: "#2563eb",
+      background: t.accentSubtle, color: t.accent,
     }}>
       local
     </span>
@@ -137,7 +138,7 @@ export default function ToolsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }

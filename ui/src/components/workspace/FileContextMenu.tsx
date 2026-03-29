@@ -173,7 +173,7 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
                 padding: "6px 12px",
                 cursor: "pointer",
                 fontSize: 13,
-                color: item.danger ? "#ef4444" : t.text,
+                color: item.danger ? t.danger : t.text,
                 borderRadius: 0,
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = t.overlayLight; }}

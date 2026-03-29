@@ -9,13 +9,15 @@ import { Search, ArrowDown, Settings } from "lucide-react";
 // ---------------------------------------------------------------------------
 // Level colors
 // ---------------------------------------------------------------------------
-const LEVEL_COLORS: Record<string, string> = {
-  DEBUG: "#22c55e",
-  INFO: "#94a3b8",
-  WARNING: "#eab308",
-  ERROR: "#ef4444",
-  CRITICAL: "#dc2626",
-};
+function getLevelColors(t: ReturnType<typeof useThemeTokens>): Record<string, string> {
+  return {
+    DEBUG: t.success,
+    INFO: t.textMuted,
+    WARNING: t.warning,
+    ERROR: t.danger,
+    CRITICAL: t.danger,
+  };
+}
 
 const LEVEL_OPTIONS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
 
@@ -259,7 +261,7 @@ export default function ServerLogsScreen() {
           <div
             key={`${entry.timestamp}-${i}`}
             style={{
-              color: LEVEL_COLORS[entry.level] ?? t.text,
+              color: getLevelColors(t)[entry.level] ?? t.text,
               whiteSpace: "pre-wrap",
               wordBreak: "break-all",
             }}
