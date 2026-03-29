@@ -18,9 +18,9 @@ from app.db.engine import async_session
 from app.db.models import PromptTemplate, Task
 from app.tools.registry import register
 
-_RELATIVE_RE = re.compile(r"^\+(\d+)([smhd])$")
+_RELATIVE_RE = re.compile(r"^\+(\d+)([smhdw])$")
 
-_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 # Distinct from None so JSON `null` / explicit None can clear fields while "key omitted" leaves them unchanged.
 _UNSET = object()
@@ -122,7 +122,7 @@ _SCHEDULE_TASK_SCHEMA = {
                 "recurrence": {
                     "type": "string",
                     "description": (
-                        "Repeat interval. Same format as scheduled_at offsets: +30m, +1h, +1d. "
+                        "Repeat interval: +30m, +1h, +1d, +1w. "
                         "After each successful run, the next occurrence is automatically scheduled. "
                         "Omit for one-shot tasks."
                     ),
@@ -180,6 +180,13 @@ async def schedule_task(
     max_run_seconds: int | None = None,
 ) -> str:
     scheduled = _parse_scheduled_at(scheduled_at)
+
+    if recurrence:
+        from app.agent.tasks import validate_recurrence
+        try:
+            validate_recurrence(recurrence)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
 
     cross_bot = False
     if bot_id:
@@ -533,7 +540,7 @@ async def cancel_task(task_id: str) -> str:
                 "recurrence": {
                     "type": "string",
                     "description": (
-                        "New repeat interval (+30m, +1h, +1d). Pass null to make one-shot. "
+                        "New repeat interval (+30m, +1h, +1d, +1w). Pass null to make one-shot. "
                         "Omit to leave unchanged."
                     ),
                 },
@@ -608,6 +615,12 @@ async def update_task(
                     return json.dumps({"error": f"Bot '{task.bot_id}' has no shared workspace."})
 
         if recurrence is not _UNSET:
+            if recurrence:
+                from app.agent.tasks import validate_recurrence
+                try:
+                    validate_recurrence(recurrence)
+                except ValueError as e:
+                    return json.dumps({"error": str(e)})
             old_recurrence = task.recurrence
             task.recurrence = recurrence or None
             if task.recurrence:

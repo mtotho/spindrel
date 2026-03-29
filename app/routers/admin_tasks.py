@@ -168,7 +168,14 @@ async def admin_task_edit(
             raise HTTPException(status_code=404, detail="Task not found")
 
         task.prompt = prompt.strip()
-        task.recurrence = recurrence.strip() or None
+        rec = recurrence.strip() or None
+        if rec:
+            from app.agent.tasks import validate_recurrence
+            try:
+                validate_recurrence(rec)
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+        task.recurrence = rec
         task.status = status
         task.bot_id = bot_id.strip()
         cb = {**(task.callback_config or {}), "trigger_rag_loop": trigger_rag_loop == "on"}

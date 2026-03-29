@@ -138,7 +138,7 @@ class TestGenerateApiDocs:
     def test_empty_scopes_returns_general_only(self):
         docs = generate_api_docs([])
         assert "/api/v1/discover" in docs  # scope=None, always included
-        assert "POST" not in docs or "/chat" not in docs  # chat not included
+        assert "### `POST /chat`" not in docs  # chat endpoint not included
 
     def test_admin_returns_all(self):
         docs = generate_api_docs(["admin"])

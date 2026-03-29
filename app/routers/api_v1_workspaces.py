@@ -915,48 +915,58 @@ async def reindex_workspace(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
     )).scalars().all()
 
-    from app.agent.fs_indexer import index_directory
+    from app.agent.fs_indexer import index_directory, cleanup_stale_roots
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     from app.services.memory_indexing import index_memory_for_bot
 
     results = {}
-    general_indexed_bot_ids: set[str] = set()
-    for swb in sw_bots:
-        try:
-            bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
-            if bot and bot.workspace.indexing.enabled:
-                _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
-                _patterns = _resolved["patterns"]
-                _segments = _resolved.get("segments")
-                # Shared workspace bots without segments: skip — only memory indexing
-                if bot.shared_workspace_id and not _segments:
-                    continue
-                bot_results = []
-                for root in get_all_roots(bot):
-                    stats = await index_directory(
-                        root, swb.bot_id, _patterns, force=True,
-                        embedding_model=_resolved["embedding_model"],
-                        segments=_segments,
-                    )
-                    bot_results.append(stats)
-                results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results
-                general_indexed_bot_ids.add(swb.bot_id)
-        except Exception as exc:
-            results[swb.bot_id] = {"error": str(exc)}
 
-    # Memory-only reindex for bots with workspace-files but no general indexing
+    # Phase 0: Clean up chunks from stale roots (e.g. after root path changes)
     for swb in sw_bots:
-        if swb.bot_id in general_indexed_bot_ids:
-            continue
+        bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
+        if bot and bot.workspace.enabled:
+            try:
+                valid = get_all_roots(bot)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    results.setdefault(swb.bot_id, {})["stale_roots_cleaned"] = removed
+            except Exception:
+                pass  # non-fatal
+
+    # Phase 1: Memory reindex for all workspace-files bots
+    memory_indexed_bot_ids: set[str] = set()
+    for swb in sw_bots:
         bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
         if bot and bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
             try:
                 stats = await index_memory_for_bot(bot, force=True)
                 if stats:
-                    results[swb.bot_id] = {"source": "memory-only", **stats}
+                    results.setdefault(swb.bot_id, {}).update({"memory": stats})
+                memory_indexed_bot_ids.add(swb.bot_id)
             except Exception as exc:
-                results[swb.bot_id] = {"source": "memory-only", "error": str(exc)}
+                results.setdefault(swb.bot_id, {})["memory_error"] = str(exc)
+
+    # Phase 2: Segment-based indexing (only for bots with segments)
+    for swb in sw_bots:
+        try:
+            bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
+            if bot and bot.workspace.indexing.enabled:
+                _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
+                _segments = _resolved.get("segments")
+                if bot.shared_workspace_id and not _segments:
+                    continue
+                bot_results = []
+                for root in get_all_roots(bot):
+                    stats = await index_directory(
+                        root, swb.bot_id, _resolved["patterns"], force=True,
+                        embedding_model=_resolved["embedding_model"],
+                        segments=_segments,
+                    )
+                    bot_results.append(stats)
+                results.setdefault(swb.bot_id, {})["indexing"] = bot_results[0] if len(bot_results) == 1 else bot_results
+        except Exception as exc:
+            results.setdefault(swb.bot_id, {})["indexing_error"] = str(exc)
 
     return {"results": results}
 

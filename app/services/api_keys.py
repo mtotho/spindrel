@@ -565,7 +565,12 @@ def generate_api_docs(scopes: list[str] | None = None) -> str:
     if scopes is not None:
         lines.append(f"**Your scopes:** {', '.join(scopes)}\n")
     lines.append("All paths relative to `$AGENT_SERVER_URL`. Auth via `$AGENT_SERVER_API_KEY`.\n")
-    lines.append("Use `agent api METHOD /path [body]` or `agent-api METHOD /path [body]` from the CLI.\n")
+    lines.append(
+        "**IMPORTANT:** `agent-api` is a CLI command, NOT a tool. "
+        "Run it via `exec_command`: `exec_command(command=\"agent-api GET /path\")`.\n"
+        "Examples: `exec_command(command=\"agent-api GET /api/v1/channels\")`, "
+        "`exec_command(command='agent-api POST /chat {\"message\":\"hello\"}')`.\n"
+    )
 
     for scope, eps in sorted(grouped.items()):
         # Friendly group name
