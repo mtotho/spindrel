@@ -769,8 +769,9 @@ async def delete_workspace_file(
         return shared_workspace_service.delete_path(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
-    except PermissionError:
-        raise HTTPException(403, f"Permission denied: {path}")
+    except PermissionError as exc:
+        logger.warning("Filesystem permission error deleting %s: %s", path, exc)
+        raise HTTPException(500, f"Filesystem permission denied: {path} (file may be owned by another process)")
     except OSError as exc:
         raise HTTPException(400, f"OS error: {exc}")
 

@@ -461,10 +461,30 @@ class SharedWorkspaceService:
         if not os.path.exists(target):
             raise SharedWorkspaceError("Path does not exist")
         if os.path.isdir(target):
-            shutil.rmtree(target)
+            shutil.rmtree(target, onexc=self._force_remove)
         else:
-            os.remove(target)
+            try:
+                os.remove(target)
+            except PermissionError:
+                os.chmod(target, 0o700)
+                os.remove(target)
         return {"path": path, "deleted": True}
+
+    @staticmethod
+    def _force_remove(func, path, exc):
+        """onexc handler for shutil.rmtree — chmod and retry on PermissionError."""
+        if isinstance(exc, PermissionError):
+            # Ensure the parent dir is writable (needed to unlink children)
+            parent = os.path.dirname(path)
+            os.chmod(parent, os.stat(parent).st_mode | 0o700)
+            # Ensure the path itself is writable (needed for dirs)
+            if os.path.isdir(path):
+                os.chmod(path, os.stat(path).st_mode | 0o700)
+            else:
+                os.chmod(path, os.stat(path).st_mode | 0o600)
+            func(path)
+        else:
+            raise exc
 
     def move_path(self, workspace_id: str, src: str, dst: str) -> dict:
         """Move a file or directory within the workspace.
