@@ -8,6 +8,7 @@ export function useGeneratePrompt() {
       user_input: string;
       mode?: "generate" | "inline";
       surrounding_context?: string;
+      guidance?: string;
     }) =>
       apiFetch<{ prompt: string }>("/api/v1/admin/generate-prompt", {
         method: "POST",

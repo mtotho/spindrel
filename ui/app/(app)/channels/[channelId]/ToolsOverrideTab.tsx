@@ -51,7 +51,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
     return <ActivityIndicator size="small" color={t.textDim} />;
   }
 
-  if (!editorData || !settings || !effective) {
+  if (!editorData || !settings) {
     return <EmptyState message="Loading..." />;
   }
 
@@ -98,7 +98,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         )}
       </View>
 
-      {/* Search */}
+      {/* Search (for tools section) */}
       <View
         style={{
           display: "flex",
@@ -134,43 +134,36 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         )}
       </View>
 
-      {/* Legend */}
-      <View style={{ marginBottom: 12 }}>
-        <Text style={{ fontSize: 10, color: t.textDim }}>
-          All tools are active by default. Uncheck to disable at the channel level. Changes save immediately.
-        </Text>
-      </View>
-
-      {/* Tools */}
-      <Section title="Tools">
-        <EffectiveToolsList
+      {/* Skills — channel additions */}
+      <Section title="Channel Skills">
+        <EffectiveSkillsList
           editorData={editorData}
           settings={settings}
-          effective={effective}
           filter={filter}
           onSave={save}
         />
       </Section>
 
-      {/* Skills */}
-      <Section title="Skills">
-        <EffectiveSkillsList
+      {/* Tools — disable from bot defaults */}
+      <Section title="Tool Overrides">
+        <EffectiveToolsList
           editorData={editorData}
           settings={settings}
-          effective={effective}
           filter={filter}
           onSave={save}
         />
       </Section>
 
       {/* Summary */}
-      <Section title="Summary">
-        <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
-          {effective.local_tools.length} local tools, {effective.mcp_servers.length} MCP servers,{" "}
-          {effective.client_tools.length} client tools, {effective.pinned_tools.length} pinned,{" "}
-          {effective.skills.length} skills
-        </Text>
-      </Section>
+      {effective && (
+        <Section title="Effective Summary">
+          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            {effective.local_tools.length} local tools, {effective.mcp_servers.length} MCP servers,{" "}
+            {effective.client_tools.length} client tools, {effective.pinned_tools.length} pinned,{" "}
+            {effective.skills.length} skills
+          </Text>
+        </Section>
+      )}
     </>
   );
 }

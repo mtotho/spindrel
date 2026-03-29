@@ -11,6 +11,7 @@ import {
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { apiFetch } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
@@ -99,15 +100,29 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       </Section>
 
       <Section title="Channel Prompt" description="A short prompt injected as a system message right before each user message. Useful for per-channel instructions or reminders.">
-        <LlmPrompt
-          value={form.channel_prompt ?? ""}
-          onChange={(v) => patch("channel_prompt", v || undefined)}
-          label="Channel Prompt"
-          placeholder="Leave blank for no channel-level prompt..."
-          helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
-          rows={4}
-          generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
+        <WorkspaceFilePrompt
+          workspaceId={form.channel_prompt_workspace_id ?? workspaceId}
+          filePath={form.channel_prompt_workspace_file_path ?? null}
+          onLink={(path, wsId) => {
+            patch("channel_prompt_workspace_file_path", path);
+            patch("channel_prompt_workspace_id", wsId);
+          }}
+          onUnlink={() => {
+            patch("channel_prompt_workspace_file_path", undefined);
+            patch("channel_prompt_workspace_id", undefined);
+          }}
         />
+        {!form.channel_prompt_workspace_file_path && (
+          <LlmPrompt
+            value={form.channel_prompt ?? ""}
+            onChange={(v) => patch("channel_prompt", v || undefined)}
+            label="Channel Prompt"
+            placeholder="Leave blank for no channel-level prompt..."
+            helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
+            rows={4}
+            generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
+          />
+        )}
       </Section>
 
       <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">

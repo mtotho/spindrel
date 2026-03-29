@@ -31,7 +31,12 @@ def derive_channel_id(client_id: str) -> uuid.UUID:
 def is_integration_client_id(client_id: str | None) -> bool:
     if not client_id:
         return False
-    return any(client_id.startswith(p) for p in INTEGRATION_CLIENT_PREFIXES)
+    from app.agent.hooks import get_all_client_id_prefixes
+    prefixes = get_all_client_id_prefixes()
+    if not prefixes:
+        # Fallback before integrations are loaded at startup
+        prefixes = INTEGRATION_CLIENT_PREFIXES
+    return any(client_id.startswith(p) for p in prefixes)
 
 
 async def resolve_channel_by_client_id(

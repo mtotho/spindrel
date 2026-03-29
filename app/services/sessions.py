@@ -160,7 +160,18 @@ def _effective_system_prompt(
         if base:
             parts.append(base.rstrip())
 
-    parts.append(bot.system_prompt.rstrip())
+    # Resolve system prompt from workspace file if configured
+    _sys_prompt = bot.system_prompt
+    if getattr(bot, "system_prompt_workspace_file", False) and bot.shared_workspace_id:
+        from app.services.prompt_resolution import resolve_workspace_file_prompt
+        _ws_prompt = resolve_workspace_file_prompt(
+            bot.shared_workspace_id,
+            f"bots/{bot.id}/system_prompt.md",
+            "",
+        )
+        if _ws_prompt:
+            _sys_prompt = _ws_prompt
+    parts.append(_sys_prompt.rstrip())
     if getattr(bot, "memory_scheme", None) == "workspace-files":
         from app.config import settings as _cfg
         from app.services.memory_scheme import get_memory_rel_path

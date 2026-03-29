@@ -8,8 +8,9 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
-import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { LlmPrompt, GenerateButton } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateSelector } from "@/src/components/shared/PromptTemplateSelector";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
@@ -259,20 +260,67 @@ export default function BotEditorScreen() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>System Prompt</div>
-                <PromptTemplateSelector
-                  textareaRef={systemPromptRef}
+                <GenerateButton
+                  generateContext="The main system prompt for an AI bot. Defines the bot's role, capabilities, personality, and behavioral guidelines. This is the foundational instruction the bot receives on every request."
                   value={draft.system_prompt || ""}
                   onChange={(v) => update({ system_prompt: v })}
-                  workspaceId={draft.shared_workspace_id ?? undefined}
                 />
+                {!draft.system_prompt_workspace_file && (
+                  <PromptTemplateSelector
+                    textareaRef={systemPromptRef}
+                    value={draft.system_prompt || ""}
+                    onChange={(v) => update({ system_prompt: v })}
+                    workspaceId={draft.shared_workspace_id ?? undefined}
+                  />
+                )}
               </div>
-              <BigTextarea
-                ref={systemPromptRef}
-                value={draft.system_prompt || ""}
-                onChange={(v) => update({ system_prompt: v })}
-                placeholder="Enter system prompt..."
-                minRows={28}
-              />
+              {draft.shared_workspace_id && (
+                <Toggle
+                  value={draft.system_prompt_workspace_file ?? false}
+                  onChange={(v) => {
+                    update({ system_prompt_workspace_file: v });
+                    if (!v) update({ system_prompt_write_protected: false });
+                  }}
+                  label="Use workspace file"
+                  description={`Source system prompt from bots/${draft.id || "bot-id"}/system_prompt.md in the workspace`}
+                />
+              )}
+              {draft.system_prompt_workspace_file && draft.shared_workspace_id ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
+                      workspace file
+                    </span>
+                    <span style={{ fontSize: 11 }}>
+                      <code style={{ color: t.warningMuted }}>bots/{draft.id}/system_prompt.md</code>
+                    </span>
+                  </div>
+                  <a
+                    href={`/admin/workspaces/${draft.shared_workspace_id}`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      fontSize: 11, fontWeight: 600, color: t.accent,
+                      textDecoration: "none", alignSelf: "flex-start",
+                    }}
+                  >
+                    Open Workspace &rarr;
+                  </a>
+                  <Toggle
+                    value={draft.system_prompt_write_protected ?? false}
+                    onChange={(v) => update({ system_prompt_write_protected: v })}
+                    label="Write-protect this file"
+                    description="Prevents the bot from modifying this file via exec_command"
+                  />
+                </>
+              ) : (
+                <BigTextarea
+                  ref={systemPromptRef}
+                  value={draft.system_prompt || ""}
+                  onChange={(v) => update({ system_prompt: v })}
+                  placeholder="Enter system prompt..."
+                  minRows={28}
+                />
+              )}
             </div>
           )}
 

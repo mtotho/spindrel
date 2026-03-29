@@ -18,6 +18,7 @@ class GeneratePromptIn(BaseModel):
     user_input: str = ""  # description/instruction, partial prompt, or empty
     mode: str = "generate"  # "generate" = full prompt rewrite, "inline" = replace selected text
     surrounding_context: str = ""  # rest of the document (for inline mode)
+    guidance: str = ""  # user guidance about what to generate
 
 
 class GeneratePromptOut(BaseModel):
@@ -29,7 +30,7 @@ You are an expert prompt engineer. You write prompts for LLM systems.
 
 PURPOSE: {context}
 
-{user_input_section}
+{guidance_section}{user_input_section}
 
 Write a clear, effective, production-quality prompt. Output ONLY the prompt text — no explanations, no markdown fences, no preamble."""
 
@@ -66,8 +67,13 @@ async def generate_prompt(body: GeneratePromptIn):
         else:
             user_input_section = "Write a high-quality prompt from scratch for this purpose."
 
+        guidance_section = ""
+        if body.guidance.strip():
+            guidance_section = f"USER GUIDANCE: {body.guidance.strip()}\n\n"
+
         system_msg = _META_PROMPT.format(
             context=body.context,
+            guidance_section=guidance_section,
             user_input_section=user_input_section,
         )
         user_msg = "Generate the prompt now."

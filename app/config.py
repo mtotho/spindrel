@@ -299,10 +299,6 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""
 
-    # Slack
-    SLACK_DEFAULT_BOT: str = "default"
-    SLACK_BOT_TOKEN: str = ""  # xoxb-... used for channel name lookup in admin UI
-
     BASE_COMPACTION_PROMPT: str ="""\
         You are a conversation summarizer. You will receive the message history of a \
         conversation between a user and an AI assistant.

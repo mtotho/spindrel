@@ -379,6 +379,15 @@ async def run_agent_tool_loop(
                         event_type="response",
                         data={"text": text[:500], "full_length": len(text)},
                     ))
+
+                # Fire after_response lifecycle hook (fire-and-forget)
+                from app.agent.hooks import fire_hook, HookContext
+                asyncio.create_task(fire_hook("after_response", HookContext(
+                    bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                    client_id=client_id, correlation_id=correlation_id,
+                    extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
+                )))
+
                 yield _event_with_compaction_tag({
                     "type": "response",
                     "text": text,
@@ -522,6 +531,14 @@ async def run_agent_tool_loop(
                 })
                 yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
+                # Fire after_tool_call lifecycle hook (fire-and-forget)
+                from app.agent.hooks import fire_hook, HookContext
+                asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                    bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                    client_id=client_id, correlation_id=correlation_id,
+                    extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
+                )))
+
         _max_iter_msg = (
             f"Max iterations reached ({effective_max_iterations} tool calls). "
             "Generating final response without tools."
@@ -624,6 +641,15 @@ async def run_agent_tool_loop(
                 event_type="response",
                 data={"text": text[:500], "full_length": len(text)},
             ))
+
+        # Fire after_response lifecycle hook (max-iterations path)
+        from app.agent.hooks import fire_hook, HookContext
+        asyncio.create_task(fire_hook("after_response", HookContext(
+            bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+            client_id=client_id, correlation_id=correlation_id,
+            extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
+        )))
+
         yield _event_with_compaction_tag({
             "type": "response",
             "text": text,
@@ -633,6 +659,17 @@ async def run_agent_tool_loop(
         }, compaction)
 
     except Exception as exc:
+        # Fire after_response hook on error path so integrations can clean up
+        # (e.g. Slack removes the hourglass reaction).
+        try:
+            from app.agent.hooks import fire_hook, HookContext
+            asyncio.create_task(fire_hook("after_response", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra={"error": True, "tool_calls_made": list(tool_calls_made)},
+            )))
+        except Exception:
+            pass  # best-effort cleanup
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,

@@ -8,6 +8,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
@@ -743,12 +744,23 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts below are ignored.
                 </div>
               ) : (
-                <LlmPrompt
-                  label="Memory Flush Prompt"
-                  value={form.memory_flush_prompt ?? ""}
-                  onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
-                  placeholder="Uses global default memory flush prompt"
-                />
+                <>
+                  <WorkspaceFilePrompt
+                    workspaceId={form.memory_flush_workspace_id ?? workspaceId}
+                    filePath={form.memory_flush_workspace_file_path ?? null}
+                    onLink={(path, wsId) => { patch("memory_flush_workspace_file_path", path); patch("memory_flush_workspace_id", wsId); patch("memory_flush_prompt_template_id", undefined); }}
+                    onUnlink={() => { patch("memory_flush_workspace_file_path", undefined); patch("memory_flush_workspace_id", undefined); }}
+                  />
+                  {!form.memory_flush_workspace_file_path && (
+                    <LlmPrompt
+                      label="Memory Flush Prompt"
+                      value={form.memory_flush_prompt ?? ""}
+                      onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
+                      placeholder="Uses global default memory flush prompt"
+                      generateContext="A pre-compaction memory flush prompt. Tells the AI what important context to save before history is summarized."
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -898,12 +910,23 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                       <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts are ignored.
                     </div>
                   ) : (
-                    <LlmPrompt
-                      label="Memory Flush Prompt"
-                      value={form.memory_flush_prompt ?? ""}
-                      onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
-                      placeholder="Uses global default memory flush prompt"
-                    />
+                    <>
+                      <WorkspaceFilePrompt
+                        workspaceId={form.memory_flush_workspace_id ?? workspaceId}
+                        filePath={form.memory_flush_workspace_file_path ?? null}
+                        onLink={(path, wsId) => { patch("memory_flush_workspace_file_path", path); patch("memory_flush_workspace_id", wsId); patch("memory_flush_prompt_template_id", undefined); }}
+                        onUnlink={() => { patch("memory_flush_workspace_file_path", undefined); patch("memory_flush_workspace_id", undefined); }}
+                      />
+                      {!form.memory_flush_workspace_file_path && (
+                        <LlmPrompt
+                          label="Memory Flush Prompt"
+                          value={form.memory_flush_prompt ?? ""}
+                          onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
+                          placeholder="Uses global default memory flush prompt"
+                          generateContext="A pre-compaction memory flush prompt. Tells the AI what important context to save before history is summarized."
+                        />
+                      )}
+                    </>
                   )}
                 </>
               )}

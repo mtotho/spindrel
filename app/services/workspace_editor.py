@@ -134,7 +134,7 @@ async def install_code_server(container_name: str) -> None:
 
 
 async def is_code_server_installed(container_name: str) -> bool:
-    rc, _ = await _docker_exec(container_name, f"test -f {CONTAINER_INSTALL_DIR}/bin/code-server")
+    rc, _ = await _docker_exec(container_name, f"{CONTAINER_INSTALL_DIR}/bin/code-server --version")
     return rc == 0
 
 

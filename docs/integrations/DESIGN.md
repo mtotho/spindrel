@@ -20,7 +20,6 @@ don't re-litigate these decisions or re-introduce the same slop.
 
 **Rule**: `/app` must not import from `/integrations`. `/app` must not contain integration
 brand names (like "slack") in business logic. The word "slack" is allowed only in:
-- `app/routers/admin_channels.py` — admin UI for Slack channel config display
 - `app/config.py` — `SLACK_BOT_TOKEN`/`SLACK_DEFAULT_BOT` env var config (used by admin)
 
 ---
@@ -71,6 +70,64 @@ The `SlackDispatcher` handles `chat.postMessage` + file uploads for the task pat
 It is allowed to know about Slack — it's explicitly scoped to `dispatch_type="slack"`.
 All its HTTP calls go through `integrations/slack/client.py` (for messages) and
 `integrations/slack/uploads.py` (for files).
+
+---
+
+## Hook Registry
+
+Hooks answer two questions: **"What metadata does this integration provide?"** and
+**"What should happen when the agent does X?"**
+
+### How it works
+
+`app/agent/hooks.py` has two registries:
+
+**Registry A — Integration metadata** (keyed by integration type):
+
+```python
+from app.agent.hooks import IntegrationMeta, register_integration
+
+register_integration(IntegrationMeta(
+    integration_type="slack",
+    client_id_prefix="slack:",
+    user_attribution=_user_attribution,       # returns {username, icon_emoji, icon_url}
+    resolve_display_names=_resolve_display_names,  # returns {channel_id: "#name"}
+))
+```
+
+Core code queries this registry dynamically instead of hardcoding integration-specific
+logic. For example, `app/services/channels.py:is_integration_client_id()` calls
+`get_all_client_id_prefixes()` instead of maintaining a hardcoded tuple.
+
+**Registry B — Lifecycle hooks** (broadcast, fire-and-forget):
+
+```python
+from app.agent.hooks import HookContext, register_hook, fire_hook
+
+register_hook("after_tool_call", my_callback)
+
+# Core fires the event (in loop.py, context_assembly.py, etc.)
+await fire_hook("after_tool_call", HookContext(bot_id=bot_id, extra={...}))
+```
+
+Events: `after_tool_call`, `after_response`, `before_context_assembly`. All errors
+are swallowed and logged. Both sync and async callbacks work. Hooks run via
+`asyncio.create_task` so they don't block the agent loop.
+
+### What hooks replaced
+
+Three places in core had hardcoded Slack imports:
+- `app/routers/chat.py` — user attribution for message mirroring → now uses `get_user_attribution()`
+- `app/services/channels.py` — client ID prefix detection → now uses `get_all_client_id_prefixes()`
+- `app/routers/api_v1_admin/channels.py` — display name resolution → now uses `resolve_all_display_names()`
+
+### Example: Slack hooks (`integrations/slack/hooks.py`)
+
+Registers metadata (prefix, user attribution, channel name resolution) and
+subscribes to lifecycle events:
+- `after_tool_call` — adds emoji reactions on Slack messages (hourglass + tool-specific emoji)
+- `after_tool_call` — posts tool usage to an audit channel (configured via `/audit` slash command)
+- `after_response` — removes hourglass, adds checkmark
 
 ---
 
@@ -182,7 +239,9 @@ served by `app/routers/admin_channels.py`. It does NOT query the DB directly.
 All known integration boundary violations have been resolved. Key completed items:
 
 - Dispatcher registry is pluggable — `app/agent/dispatchers.py` + integration-level `dispatcher.py`
+- Hook registry is pluggable — `app/agent/hooks.py` + integration-level `hooks.py`
 - All Slack HTTP calls consolidated in `integrations/slack/`
+- No `from integrations.slack` imports remain in `app/` — user attribution, client ID prefixes, and display name resolution all go through the hook registry
 - Bot display config uses generic `display_name`/`avatar_url` (Slack-specific in `integration_config` JSONB)
 - `dispatch_config` on Task is delivery-only; orchestration state lives in `callback_config`
 - Channel config reads from `channels` table (single source of truth)
@@ -215,3 +274,4 @@ For Docker deployments, mount external integration directories as volumes and se
 - Provider abstraction — clean
 - `/api/v1/` public API — reasonable
 - `app/agent/dispatchers.py` — clean registry pattern
+- `app/agent/hooks.py` — clean registry pattern (metadata + lifecycle)

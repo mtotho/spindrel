@@ -24,7 +24,7 @@ from agent_client import (
 from formatting import format_last_active, format_response_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
-from state import get_channel_state, set_channel_state
+from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
 
 logger = logging.getLogger(__name__)
 
@@ -783,3 +783,32 @@ def register_slash_commands(app):
             await respond(f"Error: {e}")
             return
         await respond(f"Model override set to `{match}`.\nUse `/model clear` to revert to bot default.")
+
+    @app.command("/audit")
+    async def cmd_audit(ack, command, respond):
+        """Set or clear the audit channel for tool call logging."""
+        await ack()
+        arg = (command.get("text") or "").strip()
+
+        if not arg:
+            current = get_global_setting("audit_channel")
+            if current:
+                await respond(f"Audit channel: <#{current}>\nUse `/audit off` to disable.")
+            else:
+                await respond("No audit channel set.\nUsage: `/audit #channel` or `/audit off`")
+            return
+
+        if arg.lower() == "off":
+            set_global_setting("audit_channel", None)
+            await respond("Audit logging disabled.")
+            return
+
+        # Accept <#C12345|channel-name> format (Slack's channel mention) or raw ID
+        channel_id = arg
+        if arg.startswith("<#") and "|" in arg:
+            channel_id = arg.split("|")[0].lstrip("<#")
+        elif arg.startswith("<#"):
+            channel_id = arg.strip("<#>")
+
+        set_global_setting("audit_channel", channel_id)
+        await respond(f"Audit channel set to <#{channel_id}>.\nTool calls across all bots will be logged there.")
