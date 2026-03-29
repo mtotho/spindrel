@@ -449,24 +449,10 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     await _handle_client_actions(client, thinking_channel, child_actions,
                                                 thread_ts=thread_ts, identity=child_identity)
             elif etype == "response":
-                # Force flush any remaining streamed content
+                # Streaming already showed the content — response handler will
+                # update the same message with final formatted text (no new msg)
                 if stream_buffer and stream_buffer.has_streamed:
-                    await stream_buffer.flush()
-                    _assistant_texts_posted = True
                     stream_buffer = None
-                    # In append mode, preserve the streamed content and post a
-                    # new placeholder so the final response doesn't overwrite it
-                    if thinking_display == "append":
-                        _resp_ph: dict = {
-                            "channel": thinking_channel,
-                            "text": "⏳ _working..._",
-                            **identity,
-                        }
-                        if thread_ts:
-                            _resp_ph["thread_ts"] = thread_ts
-                        msg = await client.chat_postMessage(**_resp_ph)
-                        thinking_ts = msg["ts"]
-                        thinking_channel = msg["channel"]
 
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []

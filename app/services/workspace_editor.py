@@ -120,7 +120,6 @@ async def install_code_server(container_name: str) -> None:
 
 async def start_code_server(container_name: str, workspace_id: str, port: int = 8443) -> None:
     """Start code-server inside the container (detached)."""
-    base_path = f"/api/v1/workspaces/{workspace_id}/editor"
     cmd = (
         f"{CONTAINER_INSTALL_DIR}/bin/code-server "
         f"--bind-addr 0.0.0.0:{port} "
@@ -128,16 +127,35 @@ async def start_code_server(container_name: str, workspace_id: str, port: int = 
         f"--disable-telemetry "
         f"--disable-update-check "
         f"--disable-getting-started-override "
-        f'--proxy-domain "" '
         f"/workspace"
     )
+    # Start detached, redirect output to a log file so we can check for errors
+    wrapped = f"nohup {cmd} > /tmp/code-server.log 2>&1 &"
     proc = await asyncio.create_subprocess_exec(
-        "docker", "exec", "-d", container_name, "sh", "-c", cmd,
+        "docker", "exec", container_name, "sh", "-c", wrapped,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    await proc.communicate()
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.error("Failed to start code-server in %s: rc=%d stdout=%s stderr=%s",
+                      container_name, proc.returncode, stdout.decode(), stderr.decode())
+        return
     logger.info("Started code-server in %s on port %d", container_name, port)
+
+    # Give it a moment then check if it's actually alive
+    await asyncio.sleep(2)
+    alive = await is_code_server_running(container_name)
+    if not alive:
+        # Grab the log to see why it died
+        log_proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", container_name, "cat", "/tmp/code-server.log",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        log_out, _ = await log_proc.communicate()
+        logger.error("code-server died immediately in %s. Log:\n%s",
+                      container_name, log_out.decode()[-2000:])
 
 
 async def is_code_server_running(container_name: str) -> bool:

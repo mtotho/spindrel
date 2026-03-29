@@ -32,6 +32,7 @@ dependencies = [
     "tree-sitter-go",
     "tree-sitter-rust",
     "websockets",
+    "fastembed",
 ]
 
 [project.optional-dependencies]
@@ -39,9 +40,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "aiosqlite",
-]
-local-embeddings = [
-    "fastembed",
 ]
 
 [tool.setuptools.packages.find]

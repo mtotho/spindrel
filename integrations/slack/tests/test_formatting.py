@@ -1,10 +1,4 @@
 """Tests for Slack formatting helpers."""
-import sys
-from pathlib import Path
-
-# Allow imports from the slack integration directory
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from formatting import (
     format_response_for_slack,
     format_thinking_for_slack,
