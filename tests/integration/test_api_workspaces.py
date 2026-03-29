@@ -840,3 +840,134 @@ class TestWorkspaceBotConfig:
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/workspaces/{workspace_id}/reindex
+# ---------------------------------------------------------------------------
+
+class TestReindexWorkspace:
+    async def _setup_workspace_with_bot(self, client, db_session, *, memory_scheme=None, indexing_enabled=True, segments=None):
+        """Create workspace + add a bot to it."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+                created = await _create_workspace(client)
+                ws_id = created["id"]
+                await client.post(
+                    f"/api/v1/workspaces/{ws_id}/bots",
+                    json={"bot_id": "test-bot", "role": "member"},
+                    headers=AUTH_HEADERS,
+                )
+        return ws_id
+
+    async def test_reindex_not_found(self, client):
+        resp = await client.post(
+            f"/api/v1/workspaces/{uuid.uuid4()}/reindex",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+    async def test_reindex_memory_only_bot(self, client, db_session):
+        """Bot with workspace-files memory + no segments → Phase 1 runs, Phase 2 skips."""
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+
+        mock_bot = BotConfig(
+            id="test-bot", name="Test", model="test/model",
+            system_prompt="test",
+            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory_scheme="workspace-files",
+            workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=True)),
+            shared_workspace_id=ws_id,
+            shared_workspace_role="member",
+            _workspace_raw={},
+        )
+        mock_mem_stats = {"files": 3, "chunks": 12}
+
+        with (
+            patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]),
+            patch("app.services.memory_indexing.index_memory_for_bot", new_callable=AsyncMock, return_value=mock_mem_stats) as mock_mem,
+            patch("app.agent.fs_indexer.cleanup_stale_roots", new_callable=AsyncMock, return_value=0),
+            patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/root"]),
+            patch("app.services.workspace_indexing.resolve_indexing", return_value={
+                "patterns": ["**/*.md"], "embedding_model": "text-embedding-3-small",
+                "segments": None, "top_k": 5, "similarity_threshold": 0.3,
+                "cooldown_seconds": 300, "watch": True,
+            }),
+        ):
+            resp = await client.post(f"/api/v1/workspaces/{ws_id}/reindex", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "results" in body
+        # Memory phase ran
+        assert "test-bot" in body["results"]
+        assert "memory" in body["results"]["test-bot"]
+        # Phase 2 should NOT have run (no segments for shared ws bot)
+        assert "indexing" not in body["results"]["test-bot"]
+
+    async def test_reindex_with_segments(self, client, db_session):
+        """Bot with segments configured → Phase 2 runs."""
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+
+        mock_bot = BotConfig(
+            id="test-bot", name="Test", model="test/model",
+            system_prompt="test",
+            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            memory_scheme="workspace-files",
+            workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=True)),
+            shared_workspace_id=ws_id,
+            shared_workspace_role="member",
+            _workspace_raw={},
+        )
+        mock_index_stats = {"chunks_inserted": 10, "files_processed": 3}
+        segments = [{"path_prefix": "common/", "embedding_model": None}]
+
+        with (
+            patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]),
+            patch("app.services.memory_indexing.index_memory_for_bot", new_callable=AsyncMock, return_value={"files": 2}),
+            patch("app.agent.fs_indexer.cleanup_stale_roots", new_callable=AsyncMock, return_value=0),
+            patch("app.agent.fs_indexer.index_directory", new_callable=AsyncMock, return_value=mock_index_stats) as mock_idx,
+            patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/root"]),
+            patch("app.services.workspace_indexing.resolve_indexing", return_value={
+                "patterns": ["**/*.md"], "embedding_model": "text-embedding-3-small",
+                "segments": segments, "top_k": 5, "similarity_threshold": 0.3,
+                "cooldown_seconds": 300, "watch": True,
+            }),
+        ):
+            resp = await client.post(f"/api/v1/workspaces/{ws_id}/reindex", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "indexing" in body["results"]["test-bot"]
+        mock_idx.assert_awaited_once()
+
+    async def test_reindex_cleanup_stale_roots(self, client, db_session):
+        """Phase 0: cleanup_stale_roots should be called."""
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceIndexingConfig
+
+        ws_id = await self._setup_workspace_with_bot(client, db_session)
+
+        mock_bot = BotConfig(
+            id="test-bot", name="Test", model="test/model",
+            system_prompt="test",
+            memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            workspace=WorkspaceConfig(enabled=True, indexing=WorkspaceIndexingConfig(enabled=False)),
+            shared_workspace_id=ws_id,
+            _workspace_raw={},
+        )
+
+        with (
+            patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]),
+            patch("app.agent.fs_indexer.cleanup_stale_roots", new_callable=AsyncMock, return_value=2) as mock_cleanup,
+            patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/root"]),
+        ):
+            resp = await client.post(f"/api/v1/workspaces/{ws_id}/reindex", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        mock_cleanup.assert_awaited_once_with("test-bot", ["/ws/root"])
+        body = resp.json()
+        assert body["results"]["test-bot"]["stale_roots_cleaned"] == 2

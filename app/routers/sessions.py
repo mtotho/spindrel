@@ -31,13 +31,28 @@ class SessionSummary(BaseModel):
 
 class MessageOut(BaseModel):
     id: uuid.UUID
+    session_id: uuid.UUID
     role: str
     content: Optional[str] = None
     tool_calls: Optional[list] = None
     tool_call_id: Optional[str] = None
     created_at: datetime
+    metadata: dict = {}
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm(cls, msg: "Message") -> "MessageOut":
+        return cls(
+            id=msg.id,
+            session_id=msg.session_id,
+            role=msg.role,
+            content=msg.content,
+            tool_calls=msg.tool_calls,
+            tool_call_id=msg.tool_call_id,
+            created_at=msg.created_at,
+            metadata=msg.metadata_ or {},
+        )
 
 
 class SessionDetail(BaseModel):
@@ -73,7 +88,7 @@ async def get_session(
         .order_by(Message.created_at)
     )
     messages = result.scalars().all()
-    return SessionDetail(session=session, messages=messages)
+    return SessionDetail(session=session, messages=[MessageOut.from_orm(m) for m in messages])
 
 
 class MessagePage(BaseModel):
@@ -112,7 +127,7 @@ async def get_session_messages(
     # Reverse to chronological order
     messages.reverse()
 
-    return MessagePage(messages=messages, has_more=has_more)
+    return MessagePage(messages=[MessageOut.from_orm(m) for m in messages], has_more=has_more)
 
 
 @router.delete("/{session_id}", status_code=204)

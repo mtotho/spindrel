@@ -2,7 +2,8 @@ import { useState, useMemo } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { ChevronLeft, ChevronRight, AlertTriangle, X } from "lucide-react";
+import { useRouter } from "expo-router";
+import { ChevronLeft, ChevronRight, AlertTriangle, X, ExternalLink } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
@@ -350,6 +351,7 @@ function groupByCorrelation(
 }
 
 function LogsTab({ params }: { params: UsageParams }) {
+  const router = useRouter();
   const t = useThemeTokens();
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"traces" | "raw">("traces");
@@ -602,6 +604,31 @@ function LogsTab({ params }: { params: UsageParams }) {
                       </span>
                     </div>
                   ))}
+                  {/* View full trace link */}
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      router.push(`/admin/logs/${group.correlation_id}` as any);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "6px 12px 6px 28px",
+                      fontSize: 11,
+                      color: t.accent,
+                      cursor: "pointer",
+                      borderTop: `1px solid ${t.surfaceOverlay}`,
+                    }}
+                    onMouseEnter={(e) =>
+                      ((e.currentTarget as HTMLElement).style.textDecoration = "underline")
+                    }
+                    onMouseLeave={(e) =>
+                      ((e.currentTarget as HTMLElement).style.textDecoration = "none")
+                    }
+                  >
+                    <ExternalLink size={12} /> View full trace
+                  </div>
                 </div>
               )}
             </div>

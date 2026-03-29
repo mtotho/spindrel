@@ -36,17 +36,28 @@ def resolve_task_timeout(task: Task, channel: Channel | None = None) -> int:
 # Recurrence helpers
 # ---------------------------------------------------------------------------
 
-_RELATIVE_RE = re.compile(r"^\+(\d+)([smhd])$")
-_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_RELATIVE_RE = re.compile(r"^\+(\d+)([smhdw])$")
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
 def _parse_recurrence(value: str) -> timedelta | None:
-    """Parse a relative offset like +1h, +30m, +1d into a timedelta."""
+    """Parse a relative offset like +1h, +30m, +1d, +1w into a timedelta."""
     m = _RELATIVE_RE.match(value.strip())
     if not m:
         return None
     n, unit = int(m.group(1)), m.group(2)
     return timedelta(seconds=n * _UNIT_SECONDS[unit])
+
+
+def validate_recurrence(value: str | None) -> str | None:
+    """Validate a recurrence string. Returns the value if valid, raises ValueError if not."""
+    if not value:
+        return value
+    if _parse_recurrence(value) is None:
+        raise ValueError(
+            f"Invalid recurrence {value!r}. Use format +N[s|m|h|d|w] (e.g. +30m, +1h, +1d, +1w)."
+        )
+    return value
 
 
 async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:

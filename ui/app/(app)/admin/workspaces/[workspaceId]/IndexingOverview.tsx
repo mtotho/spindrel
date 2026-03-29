@@ -9,9 +9,9 @@
 import { useState, useMemo } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, Plus, RefreshCw, X } from "lucide-react";
 import {
-  useWorkspaceIndexing, useWorkspaceIndexStatus, useUpdateBotIndexing,
+  useWorkspaceIndexing, useWorkspaceIndexStatus, useUpdateBotIndexing, useReindexWorkspace,
   type BotIndexingInfo, type FileIndexEntry,
 } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -516,8 +516,13 @@ function ConfigChip({ label, value, overridden }: { label: string; value: any; o
 export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
   const t = useThemeTokens();
   const { data, isLoading } = useWorkspaceIndexing(workspaceId);
-  const { data: indexStatus } = useWorkspaceIndexStatus(workspaceId);
+  const { data: indexStatus, refetch: refetchStatus } = useWorkspaceIndexStatus(workspaceId);
+  const reindex = useReindexWorkspace(workspaceId);
   const indexedFiles = indexStatus?.indexed_files ?? {};
+
+  const handleReindex = () => {
+    reindex.mutate(undefined, { onSuccess: () => refetchStatus() });
+  };
 
   if (isLoading) {
     return <ActivityIndicator color="#14b8a6" style={{ alignSelf: "flex-start", marginVertical: 8 }} />;
@@ -558,6 +563,27 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
           <span style={{ color: t.textDim, fontSize: 11 }}>
             defaults: k={data.global_defaults.top_k}, thresh={data.global_defaults.similarity_threshold}, model={data.global_defaults.embedding_model}
           </span>
+        )}
+        <button
+          onClick={handleReindex}
+          disabled={reindex.isPending}
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            padding: "4px 12px", borderRadius: 5, fontSize: 11, fontWeight: 600,
+            background: reindex.isPending ? t.inputBg : t.surfaceRaised,
+            border: `1px solid ${t.surfaceBorder}`, cursor: reindex.isPending ? "default" : "pointer",
+            color: reindex.isPending ? t.textDim : t.text, marginLeft: "auto",
+            opacity: reindex.isPending ? 0.6 : 1,
+          }}
+        >
+          <RefreshCw size={11} style={reindex.isPending ? { animation: "spin 1s linear infinite" } as any : undefined} />
+          {reindex.isPending ? "Reindexing…" : "Reindex Files"}
+        </button>
+        {reindex.isSuccess && (
+          <span style={{ fontSize: 10, color: "#14b8a6" }}>Done</span>
+        )}
+        {reindex.isError && (
+          <span style={{ fontSize: 10, color: "#f87171" }}>Failed</span>
         )}
       </div>
 

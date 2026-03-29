@@ -196,10 +196,15 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         )
 
         # --- Build heartbeat metadata header ---
+        # NOTE: This is injected as a system_preamble right before the user message.
+        # It MUST be forceful enough to override conversational mode — small models
+        # will otherwise just acknowledge the heartbeat prompt instead of executing it.
         metadata_lines = [
-            "[SCHEDULED HEARTBEAT]",
-            "You are running a scheduled heartbeat — an automated periodic prompt (not a user message).",
-            "Your job: follow the prompt below, analyze what is relevant, and produce a concise result.",
+            "=== SCHEDULED HEARTBEAT TASK ===",
+            "IMPORTANT: This is NOT a conversation. This is an automated task you must EXECUTE NOW.",
+            "The next message is your TASK PROMPT — follow its instructions and produce output.",
+            "Do NOT acknowledge, confirm, or discuss the prompt. Just do the task.",
+            "",
             f"Current time: {now.strftime('%Y-%m-%d %H:%M UTC')}",
             f"Channel: {channel.name}",
             f"Heartbeat interval: every {hb.interval_minutes} minutes",
@@ -298,10 +303,10 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # Dispatch mode guidance
         if _dispatch_mode == "optional":
             metadata_lines.append(
-                "Dispatch: Your response will NOT be automatically posted. "
-                "You have a post_heartbeat_to_channel tool — call it ONLY if you have "
-                "something worth sharing. If nothing noteworthy, just respond normally "
-                "and nothing will be posted to the channel."
+                "OUTPUT MODE: Your text response will NOT be posted anywhere — it is internal only. "
+                "To post to the channel, you MUST call the post_heartbeat_to_channel tool. "
+                "Only call it if you have something worth sharing. If nothing noteworthy, "
+                "just respond with your internal notes and nothing will be posted."
             )
         elif hb.dispatch_results:
             metadata_lines.append("Dispatch: Your response will be posted to the channel.")

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
@@ -77,6 +77,13 @@ class TaskDetailOut(BaseModel):
         return self
 
 
+def _validate_recurrence(v: str | None) -> str | None:
+    if v is not None:
+        from app.agent.tasks import validate_recurrence
+        validate_recurrence(v)
+    return v
+
+
 class TaskCreateIn(BaseModel):
     prompt: str
     bot_id: str
@@ -93,6 +100,8 @@ class TaskCreateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
+
+    _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
 
 class TaskUpdateIn(BaseModel):
@@ -111,6 +120,8 @@ class TaskUpdateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
+
+    _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
 
 # ---------------------------------------------------------------------------

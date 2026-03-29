@@ -547,10 +547,10 @@ async def assemble_context(
                 messages.append({
                     "role": "system",
                     "content": (
-                        "You have a scoped API key for the agent server. "
-                        "The following endpoints are available to you.\n"
-                        "Use the `agent` CLI tool (`agent api`, `agent chat`, `agent channels`, etc.) "
-                        "or `agent-api` for raw HTTP calls.\n\n"
+                        "You have a scoped API key for the agent server.\n"
+                        "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
+                        "e.g. exec_command(command=\"agent-api GET /api/v1/channels\"). "
+                        "Do NOT try to call `agent_api` as a tool — it does not exist.\n\n"
                         + _api_docs
                     ),
                 })
@@ -573,9 +573,10 @@ async def assemble_context(
                     messages.append({
                         "role": "system",
                         "content": (
-                            "You have a scoped API key for the agent server. "
-                            "The following endpoints are available to you.\n"
-                            "Use the `agent` CLI tool or `agent-api` for HTTP calls.\n\n"
+                            "You have a scoped API key for the agent server.\n"
+                            "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
+                            "e.g. exec_command(command=\"agent-api GET /api/v1/channels\"). "
+                            "Do NOT try to call `agent_api` as a tool — it does not exist.\n\n"
                             + _api_docs
                         ),
                     })
@@ -589,7 +590,8 @@ async def assemble_context(
                     "You have a scoped API key for the agent server "
                     f"(scopes: {', '.join(bot.api_permissions)}). "
                     "Use `get_skill(\"api_reference\")` to see full API documentation for your permissions. "
-                    "Use `agent api METHOD /path [body]` or `agent-api METHOD /path [body]` for raw API calls."
+                    "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
+                    "e.g. exec_command(command=\"agent-api GET /path\"). Do NOT call `agent_api` as a tool."
                 )
                 _inject_chars["api_docs"] = len(_hint)
                 messages.append({"role": "system", "content": _hint})
@@ -943,14 +945,17 @@ async def assemble_context(
                     ),
                 })
                 yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
-    # --- merge dynamically injected tools (e.g. heartbeat_post_to_thread) ---
+    # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
     from app.agent.context import current_injected_tools
     _injected = current_injected_tools.get()
-    if _injected and pre_selected_tools is not None:
-        _existing = {t["function"]["name"] for t in pre_selected_tools}
-        for t in _injected:
-            if t["function"]["name"] not in _existing:
-                pre_selected_tools.append(t)
+    if _injected:
+        _injected_names = [t["function"]["name"] for t in _injected]
+        logger.info("Injecting tools: %s", _injected_names)
+        if pre_selected_tools is not None:
+            _existing = {t["function"]["name"] for t in pre_selected_tools}
+            for t in _injected:
+                if t["function"]["name"] not in _existing:
+                    pre_selected_tools.append(t)
 
     result.pre_selected_tools = pre_selected_tools
 
@@ -967,10 +972,17 @@ async def assemble_context(
         _inject_chars["system_preamble"] = len(system_preamble)
 
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
-    messages.append({
-        "role": "system",
-        "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
-    })
+    if system_preamble:
+        # Heartbeat or other system-initiated task — don't frame as "user message"
+        messages.append({
+            "role": "system",
+            "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
+        })
+    else:
+        messages.append({
+            "role": "system",
+            "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+        })
 
     # --- user message (audio or text) ---
     if native_audio:

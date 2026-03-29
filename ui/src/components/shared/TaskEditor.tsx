@@ -53,7 +53,7 @@ const RECURRENCE_PRESETS = [
   { label: "6 hours", value: "+6h" },
   { label: "12 hours", value: "+12h" },
   { label: "Daily", value: "+1d" },
-  { label: "Weekly", value: "+7d" },
+  { label: "Weekly", value: "+1w" },
 ];
 
 // ---------------------------------------------------------------------------

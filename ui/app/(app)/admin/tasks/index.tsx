@@ -130,11 +130,22 @@ function displayTitle(task: TaskItem): string {
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
-const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 function parseRecurrenceMs(recurrence: string): number | null {
-  const m = recurrence.match(/^\+(\d+)([smhd])$/);
+  const m = recurrence.match(/^\+(\d+)([smhdw])$/);
   if (!m) return null;
   return parseInt(m[1]) * (UNIT_MS[m[2]] || 0);
+}
+
+function isValidRecurrence(recurrence: string): boolean {
+  return /^\+\d+[smhdw]$/.test(recurrence);
+}
+
+/** Find active schedules with unparseable recurrence values. */
+function detectInvalidSchedules(schedules: TaskItem[]): TaskItem[] {
+  return schedules.filter(
+    s => s.status === "active" && s.recurrence && !isValidRecurrence(s.recurrence)
+  );
 }
 
 function startOfDay(d: Date) {
@@ -1014,6 +1025,11 @@ export default function TasksScreen() {
     return detectScheduleConflicts(data?.schedules ?? []);
   }, [data?.schedules]);
 
+  // Detect schedules with invalid recurrence values
+  const invalidSchedules = useMemo(() => {
+    return detectInvalidSchedules(data?.schedules ?? []);
+  }, [data?.schedules]);
+
   const tasksByDay = useMemo(() => {
     if (!isCalendar) return {};
     const map: Record<string, TaskItem[]> = {};
@@ -1253,6 +1269,38 @@ export default function TasksScreen() {
           </>
         )}
       </div>
+
+      {/* Invalid schedule warning */}
+      {invalidSchedules.length > 0 && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 8,
+          padding: "10px 16px",
+          background: "rgba(239,68,68,0.08)",
+          borderBottom: `1px solid rgba(239,68,68,0.2)`,
+        }}>
+          <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>
+              {invalidSchedules.length} schedule{invalidSchedules.length !== 1 ? "s" : ""} with invalid recurrence — will never fire
+            </div>
+            {invalidSchedules.map((s) => (
+              <span
+                key={s.id}
+                onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, color: "#dc2626", cursor: "pointer",
+                  marginRight: 12,
+                  textDecoration: "underline",
+                  textDecorationColor: "rgba(220,38,38,0.4)",
+                }}
+              >
+                {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Body */}
       {isLoading ? (
