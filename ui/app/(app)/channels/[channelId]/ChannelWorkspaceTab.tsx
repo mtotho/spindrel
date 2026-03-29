@@ -10,6 +10,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, Toggle, EmptyState, TextInput, FormRow,
 } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFiles,
   useChannelWorkspaceFileContent,
@@ -21,6 +22,7 @@ import { apiFetch } from "@/src/api/client";
 import type { ChannelSettings } from "@/src/types/api";
 
 type IndexSegment = NonNullable<ChannelSettings["index_segments"]>[number];
+type SegmentDefaults = NonNullable<ChannelSettings["index_segment_defaults"]>;
 
 // ---------------------------------------------------------------------------
 // File list item
@@ -125,7 +127,6 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
       await enableEditorMutation.mutateAsync();
       const { serverUrl } = useAuthStore.getState();
       const token = getAuthToken();
-      // Open to the channel workspace subfolder
       const folder = `/workspace/channels/${channelId}/workspace`;
       const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
       window.open(editorUrl, `editor-${workspaceId}`);
@@ -236,16 +237,31 @@ function CollapsibleFileSection({
 }
 
 // ---------------------------------------------------------------------------
+// Helper: display value with inherited default
+// ---------------------------------------------------------------------------
+function DefaultHint({ value, defaultValue, label }: { value: string | undefined | null; defaultValue: string; label?: string }) {
+  const t = useThemeTokens();
+  if (value) return null;
+  return (
+    <Text style={{ color: t.textDim, fontSize: 10, fontStyle: "italic" }}>
+      {label ? `${label}: ` : ""}{defaultValue}
+    </Text>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Indexed Directories section
 // ---------------------------------------------------------------------------
 function IndexedDirectoriesSection({
   segments,
   onChange,
   channelId,
+  defaults,
 }: {
   segments: IndexSegment[];
   onChange: (segs: IndexSegment[]) => void;
   channelId: string;
+  defaults: SegmentDefaults | null | undefined;
 }) {
   const t = useThemeTokens();
   const [adding, setAdding] = useState(false);
@@ -256,6 +272,11 @@ function IndexedDirectoriesSection({
   const reindexMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/reindex-segments`, { method: "POST" }),
   });
+
+  const defaultPatterns = defaults?.patterns?.join(", ") ?? "**/*.py, **/*.md, **/*.yaml";
+  const defaultModel = defaults?.embedding_model ?? "text-embedding-3-small";
+  const defaultThreshold = defaults?.similarity_threshold ?? 0.3;
+  const defaultTopK = defaults?.top_k ?? 8;
 
   const handleAdd = () => {
     const trimmed = newPath.trim().replace(/^\/+|\/+$/g, "");
@@ -330,7 +351,9 @@ function IndexedDirectoriesSection({
               {seg.path_prefix}
             </Text>
             <Text style={{ color: t.textDim, fontSize: 11 }}>
-              patterns: {seg.patterns?.join(", ") || "default"} &middot; model: {seg.embedding_model || "default"}
+              patterns: {seg.patterns?.join(", ") || defaultPatterns}
+              {" "}&middot;{" "}
+              model: {seg.embedding_model || defaultModel}
             </Text>
           </View>
           <Pressable onPress={() => handleRemove(i)} style={{ padding: 4 }}>
@@ -354,19 +377,23 @@ function IndexedDirectoriesSection({
               placeholder="data/repo"
             />
           </FormRow>
-          <FormRow label="Patterns (optional)" description="Comma-separated globs, e.g. **/*.py, **/*.ts">
+          <FormRow label="Patterns (optional)" description="Comma-separated globs">
             <TextInput
               value={newPatterns}
               onChangeText={setNewPatterns}
-              placeholder="**/*"
+              placeholder={defaultPatterns}
             />
+            <DefaultHint value={newPatterns} defaultValue={defaultPatterns} label="Inherited" />
           </FormRow>
-          <FormRow label="Embedding model (optional)" description="Leave blank to use workspace default">
-            <TextInput
+          <FormRow label="Embedding model (optional)">
+            <LlmModelDropdown
               value={newModel}
-              onChangeText={setNewModel}
-              placeholder="default"
+              onChange={setNewModel}
+              placeholder={defaultModel}
+              allowClear
+              variant="embedding"
             />
+            <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
           </FormRow>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
@@ -404,6 +431,14 @@ function IndexedDirectoriesSection({
           <Plus size={14} color={t.accent} />
           <Text style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Add Directory</Text>
         </Pressable>
+      )}
+
+      {defaults && segments.length === 0 && !adding && (
+        <View style={{ marginTop: 4, paddingHorizontal: 4 }}>
+          <Text style={{ color: t.textDim, fontSize: 10, lineHeight: 16 }}>
+            Defaults from bot workspace config: top_k={defaultTopK}, threshold={defaultThreshold}, model={defaultModel}
+          </Text>
+        </View>
       )}
 
       {reindexMutation.isSuccess && (
@@ -469,6 +504,7 @@ export function ChannelWorkspaceTab({
             segments={form.index_segments ?? []}
             onChange={(segs) => patch("index_segments", segs)}
             channelId={channelId}
+            defaults={form.index_segment_defaults}
           />
 
           <Section title="Active Files" description="Markdown files in the channel workspace root. Injected into context automatically.">

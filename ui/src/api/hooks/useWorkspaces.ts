@@ -400,7 +400,7 @@ export function useEnableEditor(workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch<{ editor_url: string; editor_port: number; editor_enabled: boolean }>(
+      apiFetch<{ editor_url: string; editor_port: number; editor_enabled: boolean; editor_installing?: boolean }>(
         `/api/v1/workspaces/${workspaceId}/editor/enable`,
         { method: "POST" }
       ),

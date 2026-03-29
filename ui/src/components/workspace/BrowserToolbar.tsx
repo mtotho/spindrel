@@ -46,9 +46,7 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
   const handleOpenEditor = async () => {
     setEditorOpening(true);
     try {
-      // Always call enable — it's idempotent and ensures the container + code-server are running
       await enableEditorMutation.mutateAsync();
-      // Open editor with token as query param — proxy sets cookie and redirects
       const { serverUrl } = useAuthStore.getState();
       const token = getAuthToken();
       const editorUrl = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/?tkn=${encodeURIComponent(token || "")}`;

@@ -222,6 +222,13 @@ export interface ChannelSettings {
   // Channel workspace
   channel_workspace_enabled?: boolean | null;
   index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;
+  index_segment_defaults?: {
+    embedding_model: string;
+    patterns: string[];
+    similarity_threshold: number;
+    top_k: number;
+  } | null;
+  resolved_workspace_id?: string | null;
 }
 
 export interface EffectiveTools {
