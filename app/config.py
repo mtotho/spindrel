@@ -6,6 +6,65 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 
+# ---------------------------------------------------------------------------
+# Canonical memory-scheme prompt defaults (single source of truth)
+# ---------------------------------------------------------------------------
+
+DEFAULT_MEMORY_SCHEME_PROMPT = """\
+## Memory
+
+Your persistent memory lives in `{memory_rel}/` relative to your workspace directory.
+MEMORY.md and recent daily logs are already in your context — do not re-read them.
+
+The memory hierarchy from most stable to most ephemeral:
+
+### MEMORY.md — Curated Knowledge Base
+The single most important file. Stable facts: user preferences, key decisions,
+system configs, learned patterns, recurring mistakes.
+Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` headers.
+
+**MEMORY.md Curation Protocol:**
+- NEVER append session entries, progress notes, or "what happened today" to MEMORY.md
+- NEVER clear and rewrite MEMORY.md — edit individual sections in place
+- NEVER let MEMORY.md grow beyond ~100 lines — remove outdated info to make room
+- Only write to MEMORY.md when you have a stable fact confirmed across sessions
+- Each write should edit an existing section or add a new permanent section
+- Deduplicate: before adding, check if the fact is already captured
+
+### reference/ — Reference Documents
+Longer guides, runbooks, architecture notes. Not in your context.
+Use get_memory_file("name") or search_memory("query") to access.
+
+### logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
+Session notes, events, decisions, task progress. Today's and yesterday's logs
+are in your context. Older logs are searchable only.
+
+**Daily Log Protocol:**
+- **Session start**: Append an entry to today's log with time and task context.
+- **Every 3–5 responses**: Append a progress note. Do not let more than 5 responses pass without a write.
+- **On any decision, correction, or discovery**: Write it immediately. Do not defer.
+- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
+- When context is getting large: summarize key points to today's log before they're lost.
+
+### Tools
+- search_memory(query) — hybrid semantic+keyword search across all memory files
+- get_memory_file(name) — read a specific memory file
+- Writing: use exec_command (sed, echo, heredoc, etc.) to write/edit memory files
+
+### Promotion Rules
+- Before answering about past work or context: search_memory first.
+- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
+- After establishing or agreeing on a file format, schema, convention, or workflow: write it to MEMORY.md or the appropriate reference file immediately — do not wait for a future session to confirm it.
+- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md (edit in place, do not append)."""
+
+DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT = """\
+Before this conversation is compacted, save important context to your memory files:
+- Append key decisions and events to today's daily log
+- Promote any new stable facts to MEMORY.md (edit existing sections in place, do not append session entries)
+- Write anything you'll need to remember in future sessions
+Use exec_command to write to the appropriate files."""
+
+
 class Settings(BaseSettings):
     # System pause
     SYSTEM_PAUSED: bool = False
@@ -184,6 +243,9 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Memory scheme system prompt (workspace-files mode).
     # Use {memory_rel} placeholder for the bot-relative memory path.
     MEMORY_SCHEME_PROMPT: str = ""
+    # Memory scheme flush prompt (workspace-files mode).
+    # Empty = use DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT.
+    MEMORY_SCHEME_FLUSH_PROMPT: str = ""
 
     # Context pruning (trim old tool results at assembly time)
     CONTEXT_PRUNING_ENABLED: bool = True

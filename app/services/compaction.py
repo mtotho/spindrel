@@ -21,12 +21,7 @@ from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_SCHEME_FLUSH_PROMPT = """\
-Before this conversation is compacted, save important context to your memory files:
-- Append key decisions and events to today's daily log
-- Promote any new stable facts to MEMORY.md
-- Write anything you'll need to remember in future sessions
-Use exec_command to write to the appropriate files."""
+from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +253,7 @@ async def _run_memory_flush(
     async with async_session() as db:
         # Memory scheme override: use file-based flush prompt
         if bot.memory_scheme == "workspace-files":
-            prompt = _MEMORY_SCHEME_FLUSH_PROMPT
+            prompt = settings.MEMORY_SCHEME_FLUSH_PROMPT or DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
         else:
             prompt = await resolve_prompt(
                 workspace_id=str(channel.memory_flush_workspace_id) if channel.memory_flush_workspace_id else None,

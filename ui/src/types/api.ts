@@ -427,6 +427,7 @@ export interface WorkspaceBot {
   bot_name: string;
   role: string;
   cwd_override?: string | null;
+  write_access?: string[];
   user_id?: string | null;
 }
 
@@ -448,6 +449,7 @@ export interface SharedWorkspace {
   workspace_base_prompt_enabled: boolean;
   editor_enabled: boolean;
   editor_port?: number | null;
+  write_protected_paths?: string[];
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -474,6 +476,7 @@ export interface WorkspaceCreate {
   startup_script?: string;
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
+  write_protected_paths?: string[];
   created_by_user_id?: string;
 }
 
@@ -492,6 +495,7 @@ export interface WorkspaceUpdate {
   startup_script?: string;
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
+  write_protected_paths?: string[];
 }
 
 export interface WorkspaceFileEntry {

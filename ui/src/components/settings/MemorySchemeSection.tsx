@@ -7,54 +7,10 @@ import { View, Text, Pressable, ActivityIndicator, Switch } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, HelpCircle, Save, X } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
+import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
 import { useSettings, useUpdateSettings } from "@/src/api/hooks/useSettings";
 import { apiFetch } from "@/src/api/client";
 import { useThemeTokens } from "../../theme/tokens";
-
-// ---------------------------------------------------------------------------
-// Constants (shared with MemoryKnowledgeSections.tsx in bot editor)
-// ---------------------------------------------------------------------------
-
-const BUILT_IN_PROMPT = `## Memory
-
-Your persistent memory lives in \`memory/\` relative to your workspace directory.
-MEMORY.md and recent daily logs are in your context — do not re-read them.
-
-### MEMORY.md — Curated Knowledge
-Stable facts: user preferences, key decisions, system configs, learned patterns.
-Keep under ~100 lines. Promote important learnings from daily logs here.
-Format: ## sections with _Updated: YYYY-MM-DD_ headers. Edit in place.
-
-### logs/YYYY-MM-DD.md — Daily Logs
-Session notes, events, decisions, task progress. Today's log and yesterday's
-are in your context. Append to today's log during the session.
-
-### reference/ — Reference Documents
-Longer guides, runbooks, architecture notes. Not in your context.
-Use get_memory_file("name") or search_memory("query") to access.
-
-### Tools
-- search_memory(query) — hybrid semantic+keyword search across all memory files
-- get_memory_file(name) — read a specific memory file
-- Writing: use exec_command (sed, echo, heredoc, etc.) to write/edit memory files
-
-### Memory Rules
-- **Session start**: First action is appending an entry to today's log with time and task context.
-- **Every 3–5 responses**: Append a progress note to today's log. Do not let more than 5 responses pass without a write.
-- **Immediately on any decision, correction, or discovery**: Write it. Do not defer.
-- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
-- Before answering about past work or context: search_memory first.
-- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
-- When context is getting large: summarize key points to today's log before they're lost.
-- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md.
-- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines.
-- Format MEMORY.md sections with _Updated: YYYY-MM-DD_ headers; edit in place.`;
-
-const BUILT_IN_FLUSH_PROMPT = `Before this conversation is compacted, save important context to your memory files:
-- Append key decisions and events to today's daily log
-- Promote any new stable facts to MEMORY.md
-- Write anything you'll need to remember in future sessions
-Use exec_command to write to the appropriate files.`;
 
 const ARCHITECTURE_DIAGRAM = `
 ┌─────────────────────────────────────────────────────────────────┐
@@ -229,6 +185,9 @@ function useDisableAllMemoryScheme() {
 export function MemorySchemeSection() {
   const t = useThemeTokens();
   const { data: bots, isLoading } = useAdminBots();
+  const { data: defaults } = useMemorySchemeDefaults();
+  const builtInPrompt = defaults?.prompt ?? "";
+  const builtInFlushPrompt = defaults?.flush_prompt ?? "";
   const enableAll = useEnableAllMemoryScheme();
   const disableAll = useDisableAllMemoryScheme();
   const [showHelp, setShowHelp] = useState(false);
@@ -267,7 +226,7 @@ export function MemorySchemeSection() {
   const handleToggleCustom = useCallback((v: boolean) => {
     setUseCustomPrompt(v);
     if (v && !customPrompt) {
-      setCustomPrompt(BUILT_IN_PROMPT);
+      setCustomPrompt(builtInPrompt);
     }
     setPromptDirty(true);
     setPromptSaved(false);
@@ -537,7 +496,7 @@ export function MemorySchemeSection() {
                           </Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => { setCustomPrompt(BUILT_IN_PROMPT); setPromptDirty(true); }}
+                          onPress={() => { setCustomPrompt(builtInPrompt); setPromptDirty(true); }}
                           style={{ paddingHorizontal: 8, paddingVertical: 4 }}
                         >
                           <Text style={{ fontSize: 10, color: t.textDim }}>Reset to default</Text>
@@ -549,7 +508,7 @@ export function MemorySchemeSection() {
                       margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                       fontFamily: "monospace", whiteSpace: "pre-wrap",
                       background: t.inputBg, borderRadius: 6, padding: 12,
-                    }}>{BUILT_IN_PROMPT}</pre>
+                    }}>{builtInPrompt}</pre>
                   )}
                 </View>
               )}
@@ -596,7 +555,7 @@ export function MemorySchemeSection() {
                     margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                     fontFamily: "monospace", whiteSpace: "pre-wrap",
                     background: t.inputBg, borderRadius: 6, padding: 12,
-                  }}>{BUILT_IN_FLUSH_PROMPT}</pre>
+                  }}>{builtInFlushPrompt}</pre>
                 </View>
               )}
             </View>

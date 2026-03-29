@@ -1,6 +1,7 @@
 """Shared helpers for admin sub-modules."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Message, Task, TraceEvent
+from app.db.models import Message, Task, ToolCall, TraceEvent
 
 from ._schemas import (
     BotOut,
@@ -168,6 +169,32 @@ async def _heartbeat_correlation_ids(
                     break
 
     return result
+
+
+def build_tool_call_previews(tool_calls: list[ToolCall]) -> list[dict]:
+    """Build TurnToolCall-compatible dicts from ToolCall ORM objects.
+
+    Truncation: args JSON → 200 chars, result → 200 chars, error → 300 chars.
+    """
+    out: list[dict] = []
+    for tc in tool_calls:
+        args_preview = None
+        if tc.arguments:
+            args_str = json.dumps(tc.arguments)
+            args_preview = args_str[:200] + "..." if len(args_str) > 200 else args_str
+        result_preview = None
+        if tc.result:
+            result_preview = tc.result[:200] + "..." if len(tc.result) > 200 else tc.result
+        out.append({
+            "tool_name": tc.tool_name,
+            "tool_type": tc.tool_type,
+            "iteration": tc.iteration,
+            "duration_ms": tc.duration_ms,
+            "error": tc.error[:300] + "..." if tc.error and len(tc.error) > 300 else tc.error,
+            "arguments_preview": args_preview,
+            "result_preview": result_preview,
+        })
+    return out
 
 
 def _parse_time(value: str) -> datetime | None:

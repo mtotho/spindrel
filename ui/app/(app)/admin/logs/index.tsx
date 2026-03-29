@@ -1,12 +1,13 @@
 import { useState, useMemo, useCallback } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { X, Search, ChevronDown, ChevronRight, AlertTriangle, Wrench, Clock, Zap } from "lucide-react";
+import { X, Search, AlertTriangle, Wrench, Clock, Zap } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
-import { useTurns, type TurnSummary, type TurnToolCall } from "@/src/api/hooks/useTurns";
+import { useTurns, type TurnSummary } from "@/src/api/hooks/useTurns";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -154,55 +155,6 @@ function FilterBar({
 }
 
 // ---------------------------------------------------------------------------
-// Tool calls expandable section
-// ---------------------------------------------------------------------------
-function ToolCallsList({ toolCalls, t }: { toolCalls: TurnToolCall[]; t: any }) {
-  const [expanded, setExpanded] = useState(false);
-  if (toolCalls.length === 0) return null;
-
-  return (
-    <div style={{ marginTop: 6 }}>
-      <button
-        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-        style={{
-          display: "flex", alignItems: "center", gap: 4,
-          background: "rgba(99,102,241,0.08)", border: "none", borderRadius: 4,
-          padding: "3px 8px", fontSize: 11, color: "#4f46e5", cursor: "pointer",
-        }}
-      >
-        {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        {toolCalls.length} tool call{toolCalls.length !== 1 ? "s" : ""}
-      </button>
-      {expanded && (
-        <div style={{
-          marginTop: 4, paddingLeft: 8,
-          borderLeft: `2px solid rgba(99,102,241,0.2)`,
-        }}>
-          {toolCalls.map((tc, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "3px 0", fontSize: 11, color: t.textMuted,
-            }}>
-              <span style={{ fontWeight: 600, color: t.text }}>{tc.tool_name}</span>
-              <span style={{ color: t.textDim, fontSize: 10 }}>{tc.tool_type}</span>
-              {tc.duration_ms != null && (
-                <span style={{ color: t.textDim }}>{fmtDuration(tc.duration_ms)}</span>
-              )}
-              {tc.error && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, color: "#dc2626",
-                  background: "rgba(239,68,68,0.1)", padding: "1px 5px", borderRadius: 3,
-                }}>ERR</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Turn card
 // ---------------------------------------------------------------------------
 function TurnCard({ turn, isMobile, bots, onPress, t }: {
@@ -284,7 +236,7 @@ function TurnCard({ turn, isMobile, bots, onPress, t }: {
       )}
 
       {/* Tool calls */}
-      <ToolCallsList toolCalls={turn.tool_calls} t={t} />
+      <ToolCallsList toolCalls={turn.tool_calls} />
 
       {/* Errors */}
       {turn.errors.length > 0 && (
