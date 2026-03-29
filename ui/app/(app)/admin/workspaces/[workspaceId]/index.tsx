@@ -369,9 +369,8 @@ function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
   const handleOpen = async () => {
     setOpening(true);
     try {
-      if (!editorEnabled) {
-        await enableMut.mutateAsync();
-      }
+      // Always call enable — it's idempotent and ensures container + code-server are running
+      await enableMut.mutateAsync();
       const { useAuthStore, getAuthToken } = await import("@/src/stores/auth");
       const { serverUrl } = useAuthStore.getState();
       const token = getAuthToken();

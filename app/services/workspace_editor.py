@@ -209,11 +209,17 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
 
     Returns {"editor_url": str, "editor_port": int}.
     """
+    logger.info(
+        "ensure_editor called: ws.id=%s container_name=%s status=%s "
+        "editor_port=%s editor_enabled=%s",
+        ws.id, ws.container_name, ws.status, ws.editor_port, ws.editor_enabled,
+    )
     need_recreate = False
 
     # 1. Allocate port if not set
     if not ws.editor_port:
         port = await allocate_editor_port()
+        logger.info("Allocated editor port %d for workspace %s", port, ws.id)
         async with async_session() as db:
             await db.execute(
                 update(SharedWorkspace)
@@ -223,8 +229,9 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             await db.commit()
         ws.editor_port = port
         ws.editor_enabled = True
-        need_recreate = True  # Need port mapping
+        need_recreate = True
     elif not ws.editor_enabled:
+        logger.info("Enabling editor for workspace %s (port already %s)", ws.id, ws.editor_port)
         async with async_session() as db:
             await db.execute(
                 update(SharedWorkspace)
@@ -233,10 +240,16 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             )
             await db.commit()
         ws.editor_enabled = True
-        need_recreate = True  # Port might not be mapped
+        need_recreate = True
 
     # 2. Ensure the container is actually running with the editor port mapped
-    container_alive = ws.container_name and await _container_actually_running(ws.container_name)
+    container_alive = False
+    if ws.container_name:
+        container_alive = await _container_actually_running(ws.container_name)
+    logger.info(
+        "Container check: name=%s alive=%s need_recreate=%s",
+        ws.container_name, container_alive, need_recreate,
+    )
 
     if container_alive and need_recreate:
         # Container exists but may lack port mapping — check
@@ -251,12 +264,24 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             await shared_workspace_service.recreate(ws)
             async with async_session() as db:
                 ws = await db.get(SharedWorkspace, ws.id)
+        else:
+            logger.info("Port 8443 already mapped: %s", stdout.decode().strip())
     elif not container_alive:
-        # Container doesn't exist or isn't running — start it
-        logger.info("Container not running for workspace %s, starting...", ws.id)
-        await shared_workspace_service.ensure_container(ws)
+        logger.info("Container not running — calling ensure_container for workspace %s", ws.id)
+        try:
+            container_id = await shared_workspace_service.ensure_container(ws)
+            logger.info("ensure_container returned container_id=%s", container_id)
+        except Exception:
+            logger.exception("ensure_container FAILED for workspace %s", ws.id)
+            raise
         async with async_session() as db:
             ws = await db.get(SharedWorkspace, ws.id)
+        logger.info(
+            "After ensure_container: container_name=%s status=%s editor_port=%s",
+            ws.container_name, ws.status, ws.editor_port,
+        )
+    else:
+        logger.info("Container alive and no recreate needed")
 
     # 3. Install code-server (idempotent — checks if binary exists)
     if ws.container_name:
@@ -266,16 +291,28 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
         if rc != 0:
             logger.info("Installing code-server in %s", ws.container_name)
             await install_code_server(ws.container_name)
+        else:
+            logger.info("code-server already installed in %s", ws.container_name)
+    else:
+        logger.warning("No container_name after ensure — cannot install code-server!")
 
     # 4. Start code-server if not running
     if ws.container_name and not await is_code_server_running(ws.container_name):
+        logger.info("Starting code-server in %s", ws.container_name)
         await start_code_server(ws.container_name, str(ws.id))
+    elif ws.container_name:
+        logger.info("code-server already running in %s", ws.container_name)
 
     # 5. Wait for code-server to become healthy (up to 15s)
     if ws.container_name and ws.editor_port:
+        logger.info("Waiting for code-server healthy on port %d...", ws.editor_port)
         await _wait_for_healthy(ws.editor_port, timeout=15)
 
     editor_url = f"/api/v1/workspaces/{ws.id}/editor/"
+    logger.info(
+        "ensure_editor done: container=%s port=%s url=%s",
+        ws.container_name, ws.editor_port, editor_url,
+    )
     return {
         "editor_url": editor_url,
         "editor_port": ws.editor_port,

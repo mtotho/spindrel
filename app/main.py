@@ -266,6 +266,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(task_worker())
     from app.services.heartbeat import heartbeat_worker
     asyncio.create_task(heartbeat_worker())
+    from app.agent.fs_watcher import periodic_reindex_worker
+    asyncio.create_task(periodic_reindex_worker())
     from app.services.attachment_summarizer import attachment_sweep_worker
     asyncio.create_task(attachment_sweep_worker())
     from app.services.attachment_retention import attachment_retention_worker

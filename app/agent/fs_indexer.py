@@ -642,6 +642,33 @@ async def index_directory(
             stats["removed"] = len(stale)
         _last_indexed[key] = time.monotonic()
 
+    # Touch indexed_at on skipped (unchanged) files so the timestamp reflects
+    # "last verified" rather than "last content change".  This prevents the UI
+    # from showing stale dates when indexing is running but nothing changed.
+    skipped_paths = [r.rel_path for r in results if isinstance(r, _FileResult) and r.status == "skipped" and r.rel_path]
+    if skipped_paths:
+        try:
+            async with async_session() as db:
+                from sqlalchemy import text as _sa_text, bindparam
+                await db.execute(
+                    _sa_text(
+                        "UPDATE filesystem_chunks SET indexed_at = now() "
+                        "WHERE root = :rt AND "
+                        + ("bot_id = :bid" if bot_id is not None else "bot_id IS NULL")
+                        + " AND "
+                        + ("client_id = :cid" if client_id is not None else "client_id IS NULL")
+                        + " AND file_path = ANY(:fps)"
+                    ).bindparams(
+                        rt=str(root_path),
+                        **({"bid": bot_id} if bot_id is not None else {}),
+                        **({"cid": client_id} if client_id is not None else {}),
+                        fps=skipped_paths,
+                    )
+                )
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to touch indexed_at for skipped files (bot=%s, root=%s)", bot_id, root_path)
+
     # Backfill tsvector for any chunks still missing it (e.g. pre-migration rows
     # that were skipped because content_hash was unchanged).  Non-fatal.
     try:
