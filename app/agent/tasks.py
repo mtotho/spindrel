@@ -766,6 +766,27 @@ async def run_task(task: Task) -> None:
                 db=resolve_db,
             )
 
+        # For scheduled tasks, prepend a preamble so the bot knows this is an
+        # automated execution, not a live user message.
+        _is_scheduled = False
+        _recurrence: str | None = None
+        if task.parent_task_id:
+            async with async_session() as _preamble_db:
+                _parent = await _preamble_db.get(Task, task.parent_task_id)
+                if _parent and _parent.recurrence:
+                    _is_scheduled = True
+                    _recurrence = _parent.recurrence
+        if _is_scheduled:
+            _preamble_lines = [f"[SCHEDULED TASK — recurring {_recurrence}]"]
+            if task.title:
+                _preamble_lines.append(f"Title: {task.title}")
+            _preamble_lines.append(
+                "You are executing a scheduled task, not responding to a live user. "
+                "Execute the instructions below directly."
+            )
+            _preamble_lines.append("---")
+            task_prompt = "\n".join(_preamble_lines) + "\n" + task_prompt
+
         # Model override from execution_config (preferred) or callback_config (legacy)
         _ecfg_pre = task.execution_config or task.callback_config or {}
         _model_override = _ecfg_pre.get("model_override") or None
@@ -792,9 +813,14 @@ async def run_task(task: Task) -> None:
         result_text = run_result.response
 
         # Persist turn to session history so future agent turns see it as context
+        _task_meta: dict | None = None
+        if _is_scheduled:
+            _task_meta = {"trigger": "scheduled_task"}
+            if task.title:
+                _task_meta["task_title"] = task.title
         from app.services.sessions import persist_turn
         async with async_session() as db:
-            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id)
+            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id, msg_metadata=_task_meta)
 
         # Mark complete
         async with async_session() as db:
@@ -806,8 +832,13 @@ async def run_task(task: Task) -> None:
                 await db.commit()
 
         # Dispatch result (including any generated images)
+        # Prepend a visual indicator for Slack / other text-based dispatchers
+        _dispatch_text = result_text
+        if _is_scheduled:
+            _label = f"🔁 _{task.title or 'Scheduled task'}_\n"
+            _dispatch_text = _label + result_text
         dispatcher = dispatchers.get(task.dispatch_type)
-        await dispatcher.deliver(task, result_text, client_actions=run_result.client_actions)
+        await dispatcher.deliver(task, _dispatch_text, client_actions=run_result.client_actions)
 
         _cb = task.callback_config or {}
 

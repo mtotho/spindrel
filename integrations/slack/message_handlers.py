@@ -137,6 +137,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     thread_ts = payload["thread_ts"]
     msg_metadata = payload["msg_metadata"]
     thinking_display = payload.get("thinking_display", "append")
+    logger.info("Channel %s thinking_display=%s", channel, thinking_display)
 
     # Defer posting the thinking placeholder until we know the server is actually
     # running the agent.  If the first event back is `queued`, we skip posting
@@ -313,8 +314,25 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                 client_actions = event.get("client_actions") or []
 
                 # If the final response is empty but we already posted intermediate
-                # messages, just delete the trailing thinking placeholder.
+                # messages, clean up the trailing thinking placeholder.
+                # In "append" mode, thinking_ts is a separate placeholder we can delete.
+                # In "replace" mode, thinking_ts IS the thought content — leave it.
                 if not reply and _assistant_texts_posted:
+                    if thinking_display == "replace":
+                        # Leave the last thought content in place as the final message
+                        pass
+                    else:
+                        try:
+                            await client.chat_delete(
+                                channel=thinking_channel,
+                                ts=thinking_ts,
+                            )
+                        except Exception:
+                            pass
+                        # Clear thinking_ts so we don't try to update a deleted msg
+                        thinking_ts = None
+                elif not reply and not _assistant_texts_posted:
+                    # No response and no thoughts — just remove the placeholder
                     try:
                         await client.chat_delete(
                             channel=thinking_channel,
@@ -322,7 +340,6 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                         )
                     except Exception:
                         pass
-                    # Clear thinking_ts so we don't try to update a deleted msg
                     thinking_ts = None
                 else:
                     formatted = format_response_for_slack(reply)

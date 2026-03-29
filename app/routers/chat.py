@@ -603,12 +603,19 @@ async def chat_stream(
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
 
-            await persist_turn(
-                db, session_id, bot, messages, from_index,
-                correlation_id=correlation_id,
-                msg_metadata=req.msg_metadata,
-                channel_id=channel_id,
-            )
+            # Use a fresh DB session — the dependency-injected `db` may be
+            # closed by FastAPI before this streaming generator finishes.
+            from app.db.engine import async_session as _async_session
+            try:
+                async with _async_session() as _stream_db:
+                    await persist_turn(
+                        _stream_db, session_id, bot, messages, from_index,
+                        correlation_id=correlation_id,
+                        msg_metadata=req.msg_metadata,
+                        channel_id=channel_id,
+                    )
+            except Exception:
+                logger.exception("CRITICAL: persist_turn failed for session %s — messages will be lost", session_id)
 
             # Mirror response to integration (skip if cancelled)
             if not was_cancelled and not req.dispatch_config and response_text:

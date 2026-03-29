@@ -22,7 +22,7 @@ def next_aligned_time(now: datetime, interval_minutes: int) -> datetime:
     heartbeats always fire on predictable clock boundaries (e.g. :00/:30 for
     30-min intervals) regardless of when the server started or last fired.
     """
-    if interval_minutes <= 0:
+    if not interval_minutes or interval_minutes <= 0:
         return now + timedelta(minutes=30)  # safety fallback
     minutes_since_midnight = now.hour * 60 + now.minute
     current_slot = minutes_since_midnight // interval_minutes
@@ -393,7 +393,12 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # Persist turn
         from app.services.sessions import persist_turn
         async with async_session() as db:
-            await persist_turn(db, eff_session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=channel_id, is_heartbeat=True)
+            await persist_turn(
+                db, eff_session_id, bot, messages, messages_start,
+                correlation_id=correlation_id, channel_id=channel_id,
+                is_heartbeat=True,
+                msg_metadata={"trigger": "heartbeat"},
+            )
 
         # Dispatch result (skip for "optional" mode — the LLM used the tool if it wanted to post)
         if _dispatch_mode != "optional":
@@ -407,7 +412,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 dispatch_type=dispatch_type,
                 dispatch_config=dispatch_config,
             )
-            await dispatcher.deliver(task_proxy, result_text, client_actions=run_result.client_actions)
+            _dispatch_text = f"💓 _Heartbeat_\n{result_text}"
+            await dispatcher.deliver(task_proxy, _dispatch_text, client_actions=run_result.client_actions)
 
         # trigger_rag_loop: create a follow-up Task so the bot can react
         if trigger_rag_loop and result_text:

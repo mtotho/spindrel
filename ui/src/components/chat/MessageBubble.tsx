@@ -295,6 +295,14 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const sourceLabel = isSlack ? "via Slack" : null;
+  const trigger = meta.trigger as string | undefined;
+  const triggerBadge = trigger === "heartbeat"
+    ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
+    : trigger === "scheduled_task"
+      ? { label: meta.task_title || "scheduled", icon: "🔁", color: "#8b5cf6" }
+      : meta.is_heartbeat
+        ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
+        : null;
 
   const messageContent = isWeb ? (
     <>
@@ -374,6 +382,31 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           {sourceLabel && (
             <Text style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
               {sourceLabel}
+            </Text>
+          )}
+          {triggerBadge && isWeb && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontSize: 10,
+                fontWeight: 600,
+                color: triggerBadge.color,
+                background: `${triggerBadge.color}18`,
+                border: `1px solid ${triggerBadge.color}30`,
+                borderRadius: 10,
+                padding: "1px 7px",
+                letterSpacing: 0.3,
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{triggerBadge.icon}</span>
+              {triggerBadge.label}
+            </span>
+          )}
+          {triggerBadge && !isWeb && (
+            <Text style={{ fontSize: 10, color: triggerBadge.color, fontWeight: "600" }}>
+              {triggerBadge.icon} {triggerBadge.label}
             </Text>
           )}
         </View>

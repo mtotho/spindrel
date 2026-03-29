@@ -108,6 +108,7 @@ def get_channel_config(channel_id: str) -> dict:
         "require_mention": True,
         "passive_memory": True,
         "allow_bot_messages": False,
+        "thinking_display": "append",
     }
 
 

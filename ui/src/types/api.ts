@@ -378,12 +378,15 @@ export type SSEEventType =
   | "tool_start"
   | "tool_request"
   | "tool_result"
+  | "assistant_text"
   | "transcript"
   | "response"
   | "compaction_start"
   | "compaction_done"
+  | "warning"
   | "error"
   | "queued"
+  | "cancelled"
   | "passive_stored";
 
 export interface SSEEvent {

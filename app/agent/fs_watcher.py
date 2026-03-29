@@ -6,6 +6,8 @@ import logging
 import time
 from pathlib import Path, PurePosixPath
 
+from sqlalchemy import delete
+
 logger = logging.getLogger(__name__)
 
 _stop_event: asyncio.Event | None = None
@@ -22,12 +24,44 @@ def _matches_patterns(rel: Path, patterns: list[str]) -> bool:
     return False
 
 
+async def _remove_deleted_chunks(
+    root_path: Path, bot_id: str, removed: set[Path],
+) -> int:
+    """Delete DB chunks for files that were removed from disk."""
+    if not removed:
+        return 0
+    rel_paths = []
+    for p in removed:
+        try:
+            rel_paths.append(str(PurePosixPath(p.relative_to(root_path))))
+        except ValueError:
+            continue
+    if not rel_paths:
+        return 0
+    from app.db.engine import async_session
+    from app.db.models import FilesystemChunk
+    async with async_session() as db:
+        result = await db.execute(
+            delete(FilesystemChunk).where(
+                FilesystemChunk.bot_id == bot_id,
+                FilesystemChunk.root == str(root_path),
+                FilesystemChunk.file_path.in_(rel_paths),
+            )
+        )
+        await db.commit()
+        count = result.rowcount
+    if count:
+        logger.info("Watcher: removed %d chunk(s) for %d deleted file(s) in %s", count, len(rel_paths), root_path)
+    return count
+
+
 async def _debounced_watch(
     root: str, bot_id: str, patterns: list[str],
     embedding_model: str | None = None, segments: list[dict] | None = None,
 ) -> None:
     try:
         import watchfiles
+        from watchfiles import Change
     except ImportError:
         logger.warning("watchfiles not installed; skipping watcher for %s", root)
         return
@@ -38,34 +72,51 @@ async def _debounced_watch(
     root_path = Path(root).resolve()
     logger.info("Filesystem watcher started: %s (bot=%s)", root, bot_id)
     pending: set[Path] = set()
+    removed: set[Path] = set()
     last_change_time = 0.0
 
     try:
         async for changes in watchfiles.awatch(str(root_path), stop_event=_stop_event):
-            for _, path_str in changes:
+            for change_type, path_str in changes:
                 p = Path(path_str)
                 try:
                     rel = p.relative_to(root_path)
                     if _matches_patterns(rel, patterns):
-                        pending.add(p)
+                        if change_type == Change.deleted:
+                            removed.add(p)
+                            pending.discard(p)
+                        else:
+                            pending.add(p)
+                            removed.discard(p)
                 except ValueError:
                     pass
             last_change_time = time.monotonic()
 
             # Debounce: wait until activity settles
             await asyncio.sleep(_DEBOUNCE_SECONDS)
-            if pending and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
-                batch = list(pending)
-                pending.clear()
-                logger.info("Watcher: re-indexing %d changed file(s) in %s", len(batch), root)
-                from app.agent.fs_indexer import index_directory
-                try:
-                    await index_directory(
-                        root, bot_id, patterns, file_paths=batch, force=True,
-                        embedding_model=embedding_model, segments=segments,
-                    )
-                except Exception:
-                    logger.exception("Watcher: index_directory failed for %s", root)
+            if (pending or removed) and time.monotonic() - last_change_time >= _DEBOUNCE_SECONDS:
+                # Handle deletions
+                if removed:
+                    del_batch = set(removed)
+                    removed.clear()
+                    try:
+                        await _remove_deleted_chunks(root_path, bot_id, del_batch)
+                    except Exception:
+                        logger.exception("Watcher: failed to remove chunks for deleted files in %s", root)
+
+                # Handle added/modified files
+                if pending:
+                    batch = list(pending)
+                    pending.clear()
+                    logger.info("Watcher: re-indexing %d changed file(s) in %s", len(batch), root)
+                    from app.agent.fs_indexer import index_directory
+                    try:
+                        await index_directory(
+                            root, bot_id, patterns, file_paths=batch, force=True,
+                            embedding_model=embedding_model, segments=segments,
+                        )
+                    except Exception:
+                        logger.exception("Watcher: index_directory failed for %s", root)
     except asyncio.CancelledError:
         pass
     logger.info("Filesystem watcher stopped: %s", root)
