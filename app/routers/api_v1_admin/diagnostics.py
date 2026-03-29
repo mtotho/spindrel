@@ -256,12 +256,18 @@ async def diagnostics_reindex(
         _resolved = resolve_indexing(
             bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
         )
+        _segments = _resolved.get("segments")
+        # Shared workspace bots without segments: skip — only memory indexing
+        if bot.shared_workspace_id and not _segments:
+            if bot.memory_scheme == "workspace-files":
+                memory_indexed_bot_ids.add(bot.id)
+            continue
         for root in get_all_roots(bot, workspace_service):
             try:
                 stats = await index_directory(
                     root, bot.id, _resolved["patterns"], force=True,
                     embedding_model=_resolved["embedding_model"],
-                    segments=_resolved.get("segments"),
+                    segments=_segments,
                 )
                 results["filesystem"].append({
                     "bot_id": bot.id, "root": root, **stats,
@@ -308,3 +314,104 @@ async def diagnostics_reindex(
                 })
 
     return {"ok": True, **results}
+
+
+@router.get("/diagnostics/memory-search/{bot_id}")
+async def diagnostics_memory_search(
+    bot_id: str,
+    query: str = "test",
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Test memory search for a specific bot — returns raw diagnostic data.
+
+    Hit this endpoint to see exactly why search_memory returns empty.
+    Example: GET /api/v1/admin/diagnostics/memory-search/dev_bot?query=user+preferences
+    """
+    from app.agent.bots import get_bot
+    from app.services.memory_scheme import get_memory_index_prefix
+    from app.services.memory_search import hybrid_memory_search
+    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+
+    bot = get_bot(bot_id)
+    if not bot:
+        return {"error": f"Bot not found: {bot_id}"}
+    if bot.memory_scheme != "workspace-files":
+        return {"error": f"Bot {bot_id} does not use workspace-files memory scheme"}
+
+    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+    embedding_model = _resolved["embedding_model"]
+    roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+    memory_prefix = get_memory_index_prefix(bot)
+    path_pattern = memory_prefix.rstrip("/") + "/%"
+
+    # Run the search
+    results = await hybrid_memory_search(
+        query=query,
+        bot_id=bot_id,
+        roots=roots,
+        memory_prefix=memory_prefix,
+        embedding_model=embedding_model,
+        top_k=10,
+    )
+
+    # Run diagnostic counts directly
+    diag = {}
+    try:
+        root_placeholders = ", ".join(f":root_{i}" for i in range(len(roots)))
+        root_params = {f"root_{i}": r for i, r in enumerate(roots)}
+        diag_sql = text(f"""
+            SELECT
+                count(*) AS total_chunks,
+                count(*) FILTER (WHERE bot_id = :bot_id) AS matching_bot,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders})) AS matching_root,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern) AS matching_path,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern AND embedding IS NOT NULL) AS with_embedding,
+                count(*) FILTER (WHERE bot_id = :bot_id AND root IN ({root_placeholders}) AND file_path LIKE :path_pattern AND tsv IS NOT NULL) AS with_tsv
+            FROM filesystem_chunks
+        """)
+        row = (await db.execute(diag_sql, {"bot_id": bot_id, "path_pattern": path_pattern, **root_params})).one()
+        diag = {
+            "total_chunks_in_table": row.total_chunks,
+            "matching_bot_id": row.matching_bot,
+            "matching_bot_and_root": row.matching_root,
+            "matching_bot_root_path": row.matching_path,
+            "with_embedding": row.with_embedding,
+            "with_tsv": row.with_tsv,
+        }
+
+        # Also get distinct file_paths and embedding_models for this bot+root
+        sample_sql = text(f"""
+            SELECT DISTINCT file_path, embedding_model, root
+            FROM filesystem_chunks
+            WHERE bot_id = :bot_id AND root IN ({root_placeholders})
+            ORDER BY file_path
+            LIMIT 30
+        """)
+        sample_rows = (await db.execute(sample_sql, {"bot_id": bot_id, **root_params})).all()
+        diag["sample_files"] = [
+            {"file_path": r.file_path, "embedding_model": r.embedding_model, "root": r.root}
+            for r in sample_rows
+        ]
+
+        # Get distinct roots for this bot (to catch root mismatches)
+        roots_sql = text("SELECT DISTINCT root FROM filesystem_chunks WHERE bot_id = :bot_id")
+        roots_rows = (await db.execute(roots_sql, {"bot_id": bot_id})).all()
+        diag["all_roots_for_bot"] = [r.root for r in roots_rows]
+    except Exception as e:
+        diag["diagnostic_error"] = str(e)
+
+    return {
+        "bot_id": bot_id,
+        "query": query,
+        "embedding_model": embedding_model,
+        "query_roots": roots,
+        "memory_prefix": memory_prefix,
+        "path_pattern": path_pattern,
+        "result_count": len(results),
+        "results": [
+            {"file_path": r.file_path, "score": r.score, "content_preview": r.content[:200]}
+            for r in results
+        ],
+        "diagnostics": diag,
+    }

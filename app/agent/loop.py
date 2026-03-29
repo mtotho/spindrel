@@ -102,6 +102,14 @@ async def run_agent_tool_loop(
         ):
             skill_schemas = get_local_tool_schemas(["get_skill"])
             all_tools = all_tools + skill_schemas
+        # Merge dynamically injected tools (e.g. heartbeat_post_to_thread)
+        from app.agent.context import current_injected_tools
+        _injected = current_injected_tools.get()
+        if _injected:
+            _existing = {t["function"]["name"] for t in all_tools}
+            for t in _injected:
+                if t["function"]["name"] not in _existing:
+                    all_tools.append(t)
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
@@ -620,6 +628,8 @@ async def run_stream(
     model_override: str | None = None,
     provider_id_override: str | None = None,
     fallback_models: list[dict] | None = None,
+    injected_tools: list[dict] | None = None,
+    system_preamble: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -667,6 +677,8 @@ async def run_stream(
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
     )
+    from app.agent.context import current_injected_tools
+    current_injected_tools.set(injected_tools)
     native_audio = audio_data is not None
     turn_start = len(messages)
 
@@ -684,6 +696,7 @@ async def run_stream(
         attachments=attachments,
         native_audio=native_audio,
         result=assembly_result,
+        system_preamble=system_preamble,
     ):
         yield event
 
@@ -805,6 +818,8 @@ async def run(
     model_override: str | None = None,
     provider_id_override: str | None = None,
     fallback_models: list[dict] | None = None,
+    injected_tools: list[dict] | None = None,
+    system_preamble: str | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -821,6 +836,8 @@ async def run(
         model_override=model_override,
         provider_id_override=provider_id_override,
         fallback_models=fallback_models,
+        injected_tools=injected_tools,
+        system_preamble=system_preamble,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

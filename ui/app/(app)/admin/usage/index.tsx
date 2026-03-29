@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertTriangle, X } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
@@ -12,6 +12,7 @@ import {
   useUsageTimeSeries,
   type UsageParams,
   type CostByDimension,
+  type UsageLogEntry,
 } from "@/src/api/hooks/useUsage";
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -110,9 +111,17 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 }
 
 // ---------------------------------------------------------------------------
-// Cost dimension table
+// Cost dimension table (clickable rows)
 // ---------------------------------------------------------------------------
-function CostTable({ title, items }: { title: string; items: CostByDimension[] }) {
+function CostTable({
+  title,
+  items,
+  onClickItem,
+}: {
+  title: string;
+  items: CostByDimension[];
+  onClickItem?: (label: string) => void;
+}) {
   const t = useThemeTokens();
   if (items.length === 0) return null;
   return (
@@ -142,6 +151,7 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
         {items.map((item, i) => (
           <div
             key={i}
+            onClick={() => onClickItem?.(item.label)}
             style={{
               display: "flex",
               gap: 12,
@@ -149,13 +159,20 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
               fontSize: 12,
               borderBottom: i < items.length - 1 ? `1px solid ${t.surfaceRaised}` : "none",
               alignItems: "center",
+              cursor: onClickItem ? "pointer" : "default",
+            }}
+            onMouseEnter={(e) => {
+              if (onClickItem) (e.currentTarget as HTMLElement).style.background = t.surfaceRaised;
+            }}
+            onMouseLeave={(e) => {
+              if (onClickItem) (e.currentTarget as HTMLElement).style.background = "";
             }}
           >
             <span
               style={{
                 flex: 1,
                 minWidth: 0,
-                color: t.text,
+                color: onClickItem ? t.accent : t.text,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -188,7 +205,13 @@ function CostTable({ title, items }: { title: string; items: CostByDimension[] }
 // ---------------------------------------------------------------------------
 // Overview tab
 // ---------------------------------------------------------------------------
-function OverviewTab({ params }: { params: UsageParams }) {
+function OverviewTab({
+  params,
+  onDrillDown,
+}: {
+  params: UsageParams;
+  onDrillDown: (filter: { model?: string; bot_id?: string; provider_id?: string }) => void;
+}) {
   const { data, isLoading } = useUsageSummary(params);
 
   if (isLoading) {
@@ -246,10 +269,22 @@ function OverviewTab({ params }: { params: UsageParams }) {
         </div>
       )}
 
-      {/* Cost tables */}
-      <CostTable title="Cost by Model" items={data.cost_by_model} />
-      <CostTable title="Cost by Bot" items={data.cost_by_bot} />
-      <CostTable title="Cost by Provider" items={data.cost_by_provider} />
+      {/* Cost tables — click to drill down into Logs */}
+      <CostTable
+        title="Cost by Model"
+        items={data.cost_by_model}
+        onClickItem={(label) => onDrillDown({ model: label })}
+      />
+      <CostTable
+        title="Cost by Bot"
+        items={data.cost_by_bot}
+        onClickItem={(label) => onDrillDown({ bot_id: label })}
+      />
+      <CostTable
+        title="Cost by Provider"
+        items={data.cost_by_provider}
+        onClickItem={(label) => onDrillDown({ provider_id: label === "default" ? undefined : label })}
+      />
     </div>
   );
 }
@@ -257,13 +292,79 @@ function OverviewTab({ params }: { params: UsageParams }) {
 // ---------------------------------------------------------------------------
 // Logs tab
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Trace group — groups log entries by correlation_id with per-trace cost
+// ---------------------------------------------------------------------------
+interface TraceGroup {
+  correlation_id: string;
+  created_at: string;
+  bot_id: string | null;
+  bot_name: string | null;
+  channel_name: string | null;
+  entries: UsageLogEntry[];
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cost: number | null;
+  total_duration_ms: number | null;
+  iterations: number;
+  has_cost_data: boolean;
+}
+
+function groupByCorrelation(
+  entries: UsageLogEntry[],
+  bots: any[] | undefined,
+): TraceGroup[] {
+  const map = new Map<string, TraceGroup>();
+  for (const entry of entries) {
+    const key = entry.correlation_id || entry.id; // fallback if no correlation_id
+    let group = map.get(key);
+    if (!group) {
+      const bot = bots?.find((b: any) => b.id === entry.bot_id);
+      group = {
+        correlation_id: key,
+        created_at: entry.created_at,
+        bot_id: entry.bot_id,
+        bot_name: bot?.name || entry.bot_id || null,
+        channel_name: entry.channel_name,
+        entries: [],
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        total_cost: null,
+        total_duration_ms: null,
+        iterations: 0,
+        has_cost_data: true,
+      };
+      map.set(key, group);
+    }
+    group.entries.push(entry);
+    group.total_prompt_tokens += entry.prompt_tokens;
+    group.total_completion_tokens += entry.completion_tokens;
+    group.iterations += 1;
+    if (entry.cost != null) {
+      group.total_cost = (group.total_cost || 0) + entry.cost;
+    } else {
+      group.has_cost_data = false;
+    }
+    if (entry.duration_ms != null) {
+      group.total_duration_ms = (group.total_duration_ms || 0) + entry.duration_ms;
+    }
+  }
+  return Array.from(map.values());
+}
+
 function LogsTab({ params }: { params: UsageParams }) {
   const t = useThemeTokens();
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useUsageLogs({ ...params, page, page_size: 50 });
+  const [viewMode, setViewMode] = useState<"traces" | "raw">("traces");
+  const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
+  const { data, isLoading } = useUsageLogs({ ...params, page, page_size: 100 });
   const { data: bots } = useBots();
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 0;
+  const traceGroups = useMemo(
+    () => (data ? groupByCorrelation(data.entries, bots) : []),
+    [data, bots],
+  );
 
   if (isLoading) {
     return (
@@ -275,108 +376,351 @@ function LogsTab({ params }: { params: UsageParams }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-      {/* Column headers */}
+      {/* View mode toggle */}
       <div
         style={{
           display: "flex",
-          gap: 8,
+          gap: 4,
           padding: "6px 12px",
-          fontSize: 10,
-          fontWeight: 600,
-          color: t.textDim,
-          textTransform: "uppercase",
           borderBottom: `1px solid ${t.surfaceOverlay}`,
+          alignItems: "center",
         }}
       >
-        <span style={{ width: 120 }}>Time</span>
-        <span style={{ flex: 1, minWidth: 0 }}>Model</span>
-        <span style={{ width: 80 }}>Bot</span>
-        <span style={{ width: 100 }}>Channel</span>
-        <span style={{ width: 80, textAlign: "right" }}>Input</span>
-        <span style={{ width: 80, textAlign: "right" }}>Output</span>
-        <span style={{ width: 80, textAlign: "right" }}>Cost</span>
-        <span style={{ width: 70, textAlign: "right" }}>Duration</span>
+        <span style={{ fontSize: 11, color: t.textDim, marginRight: 8 }}>View:</span>
+        {(["traces", "raw"] as const).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setViewMode(mode)}
+            style={{
+              padding: "3px 10px",
+              fontSize: 11,
+              fontWeight: viewMode === mode ? 600 : 400,
+              background: viewMode === mode ? t.accent : "transparent",
+              color: viewMode === mode ? "#fff" : t.textMuted,
+              border: `1px solid ${viewMode === mode ? t.accent : t.surfaceBorder}`,
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            {mode === "traces" ? "By Trace" : "Raw Calls"}
+          </button>
+        ))}
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: t.textDim }}>
+          {data?.total ?? 0} calls{viewMode === "traces" ? `, ${traceGroups.length} traces` : ""}
+        </span>
       </div>
 
-      {data?.entries.map((entry) => {
-        const bot = bots?.find((b: any) => b.id === entry.bot_id);
-        return (
+      {viewMode === "traces" ? (
+        <>
+          {/* Trace view — grouped by correlation_id */}
           <div
-            key={entry.id}
             style={{
               display: "flex",
               gap: 8,
               padding: "6px 12px",
-              fontSize: 12,
-              borderBottom: `1px solid ${t.surfaceRaised}`,
-              alignItems: "center",
+              fontSize: 10,
+              fontWeight: 600,
+              color: t.textDim,
+              textTransform: "uppercase",
+              borderBottom: `1px solid ${t.surfaceOverlay}`,
             }}
           >
-            <span style={{ width: 120, color: t.textDim, fontSize: 11 }}>
-              <span style={{ color: t.textDim }}>{fmtDate(entry.created_at)} </span>
-              {fmtTime(entry.created_at)}
-            </span>
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                color: t.text,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {entry.model || "--"}
-              {entry.provider_name && (
-                <span style={{ color: t.textDim, fontSize: 10, marginLeft: 6 }}>
-                  ({entry.provider_name})
-                </span>
-              )}
-            </span>
-            <span
-              style={{
-                width: 80,
-                color: t.textMuted,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {bot?.name || entry.bot_id || "--"}
-            </span>
-            <span
-              style={{
-                width: 100,
-                color: t.textMuted,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {entry.channel_name || "--"}
-            </span>
-            <span style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
-              {fmtTokens(entry.prompt_tokens)}
-            </span>
-            <span style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
-              {fmtTokens(entry.completion_tokens)}
-            </span>
-            <span
-              style={{
-                width: 80,
-                textAlign: "right",
-                fontFamily: "monospace",
-                color: entry.has_cost_data ? t.text : "#ca8a04",
-              }}
-            >
-              {entry.has_cost_data ? fmtCost(entry.cost) : "--"}
-            </span>
-            <span style={{ width: 70, textAlign: "right", color: t.textDim, fontFamily: "monospace" }}>
-              {fmtDuration(entry.duration_ms)}
-            </span>
+            <span style={{ width: 120 }}>Time</span>
+            <span style={{ width: 100 }}>Bot</span>
+            <span style={{ width: 100 }}>Channel</span>
+            <span style={{ width: 50, textAlign: "right" }}>Iters</span>
+            <span style={{ flex: 1, minWidth: 0, textAlign: "right" }}>Input Tok</span>
+            <span style={{ width: 90, textAlign: "right" }}>Output Tok</span>
+            <span style={{ width: 80, textAlign: "right" }}>Cost</span>
+            <span style={{ width: 70, textAlign: "right" }}>LLM Time</span>
           </div>
-        );
-      })}
+          {traceGroups.map((group) => (
+            <div key={group.correlation_id}>
+              <div
+                onClick={() =>
+                  setExpandedTrace(
+                    expandedTrace === group.correlation_id ? null : group.correlation_id,
+                  )
+                }
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "7px 12px",
+                  fontSize: 12,
+                  borderBottom: `1px solid ${t.surfaceRaised}`,
+                  alignItems: "center",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = t.surfaceRaised)
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLElement).style.background = "")
+                }
+              >
+                <span style={{ width: 120, color: t.textDim, fontSize: 11 }}>
+                  {fmtDate(group.created_at)} {fmtTime(group.created_at)}
+                </span>
+                <span
+                  style={{
+                    width: 100,
+                    color: t.textMuted,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {group.bot_name || "--"}
+                </span>
+                <span
+                  style={{
+                    width: 100,
+                    color: t.textMuted,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {group.channel_name || "--"}
+                </span>
+                <span
+                  style={{ width: 50, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}
+                >
+                  {group.iterations}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    textAlign: "right",
+                    color: t.textMuted,
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {fmtTokens(group.total_prompt_tokens)}
+                </span>
+                <span
+                  style={{ width: 90, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}
+                >
+                  {fmtTokens(group.total_completion_tokens)}
+                </span>
+                <span
+                  style={{
+                    width: 80,
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                    color: group.has_cost_data ? t.text : "#ca8a04",
+                  }}
+                >
+                  {group.has_cost_data ? fmtCost(group.total_cost) : "--"}
+                </span>
+                <span
+                  style={{ width: 70, textAlign: "right", color: t.textDim, fontFamily: "monospace" }}
+                >
+                  {fmtDuration(group.total_duration_ms)}
+                </span>
+              </div>
+
+              {/* Expanded: show individual LLM calls */}
+              {expandedTrace === group.correlation_id && (
+                <div style={{ background: t.surfaceRaised, borderBottom: `1px solid ${t.surfaceOverlay}` }}>
+                  {group.entries.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        padding: "5px 12px 5px 28px",
+                        fontSize: 11,
+                        alignItems: "center",
+                        borderBottom:
+                          idx < group.entries.length - 1
+                            ? `1px solid ${t.surfaceOverlay}`
+                            : "none",
+                      }}
+                    >
+                      <span style={{ width: 106, color: t.textDim, fontSize: 10 }}>
+                        iter {idx + 1}
+                      </span>
+                      <span
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          color: t.textMuted,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.model || "--"}
+                        {entry.provider_name && (
+                          <span style={{ color: t.textDim, fontSize: 9, marginLeft: 4 }}>
+                            ({entry.provider_name})
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          width: 80,
+                          textAlign: "right",
+                          color: t.textDim,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {fmtTokens(entry.prompt_tokens)}
+                      </span>
+                      <span
+                        style={{
+                          width: 80,
+                          textAlign: "right",
+                          color: t.textDim,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {fmtTokens(entry.completion_tokens)}
+                      </span>
+                      <span
+                        style={{
+                          width: 70,
+                          textAlign: "right",
+                          fontFamily: "monospace",
+                          color: entry.has_cost_data ? t.textMuted : "#ca8a04",
+                          fontSize: 10,
+                        }}
+                      >
+                        {entry.has_cost_data ? fmtCost(entry.cost) : "--"}
+                      </span>
+                      <span
+                        style={{
+                          width: 60,
+                          textAlign: "right",
+                          color: t.textDim,
+                          fontFamily: "monospace",
+                          fontSize: 10,
+                        }}
+                      >
+                        {fmtDuration(entry.duration_ms)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          {/* Raw call view */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              padding: "6px 12px",
+              fontSize: 10,
+              fontWeight: 600,
+              color: t.textDim,
+              textTransform: "uppercase",
+              borderBottom: `1px solid ${t.surfaceOverlay}`,
+            }}
+          >
+            <span style={{ width: 120 }}>Time</span>
+            <span style={{ flex: 1, minWidth: 0 }}>Model</span>
+            <span style={{ width: 80 }}>Bot</span>
+            <span style={{ width: 100 }}>Channel</span>
+            <span style={{ width: 80, textAlign: "right" }}>Input</span>
+            <span style={{ width: 80, textAlign: "right" }}>Output</span>
+            <span style={{ width: 80, textAlign: "right" }}>Cost</span>
+            <span style={{ width: 70, textAlign: "right" }}>Duration</span>
+          </div>
+
+          {data?.entries.map((entry) => {
+            const bot = bots?.find((b: any) => b.id === entry.bot_id);
+            return (
+              <div
+                key={entry.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  borderBottom: `1px solid ${t.surfaceRaised}`,
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ width: 120, color: t.textDim, fontSize: 11 }}>
+                  {fmtDate(entry.created_at)} {fmtTime(entry.created_at)}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    color: t.text,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {entry.model || "--"}
+                  {entry.provider_name && (
+                    <span style={{ color: t.textDim, fontSize: 10, marginLeft: 6 }}>
+                      ({entry.provider_name})
+                    </span>
+                  )}
+                </span>
+                <span
+                  style={{
+                    width: 80,
+                    color: t.textMuted,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {bot?.name || entry.bot_id || "--"}
+                </span>
+                <span
+                  style={{
+                    width: 100,
+                    color: t.textMuted,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {entry.channel_name || "--"}
+                </span>
+                <span
+                  style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}
+                >
+                  {fmtTokens(entry.prompt_tokens)}
+                </span>
+                <span
+                  style={{ width: 80, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}
+                >
+                  {fmtTokens(entry.completion_tokens)}
+                </span>
+                <span
+                  style={{
+                    width: 80,
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    color: entry.has_cost_data ? t.text : "#ca8a04",
+                  }}
+                >
+                  {entry.has_cost_data ? fmtCost(entry.cost) : "--"}
+                </span>
+                <span
+                  style={{ width: 70, textAlign: "right", color: t.textDim, fontFamily: "monospace" }}
+                >
+                  {fmtDuration(entry.duration_ms)}
+                </span>
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {data?.entries.length === 0 && (
         <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
@@ -514,6 +858,14 @@ export default function UsageScreen() {
   const [modelFilter, setModelFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
 
+  // Drill-down from Overview cost tables → Logs tab
+  const handleDrillDown = (filter: { model?: string; bot_id?: string; provider_id?: string }) => {
+    if (filter.model) setModelFilter(filter.model);
+    if (filter.bot_id) setBotFilter(filter.bot_id);
+    if (filter.provider_id) setProviderFilter(filter.provider_id);
+    setTab("Logs");
+  };
+
   const { data: bots } = useBots();
 
   // Fetch unfiltered summary for the time range to populate filter dropdowns
@@ -614,6 +966,31 @@ export default function UsageScreen() {
             </option>
           ))}
         </select>
+
+        {/* Clear filters button */}
+        {(botFilter || modelFilter || providerFilter) && (
+          <button
+            onClick={() => {
+              setBotFilter("");
+              setModelFilter("");
+              setProviderFilter("");
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 10px",
+              fontSize: 11,
+              background: "rgba(59,130,246,0.15)",
+              color: t.accent,
+              border: `1px solid ${t.accent}`,
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            <X size={12} /> Clear filters
+          </button>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -648,7 +1025,7 @@ export default function UsageScreen() {
       {/* Tab content */}
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         <div style={{ padding: isMobile ? 12 : 20 }}>
-          {tab === "Overview" && <OverviewTab params={params} />}
+          {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} />}
           {tab === "Logs" && <LogsTab params={params} />}
           {tab === "Charts" && <ChartsTab params={params} />}
         </div>

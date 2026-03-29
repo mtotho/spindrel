@@ -843,6 +843,8 @@ class ChannelHeartbeat(Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dispatch_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'always'"))
+    previous_result_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 

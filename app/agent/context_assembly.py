@@ -138,6 +138,7 @@ async def assemble_context(
     attachments: list[dict] | None,
     native_audio: bool,
     result: AssemblyResult,
+    system_preamble: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -942,6 +943,15 @@ async def assemble_context(
                     ),
                 })
                 yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
+    # --- merge dynamically injected tools (e.g. heartbeat_post_to_thread) ---
+    from app.agent.context import current_injected_tools
+    _injected = current_injected_tools.get()
+    if _injected and pre_selected_tools is not None:
+        _existing = {t["function"]["name"] for t in pre_selected_tools}
+        for t in _injected:
+            if t["function"]["name"] not in _existing:
+                pre_selected_tools.append(t)
+
     result.pre_selected_tools = pre_selected_tools
 
     # --- channel prompt (injected just before user message) ---
@@ -950,6 +960,11 @@ async def assemble_context(
         if _ch_prompt:
             messages.append({"role": "system", "content": _ch_prompt})
             _inject_chars["channel_prompt"] = len(_ch_prompt)
+
+    # --- system preamble (e.g. heartbeat metadata — injected before user message, after all RAG context) ---
+    if system_preamble:
+        messages.append({"role": "system", "content": system_preamble})
+        _inject_chars["system_preamble"] = len(system_preamble)
 
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
     messages.append({

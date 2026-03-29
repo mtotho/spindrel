@@ -222,6 +222,7 @@ class UsageSummaryOut(BaseModel):
 class UsageLogEntry(BaseModel):
     id: str
     created_at: str
+    correlation_id: str | None = None
     model: str | None = None
     provider_id: str | None = None
     provider_name: str | None = None
@@ -501,6 +502,7 @@ async def usage_logs(
         entries.append(UsageLogEntry(
             id=str(ev.id),
             created_at=ev.created_at.isoformat() if ev.created_at else "",
+            correlation_id=str(ev.correlation_id) if ev.correlation_id else None,
             model=ev_model,
             provider_id=ev_provider,
             provider_name=provider_names.get(ev_provider) if ev_provider else None,

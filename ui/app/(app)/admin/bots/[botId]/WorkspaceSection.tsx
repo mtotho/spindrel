@@ -314,51 +314,46 @@ export function WorkspaceSection({
             </div>
             {indexing.enabled !== false && (
               <>
-                <div style={{ marginBottom: 8 }}>
+                {/* Segments — the primary way to define what gets indexed */}
+                <div style={{ marginBottom: 12 }}>
                   <div style={{
                     padding: "8px 12px", background: "rgba(59,130,246,0.05)",
                     border: "1px solid rgba(59,130,246,0.12)", borderRadius: 6,
                     fontSize: 11, color: t.textMuted, lineHeight: 1.5, marginBottom: 8,
                   }}>
-                    These patterns control which workspace files are indexed for RAG retrieval via search_workspace.
-                    {draft.memory_scheme === "workspace-files" && (<>
-                      {" "}Memory files (<span style={{ fontFamily: "monospace" }}>memory/</span>) are handled separately above.
+                    {inSharedWorkspace ? (<>
+                      Add segments to index specific directories in the workspace for RAG retrieval.
+                      Each segment defines a directory path and its file patterns.
+                      {draft.memory_scheme === "workspace-files" && (<>
+                        {" "}Memory files are indexed automatically and don't need a segment.
+                      </>)}
+                      {" "}<strong>Only directories listed as segments are indexed</strong> — nothing is indexed by default.
+                    </>) : (<>
+                      Files matching the patterns below are indexed for RAG retrieval via search_workspace.
+                      {draft.memory_scheme === "workspace-files" && (<>
+                        {" "}Memory files (<span style={{ fontFamily: "monospace" }}>memory/</span>) are handled separately above.
+                      </>)}
+                      {" "}Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>) to target specific folders.
                     </>)}
-                    {" "}Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>, <span style={{ fontFamily: "monospace" }}>reference/**/*.yaml</span>) to index specific folders.
-                    Blanket patterns like <span style={{ fontFamily: "monospace" }}>**/*.py</span> will index <em>every</em> matching file in the workspace.
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {patterns.map((pat, i) => (
-                      <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
-                        {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
-                      </span>
-                    ))}
+                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
+                    {inSharedWorkspace ? "Indexed Directories" : "Segments"}
+                    {!inSharedWorkspace && (
+                      <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>per-directory overrides</span>
+                    )}
                   </div>
-                  {patterns.length === 0 && (
-                    <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
-                      No patterns — nothing will be indexed beyond memory. Add patterns to index specific directories.
+                  {inSharedWorkspace && (
+                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
+                      Each entry indexes files under that workspace path. Paths are relative to the workspace root
+                      (e.g. <span style={{ fontFamily: "monospace" }}>common/</span>, <span style={{ fontFamily: "monospace" }}>bots/{draft.id}/repo/</span>).
+                      Patterns and embedding model can be customized per directory.
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                    {miniInput(newPattern, setNewPattern, "docs/**/*.md", { flex: 1, maxWidth: 200 })}
-                    {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
-                  </div>
-                </div>
-                <Row gap={12}>
-                  <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
-                </Row>
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-                    Segments
-                    <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>per-directory embedding model overrides</span>
-                  </div>
-                  <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
-                    Override the embedding model or retrieval settings for files under a specific path prefix.
-                  </div>
+                  {!inSharedWorkspace && (
+                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
+                      Override the embedding model or retrieval settings for files under a specific path prefix.
+                    </div>
+                  )}
                   {segments.map((seg: any, i: number) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
                       <span style={{ fontFamily: "monospace", color: "#2563eb" }}>{seg.path_prefix}</span>
@@ -369,10 +364,15 @@ export function WorkspaceSection({
                       {removeBtn(() => setIndexing({ segments: segments.filter((_: any, j: number) => j !== i) }))}
                     </div>
                   ))}
+                  {segments.length === 0 && inSharedWorkspace && (
+                    <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
+                      No directories configured — only memory files are indexed. Add a directory to enable file indexing.
+                    </div>
+                  )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                    {miniInput(newSegPrefix, setNewSegPrefix, "path_prefix (e.g. src/)", { flex: 1, minWidth: 80 })}
+                    {miniInput(newSegPrefix, setNewSegPrefix, inSharedWorkspace ? "directory (e.g. common/)" : "path_prefix (e.g. src/)", { flex: 1, minWidth: 80 })}
                     {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { flex: 1, minWidth: 80 })}
-                    {addBtn("Add Segment", () => {
+                    {addBtn(inSharedWorkspace ? "Add Directory" : "Add Segment", () => {
                       if (newSegPrefix.trim()) {
                         const seg: any = { path_prefix: newSegPrefix.trim() };
                         if (newSegModel.trim()) seg.embedding_model = newSegModel.trim();
@@ -383,6 +383,36 @@ export function WorkspaceSection({
                     })}
                   </div>
                 </div>
+
+                {/* Base patterns — only shown for standalone bots (shared ws bots use segments exclusively) */}
+                {!inSharedWorkspace && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {patterns.map((pat, i) => (
+                        <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
+                          {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
+                        </span>
+                      ))}
+                    </div>
+                    {patterns.length === 0 && (
+                      <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
+                        No patterns — nothing will be indexed beyond memory. Add patterns to index specific directories.
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {miniInput(newPattern, setNewPattern, "docs/**/*.md", { flex: 1, maxWidth: 200 })}
+                      {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
+                    </div>
+                  </div>
+                )}
+
+                <Row gap={12}>
+                  <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
+                </Row>
               </>
             )}
           </div>

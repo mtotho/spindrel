@@ -131,11 +131,13 @@ class HeartbeatConfigOut(BaseModel):
     workspace_file_path: Optional[str] = None
     workspace_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
+    dispatch_mode: str = "always"
     trigger_response: bool = False
     quiet_start: Optional[str] = None
     quiet_end: Optional[str] = None
     timezone: Optional[str] = None
     max_run_seconds: Optional[int] = None
+    previous_result_max_chars: Optional[int] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -149,8 +151,8 @@ class HeartbeatConfigOut(BaseModel):
             "id", "channel_id", "enabled", "interval_minutes", "model",
             "model_provider_id", "fallback_models", "prompt", "prompt_template_id",
             "workspace_file_path", "workspace_id",
-            "dispatch_results", "trigger_response",
-            "timezone", "max_run_seconds",
+            "dispatch_results", "dispatch_mode", "trigger_response",
+            "timezone", "max_run_seconds", "previous_result_max_chars",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -175,6 +177,9 @@ class HeartbeatOut(BaseModel):
     history: list[HeartbeatHistoryRunOut] = []
     total_history: int = 0
     default_max_run_seconds: int = settings.TASK_MAX_RUN_SECONDS
+    default_previous_result_chars: int = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
+    channel_name: Optional[str] = None
+    has_dispatch_config: bool = False
 
 
 class HeartbeatUpdate(BaseModel):
@@ -188,11 +193,13 @@ class HeartbeatUpdate(BaseModel):
     workspace_file_path: Optional[str] = None
     workspace_id: Optional[uuid.UUID] = None
     dispatch_results: bool = True
+    dispatch_mode: str = "always"
     trigger_response: bool = False
     quiet_start: Optional[str] = None  # "HH:MM" or null
     quiet_end: Optional[str] = None    # "HH:MM" or null
     timezone: Optional[str] = None
     max_run_seconds: Optional[int] = None
+    previous_result_max_chars: Optional[int] = None
 
 
 class TaskOut(BaseModel):
@@ -689,6 +696,8 @@ async def admin_channel_heartbeat_get(
         config=config_out,
         history=history_out,
         total_history=total_history,
+        channel_name=channel.name if channel else None,
+        has_dispatch_config=bool(channel.dispatch_config) if channel else False,
     )
 
 
@@ -746,6 +755,10 @@ async def admin_channel_heartbeat_update(
         heartbeat.timezone = updates["timezone"]
     if "max_run_seconds" in updates:
         heartbeat.max_run_seconds = updates["max_run_seconds"]
+    if "dispatch_mode" in updates:
+        heartbeat.dispatch_mode = updates["dispatch_mode"] if updates["dispatch_mode"] in ("always", "optional") else "always"
+    if "previous_result_max_chars" in updates:
+        heartbeat.previous_result_max_chars = updates["previous_result_max_chars"]
     heartbeat.updated_at = now
 
     if heartbeat.enabled:

@@ -124,7 +124,13 @@ async def search_memory(query: str) -> str:
     )
 
     if not results:
-        return "No matching memory content found."
+        # Include diagnostic info to help debug — check server logs for details
+        prefix = get_memory_index_prefix(bot)
+        return (
+            f"No matching memory content found.\n"
+            f"(debug: bot={bot_id}, roots={roots}, prefix={prefix}, model={embedding_model})\n"
+            f"Check server logs for MEMORY SEARCH DIAGNOSTIC."
+        )
 
     lines = []
     for r in results:

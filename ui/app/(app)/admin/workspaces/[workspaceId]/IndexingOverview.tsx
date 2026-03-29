@@ -2,12 +2,16 @@
  * Indexing overview panel for the workspace settings page.
  * Shows all bots' resolved indexing configs + actual indexed files
  * grouped by directory so you can audit why things are indexed.
+ *
+ * For shared workspace bots, segments = "Indexed Directories" and are
+ * editable inline (add/delete) without navigating to the bot edit page.
  */
 import { useState, useMemo } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
-import { ChevronDown, ChevronRight, Database, EyeOff, FileText, Folder } from "lucide-react";
+import { useRouter } from "expo-router";
+import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, Plus, X } from "lucide-react";
 import {
-  useWorkspaceIndexing, useWorkspaceIndexStatus,
+  useWorkspaceIndexing, useWorkspaceIndexStatus, useUpdateBotIndexing,
   type BotIndexingInfo, type FileIndexEntry,
 } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -30,7 +34,6 @@ function buildDirTree(
   files: Record<string, FileIndexEntry>,
   botId: string,
 ): { path: string; files: DirFileInfo[]; source: DirSource }[] {
-  // Filter files that belong to this bot
   const botFiles: DirFileInfo[] = [];
   for (const [filePath, entry] of Object.entries(files)) {
     if (entry.bots.some((b) => b.bot_id === botId)) {
@@ -38,7 +41,6 @@ function buildDirTree(
     }
   }
 
-  // Group by top-level directory
   const groups = new Map<string, DirFileInfo[]>();
   for (const f of botFiles) {
     const parts = f.rel.split("/");
@@ -134,21 +136,137 @@ function DirGroup({ dir }: {
 }
 
 // ---------------------------------------------------------------------------
+// Inline segment editor (add/remove segments from workspace overview)
+// ---------------------------------------------------------------------------
+
+function SegmentEditor({
+  bot,
+  workspaceId,
+}: {
+  bot: BotIndexingInfo;
+  workspaceId: string;
+}) {
+  const t = useThemeTokens();
+  const updateIndexing = useUpdateBotIndexing(workspaceId);
+  const segments: any[] = bot.resolved.segments || [];
+  const explicitSegments: any[] = bot.explicit_overrides.segments || segments;
+  const [newPrefix, setNewPrefix] = useState("");
+  const [newModel, setNewModel] = useState("");
+
+  const removeSegment = (idx: number) => {
+    const updated = explicitSegments.filter((_: any, i: number) => i !== idx);
+    updateIndexing.mutate({ bot_id: bot.bot_id, indexing: { segments: updated } });
+  };
+
+  const addSegment = () => {
+    const prefix = newPrefix.trim();
+    if (!prefix) return;
+    const seg: any = { path_prefix: prefix };
+    if (newModel.trim()) seg.embedding_model = newModel.trim();
+    updateIndexing.mutate({
+      bot_id: bot.bot_id,
+      indexing: { segments: [...explicitSegments, seg] },
+    });
+    setNewPrefix("");
+    setNewModel("");
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
+        Indexed Directories
+      </div>
+      <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>
+        Only these directories are indexed for RAG retrieval. Memory files are always indexed separately.
+      </div>
+      {segments.map((seg: any, i: number) => (
+        <div key={i} style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4,
+        }}>
+          <span style={{ fontFamily: "monospace", color: "#60a5fa", flex: 1 }}>{seg.path_prefix}</span>
+          {seg.embedding_model && (
+            <span style={{ color: t.textMuted, fontSize: 10 }}>model: <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>{seg.embedding_model}</span></span>
+          )}
+          {seg.patterns && <span style={{ color: t.textDim, fontSize: 10 }}>patterns: {seg.patterns.length}</span>}
+          {seg.similarity_threshold != null && <span style={{ color: t.textDim, fontSize: 10 }}>thresh: {seg.similarity_threshold}</span>}
+          {seg.top_k != null && <span style={{ color: t.textDim, fontSize: 10 }}>k: {seg.top_k}</span>}
+          <button
+            onClick={() => removeSegment(i)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "#f87171", fontSize: 12, lineHeight: 1 }}
+            title="Remove directory"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+      {segments.length === 0 && (
+        <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginBottom: 6 }}>
+          No directories configured — only memory files are indexed.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
+        <input
+          type="text" value={newPrefix} onChange={(e) => setNewPrefix(e.target.value)}
+          placeholder="directory (e.g. common/)"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSegment(); } }}
+          style={{
+            background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            padding: "4px 8px", fontSize: 11, color: t.text, outline: "none", flex: 1, minWidth: 100,
+          }}
+        />
+        <input
+          type="text" value={newModel} onChange={(e) => setNewModel(e.target.value)}
+          placeholder="embedding model (optional)"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSegment(); } }}
+          style={{
+            background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            padding: "4px 8px", fontSize: 11, color: t.text, outline: "none", flex: 1, minWidth: 100,
+          }}
+        />
+        <button
+          onClick={addSegment}
+          disabled={!newPrefix.trim() || updateIndexing.isPending}
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "4px 10px", fontSize: 11, fontWeight: 600,
+            background: newPrefix.trim() ? t.surfaceRaised : t.inputBg,
+            border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+            color: newPrefix.trim() ? t.text : t.textDim,
+            cursor: newPrefix.trim() ? "pointer" : "default",
+            opacity: updateIndexing.isPending ? 0.5 : 1,
+          }}
+        >
+          <Plus size={11} /> Add
+        </button>
+      </div>
+      {updateIndexing.isPending && (
+        <div style={{ fontSize: 10, color: "#8b5cf6", marginTop: 4 }}>Saving...</div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Per-bot indexing card
 // ---------------------------------------------------------------------------
 
 function BotIndexCard({
   bot,
   indexedFiles,
+  workspaceId,
 }: {
   bot: BotIndexingInfo;
   indexedFiles: Record<string, FileIndexEntry>;
+  workspaceId: string;
 }) {
   const t = useThemeTokens();
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const r = bot.resolved;
   const overrideKeys = Object.keys(bot.explicit_overrides).filter((k) => k !== "enabled");
+  const isSharedWs = bot.role === "member" || bot.role === "orchestrator";
 
   const dirTree = useMemo(
     () => (showFiles ? buildDirTree(indexedFiles, bot.bot_id) : []),
@@ -201,7 +319,19 @@ function BotIndexCard({
             : bot.memory_scheme === "workspace-files" ? "#8b5cf6"
             : t.surfaceBorder,
         }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{bot.bot_name}</span>
+        {/* Clickable bot name → bot edit page */}
+        <span
+          onClick={(e) => { e.stopPropagation(); router.push(`/admin/bots/${bot.bot_id}` as any); }}
+          style={{
+            fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
+            cursor: "pointer", textDecoration: "none",
+          }}
+          onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
+          onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
+        >
+          {bot.bot_name}
+          <ExternalLink size={10} color={t.textDim} style={{ marginLeft: 4, verticalAlign: "middle", opacity: 0.6 } as any} />
+        </span>
         <span style={{
           padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
           background: bot.role === "orchestrator" ? "rgba(168,85,247,0.12)" : "rgba(59,130,246,0.08)",
@@ -251,7 +381,7 @@ function BotIndexCard({
               fontSize: 11, color: t.textMuted, lineHeight: 1.5,
             }}>
               <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory auto-indexed</span>
-              {" "}&mdash; <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> is always indexed for search_memory, independent of the patterns below.
+              {" "}&mdash; <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> is always indexed for search_memory, independent of the settings below.
             </div>
           )}
 
@@ -266,39 +396,41 @@ function BotIndexCard({
             </div>
           )}
 
-          {/* Patterns — this is the key "why is it indexed" info */}
-          {bot.indexing_enabled && (
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-              Indexed File Patterns
-              {bot.explicit_overrides.patterns && (
-                <span style={{ color: "#f59e0b", fontWeight: 600, marginLeft: 6, textTransform: "none" }}>overridden</span>
-              )}
-              {!bot.explicit_overrides.patterns && (
-                <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>inherited from defaults</span>
-              )}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {(r.patterns || []).map((pat, i) => (
-                <span key={i} style={{
-                  padding: "2px 8px", borderRadius: 4, fontSize: 11,
-                  fontFamily: "monospace", background: t.inputBg, color: "#60a5fa",
-                }}>
-                  {pat}
-                </span>
-              ))}
-              {(r.patterns || []).length === 0 && (
-                <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>No patterns — no additional files indexed</span>
-              )}
-            </div>
-            <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
-              Only files matching these globs are indexed. Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>) to target specific folders. Blanket patterns like <span style={{ fontFamily: "monospace" }}>**/*.py</span> index everything.
-            </div>
-          </div>
+          {/* Shared workspace bots: inline segment editor */}
+          {isSharedWs && bot.indexing_enabled && (
+            <SegmentEditor bot={bot} workspaceId={workspaceId} />
           )}
 
-          {/* Segments */}
-          {r.segments && r.segments.length > 0 && (
+          {/* Standalone bots: show patterns (read-only summary) */}
+          {!isSharedWs && bot.indexing_enabled && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
+                Indexed File Patterns
+                {bot.explicit_overrides.patterns && (
+                  <span style={{ color: "#f59e0b", fontWeight: 600, marginLeft: 6, textTransform: "none" }}>overridden</span>
+                )}
+                {!bot.explicit_overrides.patterns && (
+                  <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>inherited from defaults</span>
+                )}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {(r.patterns || []).map((pat, i) => (
+                  <span key={i} style={{
+                    padding: "2px 8px", borderRadius: 4, fontSize: 11,
+                    fontFamily: "monospace", background: t.inputBg, color: "#60a5fa",
+                  }}>
+                    {pat}
+                  </span>
+                ))}
+                {(r.patterns || []).length === 0 && (
+                  <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>No patterns configured</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Segments for standalone bots (read-only) */}
+          {!isSharedWs && r.segments && r.segments.length > 0 && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
                 Segments <span style={{ fontWeight: 400, textTransform: "none" }}>per-path-prefix overrides</span>
@@ -431,7 +563,7 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
 
       {/* Bot cards */}
       {data.bots.map((bot) => (
-        <BotIndexCard key={bot.bot_id} bot={bot} indexedFiles={indexedFiles} />
+        <BotIndexCard key={bot.bot_id} bot={bot} indexedFiles={indexedFiles} workspaceId={workspaceId} />
       ))}
     </div>
   );
