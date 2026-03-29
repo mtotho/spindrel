@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useWindowDimensions } from "react-native";
-import { Search, X } from "lucide-react";
+import { Search, X, Info } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
@@ -8,6 +8,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import type { BotConfig, BotEditorData, ToolGroup } from "@/src/types/api";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
+import { ToolSchemaModal } from "./ToolSchemaModal";
 
 export function ToolsSection({
   editorData,
@@ -20,6 +21,7 @@ export function ToolsSection({
 }) {
   const [toolFilter, setToolFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [schemaModalTool, setSchemaModalTool] = useState<string | null>(null);
 
   const localTools = draft.local_tools || [];
   const pinnedTools = draft.pinned_tools || [];
@@ -250,10 +252,23 @@ export function ToolsSection({
                                 fontFamily: "monospace", color: autoInj ? "#8b5cf6" : enabled ? "#2563eb" : t.textDim,
                                 flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}
-                              title={autoInj ? `${tool.name} — auto-injected by workspace-files memory scheme` : tool.name}
+                              title={autoInj ? `${tool.name} — auto-injected by workspace-files memory scheme` : tool.description || tool.name}
                             >
                               {tool.name}
                             </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSchemaModalTool(tool.name); }}
+                              title="View tool schema"
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                padding: 0, display: "flex", alignItems: "center",
+                                opacity: 0.3, color: t.textDim,
+                              }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.3"; }}
+                            >
+                              <Info size={11} />
+                            </button>
                             {autoInj && (
                               <span style={{
                                 fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 3,
@@ -412,6 +427,12 @@ export function ToolsSection({
         </Row>
       </div>
 
+      {schemaModalTool && (
+        <ToolSchemaModal
+          toolName={schemaModalTool}
+          onClose={() => setSchemaModalTool(null)}
+        />
+      )}
     </div>
   );
 }

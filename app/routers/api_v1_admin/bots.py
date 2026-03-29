@@ -270,6 +270,7 @@ async def _fetch_tool_rows(db: AsyncSession):
             ToolEmbedding.server_name,
             ToolEmbedding.source_integration,
             ToolEmbedding.source_file,
+            ToolEmbedding.schema_,
         ).order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
     )).all()
 
@@ -290,7 +291,12 @@ def _build_tool_groups(tool_rows) -> list[dict]:
             continue
         intg = r.source_integration or "core"
         pack = (r.source_file or "misc").replace(".py", "")
-        integration_packs[intg][pack].append({"name": r.tool_name})
+        schema = r.schema_ or {}
+        fn = schema.get("function", {})
+        integration_packs[intg][pack].append({
+            "name": r.tool_name,
+            "description": fn.get("description"),
+        })
 
     ordered = (["core"] if "core" in integration_packs else []) + sorted(
         k for k in integration_packs if k != "core"

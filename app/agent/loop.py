@@ -785,6 +785,14 @@ async def run_stream(
     # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
     _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
 
+    # Check usage limits before entering the agent loop
+    from app.services.usage_limits import check_usage_limits, UsageLimitExceeded
+    try:
+        await check_usage_limits(model_override or bot.model, bot.id)
+    except UsageLimitExceeded as exc:
+        yield {"type": "error", "code": "usage_limit_exceeded", "message": str(exc)}
+        return
+
     # Only the outermost run_stream buffers the response and emits delegation_post events.
     # Nested calls (child agents inside delegate_to_agent) just pass events through.
     if _is_outermost_stream:

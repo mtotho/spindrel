@@ -193,6 +193,17 @@ async def allocate_editor_port() -> int:
     raise RuntimeError(f"No free editor ports in range {start}-{end}")
 
 
+async def _container_actually_running(container_name: str) -> bool:
+    """Check if a Docker container actually exists and is running."""
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "inspect", "-f", "{{.State.Running}}", container_name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    return proc.returncode == 0 and stdout.decode().strip() == "true"
+
+
 async def ensure_editor(ws: SharedWorkspace) -> dict:
     """Orchestrate: allocate port -> recreate container if needed -> install -> start.
 
@@ -224,9 +235,11 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
         ws.editor_enabled = True
         need_recreate = True  # Port might not be mapped
 
-    # 2. Recreate container to pick up port mapping (if running without it)
-    if need_recreate and ws.container_name:
-        # Check if port is already mapped
+    # 2. Ensure the container is actually running with the editor port mapped
+    container_alive = ws.container_name and await _container_actually_running(ws.container_name)
+
+    if container_alive and need_recreate:
+        # Container exists but may lack port mapping — check
         proc = await asyncio.create_subprocess_exec(
             "docker", "port", ws.container_name, "8443",
             stdout=asyncio.subprocess.PIPE,
@@ -234,20 +247,19 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
         )
         stdout, _ = await proc.communicate()
         if proc.returncode != 0 or not stdout.strip():
-            # Port not mapped — need to recreate
             logger.info("Recreating container %s to add editor port mapping", ws.container_name)
             await shared_workspace_service.recreate(ws)
-            # Reload ws after recreate
             async with async_session() as db:
                 ws = await db.get(SharedWorkspace, ws.id)
-    elif not ws.container_name or ws.status != "running":
+    elif not container_alive:
+        # Container doesn't exist or isn't running — start it
+        logger.info("Container not running for workspace %s, starting...", ws.id)
         await shared_workspace_service.ensure_container(ws)
         async with async_session() as db:
             ws = await db.get(SharedWorkspace, ws.id)
 
     # 3. Install code-server (idempotent — checks if binary exists)
     if ws.container_name:
-        # Check if already installed
         rc, _ = await shared_workspace_service._docker_exec(
             ws.container_name, f"test -f {CONTAINER_INSTALL_DIR}/bin/code-server"
         )

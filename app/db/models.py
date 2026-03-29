@@ -467,6 +467,19 @@ class TraceEvent(Base):
     )
 
 
+class UsageLimit(Base):
+    __tablename__ = "usage_limits"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)  # "model" or "bot"
+    scope_value: Mapped[str] = mapped_column(Text, nullable=False)  # model name or bot_id
+    period: Mapped[str] = mapped_column(Text, nullable=False)  # "daily" or "monthly"
+    limit_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class KnowledgeAccess(Base):
     __tablename__ = "knowledge_access"
 

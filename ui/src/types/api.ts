@@ -76,7 +76,7 @@ export interface BotConfig {
 // Tool group from editor data
 export interface ToolPack {
   pack: string;
-  tools: { name: string }[];
+  tools: { name: string; description?: string | null }[];
 }
 
 export interface ToolGroup {
