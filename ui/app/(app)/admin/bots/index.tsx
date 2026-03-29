@@ -9,10 +9,8 @@ import {
   ArrowUpDown,
   ChevronUp,
   ChevronDown,
-  Cpu,
   MessageSquare,
   Zap,
-  DollarSign,
 } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
@@ -104,16 +102,15 @@ function capSummary(bot: BotConfig): string {
   return parts.join(" · ") || "No tools";
 }
 
-// Feature badges
-type Badge = { label: string; color: string };
-function featureBadges(bot: BotConfig): Badge[] {
-  const badges: Badge[] = [];
-  if (bot.memory?.enabled) badges.push({ label: "Memory", color: "#9333ea" });
-  if (bot.knowledge?.enabled) badges.push({ label: "Knowledge", color: "#0891b2" });
-  if (bot.context_compaction) badges.push({ label: "Compaction", color: "#16a34a" });
-  if (bot.persona) badges.push({ label: "Persona", color: "#d97706" });
-  if ((bot.delegate_bots?.length ?? 0) > 0) badges.push({ label: "Delegation", color: "#fb923c" });
-  if (bot.workspace?.enabled) badges.push({ label: "Workspace", color: "#2563eb" });
+// Feature badges — plain labels, styled uniformly to avoid visual noise
+function featureBadges(bot: BotConfig): string[] {
+  const badges: string[] = [];
+  if (bot.memory?.enabled) badges.push("Memory");
+  if (bot.knowledge?.enabled) badges.push("Knowledge");
+  if (bot.context_compaction) badges.push("Compaction");
+  if (bot.persona) badges.push("Persona");
+  if ((bot.delegate_bots?.length ?? 0) > 0) badges.push("Delegation");
+  if (bot.workspace?.enabled) badges.push("Workspace");
   return badges;
 }
 
@@ -195,20 +192,20 @@ function BotCard({
         flexDirection: "column",
         gap: 10,
         padding: "18px 20px",
-        background: t.inputBg,
+        background: t.surfaceRaised,
         borderRadius: 12,
-        border: "1px solid #1e1e1e",
+        border: `1px solid ${t.surfaceBorder}`,
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
         transition: "border-color 0.15s, box-shadow 0.15s",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = t.surfaceBorder;
-        e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.3)";
+        e.currentTarget.style.borderColor = t.textDim;
+        e.currentTarget.style.boxShadow = `0 2px 12px ${t.overlayLight}`;
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "#1e1e1e";
+        e.currentTarget.style.borderColor = t.surfaceBorder;
         e.currentTarget.style.boxShadow = "none";
       }}
     >
@@ -218,7 +215,7 @@ function BotCard({
           style={{
             fontSize: 15,
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: t.text,
             flex: 1,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -260,22 +257,22 @@ function BotCard({
         </div>
       )}
 
-      {/* Row 3: Feature badges */}
+      {/* Row 3: Feature badges — subtle, uniform */}
       {badges.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {badges.map((b) => (
+          {badges.map((label) => (
             <span
-              key={b.label}
+              key={label}
               style={{
                 padding: "2px 8px",
                 borderRadius: 4,
                 fontSize: 10,
-                fontWeight: 600,
-                background: `${b.color}15`,
-                color: b.color,
+                fontWeight: 500,
+                background: t.overlayLight,
+                color: t.textMuted,
               }}
             >
-              {b.label}
+              {label}
             </span>
           ))}
         </div>
@@ -287,7 +284,7 @@ function BotCard({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          borderTop: `1px solid ${t.surfaceRaised}`,
+          borderTop: `1px solid ${t.overlayBorder}`,
           paddingTop: 10,
           marginTop: 2,
         }}
@@ -299,14 +296,14 @@ function BotCard({
           {usage && usage.calls > 0 && (
             <>
               <span
-                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#777" }}
+                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
                 title="Total calls"
               >
                 <MessageSquare size={10} color={t.textDim} />
                 {usage.calls.toLocaleString()}
               </span>
               <span
-                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#777" }}
+                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
                 title="Total tokens"
               >
                 <Zap size={10} color={t.textDim} />
@@ -320,12 +317,12 @@ function BotCard({
                     gap: 2,
                     fontSize: 11,
                     fontWeight: 600,
-                    color: "#16a34a",
+                    color: t.textMuted,
                     fontFamily: "monospace",
                   }}
                   title="Estimated cost"
                 >
-                  <DollarSign size={10} color="#16a34a" />
+                  $
                   {usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)}
                 </span>
               )}
@@ -517,12 +514,12 @@ export default function BotsScreen() {
                   display: "flex",
                   alignItems: "center",
                   gap: 2,
-                  color: "#16a34a",
+                  color: t.textMuted,
                   fontFamily: "monospace",
                   fontWeight: 600,
                 }}
               >
-                <DollarSign size={11} /> {fmtCost(totalCost)}
+                {fmtCost(totalCost)}
               </span>
             )}
           </div>

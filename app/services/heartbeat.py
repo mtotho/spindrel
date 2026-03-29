@@ -463,6 +463,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
 
 _heartbeat_semaphore = asyncio.Semaphore(3)
+_inflight_heartbeats: set[uuid.UUID] = set()  # dedup: prevent re-queuing while running
 
 
 async def _expire_stale_approvals() -> None:
@@ -505,6 +506,10 @@ async def heartbeat_worker() -> None:
                 continue
             due = await fetch_due_heartbeats()
             for hb in due:
+                if hb.id in _inflight_heartbeats:
+                    logger.debug("Heartbeat %s already in-flight, skipping", hb.id)
+                    continue
+                _inflight_heartbeats.add(hb.id)
                 asyncio.create_task(_safe_fire_heartbeat(hb))
             # Sweep for stale tool approvals
             await _expire_stale_approvals()
@@ -515,11 +520,13 @@ async def heartbeat_worker() -> None:
 
 async def _safe_fire_heartbeat(hb: ChannelHeartbeat) -> None:
     """Wrapper to catch exceptions from fire_heartbeat in asyncio.create_task."""
-    async with _heartbeat_semaphore:
-        try:
+    try:
+        async with _heartbeat_semaphore:
             await fire_heartbeat(hb)
-        except Exception:
-            logger.exception("Failed to fire heartbeat %s", hb.id)
+    except Exception:
+        logger.exception("Failed to fire heartbeat %s", hb.id)
+    finally:
+        _inflight_heartbeats.discard(hb.id)
 
 
 async def trigger_channel_heartbeat(

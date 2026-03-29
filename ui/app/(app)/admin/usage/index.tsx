@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -877,7 +878,7 @@ export default function UsageScreen() {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useHashTab<Tab>("Overview", TABS);
   const [timePreset, setTimePreset] = useState("24h");
   const [botFilter, setBotFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
