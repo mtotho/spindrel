@@ -114,17 +114,20 @@ async def search_memory(query: str) -> str:
     # Search all roots; use index-aware prefix (bots/{id}/memory for shared workspace)
     roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
 
-    results = await hybrid_memory_search(
-        query=query,
-        bot_id=bot_id,
-        roots=roots,
-        memory_prefix=get_memory_index_prefix(bot),
-        embedding_model=embedding_model,
-        top_k=10,
-    )
+    try:
+        results = await hybrid_memory_search(
+            query=query,
+            bot_id=bot_id,
+            roots=roots,
+            memory_prefix=get_memory_index_prefix(bot),
+            embedding_model=embedding_model,
+            top_k=10,
+        )
+    except Exception as exc:
+        logger.error("search_memory failed for bot %s: %s", bot_id, exc)
+        return f"Memory search ERROR: {exc}"
 
     if not results:
-        # Include diagnostic info to help debug — check server logs for details
         prefix = get_memory_index_prefix(bot)
         return (
             f"No matching memory content found.\n"
@@ -269,14 +272,18 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
 
     roots = [str(Path(r).resolve()) for r in get_all_roots(target_bot)]
 
-    results = await hybrid_memory_search(
-        query=query,
-        bot_id=target_bot_id,
-        roots=roots,
-        memory_prefix=get_memory_index_prefix(target_bot),
-        embedding_model=embedding_model,
-        top_k=10,
-    )
+    try:
+        results = await hybrid_memory_search(
+            query=query,
+            bot_id=target_bot_id,
+            roots=roots,
+            memory_prefix=get_memory_index_prefix(target_bot),
+            embedding_model=embedding_model,
+            top_k=10,
+        )
+    except Exception as exc:
+        logger.error("search_bot_memory failed for bot %s: %s", target_bot_id, exc)
+        return f"Memory search ERROR for bot {target_bot_id}: {exc}"
 
     if not results:
         return f"No matching memory content found for bot {target_bot_id}."

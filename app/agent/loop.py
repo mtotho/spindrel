@@ -260,21 +260,30 @@ async def run_agent_tool_loop(
                     response.usage.total_tokens,
                 )
                 if correlation_id is not None:
+                    _usage_data = {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens,
+                        "iteration": iteration + 1,
+                        "model": effective_model,
+                        "provider_id": provider_id,
+                        "channel_id": str(channel_id) if channel_id else None,
+                    }
+                    # Capture LiteLLM's computed response cost if available
+                    _resp_cost = getattr(response, '_hidden_params', {}).get('response_cost') if hasattr(response, '_hidden_params') else None
+                    if _resp_cost is None and hasattr(response, 'model_extra'):
+                        _hidden = (response.model_extra or {}).get('_hidden_params', {})
+                        if isinstance(_hidden, dict):
+                            _resp_cost = _hidden.get('response_cost')
+                    if _resp_cost is not None:
+                        _usage_data["response_cost"] = _resp_cost
                     asyncio.create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
                         bot_id=bot.id,
                         client_id=client_id,
                         event_type="token_usage",
-                        data={
-                            "prompt_tokens": response.usage.prompt_tokens,
-                            "completion_tokens": response.usage.completion_tokens,
-                            "total_tokens": response.usage.total_tokens,
-                            "iteration": iteration + 1,
-                            "model": effective_model,
-                            "provider_id": provider_id,
-                            "channel_id": str(channel_id) if channel_id else None,
-                        },
+                        data=_usage_data,
                         duration_ms=_llm_latency_ms,
                     ))
 
