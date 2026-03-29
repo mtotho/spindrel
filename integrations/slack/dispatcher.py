@@ -121,7 +121,16 @@ class SlackDispatcher:
         arguments: dict,
         reason: str | None,
     ) -> None:
-        """Send a Block Kit message with Approve/Deny buttons for a tool approval."""
+        """Send a Block Kit message with Approve/Deny buttons for a tool approval.
+
+        Button layout (designed to minimize repeat approvals):
+        Row 1 (primary actions):
+          - "Allow always" (primary) — creates permanent bot-scoped rule
+          - "Approve this run" — session-scoped allow for this conversation
+          - "Deny" (danger)
+        Row 2 (rule suggestions):
+          - Up to 3 smart suggestions (global rule, narrower patterns, etc.)
+        """
         import json as _json
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")
@@ -133,41 +142,82 @@ class SlackDispatcher:
         args_preview = _json.dumps(arguments, indent=2)[:500]
         attrs = bot_attribution(bot_id)
 
-        # Build smart suggestion buttons from argument analysis
+        # Build smart suggestions (broadest-first)
         from app.services.approval_suggestions import build_suggestions
         suggestions = build_suggestions(tool_name, arguments)
 
-        # Slack actions block: Approve (once) + suggestion buttons + Deny
-        # Slack limits to 5 elements per actions block
-        action_elements = [
+        # --- Row 1: Primary actions (always shown) ---
+        # "Allow always" creates a permanent bot-scoped allow rule
+        primary_actions = [
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Approve Once"},
+                "text": {"type": "plain_text", "text": f"Allow {tool_name}"},
                 "style": "primary",
+                "action_id": "allow_rule_always",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": tool_name,
+                    "conditions": {},
+                    "scope": "bot",
+                    "label": f"Allow {tool_name} always",
+                }),
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Approve this run"},
                 "action_id": "approve_tool_call",
                 "value": approval_id,
             },
-        ]
-        for i, sug in enumerate(suggestions[:3]):  # max 3 suggestions (+ approve + deny = 5)
-            action_elements.append({
+            {
                 "type": "button",
-                "text": {"type": "plain_text", "text": sug.label[:75]},  # Slack 75 char limit
-                "action_id": f"allow_rule_{i}",
+                "text": {"type": "plain_text", "text": "Deny"},
+                "style": "danger",
+                "action_id": "deny_tool_call",
+                "value": approval_id,
+            },
+        ]
+
+        # --- Row 2: Smart suggestions (skip the first 2 which are the broad
+        # "all bots" and "always" options — those are covered by row 1) ---
+        suggestion_actions = []
+        # The first suggestion is "all bots" global — always include it
+        if suggestions and suggestions[0].scope == "global":
+            sug = suggestions[0]
+            suggestion_actions.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sug.label[:75]},
+                "action_id": "allow_rule_0",
                 "value": _json.dumps({
                     "approval_id": approval_id,
                     "bot_id": bot_id,
                     "tool_name": sug.tool_name,
                     "conditions": sug.conditions,
+                    "scope": sug.scope,
                     "label": sug.label,
                 }),
             })
-        action_elements.append({
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Deny"},
-            "style": "danger",
-            "action_id": "deny_tool_call",
-            "value": approval_id,
-        })
+        # Add narrower suggestions (skip the broad ones we already have)
+        narrow_start = next(
+            (i for i, s in enumerate(suggestions) if s.conditions),
+            len(suggestions),
+        )
+        for i, sug in enumerate(suggestions[narrow_start:narrow_start + 4]):
+            if len(suggestion_actions) >= 5:  # Slack max per actions block
+                break
+            suggestion_actions.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sug.label[:75]},
+                "action_id": f"allow_rule_{narrow_start + i}",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": sug.tool_name,
+                    "conditions": sug.conditions,
+                    "scope": getattr(sug, "scope", "bot"),
+                    "label": sug.label,
+                }),
+            })
 
         blocks = [
             {
@@ -188,8 +238,10 @@ class SlackDispatcher:
                     "text": f"```\n{args_preview}\n```",
                 },
             },
-            {"type": "actions", "elements": action_elements},
+            {"type": "actions", "elements": primary_actions},
         ]
+        if suggestion_actions:
+            blocks.append({"type": "actions", "elements": suggestion_actions})
 
         import httpx
         payload: dict = {

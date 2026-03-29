@@ -307,8 +307,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         <View className="flex-row items-center justify-between px-4 py-4">
           <Link href="/" asChild>
             <Pressable className="flex-row items-center gap-2">
-              <Text style={{ fontSize: 18, lineHeight: 22, color: t.text }}>{"\u{130C5}"}</Text>
-              <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: t.text }}>THOTH</Text>
+              <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: t.text }}>SPINDREL</Text>
             </Pressable>
           </Link>
           <Pressable

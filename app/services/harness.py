@@ -117,6 +117,17 @@ class HarnessService:
         cfg = self._configs[harness_name]
         timeout = cfg.timeout
 
+        # Translate shared-workspace paths for the harness container.
+        # In a shared workspace, the bot sees its files at /workspace/bots/{bot_id}/…
+        # but the harness mounts only that subdirectory at /workspace, so we strip
+        # the bot-specific prefix.
+        if bot.shared_workspace_id and working_directory:
+            prefix = f"/workspace/bots/{bot.id}"
+            if working_directory.startswith(prefix + "/"):
+                working_directory = "/workspace" + working_directory[len(prefix):]
+            elif working_directory == prefix:
+                working_directory = "/workspace"
+
         if sandbox_instance_id is not None:
             return await self._run_in_sandbox(
                 harness_name=harness_name,

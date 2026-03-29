@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.llm import AccumulatedMessage
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -44,6 +45,33 @@ def _mock_tool_call(name="test_tool", args='{}', tc_id="tc_1"):
     tc.function.name = name
     tc.function.arguments = args
     return tc
+
+
+def _mock_accumulated(content="Hello", tool_calls=None):
+    tc_list = None
+    if tool_calls:
+        tc_list = [
+            {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ]
+    usage = MagicMock()
+    usage.prompt_tokens = 100
+    usage.completion_tokens = 50
+    usage.total_tokens = 150
+    return AccumulatedMessage(content=content, tool_calls=tc_list, usage=usage)
+
+
+def _make_stream_side_effects(*accumulated_messages):
+    _msgs = list(accumulated_messages)
+    _idx = {"n": 0}
+
+    async def _stream(*args, **kwargs):
+        idx = _idx["n"]
+        _idx["n"] += 1
+        msg = _msgs[idx] if idx < len(_msgs) else _msgs[-1]
+        yield msg
+
+    return _stream
 
 
 # ---------------------------------------------------------------------------
@@ -144,20 +172,17 @@ class TestAgentLoopCancellation:
 
         tc1 = _mock_tool_call("tool_a", '{}', "tc_1")
         tc2 = _mock_tool_call("tool_b", '{}', "tc_2")
-        resp1 = _mock_response(content=None, tool_calls=[tc1, tc2])
+        acc = _mock_accumulated(content=None, tool_calls=[tc1, tc2])
 
-        mock_client = AsyncMock()
-        # Set cancel flag DURING the LLM call (after checkpoint A but before checkpoint B)
-        async def llm_side_effect(**kwargs):
+        # Set cancel flag during the stream (simulates cancel during LLM call)
+        async def cancelling_stream(*args, **kwargs):
             session_locks._cancel_requested.add(str(sid))
-            return resp1
-        mock_client.chat.completions.create = AsyncMock(side_effect=llm_side_effect)
+            yield acc
 
         session_locks._active.add(str(sid))
 
         try:
-            with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-                 patch("app.services.providers.record_usage"), \
+            with patch("app.agent.loop._llm_call_stream", side_effect=cancelling_stream), \
                  patch("app.services.providers.check_rate_limit", return_value=0), \
                  patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
                  patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -184,14 +209,10 @@ class TestAgentLoopCancellation:
         """Without session_id, cancellation check is skipped."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("Hello")
-        )
+        acc = _mock_accumulated("Hello")
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -203,7 +224,8 @@ class TestAgentLoopCancellation:
             ):
                 events.append(event)
 
-            assert events[0]["type"] == "response"
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
 
     @pytest.mark.asyncio
     async def test_cancel_mid_tool_loop(self):
@@ -217,10 +239,7 @@ class TestAgentLoopCancellation:
 
         tc1 = _mock_tool_call("tool_a", '{}', "tc_1")
         tc2 = _mock_tool_call("tool_b", '{}', "tc_2")
-        resp1 = _mock_response(content=None, tool_calls=[tc1, tc2])
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=resp1)
+        acc = _mock_accumulated(content=None, tool_calls=[tc1, tc2])
 
         session_locks._active.add(str(sid))
 
@@ -239,8 +258,7 @@ class TestAgentLoopCancellation:
             )
 
         try:
-            with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-                 patch("app.services.providers.record_usage"), \
+            with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
                  patch("app.services.providers.check_rate_limit", return_value=0), \
                  patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
                  patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \

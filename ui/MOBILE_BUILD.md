@@ -91,10 +91,10 @@ Add bundle identifiers to `app.json`:
   "expo": {
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.thoth"
+      "bundleIdentifier": "com.yourname.spindrel"
     },
     "android": {
-      "package": "com.yourname.thoth",
+      "package": "com.yourname.spindrel",
       "adaptiveIcon": { ... }
     }
   }

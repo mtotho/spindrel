@@ -1,7 +1,8 @@
-"""Logs & Traces: /logs, /traces/{id}, /server-logs."""
+"""Logs & Traces: /logs, /traces/{id}, /server-logs, /log-level."""
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Optional
@@ -364,3 +365,40 @@ async def server_logs(
         total=len(entries),
         levels=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic log level
+# ---------------------------------------------------------------------------
+
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+class LogLevelOut(BaseModel):
+    level: str
+
+
+class LogLevelIn(BaseModel):
+    level: str
+
+
+@router.get("/log-level", response_model=LogLevelOut)
+async def get_log_level(
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return the current root logger level."""
+    return LogLevelOut(level=logging.getLevelName(logging.getLogger().level))
+
+
+@router.put("/log-level", response_model=LogLevelOut)
+async def set_log_level(
+    body: LogLevelIn,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Set the root logger level dynamically (DEBUG/INFO/WARNING/ERROR/CRITICAL)."""
+    name = body.level.upper()
+    if name not in _VALID_LEVELS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid level: {body.level}. Must be one of {sorted(_VALID_LEVELS)}")
+    logging.getLogger().setLevel(getattr(logging, name))
+    return LogLevelOut(level=name)

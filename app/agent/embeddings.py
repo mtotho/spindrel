@@ -4,6 +4,11 @@ Every call passes ``dimensions=settings.EMBEDDING_DIMENSIONS`` so that models
 supporting Matryoshka truncation (e.g. text-embedding-3-large) are automatically
 truncated to match the DB vector column width.  No migration needed.
 
+Local models (prefixed ``local/``) are routed to fastembed (ONNX) via
+``app.agent.local_embeddings``.  Their native vectors are zero-padded to
+``EMBEDDING_DIMENSIONS`` — mathematically lossless for cosine similarity
+between same-model vectors, so no DB schema change is needed.
+
 A per-request cache (via contextvars) deduplicates identical embed_text calls
 within a single request lifecycle — typically saving 5+ redundant API calls per
 request since skills, memory, knowledge, and tool retrieval all embed the same
@@ -11,11 +16,13 @@ user query.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextvars import ContextVar
 
 from openai import AsyncOpenAI
 
+from app.agent.local_embeddings import is_local_model, embed_local_sync
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -57,6 +64,28 @@ def _truncate(text: str) -> str:
     return text[:_MAX_EMBED_CHARS]
 
 
+def _zero_pad(vector: list[float], target_dims: int) -> list[float]:
+    """Pad a shorter vector with zeros to reach *target_dims*.
+
+    This is mathematically lossless for cosine similarity between vectors from
+    the same model — the extra zero dimensions don't affect the angle.
+    """
+    diff = target_dims - len(vector)
+    if diff <= 0:
+        return vector
+    return vector + [0.0] * diff
+
+
+async def _embed_local(texts: list[str], model: str) -> list[list[float]]:
+    """Run fastembed in a thread executor and zero-pad results."""
+    loop = asyncio.get_running_loop()
+    vectors = await loop.run_in_executor(
+        None, lambda: embed_local_sync(texts, model=model)
+    )
+    target = settings.EMBEDDING_DIMENSIONS
+    return [_zero_pad(v, target) for v in vectors]
+
+
 async def embed_text(text: str, *, model: str | None = None) -> list[float]:
     """Embed a single text string, returning the embedding vector.
 
@@ -73,20 +102,30 @@ async def embed_text(text: str, *, model: str | None = None) -> list[float]:
         logger.debug("Embedding cache hit for %d-char input (model=%s)", len(truncated), effective_model)
         return cached
 
-    response = await _client.embeddings.create(
-        model=effective_model,
-        input=[truncated],
-        dimensions=settings.EMBEDDING_DIMENSIONS,
-    )
-    vector = response.data[0].embedding
+    if is_local_model(effective_model):
+        vectors = await _embed_local([truncated], effective_model)
+        vector = vectors[0]
+    else:
+        response = await _client.embeddings.create(
+            model=effective_model,
+            input=[truncated],
+            dimensions=settings.EMBEDDING_DIMENSIONS,
+        )
+        vector = response.data[0].embedding
+
     cache[cache_key] = vector
     return vector
 
 
 async def embed_batch(texts: list[str], *, model: str | None = None) -> list[list[float]]:
     """Embed a batch of texts, returning a list of embedding vectors."""
+    effective_model = model or settings.EMBEDDING_MODEL
+
+    if is_local_model(effective_model):
+        return await _embed_local([_truncate(t) for t in texts], effective_model)
+
     response = await _client.embeddings.create(
-        model=model or settings.EMBEDDING_MODEL,
+        model=effective_model,
         input=[_truncate(t) for t in texts],
         dimensions=settings.EMBEDDING_DIMENSIONS,
     )

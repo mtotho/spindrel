@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import openai
 
@@ -39,6 +41,220 @@ _RETRYABLE_ERRORS = (
     openai.InternalServerError,
     EmptyChoicesError,
 )
+
+
+@dataclass
+class AccumulatedMessage:
+    """Fully accumulated message from a streaming LLM response."""
+    role: str = "assistant"
+    content: str | None = None
+    tool_calls: list[dict] | None = None
+    thinking_content: str | None = None
+    usage: Any = None  # openai Usage object or None
+
+    def to_msg_dict(self) -> dict:
+        """Produce the same dict as msg.model_dump(exclude_none=True)."""
+        d: dict[str, Any] = {"role": self.role}
+        if self.content is not None:
+            d["content"] = self.content
+        if self.tool_calls:
+            d["tool_calls"] = self.tool_calls
+        return d
+
+
+class StreamAccumulator:
+    """Accumulates streaming chat completion chunks into events + final message."""
+
+    def __init__(self):
+        self._content_parts: list[str] = []
+        self._thinking_parts: list[str] = []
+        # tool_calls indexed by delta.index
+        self._tool_calls: dict[int, dict] = {}
+        self._usage: Any = None
+        self._finish_reason: str | None = None
+
+    def feed(self, chunk) -> tuple[list[dict], bool]:
+        """Process one chunk. Returns (events_to_emit, is_done)."""
+        events: list[dict] = []
+        if not chunk.choices:
+            # Usage-only chunk (final chunk with stream_options)
+            if chunk.usage:
+                self._usage = chunk.usage
+            return events, False
+
+        choice = chunk.choices[0]
+        delta = choice.delta
+
+        # Text content
+        if delta.content:
+            self._content_parts.append(delta.content)
+            events.append({"type": "text_delta", "delta": delta.content})
+
+        # Thinking/reasoning content (provider-dependent attribute)
+        reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+        if reasoning:
+            self._thinking_parts.append(reasoning)
+            events.append({"type": "thinking", "delta": reasoning})
+
+        # Tool call deltas
+        if delta.tool_calls:
+            for tc_delta in delta.tool_calls:
+                idx = tc_delta.index
+                if idx not in self._tool_calls:
+                    self._tool_calls[idx] = {
+                        "id": tc_delta.id or "",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    }
+                tc = self._tool_calls[idx]
+                if tc_delta.id:
+                    tc["id"] = tc_delta.id
+                if tc_delta.function:
+                    if tc_delta.function.name:
+                        tc["function"]["name"] += tc_delta.function.name
+                    if tc_delta.function.arguments:
+                        tc["function"]["arguments"] += tc_delta.function.arguments
+
+        if chunk.usage:
+            self._usage = chunk.usage
+
+        is_done = choice.finish_reason is not None
+        if is_done:
+            self._finish_reason = choice.finish_reason
+        return events, is_done
+
+    def build(self) -> AccumulatedMessage:
+        """Build the final accumulated message."""
+        content = "".join(self._content_parts) if self._content_parts else None
+        thinking = "".join(self._thinking_parts) if self._thinking_parts else None
+        tool_calls = (
+            [self._tool_calls[i] for i in sorted(self._tool_calls)]
+            if self._tool_calls else None
+        )
+        return AccumulatedMessage(
+            role="assistant",
+            content=content,
+            tool_calls=tool_calls,
+            thinking_content=thinking,
+            usage=self._usage,
+        )
+
+
+async def _llm_call_stream(
+    model: str,
+    messages: list,
+    tools_param: list | None,
+    tool_choice: str | None,
+    provider_id: str | None = None,
+    model_params: dict | None = None,
+    fallback_models: list[dict] | None = None,
+) -> AsyncGenerator[dict | AccumulatedMessage, None]:
+    """Streaming LLM call with retry + fallback. Yields events then AccumulatedMessage last.
+
+    Retry logic applies only to the initial create() call. Mid-stream errors propagate.
+    """
+    last_fallback_info.set(None)
+
+    try:
+        stream = await _attempt_stream_with_retries(model, messages, tools_param, tool_choice, provider_id, model_params)
+    except _RETRYABLE_ERRORS as primary_exc:
+        from app.services.server_config import get_global_fallback_models
+
+        effective_fallbacks = list(fallback_models or [])
+        for gfb in get_global_fallback_models():
+            effective_fallbacks.append(gfb)
+
+        tried = {model}
+        last_exc = primary_exc
+        stream = None
+        for fb in effective_fallbacks:
+            fb_model = fb.get("model", "")
+            if not fb_model or fb_model in tried:
+                continue
+            tried.add(fb_model)
+            fb_provider = fb.get("provider_id") or provider_id
+            logger.warning(
+                "Stream: Model %s failed (%s: %s), attempting fallback %s",
+                model, type(last_exc).__name__, last_exc, fb_model,
+            )
+            try:
+                stream = await _attempt_stream_with_retries(
+                    fb_model, messages, tools_param, tool_choice, fb_provider, model_params,
+                )
+                last_fallback_info.set(FallbackInfo(
+                    original_model=model,
+                    fallback_model=fb_model,
+                    reason=type(primary_exc).__name__,
+                    original_error=str(primary_exc)[:500],
+                ))
+                break
+            except _RETRYABLE_ERRORS as fb_exc:
+                last_exc = fb_exc
+                continue
+        if stream is None:
+            raise last_exc
+
+    accumulator = StreamAccumulator()
+    async for chunk in stream:
+        events, is_done = accumulator.feed(chunk)
+        for event in events:
+            yield event
+        if is_done:
+            break
+
+    yield accumulator.build()
+
+
+async def _attempt_stream_with_retries(
+    model: str,
+    messages: list,
+    tools_param: list | None,
+    tool_choice: str | None,
+    provider_id: str | None = None,
+    model_params: dict | None = None,
+):
+    """Retry the initial streaming create() call with exponential backoff."""
+    from app.agent.model_params import filter_model_params
+    from app.services.providers import get_llm_client, requires_system_message_folding
+
+    client = get_llm_client(provider_id)
+    filtered_params = filter_model_params(model, model_params or {})
+
+    effective_messages = messages
+    if requires_system_message_folding(model):
+        effective_messages = _fold_system_messages(messages)
+
+    max_retries = settings.LLM_MAX_RETRIES
+    for attempt in range(max_retries + 1):
+        try:
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=effective_messages,
+                tools=tools_param,
+                tool_choice=tool_choice,
+                stream=True,
+                stream_options={"include_usage": True},
+                **filtered_params,
+            )
+            return stream
+        except openai.RateLimitError:
+            if attempt >= max_retries:
+                raise
+            wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
+            logger.warning(
+                "Stream LLM call rate limited (attempt %d/%d), waiting %ds...",
+                attempt + 1, max_retries, wait,
+            )
+            await asyncio.sleep(wait)
+        except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+            if attempt >= max_retries:
+                raise
+            wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
+            logger.warning(
+                "Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
+                type(exc).__name__, attempt + 1, max_retries, wait,
+            )
+            await asyncio.sleep(wait)
 
 
 async def _llm_call(

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Form
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +78,8 @@ class WorkspaceOut(BaseModel):
     workspace_skills_enabled: bool = True
     workspace_base_prompt_enabled: bool = True
     indexing_config: Optional[dict] = None
+    editor_enabled: bool = False
+    editor_port: Optional[int] = None
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -171,6 +173,8 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         workspace_skills_enabled=ws.workspace_skills_enabled,
         workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
         indexing_config=ws.indexing_config,
+        editor_enabled=ws.editor_enabled,
+        editor_port=ws.editor_port,
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -400,6 +404,90 @@ async def workspace_logs(
         raise HTTPException(404)
     logs = await shared_workspace_service.get_logs(ws, tail=tail)
     return {"logs": logs}
+
+
+# ── Code Editor ────────────────────────────────────────────────
+
+@router.post("/{workspace_id}/editor/enable")
+async def enable_workspace_editor(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:write")),
+):
+    """Enable and start code-server for this workspace."""
+    from app.services.workspace_editor import ensure_editor
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    result = await ensure_editor(ws)
+    await db.refresh(ws)
+    return result
+
+
+@router.post("/{workspace_id}/editor/disable")
+async def disable_workspace_editor(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:write")),
+):
+    """Disable code-server for this workspace."""
+    from app.services.workspace_editor import disable_editor
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    await disable_editor(ws)
+    return {"editor_enabled": False}
+
+
+@router.get("/{workspace_id}/editor/status")
+async def workspace_editor_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Get code-server status for this workspace."""
+    from app.services.workspace_editor import editor_status
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    return await editor_status(ws)
+
+
+@router.post("/{workspace_id}/editor/session")
+async def create_editor_session(
+    workspace_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Set an httpOnly session cookie for code-server access (new-tab loads)."""
+    from fastapi.responses import JSONResponse
+
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if not ws.editor_enabled:
+        raise HTTPException(400, "Editor not enabled")
+
+    # Extract the bearer token that was used to authenticate this request
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(400, "No token available for session")
+
+    cookie_name = f"editor_session_{workspace_id.replace('-', '_')}"
+    cookie_path = f"/api/v1/workspaces/{workspace_id}/editor"
+
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        key=cookie_name,
+        value=token,
+        path=cookie_path,
+        httponly=True,
+        samesite="lax",
+        max_age=3600,  # 1 hour
+    )
+    return response
 
 
 # ── Bot management ──────────────────────────────────────────────

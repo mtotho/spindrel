@@ -131,6 +131,9 @@ class SharedWorkspaceService:
                 container_port = port.get("container", "")
                 if host_port and container_port:
                     cmd += ["-p", f"{host_port}:{container_port}"]
+        # Editor port mapping (code-server)
+        if ws.editor_enabled and ws.editor_port:
+            cmd += ["-p", f"127.0.0.1:{ws.editor_port}:8443"]
         # Resource limits
         if ws.cpus:
             cmd += ["--cpus", str(ws.cpus)]

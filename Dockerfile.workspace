@@ -41,6 +41,7 @@ RUN pip install --no-cache-dir \
 RUN mkdir -p /workspace && chmod 777 /workspace
 WORKDIR /workspace
 ENV HOME=/home/agent
+RUN mkdir -p /home/agent && chmod 777 /home/agent
 
 # Create a helper script for calling back to the agent server API
 RUN cat > /usr/local/bin/agent-api <<'SCRIPT'

@@ -59,7 +59,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "CONTEXT_PRUNING_KEEP_TURNS": {"group": "Chat History", "label": "Pruning Keep Turns", "description": "Recent turns whose tool results are kept intact", "type": "int", "min": 0, "max": 50},
     "CONTEXT_PRUNING_MIN_LENGTH": {"group": "Chat History", "label": "Pruning Min Length", "description": "Tool results shorter than this are never pruned", "type": "int", "min": 0, "max": 10000},
     # --- Embeddings & RAG ---
-    "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings", "type": "string"},
+    "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings (use local/ prefix for local ONNX models, e.g. local/BAAI/bge-small-en-v1.5)", "type": "string", "widget": "embedding_model"},
     "RAG_TOP_K": {"group": "Embeddings & RAG", "label": "RAG Top-K", "description": "Number of RAG results to return", "type": "int", "min": 1, "max": 50},
     "RAG_SIMILARITY_THRESHOLD": {"group": "Embeddings & RAG", "label": "RAG Similarity Threshold", "description": "Minimum cosine similarity for RAG results", "type": "float", "min": 0.0, "max": 1.0},
     "TOOL_RETRIEVAL_THRESHOLD": {"group": "Embeddings & RAG", "label": "Tool Retrieval Threshold", "description": "Minimum similarity for tool retrieval", "type": "float", "min": 0.0, "max": 1.0},

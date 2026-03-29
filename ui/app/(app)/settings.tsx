@@ -186,6 +186,28 @@ function ModelField({
   );
 }
 
+function EmbeddingModelField({
+  item,
+  value,
+  onChange,
+}: {
+  item: SettingItem;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <View style={{ maxWidth: 400 }}>
+      <LlmModelDropdown
+        value={value}
+        onChange={onChange}
+        placeholder="Select embedding model..."
+        allowClear
+        variant="embedding"
+      />
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Single setting row
 // ---------------------------------------------------------------------------
@@ -243,6 +265,15 @@ function SettingRow({
     if (item.widget === "model") {
       return (
         <ModelField
+          item={item}
+          value={String(localValue ?? "")}
+          onChange={(v) => onLocalChange(item.key, v)}
+        />
+      );
+    }
+    if (item.widget === "embedding_model") {
+      return (
+        <EmbeddingModelField
           item={item}
           value={String(localValue ?? "")}
           onChange={(v) => onLocalChange(item.key, v)}

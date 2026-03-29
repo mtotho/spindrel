@@ -79,7 +79,10 @@ async def dispatch_tool_call(
                     _tc_args_for_policy = {}
             except Exception:
                 pass
-            decision = await _check_tool_policy(bot_id, name, _tc_args_for_policy)
+            decision = await _check_tool_policy(
+                bot_id, name, _tc_args_for_policy,
+                correlation_id=str(correlation_id) if correlation_id else None,
+            )
             if decision is not None:
                 if decision.action == "deny":
                     result_obj.result = json.dumps({"error": f"Tool call denied by policy: {decision.reason or 'no reason'}"})
@@ -331,13 +334,23 @@ async def dispatch_tool_call(
 # Policy helpers
 # ---------------------------------------------------------------------------
 
-async def _check_tool_policy(bot_id: str, tool_name: str, arguments: dict) -> Any:
+async def _check_tool_policy(
+    bot_id: str, tool_name: str, arguments: dict,
+    *, correlation_id: str | None = None,
+) -> Any:
     """Evaluate tool policy. Returns PolicyDecision or None (allow = skip overhead)."""
     from app.config import settings
     from app.db.engine import async_session
     from app.services.tool_policies import evaluate_tool_policy
 
     if not settings.TOOL_POLICY_ENABLED:
+        return None
+
+    # Session-scoped allow: if this tool was approved earlier in this conversation,
+    # skip the full policy evaluation.  This is the key UX improvement — after one
+    # approval, the user isn't asked again for the same tool in the same run.
+    from app.agent.session_allows import is_session_allowed
+    if is_session_allowed(correlation_id, tool_name):
         return None
 
     async with async_session() as db:

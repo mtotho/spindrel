@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import { useThemeTokens } from "../../theme/tokens";
 
 interface ResizeHandleProps {
@@ -10,6 +10,9 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
   const t = useThemeTokens();
   const dragging = useRef(false);
   const lastPos = useRef(0);
+  // Keep a ref so the mousemove handler always calls the latest callback
+  const onResizeRef = useRef(onResize);
+  useEffect(() => { onResizeRef.current = onResize; });
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -22,7 +25,7 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
         const pos = direction === "horizontal" ? ev.clientX : ev.clientY;
         const delta = pos - lastPos.current;
         lastPos.current = pos;
-        onResize(delta);
+        onResizeRef.current(delta);
       };
 
       const onMouseUp = () => {
@@ -38,7 +41,7 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
       document.body.style.cursor = direction === "horizontal" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
     },
-    [direction, onResize]
+    [direction]
   );
 
   const isHorizontal = direction === "horizontal";

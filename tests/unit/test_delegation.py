@@ -445,3 +445,128 @@ class TestRunDeferredChannelId:
 
         task = db.add.call_args[0][0]
         assert task.channel_id is None
+
+
+# ---------------------------------------------------------------------------
+# delegate_to_harness — model override propagation to callback_config
+# ---------------------------------------------------------------------------
+
+class TestDelegateToHarnessModelOverride:
+    """Verify that delegate_to_harness (deferred mode) captures the parent's
+    effective model override into callback_config so the callback task can
+    run on the same model."""
+
+    @pytest.mark.asyncio
+    async def test_model_override_captured_in_callback_config(self):
+        """When the parent agent is running with a model override, delegate_to_harness
+        should store it in callback_config so the notify_parent callback uses it."""
+        import json
+        from app.tools.local.delegation import delegate_to_harness
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_dispatch_type,
+            current_dispatch_config,
+            current_correlation_id,
+            current_model_override,
+            current_provider_id_override,
+        )
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            harness_access=["claude-code"],
+        )
+
+        session_id = uuid.uuid4()
+        # Set up ContextVars as they'd be in a real agent loop
+        current_bot_id.set("test_bot")
+        current_session_id.set(session_id)
+        current_client_id.set("slack:C123")
+        current_dispatch_type.set("slack")
+        current_dispatch_config.set({"channel_id": "C123"})
+        current_correlation_id.set(uuid.uuid4())
+        current_model_override.set("anthropic/claude-opus-4")
+        current_provider_id_override.set("provider-99")
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=cm), \
+             patch("app.agent.bots.get_bot", return_value=bot):
+            result_json = await delegate_to_harness(
+                harness="claude-code",
+                prompt="fix the bug",
+                mode="deferred",
+                notify_parent=True,
+            )
+
+        result = json.loads(result_json)
+        assert result["status"] == "deferred"
+
+        # Check the Task that was created
+        db.add.assert_called_once()
+        task = db.add.call_args[0][0]
+        assert task.callback_config["parent_model_override"] == "anthropic/claude-opus-4"
+        assert task.callback_config["parent_provider_id_override"] == "provider-99"
+
+    @pytest.mark.asyncio
+    async def test_no_model_override_when_none(self):
+        """When the parent has no model override, callback_config should not
+        contain parent_model_override keys."""
+        import json
+        from app.tools.local.delegation import delegate_to_harness
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_dispatch_type,
+            current_dispatch_config,
+            current_correlation_id,
+            current_model_override,
+            current_provider_id_override,
+        )
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            harness_access=["claude-code"],
+        )
+
+        session_id = uuid.uuid4()
+        current_bot_id.set("test_bot")
+        current_session_id.set(session_id)
+        current_client_id.set("slack:C123")
+        current_dispatch_type.set("slack")
+        current_dispatch_config.set({"channel_id": "C123"})
+        current_correlation_id.set(uuid.uuid4())
+        current_model_override.set(None)
+        current_provider_id_override.set(None)
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=cm), \
+             patch("app.agent.bots.get_bot", return_value=bot):
+            result_json = await delegate_to_harness(
+                harness="claude-code",
+                prompt="fix the bug",
+                mode="deferred",
+                notify_parent=True,
+            )
+
+        result = json.loads(result_json)
+        assert result["status"] == "deferred"
+
+        task = db.add.call_args[0][0]
+        assert "parent_model_override" not in task.callback_config
+        assert "parent_provider_id_override" not in task.callback_config

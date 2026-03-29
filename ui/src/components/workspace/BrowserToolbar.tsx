@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRouter } from "expo-router";
 import {
   Columns2, FilePlus, FolderPlus, Upload, Settings, Play, Square, ChevronRight,
-  PanelLeft,
+  PanelLeft, Code,
 } from "lucide-react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import {
@@ -10,7 +10,10 @@ import {
   useMkdirWorkspace,
   useStartWorkspace,
   useStopWorkspace,
+  useEnableEditor,
+  createEditorSession,
 } from "../../api/hooks/useWorkspaces";
+import { useAuthStore } from "../../stores/auth";
 import type { SharedWorkspace } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -33,11 +36,31 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
   const mkdirMutation = useMkdirWorkspace(workspace.id);
   const startMutation = useStartWorkspace(workspace.id);
   const stopMutation = useStopWorkspace(workspace.id);
+  const enableEditorMutation = useEnableEditor(workspace.id);
 
   const [creating, setCreating] = useState<"file" | "folder" | null>(null);
   const [newName, setNewName] = useState("");
+  const [editorOpening, setEditorOpening] = useState(false);
 
   const isRunning = workspace.status === "running";
+
+  const handleOpenEditor = async () => {
+    setEditorOpening(true);
+    try {
+      if (!workspace.editor_enabled) {
+        await enableEditorMutation.mutateAsync();
+      }
+      // Set session cookie, then open in new tab
+      await createEditorSession(workspace.id);
+      const { serverUrl } = useAuthStore.getState();
+      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/`;
+      window.open(editorUrl, `editor-${workspace.id}`);
+    } catch (err) {
+      console.error("Failed to open editor:", err);
+    } finally {
+      setEditorOpening(false);
+    }
+  };
 
   // Determine current directory for new file/folder
   const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || "/" : "/";
@@ -186,6 +209,13 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
           disabled={startMutation.isPending}
         />
       )}
+
+      <ToolbarButton
+        icon={<Code size={14} />}
+        title={workspace.editor_enabled ? "Open Editor" : "Enable & Open Editor"}
+        onClick={handleOpenEditor}
+        disabled={!isRunning || editorOpening || enableEditorMutation.isPending}
+      />
 
       <ToolbarButton
         icon={<Settings size={14} />}

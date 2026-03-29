@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
 
+    # Local embeddings (fastembed / ONNX)
+    FASTEMBED_CACHE_DIR: str = ""  # directory for downloaded ONNX models; empty = fastembed default
+
     # Filesystem indexing (semantic search over arbitrary directories)
     FS_INDEX_TOP_K: int = 8
     FS_INDEX_SIMILARITY_THRESHOLD: float = 0.30
@@ -133,6 +136,10 @@ class Settings(BaseSettings):
     WORKSPACE_LOCAL_DIR: str = ""   # e.g., "/workspace-data"
     # Public URL of this server (injected into workspace containers)
     SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
+
+    # Workspace code editor (code-server)
+    EDITOR_PORT_RANGE_START: int = 9100
+    EDITOR_PORT_RANGE_END: int = 9199
 
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False
