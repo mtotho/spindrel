@@ -130,6 +130,44 @@ class TestBuildScript:
         script = svc._build_script(cfg, "hello", None, extra_args=["--verbose"])
         assert "--verbose" in script
 
+    def test_hardcoded_working_dir_used_when_caller_omits(self):
+        """When caller passes working_directory=None, use cfg.working_directory if it's a real path."""
+        svc = HarnessService()
+        cfg = HarnessConfig(
+            name="test", command="claude",
+            args=["--dangerously-skip-permissions", "--output-format", "json"],
+            prompt_mode="stdin",
+            working_directory="/workspace",  # hardcoded, not a template
+        )
+        script = svc._build_script(cfg, "hello", None)
+        assert "cd " in script and "/workspace" in script
+
+    def test_template_working_dir_not_used_when_caller_omits(self):
+        """Template working_directory should NOT resolve when caller omits the param."""
+        svc = HarnessService()
+        cfg = HarnessConfig(
+            name="test", command="claude",
+            args=["--dangerously-skip-permissions"],
+            prompt_mode="stdin",
+            working_directory="{working_directory}",  # template — trap
+        )
+        script = svc._build_script(cfg, "hello", None)
+        # The template contains "{working_directory}" so the elif is always False
+        # This means no cd happens — which is the bug the hardcoded config fixes
+        assert "cd " not in script
+
+    def test_caller_working_dir_overrides_config(self):
+        """Caller-provided working_directory takes precedence over config default."""
+        svc = HarnessService()
+        cfg = HarnessConfig(
+            name="test", command="claude",
+            args=["--dangerously-skip-permissions"],
+            prompt_mode="stdin",
+            working_directory="/workspace",
+        )
+        script = svc._build_script(cfg, "hello", "/workspace/my-repo")
+        assert "/workspace/my-repo" in script
+
     def test_invalid_working_dir_rejected(self):
         svc = HarnessService()
         cfg = HarnessConfig(name="test", command="claude", args=[])
