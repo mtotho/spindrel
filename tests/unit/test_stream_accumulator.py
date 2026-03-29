@@ -274,20 +274,12 @@ class TestThinkTagParser:
         assert c + fc == "<b>bold</b>"
 
     def test_partial_tag_false_alarm(self):
-        """'<thinking' should not match '<think>' — it goes past the tag."""
+        """'<thinking' should not match '<think>' — parser uses exact '<think>' match."""
         p = ThinkTagParser()
         c, t = p.feed("<thinking is not a tag")
         assert t == ""
         fc, _ = p.flush()
-        # The text after '<think' is consumed as thinking because '<think' matches
-        # the open tag prefix, but 'ing is not a tag' starts with 'i' not '>'.
-        # Actually, let's check the real behavior: '<thinking' starts with '<think'
-        # but the parser looks for the exact '<think>' string.
-        # '<thinking is not a tag' — the parser finds '<think' at index 0, but
-        # the full tag is '<think>' (7 chars), and text[0:7] = '<thinki' != '<think>'
-        # So it won't match. Let's verify.
-        full = c + fc
-        assert "<thinking is not a tag" == full
+        assert c + fc == "<thinking is not a tag"
 
     def test_incremental_single_chars(self):
         """Feed one character at a time."""

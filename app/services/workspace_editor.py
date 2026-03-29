@@ -151,6 +151,29 @@ async def is_code_server_running(container_name: str) -> bool:
     return proc.returncode == 0
 
 
+async def _wait_for_healthy(port: int, timeout: int = 15) -> None:
+    """Poll code-server's HTTP port until it responds or timeout."""
+    import httpx
+
+    host = "127.0.0.1"
+    if settings.WORKSPACE_LOCAL_DIR:
+        host = "host.docker.internal"
+
+    url = f"http://{host}:{port}/healthz"
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(url)
+                if resp.status_code < 500:
+                    logger.info("code-server healthy on port %d", port)
+                    return
+        except (httpx.ConnectError, httpx.RemoteProtocolError, OSError):
+            pass
+        await asyncio.sleep(1)
+    logger.warning("code-server on port %d did not become healthy within %ds", port, timeout)
+
+
 async def allocate_editor_port() -> int:
     """Find the first unused port in the configured range."""
     start = settings.EDITOR_PORT_RANGE_START
@@ -235,6 +258,10 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
     # 4. Start code-server if not running
     if ws.container_name and not await is_code_server_running(ws.container_name):
         await start_code_server(ws.container_name, str(ws.id))
+
+    # 5. Wait for code-server to become healthy (up to 15s)
+    if ws.container_name and ws.editor_port:
+        await _wait_for_healthy(ws.editor_port, timeout=15)
 
     editor_url = f"/api/v1/workspaces/{ws.id}/editor/"
     return {
