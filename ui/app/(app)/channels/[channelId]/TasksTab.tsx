@@ -28,10 +28,10 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
 
   const statusColors: Record<string, { bg: string; fg: string }> = {
     pending: { bg: t.surfaceBorder, fg: t.textMuted },
-    running: { bg: "#1e3a5f", fg: "#2563eb" },
-    complete: { bg: "#166534", fg: "#16a34a" },
-    failed: { bg: "#7f1d1d", fg: "#dc2626" },
-    active: { bg: "#92400e", fg: "#ca8a04" },
+    running: { bg: t.accentMuted, fg: t.accent },
+    complete: { bg: t.successSubtle, fg: t.success },
+    failed: { bg: t.dangerSubtle, fg: t.danger },
+    active: { bg: t.warningSubtle, fg: t.warningMuted },
     cancelled: { bg: t.surfaceBorder, fg: t.textDim },
   };
 

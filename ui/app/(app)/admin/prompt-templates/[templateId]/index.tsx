@@ -204,8 +204,8 @@ export default function PromptTemplateDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
-              background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -229,7 +229,7 @@ export default function PromptTemplateDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -239,13 +239,13 @@ export default function PromptTemplateDetailScreen() {
         <div style={{
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
-          background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+          background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <Info size={14} color="#2563eb" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#2563eb", lineHeight: 1.5 }}>
+          <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
             This template is managed by a file (
-            <code style={{ fontSize: 11, color: "#60a5fa" }}>{template?.source_path}</code>
+            <code style={{ fontSize: 11, color: t.accentMuted }}>{template?.source_path}</code>
             ). Edit the source file to make changes.
           </div>
         </div>
@@ -256,13 +256,13 @@ export default function PromptTemplateDetailScreen() {
         <div style={{
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
-          background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
+          background: t.successSubtle, border: `1px solid ${t.success}33`,
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <FileText size={14} color="#16a34a" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#16a34a", lineHeight: 1.5 }}>
+          <FileText size={14} color={t.success} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: t.success, lineHeight: 1.5 }}>
             Content is sourced from workspace file (
-            <code style={{ fontSize: 11, color: "#4ade80" }}>{sourcePath}</code>
+            <code style={{ fontSize: 11, color: t.success }}>{sourcePath}</code>
             ). Content updates automatically when the file changes.
           </div>
         </div>
@@ -294,9 +294,9 @@ export default function PromptTemplateDetailScreen() {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     background: "none",
-                    border: `1px solid ${hasSelection ? (genFlash === "success" ? "#22c55e" : genFlash === "error" ? "#ef4444" : t.accent) : t.surfaceBorder}`,
+                    border: `1px solid ${hasSelection ? (genFlash === "success" ? t.success : genFlash === "error" ? t.danger : t.accent) : t.surfaceBorder}`,
                     borderRadius: 4,
-                    color: hasSelection ? (genFlash === "success" ? "#22c55e" : genFlash === "error" ? "#ef4444" : t.accent) : t.textDim,
+                    color: hasSelection ? (genFlash === "success" ? t.success : genFlash === "error" ? t.danger : t.accent) : t.textDim,
                     fontSize: 11, padding: "2px 8px", fontWeight: 500,
                     cursor: hasSelection && !generateMut.isPending ? "pointer" : "default",
                     opacity: hasSelection ? 1 : 0.5,

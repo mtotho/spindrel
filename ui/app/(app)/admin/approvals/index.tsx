@@ -35,11 +35,11 @@ function StatusIcon({ status }: { status: string }) {
   const t = useThemeTokens();
   switch (status) {
     case "pending":
-      return <Clock size={14} color="#d97706" />;
+      return <Clock size={14} color={t.warningMuted} />;
     case "approved":
-      return <CheckCircle size={14} color="#22c55e" />;
+      return <CheckCircle size={14} color={t.success} />;
     case "denied":
-      return <XCircle size={14} color="#ef4444" />;
+      return <XCircle size={14} color={t.danger} />;
     case "expired":
       return <AlertTriangle size={14} color={t.textDim} />;
     default:
@@ -48,11 +48,12 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const t = useThemeTokens();
   const config: Record<string, { bg: string; color: string }> = {
-    pending: { bg: "rgba(251,191,36,0.12)", color: "#ca8a04" },
-    approved: { bg: "rgba(34,197,94,0.12)", color: "#16a34a" },
-    denied: { bg: "rgba(239,68,68,0.12)", color: "#dc2626" },
-    expired: { bg: "rgba(107,114,128,0.12)", color: "#6b7280" },
+    pending: { bg: t.warningSubtle, color: t.warning },
+    approved: { bg: t.successSubtle, color: t.success },
+    denied: { bg: t.dangerSubtle, color: t.danger },
+    expired: { bg: t.overlayLight, color: t.textDim },
   };
   const c = config[status] || config.expired;
   return (
@@ -80,6 +81,7 @@ function SuggestionButton({
   onClick: () => void;
   disabled: boolean;
 }) {
+  const t = useThemeTokens();
   const isGlobal = suggestion.scope === "global";
   return (
     <button
@@ -92,12 +94,12 @@ function SuggestionButton({
         gap: 6,
         padding: "6px 12px",
         borderRadius: 6,
-        background: isGlobal ? "rgba(147,51,234,0.08)" : "rgba(59,130,246,0.08)",
-        border: `1px solid ${isGlobal ? "rgba(147,51,234,0.2)" : "rgba(59,130,246,0.2)"}`,
+        background: isGlobal ? t.purpleSubtle : t.accentSubtle,
+        border: `1px solid ${isGlobal ? t.purpleBorder : t.accentBorder}`,
         cursor: disabled ? "default" : "pointer",
         fontSize: 12,
         fontWeight: 500,
-        color: isGlobal ? "#7c3aed" : "#2563eb",
+        color: isGlobal ? t.purple : t.accent,
         opacity: disabled ? 0.5 : 1,
         whiteSpace: "nowrap",
       }}
@@ -136,7 +138,7 @@ function ApprovalCard({
         padding: "16px 20px",
         background: t.inputBg,
         borderRadius: 10,
-        border: isPending ? "1px solid #433700" : `1px solid ${t.surfaceOverlay}`,
+        border: isPending ? `1px solid ${t.warningBorder}` : `1px solid ${t.surfaceOverlay}`,
         width: "100%",
       }}
     >
@@ -170,8 +172,8 @@ function ApprovalCard({
             borderRadius: 3,
             fontSize: 10,
             fontWeight: 600,
-            background: "rgba(59,130,246,0.12)",
-            color: "#2563eb",
+            background: t.accentSubtle,
+            color: t.accent,
           }}
         >
           {approval.bot_id}
@@ -181,7 +183,7 @@ function ApprovalCard({
       </div>
 
       {approval.reason && (
-        <div style={{ fontSize: 12, color: "#d97706" }}>{approval.reason}</div>
+        <div style={{ fontSize: 12, color: t.warningMuted }}>{approval.reason}</div>
       )}
 
       <pre
@@ -230,12 +232,12 @@ function ApprovalCard({
                 gap: 6,
                 padding: "8px 16px",
                 borderRadius: 6,
-                background: "rgba(34,197,94,0.15)",
-                border: "1px solid rgba(34,197,94,0.3)",
+                background: t.successSubtle,
+                border: `1px solid ${t.success}`,
                 cursor: deciding ? "default" : "pointer",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#16a34a",
+                color: t.success,
                 opacity: deciding ? 0.5 : 1,
               }}
             >
@@ -250,12 +252,12 @@ function ApprovalCard({
                 gap: 6,
                 padding: "8px 16px",
                 borderRadius: 6,
-                background: "rgba(34,197,94,0.08)",
-                border: "1px solid rgba(34,197,94,0.2)",
+                background: t.successSubtle,
+                border: `1px solid ${t.successBorder}`,
                 cursor: deciding ? "default" : "pointer",
                 fontSize: 13,
                 fontWeight: 500,
-                color: "#16a34a",
+                color: t.success,
                 opacity: deciding ? 0.5 : 1,
               }}
             >
@@ -270,12 +272,12 @@ function ApprovalCard({
                 gap: 6,
                 padding: "8px 16px",
                 borderRadius: 6,
-                background: "rgba(239,68,68,0.1)",
-                border: "1px solid rgba(239,68,68,0.2)",
+                background: t.dangerSubtle,
+                border: `1px solid ${t.dangerBorder}`,
                 cursor: deciding ? "default" : "pointer",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#dc2626",
+                color: t.danger,
                 opacity: deciding ? 0.5 : 1,
               }}
             >

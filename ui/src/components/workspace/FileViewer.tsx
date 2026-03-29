@@ -195,7 +195,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       if (body) msg = JSON.parse(body)?.detail || msg;
     } catch {}
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", padding: 24 }}>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24 }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
             <FileText size={32} color={t.textDim} />
@@ -239,7 +239,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               disabled={writeMutation.isPending}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "#22c55e", color: "#000", border: "none",
+                background: t.success, color: "#000", border: "none",
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer", fontWeight: 600,
               }}
@@ -294,7 +294,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               onClick={handleCopy}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "none", color: copied ? "#22c55e" : t.textMuted, border: `1px solid ${t.surfaceBorder}`,
+                background: "none", color: copied ? t.success : t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
               }}
@@ -416,7 +416,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       )}
 
       {writeMutation.error && (
-        <div style={{ padding: "6px 12px", background: "rgba(239,68,68,0.1)", color: "#ef4444", fontSize: 12 }}>
+        <div style={{ padding: "6px 12px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           Save failed: {writeMutation.error.message}
         </div>
       )}

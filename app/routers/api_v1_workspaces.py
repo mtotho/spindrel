@@ -1,6 +1,7 @@
 """API v1 — Shared Workspaces CRUD + container controls."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,100 @@ from app.services.shared_workspace import shared_workspace_service, SharedWorksp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+# ── Background re-index after file mutations ───────────────────
+# All functions use content-hash checks so they're cheap no-ops
+# when nothing actually changed.
+
+_SKILL_PATH_SEGMENTS = ("skills/",)
+_MEMORY_PATH_SEGMENTS = ("memory/",)
+
+
+def _path_touches(path: str, segments: tuple[str, ...]) -> bool:
+    """Check if a path (or either side of a move) touches a segment."""
+    return any(seg in path for seg in segments)
+
+
+def _schedule_reindex_for_paths(workspace_id: str, *paths: str) -> None:
+    """Fire-and-forget background re-index for affected subsystems.
+
+    Inspects the paths to decide which indexes need refreshing:
+    - skills/  → embed_workspace_skills (discovers mode from directory)
+    - memory/  → index_memory_for_bot (all bots in this workspace)
+    - anything → index_directory for filesystem chunks (all bots)
+    """
+    touches_skills = any(_path_touches(p, _SKILL_PATH_SEGMENTS) for p in paths)
+    touches_memory = any(_path_touches(p, _MEMORY_PATH_SEGMENTS) for p in paths)
+
+    # Always reindex filesystem chunks — the file watcher might not catch
+    # UI-driven mutations since they happen on the host path directly.
+    asyncio.create_task(_background_reindex(
+        workspace_id,
+        reindex_skills=touches_skills,
+        reindex_memory=touches_memory,
+        reindex_filesystem=True,
+    ))
+
+
+async def _background_reindex(
+    workspace_id: str,
+    *,
+    reindex_skills: bool = False,
+    reindex_memory: bool = False,
+    reindex_filesystem: bool = False,
+) -> None:
+    """Run the appropriate re-index passes in the background."""
+    try:
+        if reindex_skills:
+            from app.services.workspace_skills import embed_workspace_skills
+            stats = await embed_workspace_skills(workspace_id)
+            logger.info("Auto reindex skills for ws %s: %s", workspace_id[:8], stats)
+
+        if reindex_memory or reindex_filesystem:
+            from app.db.engine import async_session
+            from app.services.workspace_indexing import resolve_indexing, get_all_roots
+            from app.services.workspace import workspace_service
+            from app.services.memory_indexing import index_memory_for_bot
+            from app.agent.fs_indexer import index_directory
+
+            async with async_session() as db:
+                sw_bots = (await db.execute(
+                    select(SharedWorkspaceBot.bot_id)
+                    .where(SharedWorkspaceBot.workspace_id == uuid.UUID(workspace_id))
+                )).scalars().all()
+                ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+
+            for bot_id in sw_bots:
+                bot = next((b for b in list_bots() if b.id == bot_id), None)
+                if not bot or not bot.workspace.enabled:
+                    continue
+
+                if reindex_memory and bot.memory_scheme == "workspace-files":
+                    try:
+                        await index_memory_for_bot(bot, force=True)
+                    except Exception:
+                        logger.exception("Auto reindex memory failed for bot %s", bot_id)
+
+                if reindex_filesystem and bot.workspace.indexing.enabled and ws:
+                    try:
+                        _resolved = resolve_indexing(
+                            bot.workspace.indexing, bot._workspace_raw,
+                            ws.indexing_config if ws else None,
+                        )
+                        _segments = _resolved.get("segments")
+                        if bot.shared_workspace_id and not _segments:
+                            continue
+                        for root in get_all_roots(bot, workspace_service):
+                            await index_directory(
+                                root, bot_id, _resolved["patterns"],
+                                embedding_model=_resolved["embedding_model"],
+                                segments=_segments,
+                            )
+                    except Exception:
+                        logger.exception("Auto reindex fs failed for bot %s", bot_id)
+    except Exception:
+        logger.exception("Background reindex failed for workspace %s", workspace_id[:8])
 
 
 # ── Pydantic schemas ────────────────────────────────────────────
@@ -61,6 +156,7 @@ class WorkspaceUpdate(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
     write_protected_paths: Optional[list[str]] = None
+    skills: Optional[list[dict]] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -83,6 +179,7 @@ class WorkspaceOut(BaseModel):
     editor_enabled: bool = False
     editor_port: Optional[int] = None
     write_protected_paths: list[str] = []
+    skills: list[dict] = []
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -182,6 +279,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         editor_enabled=ws.editor_enabled,
         editor_port=ws.editor_port,
         write_protected_paths=ws.write_protected_paths or [],
+        skills=ws.skills or [],
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -826,7 +924,9 @@ async def write_workspace_file(
     if not ws:
         raise HTTPException(404)
     try:
-        return shared_workspace_service.write_file(workspace_id, path, body.content)
+        result = shared_workspace_service.write_file(workspace_id, path, body.content)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
     except PermissionError:
@@ -866,7 +966,9 @@ async def delete_workspace_file(
     if not ws:
         raise HTTPException(404)
     try:
-        return shared_workspace_service.delete_path(workspace_id, path)
+        result = shared_workspace_service.delete_path(workspace_id, path)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
     except PermissionError as exc:
@@ -887,7 +989,9 @@ async def move_workspace_file(
     if not ws:
         raise HTTPException(404)
     try:
-        return shared_workspace_service.move_path(workspace_id, body.src, body.dst)
+        result = shared_workspace_service.move_path(workspace_id, body.src, body.dst)
+        _schedule_reindex_for_paths(workspace_id, body.src, body.dst)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
     except PermissionError:
@@ -913,7 +1017,9 @@ async def upload_workspace_file(
     filename = file.filename or "upload"
     path = f"{target_dir.rstrip('/')}/{filename}"
     try:
-        return shared_workspace_service.write_binary_file(workspace_id, path, content)
+        result = shared_workspace_service.write_binary_file(workspace_id, path, content)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
     except PermissionError:

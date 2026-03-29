@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "react-native";
+import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft, Hash } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, ChevronDown } from "lucide-react";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -30,8 +30,61 @@ const PAGE_SIZE = 50;
 function shouldGroup(current: Message, prev: Message | undefined): boolean {
   if (!prev) return false;
   if (current.role !== prev.role) return false;
+  // Don't group across different senders (e.g. two different bots)
+  const curSender = current.metadata?.sender_id ?? current.role;
+  const prevSender = prev.metadata?.sender_id ?? prev.role;
+  if (curSender !== prevSender) return false;
   const dt = new Date(current.created_at).getTime() - new Date(prev.created_at).getTime();
   return Math.abs(dt) < 5 * 60 * 1000; // 5 minutes
+}
+
+/** Format a date for the day separator: "Today", "Yesterday", or "Wed, Mar 26" */
+function formatDateSeparator(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = today.getTime() - msgDay.getTime();
+  if (diff === 0) return "Today";
+  if (diff === 86400000) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+/** Are two timestamps on different calendar days (local time)? */
+function isDifferentDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() !== db.getFullYear() || da.getMonth() !== db.getMonth() || da.getDate() !== db.getDate();
+}
+
+function DateSeparator({ label }: { label: string }) {
+  const t = useThemeTokens();
+  if (Platform.OS === "web") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          padding: "12px 20px",
+          userSelect: "none",
+        }}
+      >
+        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap" }}>
+          {label}
+        </span>
+        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+      </div>
+    );
+  }
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 20, paddingVertical: 12 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+      <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>{label}</Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+    </View>
+  );
 }
 
 export default function ChatScreen() {
@@ -51,6 +104,7 @@ export default function ChatScreen() {
   const t = useThemeTokens();
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -90,9 +144,10 @@ export default function ChatScreen() {
         .filter((m) => {
           if (m.role !== "user" && m.role !== "assistant") return false;
           const meta = (m as any).metadata ?? {};
-          // Hide heartbeat messages and passive dispatch echoes
-          if (meta.is_heartbeat) return false;
+          // Hide passive dispatch echoes (ambient messages bot didn't respond to)
           if (meta.passive) return false;
+          // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
+          if (m.role === "user" && meta.is_heartbeat) return false;
           // Hide assistant messages with no displayable content (tool-call-only messages)
           if (m.role === "assistant" && !extractDisplayText(m.content)) return false;
           return true;
@@ -165,11 +220,8 @@ export default function ChatScreen() {
     [channelId, channel, turnModelOverride]
   );
 
-  // Filter out assistant messages with no visible content (e.g. think-tag-only iterations)
-  // then reverse for inverted FlatList (newest-first)
-  const invertedData = chatState.messages
-    .filter((m) => m.role !== "assistant" || (m.content ?? "").trim().length > 0)
-    .reverse();
+  // Reverse for inverted FlatList (newest-first)
+  const invertedData = [...chatState.messages].reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -177,17 +229,29 @@ export default function ChatScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    setShowScrollBtn(y > 300);
+  }, []);
 
-  // Build a lookup for grouping: for each message index in invertedData,
-  // is it grouped with the message below it (which is the chronological next)?
-  // Note: inverted means index 0 = newest. "previous" in chrono = index + 1.
+  const scrollToBottom = useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
+  // Show date separator when the current message starts a new day vs the older message above it.
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
-      // In inverted list: index+1 is the chronologically previous message
       const prevMsg = invertedData[index + 1];
       const grouped = shouldGroup(item, prevMsg);
-      return <MessageBubble message={item} botName={bot?.name} isGrouped={grouped} />;
+      // Show date separator above this message if it's the oldest loaded or on a different day than the one above
+      const showDateSep = index === invertedData.length - 1 || (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
+      return (
+        <>
+          <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />
+          {showDateSep && <DateSeparator label={formatDateSeparator(item.created_at)} />}
+        </>
+      );
     },
     [invertedData, bot?.name]
   );
@@ -257,57 +321,88 @@ export default function ChatScreen() {
           <ActivityIndicator color={t.textDim} />
         </View>
       ) : (
-        <FlatList
-          ref={flatListRef}
-          inverted
-          style={{ flex: 1 }}
-          data={invertedData}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
-          scrollEventThrottle={100}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustContentInsets={false}
-          contentInsetAdjustmentBehavior="never"
-          ListHeaderComponent={
-            chatState.isStreaming ? (
-              <StreamingIndicator
-                content={chatState.streamingContent}
-                toolCalls={chatState.toolCalls}
-                botName={bot?.name}
-                thinkingContent={chatState.thinkingContent}
-              />
-            ) : null
-          }
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <View className="items-center py-3">
-                <ActivityIndicator size="small" color="#666666" />
+        <View style={{ flex: 1, position: "relative" }}>
+          <FlatList
+            ref={flatListRef}
+            inverted
+            style={{ flex: 1 }}
+            data={invertedData}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
+            scrollEventThrottle={100}
+            onScroll={handleScroll}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            ListHeaderComponent={
+              chatState.isStreaming ? (
+                <StreamingIndicator
+                  content={chatState.streamingContent}
+                  toolCalls={chatState.toolCalls}
+                  botName={bot?.name}
+                  thinkingContent={chatState.thinkingContent}
+                />
+              ) : null
+            }
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View className="items-center py-3">
+                  <ActivityIndicator size="small" color="#666666" />
+                </View>
+              ) : hasNextPage ? (
+                <Pressable onPress={handleLoadMore} className="items-center py-3">
+                  <Text className="text-text-muted text-xs">Load older messages</Text>
+                </Pressable>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, transform: [{ scaleY: -1 }] }}>
+                <Text style={{ color: t.textDim, fontSize: 14 }}>
+                  Send a message to start the conversation
+                </Text>
               </View>
-            ) : hasNextPage ? (
-              <Pressable onPress={handleLoadMore} className="items-center py-3">
-                <Text className="text-text-muted text-xs">Load older messages</Text>
-              </Pressable>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View className="flex-1 items-center justify-center py-20">
-              <Text className="text-text-dim text-sm">
-                Send a message to start the conversation
-              </Text>
-            </View>
-          }
-        />
+            }
+          />
+          {/* Scroll-to-bottom FAB */}
+          {showScrollBtn && (
+            <Pressable
+              onPress={scrollToBottom}
+              style={{
+                position: "absolute",
+                bottom: 16,
+                right: 24,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: t.surfaceRaised,
+                borderWidth: 1,
+                borderColor: t.surfaceBorder,
+                alignItems: "center",
+                justifyContent: "center",
+                ...Platform.select({
+                  web: { boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" } as any,
+                  default: { elevation: 4 },
+                }),
+              }}
+            >
+              <ChevronDown size={20} color={t.textMuted} />
+            </Pressable>
+          )}
+        </View>
       )}
 
-      {/* Error */}
+      {/* Error (tap to dismiss) */}
       {chatState.error && (
-        <View className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
+        <Pressable
+          onPress={() => channelId && setError(channelId, "")}
+          className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
+        >
           <Text className="text-red-400 text-sm">{chatState.error}</Text>
-        </View>
+        </Pressable>
       )}
 
       {/* Input */}

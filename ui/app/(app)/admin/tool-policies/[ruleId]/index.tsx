@@ -188,11 +188,11 @@ export default function ToolPolicyDetailScreen() {
               gap: 4,
               padding: "6px 12px",
               borderRadius: 6,
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.2)",
+              background: t.dangerSubtle,
+              border: `1px solid ${t.dangerBorder}`,
               cursor: "pointer",
               fontSize: 12,
-              color: "#f87171",
+              color: t.dangerMuted,
             }}
           >
             <Trash2 size={13} /> Delete
@@ -377,7 +377,7 @@ export default function ToolPolicyDetailScreen() {
                   borderRadius: 6,
                   background: t.surfaceRaised,
                   fontSize: 12,
-                  color: "#2563eb",
+                  color: t.accent,
                   fontFamily: "monospace",
                 }}
               >

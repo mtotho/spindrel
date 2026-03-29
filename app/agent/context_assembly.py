@@ -100,7 +100,8 @@ async def _inject_workspace_skills(
             for s in ws_skills["rag"]
         ]
         from app.agent.rag import retrieve_context as _ws_retrieve
-        rag_chunks, _ = await _ws_retrieve(user_message, sources=rag_sources)
+        _ws_rag_raw, _ = await _ws_retrieve(user_message, sources=rag_sources)
+        rag_chunks = [content for content, _src in _ws_rag_raw]
         if rag_chunks:
             chars = sum(len(c) for c in rag_chunks)
             inject_chars["ws_skill_rag"] = chars
@@ -216,23 +217,41 @@ async def assemble_context(
                     },
                 ))
 
+    # --- merge workspace DB skills into bot.skills ---
+    if bot.shared_workspace_id:
+        try:
+            from app.db.engine import async_session as _ws_session
+            from app.db.models import SharedWorkspace as _WsSW
+            from app.agent.bots import _parse_skill_entry
+            async with _ws_session() as _ws_db:
+                import uuid as _uuid_mod
+                _ws_row = await _ws_db.get(_WsSW, _uuid_mod.UUID(bot.shared_workspace_id))
+            if _ws_row and _ws_row.skills:
+                _bot_skill_ids = {s.id for s in bot.skills}
+                _ws_skills = [_parse_skill_entry(e) for e in _ws_row.skills if
+                              (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids]
+                if _ws_skills:
+                    bot = _dc_replace(bot, skills=list(bot.skills) + _ws_skills)
+        except Exception:
+            logger.warning("Failed to load workspace DB skills for %s", bot.shared_workspace_id)
+
     if _ch_row is not None:
-            _eff = resolve_effective_tools(bot, _ch_row)
-            bot = _dc_replace(
-                bot,
-                local_tools=_eff.local_tools,
-                mcp_servers=_eff.mcp_servers,
-                client_tools=_eff.client_tools,
-                pinned_tools=_eff.pinned_tools,
-                skills=_eff.skills,
-            )
-            if _ch_row.model_override:
-                result.channel_model_override = _ch_row.model_override
-                result.channel_provider_id_override = _ch_row.model_provider_id_override
-            if _ch_row.max_iterations is not None:
-                result.channel_max_iterations = _ch_row.max_iterations
-            if _ch_row.fallback_models:
-                result.channel_fallback_models = _ch_row.fallback_models
+        _eff = resolve_effective_tools(bot, _ch_row)
+        bot = _dc_replace(
+            bot,
+            local_tools=_eff.local_tools,
+            mcp_servers=_eff.mcp_servers,
+            client_tools=_eff.client_tools,
+            pinned_tools=_eff.pinned_tools,
+            skills=_eff.skills,
+        )
+        if _ch_row.model_override:
+            result.channel_model_override = _ch_row.model_override
+            result.channel_provider_id_override = _ch_row.model_provider_id_override
+        if _ch_row.max_iterations is not None:
+            result.channel_max_iterations = _ch_row.max_iterations
+        if _ch_row.fallback_models:
+            result.channel_fallback_models = _ch_row.fallback_models
 
     # --- memory scheme: tool hiding + tool injection ---
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
@@ -327,6 +346,132 @@ async def assemble_context(
 
         except Exception:
             logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
+
+    # --- channel workspace: file injection + tool injection ---
+    if _ch_row is not None and _ch_row.channel_workspace_enabled:
+        _CW_TOOLS = ["search_channel_archive", "search_channel_workspace", "list_workspace_channels"]
+        # Inject tools
+        _cw_filtered = list(bot.local_tools)
+        for _cwt in _CW_TOOLS:
+            if _cwt not in _cw_filtered:
+                _cw_filtered.append(_cwt)
+        bot = _dc_replace(
+            bot,
+            local_tools=_cw_filtered,
+            pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _CW_TOOLS)),
+        )
+
+        # Inject workspace files into context
+        try:
+            import os as _cw_os
+            from app.services.channel_workspace import (
+                get_channel_workspace_root,
+                ensure_channel_workspace,
+            )
+            _cw_ch_id = str(_ch_row.id)
+            ensure_channel_workspace(_cw_ch_id, bot)
+            _cw_root = get_channel_workspace_root(_cw_ch_id, bot)
+
+            _cw_files: list[tuple[str, str]] = []  # (name, content)
+            _cw_total_chars = 0
+            _CW_BUDGET = 50_000
+
+            if _cw_os.path.isdir(_cw_root):
+                for _cw_entry in sorted(_cw_os.scandir(_cw_root), key=lambda e: e.name):
+                    if _cw_entry.is_file() and _cw_entry.name.endswith(".md"):
+                        try:
+                            _cw_content = Path(_cw_entry.path).read_text()
+                            if _cw_content.strip():
+                                if _cw_total_chars + len(_cw_content) > _CW_BUDGET:
+                                    _cw_content = _cw_content[:_CW_BUDGET - _cw_total_chars] + "\n\n[...truncated]"
+                                _cw_files.append((_cw_entry.name, _cw_content))
+                                _cw_total_chars += len(_cw_content)
+                                if _cw_total_chars >= _CW_BUDGET:
+                                    break
+                        except Exception:
+                            pass
+
+            if _cw_files:
+                _cw_sections = []
+                for _fname, _fcontent in _cw_files:
+                    _cw_sections.append(f"## {_fname}\n\n{_fcontent}")
+                _cw_body = "\n\n---\n\n".join(_cw_sections)
+
+                # List data/ files for awareness
+                _cw_data_dir = _cw_os.path.join(_cw_root, "data")
+                _cw_data_listing = ""
+                if _cw_os.path.isdir(_cw_data_dir):
+                    _data_entries = sorted(
+                        e.name for e in _cw_os.scandir(_cw_data_dir)
+                        if e.is_file()
+                    )
+                    if _data_entries:
+                        _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
+
+                _cw_helper = (
+                    f"Channel workspace files (channels/{_cw_ch_id}/workspace/ relative to /workspace/):\n"
+                    "Use exec_command for creating, editing, and moving workspace files.\n"
+                    "Use search_channel_archive to search archived files, search_channel_workspace for broader search.\n"
+                    "Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.\n"
+                    "The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.\n"
+                    "When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.\n"
+                    "Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, "
+                    "then search_channel_workspace with its channel_id to find relevant workspace content.\n"
+                    + _cw_data_listing + "\n"
+                )
+
+                _inject_chars["channel_workspace"] = _cw_total_chars
+                messages.append({
+                    "role": "system",
+                    "content": _cw_helper + _cw_body,
+                })
+                yield {"type": "channel_workspace_context", "count": len(_cw_files), "chars": _cw_total_chars}
+
+            # Background re-index (content-hash makes it a no-op if nothing changed)
+            from app.services.channel_workspace_indexing import index_channel_workspace as _cw_index
+            _cw_segments = getattr(_ch_row, "index_segments", None) or []
+            asyncio.create_task(_cw_index(_cw_ch_id, bot, channel_segments=_cw_segments or None))
+
+            # --- Channel index segment RAG retrieval ---
+            if _cw_segments:
+                try:
+                    from app.agent.fs_indexer import retrieve_filesystem_context as _rfc
+                    _sentinel = f"channel:{_ch_row.id}"
+                    _seg_dicts = [{
+                        "path_prefix": f"channels/{_cw_ch_id}/workspace/{seg['path_prefix'].strip('/')}",
+                        "embedding_model": seg.get("embedding_model") or _resolved_ws.get("embedding_model") if "_resolved_ws" in dir() else seg.get("embedding_model"),
+                    } for seg in _cw_segments]
+                    # Resolve embedding model for query
+                    from app.services.workspace_indexing import resolve_indexing as _ri
+                    _ws_res = _ri(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+                    _seg_dicts_final = [{
+                        "path_prefix": f"channels/{_cw_ch_id}/workspace/{seg['path_prefix'].strip('/')}",
+                        "embedding_model": seg.get("embedding_model") or _ws_res["embedding_model"],
+                    } for seg in _cw_segments]
+                    _seg_top_k = max((seg.get("top_k", 8) for seg in _cw_segments), default=8)
+                    _seg_threshold = min((seg.get("similarity_threshold", 0.35) for seg in _cw_segments), default=0.35)
+                    _ch_chunks, _ch_sim = await _rfc(
+                        user_message,
+                        _sentinel,
+                        roots=[str(Path(_cw_root).parent.parent.parent)],
+                        embedding_model=_ws_res["embedding_model"],
+                        segments=_seg_dicts_final,
+                        top_k=_seg_top_k,
+                        threshold=_seg_threshold,
+                    )
+                    if _ch_chunks:
+                        _ch_seg_body = "\n\n".join(_ch_chunks)
+                        messages.append({
+                            "role": "system",
+                            "content": f"Relevant code/files from channel indexed directories:\n\n{_ch_seg_body}",
+                        })
+                        _inject_chars["channel_index_segments"] = len(_ch_seg_body)
+                        yield {"type": "channel_index_segments", "count": len(_ch_chunks), "similarity": _ch_sim}
+                except Exception:
+                    logger.warning("Failed to retrieve channel index segments for channel %s", _ch_row.id, exc_info=True)
+
+        except Exception:
+            logger.warning("Failed to inject channel workspace files for channel %s", _ch_row.id, exc_info=True)
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(
@@ -447,7 +592,7 @@ async def assemble_context(
                 user_message, skill_ids=_rag_ids, similarity_threshold=_min_threshold,
             )
             if chunks:
-                _skill_chars = sum(len(c) for c in chunks)
+                _skill_chars = sum(len(c) for c, _ in chunks)
                 _inject_chars["skill_rag"] = _skill_chars
                 yield {"type": "skill_context", "count": len(chunks), "chars": _skill_chars}
                 if correlation_id is not None:
@@ -458,12 +603,26 @@ async def assemble_context(
                         client_id=client_id,
                         event_type="skill_context",
                         count=len(chunks),
-                        data={"preview": chunks[0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
+                        data={"preview": chunks[0][0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
                     ))
-                context = "\n\n---\n\n".join(chunks)
+                # Format chunks with skill source attribution
+                _chunk_texts = []
+                for content, source in chunks:
+                    _sid = source.removeprefix("skill:")
+                    _chunk_texts.append(f"[skill:{_sid}]\n{content}")
+                context = "\n\n---\n\n".join(_chunk_texts)
+                _skill_ids_in_chunks = list(dict.fromkeys(
+                    src.removeprefix("skill:") for _, src in chunks
+                ))
+                _get_skill_hint = ", ".join(
+                    f'get_skill(skill_id="{sid}")' for sid in _skill_ids_in_chunks
+                )
                 messages.append({
                     "role": "system",
-                    "content": f"Relevant skill context:\n\n{context}",
+                    "content": (
+                        f"Relevant skill context (partial — call {_get_skill_hint} "
+                        f"for full content if needed):\n\n{context}"
+                    ),
                 })
 
         # On-demand skills: inject index, agent uses get_skill()
@@ -659,7 +818,7 @@ async def assemble_context(
             messages.append({
                 "role": "system",
                 "content": (
-                    "Relevant memories:\n\n"
+                    "Relevant memories (auto-retrieved excerpts — use search_memories for broader recall):\n\n"
                     + "\n\n---\n\n".join(memories)
                 ),
             })
@@ -724,7 +883,14 @@ async def assemble_context(
                     count=len(chunks),
                     data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4), "chars": _know_chars},
                 ))
-            messages.append({"role": "system", "content": "Relevant knowledge:\n\n" + "\n\n---\n\n".join(chunks)})
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Relevant knowledge (auto-retrieved excerpts — use get_knowledge(name=\"<name>\") "
+                    "for full documents or search_knowledge for broader results):\n\n"
+                    + "\n\n---\n\n".join(chunks)
+                ),
+            })
 
     # --- conversation section retrieval (structured mode) + tool injection (file mode) ---
     if channel_id is not None:
@@ -859,8 +1025,11 @@ async def assemble_context(
                 ))
             messages.append({
                 "role": "system",
-                "content": "Relevant files from workspace (hint: use exec_command with `cat <filepath>` to read full contents):\n\n"
-                           + "\n\n---\n\n".join(fs_chunks),
+                "content": (
+                    "Relevant workspace file excerpts (partial segments — "
+                    "use exec_command with `cat <filepath>` to read full file contents):\n\n"
+                    + "\n\n---\n\n".join(fs_chunks)
+                ),
             })
     elif bot.filesystem_indexes:
         # Legacy filesystem_indexes path
@@ -884,8 +1053,11 @@ async def assemble_context(
                 ))
             messages.append({
                 "role": "system",
-                "content": "Relevant code/files from indexed directories (hint: use exec_command with `cat <filepath>` to read full contents):\n\n"
-                           + "\n\n---\n\n".join(fs_chunks),
+                "content": (
+                    "Relevant file excerpts from indexed directories (partial segments — "
+                    "use exec_command with `cat <filepath>` to read full file contents):\n\n"
+                    + "\n\n---\n\n".join(fs_chunks)
+                ),
             })
 
     # --- tool retrieval (tool RAG) ---

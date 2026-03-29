@@ -121,7 +121,7 @@ export default function BotEditorScreen() {
   if (isLoading || !editorData || !draft) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -196,7 +196,7 @@ export default function BotEditorScreen() {
       </div>
 
       {saveMutation.isError && (
-        <div style={{ padding: "8px 16px", background: "#7f1d1d33", color: "#dc2626", fontSize: 12 }}>
+        <div style={{ padding: "8px 16px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(saveMutation.error as Error)?.message || "Failed to save"}
         </div>
       )}
@@ -286,11 +286,11 @@ export default function BotEditorScreen() {
                     <Toggle value={true} onChange={() => {}} label="Enable Persona" />
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: t.textDim, background: "rgba(147,197,253,0.12)", padding: "2px 8px", borderRadius: 4 }}>
+                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       workspace file
                     </span>
-                    <span style={{ fontSize: 11, color: "#2563eb" }}>
-                      <code style={{ color: "#d97706" }}>bots/{editorData.bot.id}/persona.md</code>
+                    <span style={{ fontSize: 11, color: t.accent }}>
+                      <code style={{ color: t.warningMuted }}>bots/{editorData.bot.id}/persona.md</code>
                     </span>
                   </div>
                   {editorData.bot.shared_workspace_id && (
@@ -298,7 +298,7 @@ export default function BotEditorScreen() {
                       href={`/admin/workspaces/${editorData.bot.shared_workspace_id}`}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 4,
-                        fontSize: 11, fontWeight: 600, color: "#2563eb",
+                        fontSize: 11, fontWeight: 600, color: t.accent,
                         textDecoration: "none", alignSelf: "flex-start",
                       }}
                     >
@@ -328,7 +328,7 @@ export default function BotEditorScreen() {
                   )}
                   {draft.shared_workspace_id && (
                     <div style={{ padding: "8px 0", fontSize: 11, color: t.textDim, lineHeight: 1.6 }}>
-                      Tip: Create <code style={{ color: "#d97706" }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
+                      Tip: Create <code style={{ color: t.warningMuted }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
                     </div>
                   )}
                 </>
@@ -390,21 +390,21 @@ export default function BotEditorScreen() {
               {draft.api_permissions && draft.api_permissions.length > 0 && draft.api_docs_mode && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6" }}>Virtual Skills</span>
-                    <span style={{ fontSize: 10, color: t.textDim, background: "rgba(59,130,246,0.12)", padding: "2px 8px", borderRadius: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.accent }}>Virtual Skills</span>
+                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       from permissions
                     </span>
                   </div>
                   <div style={{
                     padding: 8, borderRadius: 6,
-                    background: "rgba(59,130,246,0.04)",
-                    border: "1px solid rgba(59,130,246,0.15)",
+                    background: t.accentSubtle,
+                    border: `1px solid ${t.accentBorder}`,
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "#3b82f6" }}>api_reference</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: t.accent }}>api_reference</span>
                       <span style={{
                         fontSize: 9, padding: "1px 6px", borderRadius: 3,
-                        background: "rgba(59,130,246,0.15)", color: "#60a5fa",
+                        background: t.accentSubtle, color: t.accent,
                       }}>on-demand</span>
                     </div>
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
@@ -685,16 +685,16 @@ export default function BotEditorScreen() {
                         <label key={b.id} style={{
                           display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
                           borderRadius: 4, cursor: "pointer", fontSize: 11,
-                          background: on ? "rgba(139,92,246,0.08)" : "transparent",
+                          background: on ? t.purpleSubtle : "transparent",
                         }}>
-                          <input type="checkbox" checked={on} style={{ accentColor: "#8b5cf6" }}
+                          <input type="checkbox" checked={on} style={{ accentColor: t.purple }}
                             onChange={() => {
                               const dc = { ...draft.delegation_config };
                               const cur: string[] = dc.delegate_bots || draft.delegate_bots || [];
                               dc.delegate_bots = on ? cur.filter((x: string) => x !== b.id) : [...cur, b.id];
                               update({ delegation_config: dc });
                             }} />
-                          <span style={{ color: on ? "#8b5cf6" : t.textDim }}>{b.name}</span>
+                          <span style={{ color: on ? t.purple : t.textDim }}>{b.name}</span>
                           <span style={{ color: t.surfaceBorder, fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
                         </label>
                       );
@@ -712,16 +712,16 @@ export default function BotEditorScreen() {
                         <label key={h} style={{
                           display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
                           borderRadius: 4, cursor: "pointer", fontSize: 11,
-                          background: on ? "rgba(139,92,246,0.08)" : "transparent",
+                          background: on ? t.purpleSubtle : "transparent",
                         }}>
-                          <input type="checkbox" checked={on} style={{ accentColor: "#8b5cf6" }}
+                          <input type="checkbox" checked={on} style={{ accentColor: t.purple }}
                             onChange={() => {
                               const dc = { ...draft.delegation_config };
                               const cur: string[] = dc.harness_access || draft.harness_access || [];
                               dc.harness_access = on ? cur.filter((x: string) => x !== h) : [...cur, h];
                               update({ delegation_config: dc });
                             }} />
-                          <span style={{ fontFamily: "monospace", color: on ? "#8b5cf6" : t.textDim }}>{h}</span>
+                          <span style={{ fontFamily: "monospace", color: on ? t.purple : t.textDim }}>{h}</span>
                         </label>
                       );
                     })}

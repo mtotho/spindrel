@@ -229,6 +229,7 @@ async def get_config_state(
             "pinned_tools_override": ch.pinned_tools_override,
             "skills_override": ch.skills_override,
             "skills_disabled": ch.skills_disabled,
+            "skills_extra": ch.skills_extra,
             "workspace_skills_enabled": ch.workspace_skills_enabled,
             "workspace_base_prompt_enabled": ch.workspace_base_prompt_enabled,
             "history_mode": ch.history_mode,
@@ -245,6 +246,7 @@ async def get_config_state(
             "section_index_verbosity": ch.section_index_verbosity,
             "context_pruning": ch.context_pruning,
             "context_pruning_keep_turns": ch.context_pruning_keep_turns,
+            "channel_workspace_enabled": ch.channel_workspace_enabled,
         }
         for ch in channel_rows
     ]
@@ -813,6 +815,7 @@ async def restore_config_state(
                 "pinned_tools_override": row.get("pinned_tools_override"),
                 "skills_override": row.get("skills_override"),
                 "skills_disabled": row.get("skills_disabled"),
+                "skills_extra": row.get("skills_extra"),
                 "workspace_skills_enabled": row.get("workspace_skills_enabled"),
                 "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled"),
                 "history_mode": row.get("history_mode"),
@@ -829,6 +832,7 @@ async def restore_config_state(
                 "section_index_verbosity": row.get("section_index_verbosity"),
                 "context_pruning": row.get("context_pruning"),
                 "context_pruning_keep_turns": row.get("context_pruning_keep_turns"),
+                "channel_workspace_enabled": row.get("channel_workspace_enabled"),
             }
             stmt = pg_insert(Channel).values(id=row["id"], **vals)
             stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=vals)

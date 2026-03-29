@@ -45,8 +45,8 @@ export function BotPermissionsSection({
       {hasAdmin && (
         <div style={{
           padding: "8px 12px", borderRadius: 6,
-          background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)",
-          fontSize: 12, color: "#dc2626",
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+          fontSize: 12, color: t.danger,
         }}>
           Warning: admin scope grants full access to all endpoints including admin panel.
         </div>
@@ -77,19 +77,19 @@ export function BotPermissionsSection({
                         display: "flex", alignItems: "center", gap: 6,
                         padding: "4px 10px", borderRadius: 5,
                         border: checked
-                          ? isAdmin ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(59,130,246,0.4)"
+                          ? isAdmin ? `1px solid ${t.dangerBorder}` : `1px solid ${t.accentBorder}`
                           : `1px solid ${t.surfaceBorder}`,
                         background: checked
-                          ? isAdmin ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)"
+                          ? isAdmin ? t.dangerSubtle : t.accentSubtle
                           : "transparent",
                         cursor: "pointer", fontSize: 12,
-                        color: checked ? (isAdmin ? "#dc2626" : "#2563eb") : t.textDim,
+                        color: checked ? (isAdmin ? t.danger : t.accent) : t.textDim,
                         fontWeight: checked ? 600 : 400,
                       }}>
                         <span style={{
                           width: 14, height: 14, borderRadius: 3,
                           border: checked ? "none" : `1px solid ${t.surfaceBorder}`,
-                          background: checked ? (isAdmin ? "#ef4444" : "#3b82f6") : "transparent",
+                          background: checked ? (isAdmin ? t.dangerMuted : t.accent) : "transparent",
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}>
                           {checked && <Check size={10} color="#fff" strokeWidth={3} />}
@@ -104,7 +104,7 @@ export function BotPermissionsSection({
           })}
         </div>
       ) : (
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       )}
 
       {permissions.length > 0 && (
@@ -134,9 +134,9 @@ export function BotPermissionsSection({
                     title={m.description}
                     style={{
                       padding: "5px 12px", borderRadius: 5, fontSize: 12, cursor: "pointer",
-                      border: active ? "1px solid rgba(59,130,246,0.4)" : `1px solid ${t.surfaceBorder}`,
-                      background: active ? "rgba(59,130,246,0.1)" : "transparent",
-                      color: active ? "#2563eb" : t.textDim,
+                      border: active ? `1px solid ${t.accentBorder}` : `1px solid ${t.surfaceBorder}`,
+                      background: active ? t.accentSubtle : "transparent",
+                      color: active ? t.accent : t.textDim,
                       fontWeight: active ? 600 : 400,
                     }}
                   >
@@ -155,9 +155,9 @@ export function BotPermissionsSection({
           {docsMode && (
             <div style={{
               marginTop: 12, padding: "10px 12px", borderRadius: 6,
-              background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.12)",
+              background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
             }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#3b82f6", marginBottom: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.accent, marginBottom: 4 }}>
                 Virtual Skill: api_reference
               </div>
               <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>

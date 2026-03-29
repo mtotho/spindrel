@@ -82,8 +82,8 @@ export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
                     key={b.bot_id}
                     style={{
                       display: "inline-block",
-                      background: "rgba(59,130,246,0.1)",
-                      color: "#6b9eff",
+                      background: t.accentSubtle,
+                      color: t.accent,
                       borderRadius: 3,
                       padding: "1px 6px",
                       fontSize: 11,

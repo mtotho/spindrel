@@ -205,7 +205,121 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ReturnType<typeo
   );
 }
 
-function MarkdownContent({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+/** Render a block of non-code text with block-level markdown (headings, lists, blockquotes, hr). */
+function TextBlockRenderer({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Horizontal rule
+    if (/^(---+|\*\*\*+|___+)\s*$/.test(line.trim())) {
+      elements.push(
+        <hr key={key++} style={{ border: "none", borderTop: `1px solid ${t.surfaceBorder}`, margin: "12px 0" }} />
+      );
+      i++;
+      continue;
+    }
+
+    // Heading
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const sizes = [22, 19, 17, 15, 14, 13];
+      const weights = ["700", "700", "600", "600", "600", "600"];
+      elements.push(
+        <div key={key++} style={{ fontSize: sizes[level - 1], fontWeight: weights[level - 1] as any, color: t.text, margin: `${level <= 2 ? 12 : 8}px 0 4px` }}>
+          <InlineRenderer nodes={parseInline(headingMatch[2])} t={t} />
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Blockquote (collect consecutive > lines)
+    if (/^>\s?/.test(line)) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^>\s?/, ""));
+        i++;
+      }
+      elements.push(
+        <div
+          key={key++}
+          style={{
+            borderLeft: `3px solid ${t.surfaceBorder}`,
+            paddingLeft: 12,
+            margin: "6px 0",
+            color: t.textMuted,
+            fontStyle: "italic",
+          }}
+        >
+          <InlineRenderer nodes={parseInline(quoteLines.join("\n"))} t={t} />
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered list (collect consecutive - or * lines)
+    if (/^[\-\*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[\-\*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[\-\*]\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ul key={key++} style={{ margin: "4px 0", paddingLeft: 24, listStyleType: "disc" }}>
+          {items.map((item, j) => (
+            <li key={j} style={{ marginBottom: 2 }}>
+              <InlineRenderer nodes={parseInline(item)} t={t} />
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list (collect consecutive numbered lines)
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ol key={key++} style={{ margin: "4px 0", paddingLeft: 24 }}>
+          {items.map((item, j) => (
+            <li key={j} style={{ marginBottom: 2 }}>
+              <InlineRenderer nodes={parseInline(item)} t={t} />
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Regular text line (or empty line)
+    if (line.trim() === "") {
+      elements.push(<div key={key++} style={{ height: 8 }} />);
+    } else {
+      const nodes = parseInline(line);
+      elements.push(
+        <div key={key++}>
+          <InlineRenderer nodes={nodes} t={t} />
+        </div>
+      );
+    }
+    i++;
+  }
+
+  return <>{elements}</>;
+}
+
+export function MarkdownContent({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+  // Split on fenced code blocks first, then render each segment
   const blocks: { type: "code" | "text"; content: string; lang?: string }[] = [];
   const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
   let last = 0;
@@ -244,10 +358,7 @@ function MarkdownContent({ text, t }: { text: string; t: ReturnType<typeof useTh
             </pre>
           );
         }
-        const nodes = parseInline(block.content);
-        return (
-          <span key={i}><InlineRenderer nodes={nodes} t={t} /></span>
-        );
+        return <TextBlockRenderer key={i} text={block.content} t={t} />;
       })}
     </div>
   );

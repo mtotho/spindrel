@@ -72,8 +72,8 @@ export function SessionsTab({ channelId }: { channelId: string }) {
           {data.map((s: any) => (
             <div key={s.id} style={{
               display: "flex", alignItems: "center", gap: 10,
-              padding: "10px 12px", background: s.is_active ? "#0d1a0d" : t.surfaceRaised,
-              borderRadius: 8, border: `1px solid ${s.is_active ? "#1a3a1a" : t.surfaceOverlay}`,
+              padding: "10px 12px", background: s.is_active ? t.successSubtle : t.surfaceRaised,
+              borderRadius: 8, border: `1px solid ${s.is_active ? t.successBorder : t.surfaceOverlay}`,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -86,12 +86,12 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                     </span>
                   )}
                   {s.is_active && (
-                    <span style={{ fontSize: 9, background: "#166534", color: "#16a34a", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: t.successSubtle, color: t.success, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
                       ACTIVE
                     </span>
                   )}
                   {s.locked && (
-                    <span style={{ fontSize: 9, background: "rgba(239,68,68,0.12)", color: "#dc2626", padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, background: t.dangerSubtle, color: t.danger, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
                       LOCKED
                     </span>
                   )}
@@ -115,7 +115,7 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                     style={{
                       padding: "4px 10px", fontSize: 10, fontWeight: 600,
                       border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, cursor: "pointer",
-                      background: "transparent", color: "#16a34a",
+                      background: "transparent", color: t.success,
                     }}
                     title="Switch to this session"
                   >

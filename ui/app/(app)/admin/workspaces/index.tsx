@@ -8,15 +8,19 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { SharedWorkspace } from "@/src/types/api";
 
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  running: { bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
-  stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
-  creating: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
-  error: { bg: "rgba(239,68,68,0.15)", fg: "#dc2626" },
-};
+function getStatusColors(t: ReturnType<typeof useThemeTokens>): Record<string, { bg: string; fg: string }> {
+  return {
+    running: { bg: t.successSubtle, fg: t.success },
+    stopped: { bg: "rgba(100,100,100,0.15)", fg: "#999" },
+    creating: { bg: t.accentSubtle, fg: t.accent },
+    error: { bg: t.dangerSubtle, fg: t.danger },
+  };
+}
 
 function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] || STATUS_COLORS.stopped;
+  const t = useThemeTokens();
+  const statusColors = getStatusColors(t);
+  const c = statusColors[status] || statusColors.stopped;
   return (
     <span style={{
       padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
@@ -46,7 +50,7 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
     >
       {/* Top row: name + status */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Container size={14} color="#2563eb" />
+        <Container size={14} color={t.accent} />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           {workspace.name}
         </span>
@@ -81,8 +85,8 @@ function WorkspaceCard({ workspace, onPress, isWide }: {
           {workspace.bots.map((b) => (
             <span key={b.bot_id} style={{
               padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 500,
-              background: b.role === "orchestrator" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.1)",
-              color: b.role === "orchestrator" ? "#8b5cf6" : "#2563eb",
+              background: b.role === "orchestrator" ? t.purpleSubtle : t.accentSubtle,
+              color: b.role === "orchestrator" ? t.purple : t.accent,
             }}>
               {b.bot_name || b.bot_id}
               {b.role === "orchestrator" && " (orch)"}

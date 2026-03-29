@@ -51,7 +51,7 @@ export function WorkspaceSection({
     background: t.inputBg, borderRadius: 4, fontSize: 11,
   };
   const removeBtn = (onClick: () => void) => (
-    <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#f87171", fontSize: 12 }}>×</button>
+    <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: t.dangerMuted, fontSize: 12 }}>×</button>
   );
   const addBtn = (label: string, onClick: () => void) => (
     <button onClick={onClick} style={{
@@ -75,16 +75,16 @@ export function WorkspaceSection({
       {inSharedWorkspace && (
         <div style={{
           display: "flex", flexDirection: "column", gap: 8,
-          padding: "14px 16px", background: "rgba(139,92,246,0.06)",
-          border: "1px solid rgba(139,92,246,0.15)", borderRadius: 10,
+          padding: "14px 16px", background: t.purpleSubtle,
+          border: `1px solid ${t.purpleBorder}`, borderRadius: 10,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Package size={14} color="#8b5cf6" />
+            <Package size={14} color={t.purple} />
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Shared Workspace</span>
             <span style={{
               padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-              background: draft.shared_workspace_role === "orchestrator" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.1)",
-              color: draft.shared_workspace_role === "orchestrator" ? "#8b5cf6" : "#2563eb",
+              background: draft.shared_workspace_role === "orchestrator" ? t.purpleSubtle : t.accentSubtle,
+              color: draft.shared_workspace_role === "orchestrator" ? t.purple : t.accent,
             }}>
               {draft.shared_workspace_role || "member"}
             </span>
@@ -100,7 +100,7 @@ export function WorkspaceSection({
             href={`/admin/workspaces/${draft.shared_workspace_id}`}
             style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 12, fontWeight: 600, color: "#2563eb",
+              fontSize: 12, fontWeight: 600, color: t.accent,
               textDecoration: "none", alignSelf: "flex-start",
             }}
           >
@@ -141,7 +141,7 @@ export function WorkspaceSection({
 
               {/* Docker panel */}
               {(ws.type || "docker") === "docker" && (
-                <div style={{ borderLeft: "2px solid #1e3a5f", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ borderLeft: `2px solid ${t.accentMuted}`, paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
                   <Row gap={12}>
                     <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
@@ -160,7 +160,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
                     {envEntries.map(([k, v]) => (
                       <div key={k} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#2563eb", minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
+                        <span style={{ fontFamily: "monospace", color: t.accent, minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
                         <span style={{ color: t.textDim }}>=</span>
                         <span style={{ fontFamily: "monospace", color: t.textMuted, flex: 1 }}>{v as string}</span>
                         {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
@@ -181,7 +181,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
                     {ports.map((p: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#2563eb" }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
+                        <span style={{ fontFamily: "monospace", color: t.accent }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
                         {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
@@ -201,7 +201,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
                     {mounts.map((m: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#2563eb", flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
+                        <span style={{ fontFamily: "monospace", color: t.accent, flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
                         {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
                       </div>
                     ))}
@@ -227,7 +227,7 @@ export function WorkspaceSection({
 
               {/* Host panel */}
               {ws.type === "host" && (
-                <div style={{ borderLeft: "2px solid #166534", paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ borderLeft: `2px solid ${t.success}`, paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Host Settings</div>
                   <FormRow label="Custom Root"><TextInput value={host.root || ""} onChangeText={(v) => setHost({ root: v })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
 
@@ -237,7 +237,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
                     {commands.map((cmd: any, i: number) => (
                       <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: "#818cf8", minWidth: 50, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>{cmd.name}</span>
+                        <span style={{ fontFamily: "monospace", color: t.purpleMuted, minWidth: 50, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>{cmd.name}</span>
                         <span style={{ color: t.textMuted, flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
                         {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
                       </div>
@@ -260,7 +260,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {blocked.map((pat, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#d97706" }}>
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.warningMuted }}>
                       {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -276,7 +276,7 @@ export function WorkspaceSection({
                 <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {envPass.map((v, i) => (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                       {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
                     </span>
                   ))}
@@ -294,11 +294,11 @@ export function WorkspaceSection({
           {/* Memory indexing info banner */}
           {draft.memory_scheme === "workspace-files" && (
             <div style={{
-              padding: "10px 14px", background: "rgba(139,92,246,0.06)",
-              border: "1px solid rgba(139,92,246,0.15)", borderRadius: 8,
+              padding: "10px 14px", background: t.purpleSubtle,
+              border: `1px solid ${t.purpleBorder}`, borderRadius: 8,
               fontSize: 11, color: t.textMuted, lineHeight: 1.5,
             }}>
-              <span style={{ fontWeight: 600, color: "#8b5cf6" }}>Memory indexing is automatic</span>
+              <span style={{ fontWeight: 600, color: t.purple }}>Memory indexing is automatic</span>
               {" "}— files in <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> are always indexed and searchable via search_memory, regardless of the settings below.
             </div>
           )}
@@ -317,8 +317,8 @@ export function WorkspaceSection({
                 {/* Segments — the primary way to define what gets indexed */}
                 <div style={{ marginBottom: 12 }}>
                   <div style={{
-                    padding: "8px 12px", background: "rgba(59,130,246,0.05)",
-                    border: "1px solid rgba(59,130,246,0.12)", borderRadius: 6,
+                    padding: "8px 12px", background: t.accentSubtle,
+                    border: `1px solid ${t.accentBorder}`, borderRadius: 6,
                     fontSize: 11, color: t.textMuted, lineHeight: 1.5, marginBottom: 8,
                   }}>
                     {inSharedWorkspace ? (<>
@@ -356,8 +356,8 @@ export function WorkspaceSection({
                   )}
                   {segments.map((seg: any, i: number) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
-                      <span style={{ fontFamily: "monospace", color: "#2563eb" }}>{seg.path_prefix}</span>
-                      {seg.embedding_model && <span style={{ color: t.textMuted }}>model: <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
+                      <span style={{ fontFamily: "monospace", color: t.accent }}>{seg.path_prefix}</span>
+                      {seg.embedding_model && <span style={{ color: t.textMuted }}>model: <span style={{ color: t.purpleMuted, fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
                       {seg.patterns && <span style={{ color: t.textDim }}>patterns: {seg.patterns.length}</span>}
                       {seg.similarity_threshold != null && <span style={{ color: t.textDim }}>thresh: {seg.similarity_threshold}</span>}
                       {seg.top_k != null && <span style={{ color: t.textDim }}>k: {seg.top_k}</span>}
@@ -390,7 +390,7 @@ export function WorkspaceSection({
                     <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {patterns.map((pat, i) => (
-                        <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: "#2563eb" }}>
+                        <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
                           {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
                         </span>
                       ))}

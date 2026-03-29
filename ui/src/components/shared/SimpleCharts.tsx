@@ -21,10 +21,11 @@ interface BarChartProps {
 export function BarChart({
   items,
   formatValue = (v) => v.toFixed(2),
-  barColor = "#3b82f6",
+  barColor,
   maxBars = 10,
 }: BarChartProps) {
   const t = useThemeTokens();
+  const effectiveBarColor = barColor ?? t.accent;
   const displayed = items.slice(0, maxBars);
   if (displayed.length === 0) {
     return (
@@ -67,7 +68,7 @@ export function BarChart({
                 top: 0,
                 bottom: 0,
                 width: `${Math.max((item.value / maxVal) * 100, 1)}%`,
-                backgroundColor: item.color || barColor,
+                backgroundColor: item.color || effectiveBarColor,
                 borderRadius: 4,
                 opacity: 0.8,
               }}
@@ -107,11 +108,13 @@ interface LineChartProps {
 export function LineChart({
   points,
   formatValue = (v) => v.toFixed(2),
-  lineColor = "#3b82f6",
-  fillColor = "rgba(59,130,246,0.15)",
+  lineColor,
+  fillColor,
   height = 200,
 }: LineChartProps) {
   const t = useThemeTokens();
+  const effectiveLineColor = lineColor ?? t.accent;
+  const effectiveFillColor = fillColor ?? t.accentSubtle;
   if (points.length === 0) {
     return (
       <div style={{ padding: 20, textAlign: "center", color: t.textDim, fontSize: 13 }}>
@@ -187,10 +190,10 @@ export function LineChart({
         ))}
 
         {/* Area fill */}
-        <path d={areaPath} fill={fillColor} />
+        <path d={areaPath} fill={effectiveFillColor} />
 
         {/* Line */}
-        <path d={linePath} fill="none" stroke={lineColor} strokeWidth={2} />
+        <path d={linePath} fill="none" stroke={effectiveLineColor} strokeWidth={2} />
 
         {/* Data points */}
         {coords.map((c, i) => (
@@ -199,7 +202,7 @@ export function LineChart({
             cx={c.x}
             cy={c.y}
             r={3}
-            fill={lineColor}
+            fill={effectiveLineColor}
             stroke={t.surface}
             strokeWidth={1}
           />

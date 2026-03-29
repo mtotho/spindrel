@@ -9,11 +9,12 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useState, useMemo } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
+  const t = useThemeTokens();
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
-    file: { bg: "rgba(59,130,246,0.15)", fg: "#2563eb", label: "file" },
+    file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
     integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
-    manual: { bg: "rgba(100,100,100,0.15)", fg: "#999", label: "manual" },
-    workspace: { bg: "rgba(168,85,247,0.15)", fg: "#9333ea", label: "workspace" },
+    manual: { bg: t.overlayLight, fg: t.textMuted, label: "manual" },
+    workspace: { bg: t.purpleSubtle, fg: t.purple, label: "workspace" },
   };
   const c = cfg[type] || cfg.manual;
   return (
@@ -54,7 +55,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${isWs ? "#2d1f4e" : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
+          border: `1px solid ${isWs ? t.purpleBorder : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
           width: "100%",
         }}
       >
@@ -68,7 +69,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
           {isWs && skill.workspace_name && (
-            <span style={{ color: "#9333ea" }}>{skill.workspace_name}</span>
+            <span style={{ color: t.purple }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
@@ -88,7 +89,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: `1px solid ${isWs ? "#1a1a2e" : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer",
+        borderBottom: `1px solid ${isWs ? t.purpleBorder : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer",
         textAlign: "left", width: "100%", border: "none",
       }}
       onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = t.inputBg; }}
@@ -103,7 +104,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
             {skill.name}
           </span>
           {isWs && skill.workspace_name && (
-            <span style={{ fontSize: 10, color: "#9333ea", whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
+            <span style={{ fontSize: 10, color: t.purple, whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
@@ -122,9 +123,9 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
 function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDismiss: () => void }) {
   const t = useThemeTokens();
   const hasErrors = result.errors && result.errors.length > 0;
-  const bg = hasErrors ? "rgba(127,29,29,0.3)" : "rgba(34,197,94,0.1)";
-  const border = hasErrors ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.2)";
-  const color = hasErrors ? "#dc2626" : "#16a34a";
+  const bg = hasErrors ? t.dangerSubtle : t.successSubtle;
+  const border = hasErrors ? t.dangerBorder : t.successBorder;
+  const color = hasErrors ? t.danger : t.success;
   return (
     <div style={{
       padding: "10px 16px", background: bg, border: `1px solid ${border}`,
@@ -141,7 +142,7 @@ function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDis
             </div>
           )}
           {hasErrors && result.errors.map((e, i) => (
-            <div key={i} style={{ color: "#dc2626", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <div key={i} style={{ color: t.danger, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
               <AlertTriangle size={12} /> {e}
             </div>
           ))}
@@ -190,7 +191,7 @@ export default function SkillsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -260,9 +261,9 @@ export default function SkillsScreen() {
       )}
       {syncError && (
         <div style={{
-          padding: "10px 16px", background: "rgba(127,29,29,0.3)",
-          border: "1px solid rgba(239,68,68,0.3)",
-          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: "#dc2626",
+          padding: "10px 16px", background: t.dangerSubtle,
+          border: `1px solid ${t.dangerBorder}`,
+          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: t.danger,
           display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
           <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>

@@ -34,20 +34,20 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
     <div style={{
       display: "flex", flexDirection: "column", gap: 8,
       padding: "16px 20px", background: t.inputBg, borderRadius: 10,
-      border: "1px solid rgba(59,130,246,0.2)",
+      border: `1px solid ${t.accentBorder}`,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Server size={14} color="#2563eb" />
+        <Server size={14} color={t.accent} />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           LiteLLM (.env fallback)
         </span>
         <span style={{
           padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-          background: "rgba(59,130,246,0.15)", color: "#2563eb",
+          background: t.accentSubtle, color: t.accent,
         }}>
           built-in
         </span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#16a34a" }}>active</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.success }}>active</span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: t.textDim }}>
         {baseUrl && (
@@ -85,7 +85,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
         display: "flex", flexDirection: "column", gap: 10,
         padding: isWide ? "16px 20px" : "12px 14px",
         background: t.inputBg, borderRadius: 10,
-        border: `1px solid ${provider.is_enabled ? t.surfaceRaised : "#2a1a1a"}`,
+        border: `1px solid ${provider.is_enabled ? t.surfaceRaised : t.dangerBorder}`,
         cursor: "pointer", textAlign: "left", width: "100%",
         opacity: provider.is_enabled ? 1 : 0.6,
       }}
@@ -94,7 +94,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{
           width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-          background: provider.is_enabled ? "#22c55e" : "#ef4444",
+          background: provider.is_enabled ? t.success : t.danger,
         }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1 }}>
           {provider.display_name}
@@ -138,7 +138,7 @@ function ProviderCard({ provider, onPress, isWide }: { provider: ProviderItem; o
         {testResult && (
           <span style={{
             fontSize: 11, fontWeight: 600,
-            color: testResult.ok ? "#16a34a" : "#dc2626",
+            color: testResult.ok ? t.success : t.danger,
           }}>
             {testResult.ok ? "\u2713" : "\u2717"} {testResult.message}
           </span>
@@ -163,7 +163,7 @@ export default function ProvidersScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }

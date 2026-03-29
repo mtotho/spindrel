@@ -29,6 +29,7 @@ import { SessionsTab } from "./SessionsTab";
 import { HeartbeatTab } from "./HeartbeatTab";
 import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
+import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -37,6 +38,7 @@ const BASE_TABS = [
   { key: "general", label: "General" },
   { key: "history", label: "History" },
   { key: "context", label: "Context" },
+  { key: "files", label: "Files" },
   { key: "tools", label: "Tools" },
   { key: "integrations", label: "Integrations" },
   { key: "sessions", label: "Sessions" },
@@ -110,6 +112,8 @@ export default function ChannelSettingsScreen() {
         channel_prompt: settings.channel_prompt,
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
+        channel_workspace_enabled: settings.channel_workspace_enabled,
+        index_segments: settings.index_segments ?? [],
       });
     }
   }, [settings]);
@@ -165,7 +169,7 @@ export default function ChannelSettingsScreen() {
             )}
           </View>
         </View>
-        {(tab === "general" || tab === "history" || tab === "workspace") && (
+        {(tab === "general" || tab === "history" || tab === "workspace" || tab === "files") && (
           <Pressable
             onPress={handleSave}
             disabled={updateMutation.isPending}
@@ -177,13 +181,13 @@ export default function ChannelSettingsScreen() {
               paddingHorizontal: 14,
               minHeight: 44,
               borderRadius: 8,
-              backgroundColor: saved ? "rgba(34,197,94,0.15)" : t.accent,
+              backgroundColor: saved ? t.successSubtle : t.accent,
             }}
           >
             {saved ? (
               <>
-                <Check size={14} color="#22c55e" />
-                <Text style={{ color: "#22c55e", fontSize: 13, fontWeight: "600" }}>Saved</Text>
+                <Check size={14} color={t.success} />
+                <Text style={{ color: t.success, fontSize: 13, fontWeight: "600" }}>Saved</Text>
               </>
             ) : (
               <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
@@ -214,6 +218,9 @@ export default function ChannelSettingsScreen() {
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
+        {tab === "files" && (
+          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id ?? undefined} />
+        )}
         {tab === "workspace" && (
           <WorkspaceOverrideTab
             form={form}

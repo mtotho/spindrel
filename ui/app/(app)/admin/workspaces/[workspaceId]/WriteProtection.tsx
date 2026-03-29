@@ -52,8 +52,8 @@ export function WriteProtection({ paths, onChange }: WriteProtectionProps) {
         <Toggle value={skillsProtected} onChange={handleToggleSkills} label="" />
       </FormRow>
       <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.5, marginTop: -4 }}>
-        Prevents bots from writing to <code style={{ color: "#2563eb" }}>/workspace/common/skills</code> and{" "}
-        <code style={{ color: "#2563eb" }}>/workspace/bots/*/skills</code>.
+        Prevents bots from writing to <code style={{ color: t.accent }}>/workspace/common/skills</code> and{" "}
+        <code style={{ color: t.accent }}>/workspace/bots/*/skills</code>.
         Grant per-bot exemptions in the Connected Bots section below.
       </div>
 

@@ -39,20 +39,23 @@ def _resolve_skills(
     bot_skills: list[SkillConfig],
     override: list | None,
     disabled: list | None,
+    extras: list | None = None,
 ) -> list[SkillConfig]:
-    """Resolve skills with override/disabled semantics.
+    """Resolve skills with override/disabled/extras semantics.
 
-    override entries are dicts: {id, mode?, similarity_threshold?}
-    disabled entries are skill id strings.
+    - override (legacy): whitelist — only matching bot skills kept
+    - extras: add new skills from global pool
+    - disabled: remove skills by id
     """
     if override is not None:
+        # Legacy override path — whitelist only bot skills
         bot_skill_map = {s.id: s for s in bot_skills}
         result = []
         for entry in override:
             sid = entry if isinstance(entry, str) else entry.get("id", "")
             base = bot_skill_map.get(sid)
             if base is None:
-                continue  # can't add skills the bot doesn't have
+                continue
             if isinstance(entry, dict):
                 result.append(SkillConfig(
                     id=sid,
@@ -62,17 +65,35 @@ def _resolve_skills(
             else:
                 result.append(base)
         return result
-    if disabled is not None:
+
+    # Start with bot skills (already includes workspace DB skills)
+    result_map = {s.id: s for s in bot_skills}
+    # Merge channel extras (new skills from global pool)
+    if extras:
+        for entry in extras:
+            sid = entry if isinstance(entry, str) else entry.get("id", "")
+            if sid and sid not in result_map:
+                if isinstance(entry, dict):
+                    result_map[sid] = SkillConfig(
+                        id=sid,
+                        mode=entry.get("mode", "on_demand"),
+                        similarity_threshold=entry.get("similarity_threshold"),
+                    )
+                else:
+                    result_map[sid] = SkillConfig(id=sid)
+    # Remove disabled
+    if disabled:
         disabled_set = set(disabled)
-        return [s for s in bot_skills if s.id not in disabled_set]
-    return list(bot_skills)
+        return [s for s in result_map.values() if s.id not in disabled_set]
+    return list(result_map.values())
 
 
 def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> EffectiveTools:
     """Resolve effective tool/skill configuration for a channel.
 
-    Channel overrides can only *restrict* what the bot offers, never expand it.
-    Returns bot defaults when channel is None or has no overrides set.
+    Tools: channel overrides restrict the bot's tool lists (override/disabled).
+    Skills: channel extras can ADD skills from the global pool; disabled removes.
+    Returns bot defaults when channel is None.
     """
     if channel is None:
         return EffectiveTools(
@@ -108,5 +129,6 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             bot.skills,
             channel.skills_override,
             channel.skills_disabled,
+            getattr(channel, "skills_extra", None),
         ),
     )

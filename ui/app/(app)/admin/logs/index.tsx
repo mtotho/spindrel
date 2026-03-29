@@ -115,10 +115,10 @@ function FilterBar({
         onClick={() => setErrorOnly(!errorOnly)}
         style={{
           display: "flex", alignItems: "center", gap: 4,
-          background: errorOnly ? "rgba(239,68,68,0.12)" : t.surfaceRaised,
-          border: `1px solid ${errorOnly ? "#dc2626" : t.surfaceBorder}`,
+          background: errorOnly ? t.dangerSubtle : t.surfaceRaised,
+          border: `1px solid ${errorOnly ? t.danger : t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px", fontSize: 12,
-          color: errorOnly ? "#dc2626" : t.textMuted, cursor: "pointer",
+          color: errorOnly ? t.danger : t.textMuted, cursor: "pointer",
         }}
       >
         <AlertTriangle size={11} /> Errors
@@ -129,10 +129,10 @@ function FilterBar({
         onClick={() => setToolCallsOnly(!toolCallsOnly)}
         style={{
           display: "flex", alignItems: "center", gap: 4,
-          background: toolCallsOnly ? "rgba(99,102,241,0.12)" : t.surfaceRaised,
-          border: `1px solid ${toolCallsOnly ? "#4f46e5" : t.surfaceBorder}`,
+          background: toolCallsOnly ? t.purpleSubtle : t.surfaceRaised,
+          border: `1px solid ${toolCallsOnly ? t.purple : t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px", fontSize: 12,
-          color: toolCallsOnly ? "#4f46e5" : t.textMuted, cursor: "pointer",
+          color: toolCallsOnly ? t.purple : t.textMuted, cursor: "pointer",
         }}
       >
         <Wrench size={11} /> Tools
@@ -202,7 +202,7 @@ function TurnCard({ turn, isMobile, bots, onPress, t }: {
         {turn.has_error && (
           <span style={{
             display: "flex", alignItems: "center", gap: 3,
-            background: "rgba(239,68,68,0.12)", color: "#dc2626",
+            background: t.dangerSubtle, color: t.danger,
             padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 600,
           }}>
             <AlertTriangle size={10} /> Error
@@ -243,7 +243,7 @@ function TurnCard({ turn, isMobile, bots, onPress, t }: {
         <div style={{ marginTop: 6 }}>
           {turn.errors.map((err, i) => (
             <div key={i} style={{
-              fontSize: 11, color: "#dc2626", background: "rgba(239,68,68,0.06)",
+              fontSize: 11, color: t.danger, background: t.dangerSubtle,
               padding: "4px 8px", borderRadius: 4, marginTop: 2,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
@@ -364,7 +364,7 @@ export default function LogsScreen() {
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         </View>
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">

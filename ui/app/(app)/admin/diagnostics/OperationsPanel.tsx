@@ -15,8 +15,8 @@ function OperationCard({ op }: { op: Operation }) {
   const isRunning = op.status === "running";
   const isFailed = op.status === "failed";
 
-  const barColor = isFailed ? "#dc2626" : isRunning ? t.accent : "#22c55e";
-  const borderColor = isFailed ? "rgba(239,68,68,0.3)" : t.surfaceRaised;
+  const barColor = isFailed ? t.danger : isRunning ? t.accent : t.success;
+  const borderColor = isFailed ? t.dangerBorder : t.surfaceRaised;
 
   return (
     <div style={{
@@ -32,7 +32,7 @@ function OperationCard({ op }: { op: Operation }) {
         </span>
         <span style={{
           fontSize: 11, fontWeight: 600,
-          color: isFailed ? "#dc2626" : isRunning ? t.accent : "#16a34a",
+          color: isFailed ? t.danger : isRunning ? t.accent : t.success,
         }}>
           {op.status}
         </span>
@@ -75,6 +75,7 @@ function OperationCard({ op }: { op: Operation }) {
 }
 
 export function OperationsPanel() {
+  const t = useThemeTokens();
   const { data: operations } = useOperations();
 
   if (!operations || operations.length === 0) return null;
@@ -82,7 +83,7 @@ export function OperationsPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{
-        fontSize: 12, fontWeight: 600, color: "#f59e0b",
+        fontSize: 12, fontWeight: 600, color: t.warning,
         textTransform: "uppercase", letterSpacing: 1,
       }}>
         Active Operations

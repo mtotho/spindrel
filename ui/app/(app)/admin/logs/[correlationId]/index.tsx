@@ -184,8 +184,8 @@ export default function TraceScreen() {
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
-            background: copied ? "rgba(34,197,94,0.15)" : t.surfaceRaised,
-            color: copied ? "#22c55e" : t.textMuted, fontSize: 12,
+            background: copied ? t.successSubtle : t.surfaceRaised,
+            color: copied ? t.success : t.textMuted, fontSize: 12,
           }}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -251,16 +251,16 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         <div style={{
           position: "absolute", left: -30, top: 10,
           width: 10, height: 10, borderRadius: 5,
-          background: isUser ? "#818cf8" : "#16a34a",
+          background: isUser ? t.purple : t.success,
           border: `2px solid ${t.surface}`,
         }} />
         <div style={{
-          background: isUser ? "rgba(99,102,241,0.08)" : "rgba(34,197,94,0.06)",
-          border: `1px solid ${isUser ? "rgba(99,102,241,0.2)" : "rgba(34,197,94,0.15)"}`,
+          background: isUser ? t.purpleSubtle : t.successSubtle,
+          border: `1px solid ${isUser ? t.purpleBorder : t.successBorder}`,
           borderRadius: 8, padding: "10px 14px",
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? "#6366f1" : "#16a34a" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? t.purple : t.success }}>
               {isUser ? "User" : "Assistant"}
             </span>
             <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
@@ -350,8 +350,8 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
         {/* Error banner (always visible) */}
         {ev.error && (
           <div style={{
-            background: "rgba(127,29,29,0.2)", padding: "6px 12px",
-            fontSize: 12, color: "#dc2626", borderTop: `1px solid ${t.surfaceOverlay}`,
+            background: t.dangerSubtle, padding: "6px 12px",
+            fontSize: 12, color: t.danger, borderTop: `1px solid ${t.surfaceOverlay}`,
           }}>
             {ev.error}
           </div>
@@ -359,7 +359,7 @@ function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: b
 
         {/* Expanded details */}
         {expanded && (
-          <div style={{ borderTop: "1px solid #2a2a2a" }}>
+          <div style={{ borderTop: `1px solid ${t.surfaceOverlay}` }}>
             {ev.arguments && Object.keys(ev.arguments).length > 0 && (
               <DetailSection title="Arguments">
                 <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>

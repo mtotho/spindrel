@@ -154,6 +154,33 @@ mv /workspace/common/project-spec.md.tmp /workspace/common/project-spec.md
 
 ---
 
+## Channels
+
+A **channel** is a persistent conversation container tying a user (or integration) to a bot. Each channel has:
+
+- Its own **session** (history), **channel workspace** (persistent files), and **settings** (model, tools, heartbeat, compaction)
+- Optional **indexed directories** — folders in the channel workspace indexed for RAG code search (e.g. a cloned repo)
+- A **heartbeat** — periodic scheduled prompt that runs on a timer
+
+A single bot can have many channels (different users, different projects). When coordinating work:
+
+- **Create channels** for member bots to give them persistent conversation contexts
+- **Inject messages** into a channel to trigger bot processing (`run_agent: true` returns a `task_id`)
+- **Search across channels** with `list_workspace_channels` + `search_channel_workspace`
+- **Configure per-channel** settings (model, tools, indexed directories) via the config API
+
+```sh
+agent channels                                       # List all channels
+agent api POST /api/v1/channels \
+  '{"bot_id":"researcher","name":"Auth Research"}'   # Create a channel
+agent api PATCH /api/v1/channels/{id}/config \
+  '{"channel_workspace_enabled":true}'               # Enable channel workspace
+```
+
+Channels are the primary unit of project context. When users mention "projects" or "conversations", they typically mean channels.
+
+---
+
 ## Delegation
 
 ### delegate_to_agent — Async Bot Delegation

@@ -148,8 +148,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
-                background: value === p.value ? (p.value ? "#92400e" : t.surfaceBorder) : t.surfaceRaised,
-                color: value === p.value ? (p.value ? "#ca8a04" : t.text) : t.textMuted,
+                background: value === p.value ? (p.value ? t.warningSubtle : t.surfaceBorder) : t.surfaceRaised,
+                color: value === p.value ? (p.value ? t.warning : t.text) : t.textMuted,
               }}
             >
               {p.label}
@@ -160,8 +160,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
-              background: showCustom ? "#92400e" : t.surfaceRaised,
-              color: showCustom ? "#ca8a04" : t.textMuted,
+              background: showCustom ? t.warningSubtle : t.surfaceRaised,
+              color: showCustom ? t.warning : t.textMuted,
             }}
           >
             Custom
@@ -195,13 +195,13 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
         display: "flex", alignItems: "center", gap: compact ? 0 : 6,
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
-        background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-        color: enabled ? "#16a34a" : "#dc2626",
+        background: enabled ? t.successSubtle : t.dangerSubtle,
+        color: enabled ? t.success : t.danger,
       }}
     >
       <div style={{
         width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? "#22c55e" : t.textDim,
+        background: enabled ? t.success : t.textDim,
         transition: "background 0.2s",
       }}>
         <div style={{
@@ -332,8 +332,8 @@ export default function TaskDetailScreen() {
           style={{
             display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
             padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-            border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6,
-            background: "transparent", color: "#dc2626", cursor: "pointer", flexShrink: 0,
+            border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+            background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
           }}
         >
           <Trash2 size={14} />
@@ -364,7 +364,7 @@ export default function TaskDetailScreen() {
 
       {/* Error display */}
       {(updateMut.error || deleteMut.error) && (
-        <div style={{ padding: "8px 20px", background: "rgba(239,68,68,0.12)", color: "#dc2626", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(updateMut.error || deleteMut.error)?.message || "An error occurred"}
         </div>
       )}
@@ -423,7 +423,7 @@ export default function TaskDetailScreen() {
                 <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
                 <div style={{
                   padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
-                  fontSize: 12, color: "#16a34a", whiteSpace: "pre-wrap",
+                  fontSize: 12, color: t.success, whiteSpace: "pre-wrap",
                   maxHeight: 300, overflow: "auto", fontFamily: "monospace",
                 }}>
                   {task.result}
@@ -435,8 +435,8 @@ export default function TaskDetailScreen() {
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
                 <div style={{
-                  padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid rgba(239,68,68,0.25)",
-                  fontSize: 12, color: "#dc2626", whiteSpace: "pre-wrap",
+                  padding: 12, borderRadius: 8, background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+                  fontSize: 12, color: t.danger, whiteSpace: "pre-wrap",
                   maxHeight: 200, overflow: "auto", fontFamily: "monospace",
                 }}>
                   {task.error}

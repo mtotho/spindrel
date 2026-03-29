@@ -14,20 +14,21 @@ import { Toggle } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function ActionBadge({ action }: { action: string }) {
+  const t = useThemeTokens();
   const config: Record<string, { bg: string; color: string; label: string }> = {
     allow: {
-      bg: "rgba(34,197,94,0.12)",
-      color: "#16a34a",
+      bg: t.successSubtle,
+      color: t.success,
       label: "Allow",
     },
     deny: {
-      bg: "rgba(239,68,68,0.12)",
-      color: "#dc2626",
+      bg: t.dangerSubtle,
+      color: t.danger,
       label: "Deny",
     },
     require_approval: {
-      bg: "rgba(251,191,36,0.12)",
-      color: "#ca8a04",
+      bg: t.warningSubtle,
+      color: t.warning,
       label: "Require Approval",
     },
   };
@@ -65,10 +66,10 @@ function PolicyCard({
       : ShieldAlert;
   const iconColor =
     rule.action === "allow"
-      ? "#22c55e"
+      ? t.success
       : rule.action === "deny"
-      ? "#ef4444"
-      : "#d97706";
+      ? t.danger
+      : t.warningMuted;
 
   const hasConditions =
     rule.conditions &&
@@ -120,8 +121,8 @@ function PolicyCard({
               borderRadius: 3,
               fontSize: 10,
               fontWeight: 600,
-              background: "rgba(59,130,246,0.12)",
-              color: "#2563eb",
+              background: t.accentSubtle,
+              color: t.accent,
             }}
           >
             bot:{rule.bot_id}
@@ -133,8 +134,8 @@ function PolicyCard({
               borderRadius: 3,
               fontSize: 10,
               fontWeight: 600,
-              background: "rgba(168,85,247,0.12)",
-              color: "#8b5cf6",
+              background: t.purpleSubtle,
+              color: t.purple,
             }}
           >
             global
@@ -176,18 +177,18 @@ function SettingsPanel() {
 
   const action = policySettings.default_action;
   const borderColor =
-    action === "deny" ? "rgba(239,68,68,0.15)"
-    : action === "require_approval" ? "rgba(251,191,36,0.15)"
-    : "rgba(34,197,94,0.15)";
+    action === "deny" ? t.dangerBorder
+    : action === "require_approval" ? t.warningSubtle
+    : t.successSubtle;
   const bgColor =
-    action === "deny" ? "rgba(239,68,68,0.04)"
-    : action === "require_approval" ? "rgba(251,191,36,0.04)"
-    : "rgba(34,197,94,0.04)";
+    action === "deny" ? t.dangerSubtle
+    : action === "require_approval" ? t.warningSubtle
+    : t.successSubtle;
   const iconColor =
     !policySettings.enabled ? t.textDim
-    : action === "deny" ? "#ef4444"
-    : action === "require_approval" ? "#d97706"
-    : "#22c55e";
+    : action === "deny" ? t.danger
+    : action === "require_approval" ? t.warningMuted
+    : t.success;
   const description =
     !policySettings.enabled
       ? "Policy engine is off — all tool calls are permitted without checks"
@@ -198,9 +199,9 @@ function SettingsPanel() {
       : "Default: ALLOW — all tool calls are permitted unless blocked by a rule";
 
   const actions = [
-    { key: "allow", label: "Allow", color: "#16a34a", activeColor: "rgba(34,197,94,0.15)", borderActive: "rgba(34,197,94,0.3)" },
-    { key: "require_approval", label: "Require Approval", color: "#ca8a04", activeColor: "rgba(251,191,36,0.15)", borderActive: "rgba(251,191,36,0.3)" },
-    { key: "deny", label: "Deny", color: "#dc2626", activeColor: "rgba(239,68,68,0.15)", borderActive: "rgba(239,68,68,0.3)" },
+    { key: "allow", label: "Allow", color: t.success, activeColor: t.successSubtle, borderActive: t.success },
+    { key: "require_approval", label: "Require Approval", color: t.warning, activeColor: t.warningSubtle, borderActive: t.warning },
+    { key: "deny", label: "Deny", color: t.danger, activeColor: t.dangerSubtle, borderActive: t.dangerBorder },
   ] as const;
 
   return (
@@ -319,32 +320,32 @@ export default function ToolPoliciesScreen() {
             style={{
               padding: "12px 16px",
               borderRadius: 8,
-              background: "rgba(59,130,246,0.04)",
-              border: "1px solid rgba(59,130,246,0.1)",
+              background: t.accentSubtle,
+              border: `1px solid ${t.accentBorder}`,
               marginBottom: 16,
               fontSize: 12,
               color: t.textMuted,
               lineHeight: 1.6,
             }}
           >
-            <div style={{ fontWeight: 700, color: "#2563eb", marginBottom: 4 }}>How it works</div>
+            <div style={{ fontWeight: 700, color: t.accent, marginBottom: 4 }}>How it works</div>
             When a bot tries to call a tool, the policy engine evaluates rules in priority order
             (lowest number first). The <strong style={{ color: t.text }}>first matching rule wins</strong>.
             Bot-specific rules take precedence over global rules at the same priority.
             If no rule matches, the <strong style={{ color: t.text }}>default action</strong> above applies.
             <div style={{ marginTop: 8 }}>
-              <strong style={{ color: "#16a34a" }}>Allow</strong> — tool call proceeds normally.{" "}
-              <strong style={{ color: "#dc2626" }}>Deny</strong> — blocked, bot sees an error.{" "}
-              <strong style={{ color: "#ca8a04" }}>Require Approval</strong> — paused until a human approves via the Approvals page or Slack.
+              <strong style={{ color: t.success }}>Allow</strong> — tool call proceeds normally.{" "}
+              <strong style={{ color: t.danger }}>Deny</strong> — blocked, bot sees an error.{" "}
+              <strong style={{ color: t.warning }}>Require Approval</strong> — paused until a human approves via the Approvals page or Slack.
             </div>
             {isBlockingDefault && !rules?.length && (
               <div style={{
                 marginTop: 10,
                 padding: "8px 12px",
                 borderRadius: 6,
-                background: "rgba(251,191,36,0.08)",
-                border: "1px solid rgba(251,191,36,0.15)",
-                color: "#ca8a04",
+                background: t.warningSubtle,
+                border: `1px solid ${t.warningBorder}`,
+                color: t.warning,
               }}>
                 <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
                 <strong>Default is {defaultAction === "deny" ? "DENY" : "REQUIRE APPROVAL"} and you have no rules.</strong>{" "}
@@ -357,13 +358,13 @@ export default function ToolPoliciesScreen() {
           {/* Summary badges */}
           {rules && rules.length > 0 && (
             <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#16a34a" }}>
+              <span style={{ fontSize: 12, color: t.success }}>
                 {allowRules.length} allow
               </span>
-              <span style={{ fontSize: 12, color: "#dc2626" }}>
+              <span style={{ fontSize: 12, color: t.danger }}>
                 {denyRules.length} deny
               </span>
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>
+              <span style={{ fontSize: 12, color: t.warning }}>
                 {approvalRules.length} require approval
               </span>
               <span style={{ fontSize: 12, color: t.textDim }}>

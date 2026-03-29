@@ -130,7 +130,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
         </div>
 
         {error && (
-          <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 12 }}>{error}</div>
+          <div style={{ color: t.danger, fontSize: 12, marginBottom: 12 }}>{error}</div>
         )}
 
         {/* Actions */}

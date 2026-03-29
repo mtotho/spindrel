@@ -169,7 +169,7 @@ function BrowseButton({
                   disabled={!selected}
                   style={{
                     padding: "4px 12px", fontSize: 11, fontWeight: 600,
-                    background: selected ? "#22c55e" : t.surfaceBorder,
+                    background: selected ? t.success : t.surfaceBorder,
                     color: selected ? "#fff" : t.textDim,
                     border: "none", borderRadius: 4,
                     cursor: selected ? "pointer" : "not-allowed",
@@ -248,8 +248,8 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
         background: t.surface,
         flexShrink: 0,
       }}>
-        <FileText size={12} color="#16a34a" />
-        <span style={{ flex: 1, fontSize: 11, color: "#16a34a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
+        <FileText size={12} color={t.success} />
+        <span style={{ flex: 1, fontSize: 11, color: t.success, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }}>
           {filePath}
         </span>
         {data?.size != null && (
@@ -264,7 +264,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
               disabled={writeMutation.isPending}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "#22c55e", color: "#000", border: "none",
+                background: t.success, color: "#000", border: "none",
                 borderRadius: 4, padding: "3px 10px", fontSize: 11,
                 cursor: "pointer", fontWeight: 600,
               }}
@@ -317,7 +317,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
           Loading...
         </div>
       ) : error ? (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", padding: 24, fontSize: 12 }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.danger, padding: 24, fontSize: 12 }}>
           {(error as any)?.body ? JSON.parse((error as any).body)?.detail : error.message}
         </div>
       ) : editing ? (
@@ -376,7 +376,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
       )}
 
       {writeMutation.error && (
-        <div style={{ padding: "6px 12px", background: "rgba(239,68,68,0.1)", color: "#ef4444", fontSize: 11 }}>
+        <div style={{ padding: "6px 12px", background: t.dangerSubtle, color: t.danger, fontSize: 11 }}>
           Save failed: {writeMutation.error.message}
         </div>
       )}

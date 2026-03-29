@@ -182,8 +182,11 @@ class ChannelConfigOut(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    index_segments: list[dict] = []
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -244,8 +247,11 @@ class ChannelConfigUpdate(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    index_segments: Optional[list[dict]] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -505,8 +511,11 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "pinned_tools_override": channel.pinned_tools_override,
         "skills_override": channel.skills_override,
         "skills_disabled": channel.skills_disabled,
+        "skills_extra": channel.skills_extra,
         "workspace_skills_enabled": channel.workspace_skills_enabled,
         "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
+        "channel_workspace_enabled": channel.channel_workspace_enabled,
+        "index_segments": channel.index_segments or [],
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

@@ -310,9 +310,12 @@ class ChannelSettingsOut(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    index_segments: list[dict] = []
 
     model_config = {"from_attributes": True}
 
@@ -365,9 +368,12 @@ class ChannelSettingsUpdate(BaseModel):
     pinned_tools_override: Optional[list[str]] = None
     skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    index_segments: Optional[list[dict]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +528,8 @@ class EffectiveToolsOut(BaseModel):
     pinned_tools: list[str]
     skills: list[dict]
     mode: dict  # per-category mode: "inherit" | "override" | "disabled"
+    disabled: dict = {}  # per-category disabled lists
+    skills_extra: list[dict] = []  # channel-added skills
 
 
 @router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
@@ -532,6 +540,7 @@ async def admin_channel_effective_tools(
 ):
     """Return the resolved tool/skill lists after applying channel overrides."""
     from app.agent.channel_overrides import resolve_effective_tools
+    from app.db.models import Skill as SkillRow
 
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -547,12 +556,28 @@ async def admin_channel_effective_tools(
             return "disabled"
         return "inherit"
 
+    # Enrich skill entries with names from DB
+    skill_ids = [s.id for s in eff.skills]
+    skill_names: dict[str, str] = {}
+    if skill_ids:
+        rows = (await db.execute(
+            select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(skill_ids))
+        )).all()
+        skill_names = {r.id: r.name for r in rows}
+
+    # Channel-added skills (skills_extra)
+    skills_extra_list = channel.skills_extra or []
+
     return EffectiveToolsOut(
         local_tools=eff.local_tools,
         mcp_servers=eff.mcp_servers,
         client_tools=eff.client_tools,
         pinned_tools=eff.pinned_tools,
-        skills=[{"id": s.id, "mode": s.mode, "similarity_threshold": s.similarity_threshold} for s in eff.skills],
+        skills=[{
+            "id": s.id, "mode": s.mode,
+            "similarity_threshold": s.similarity_threshold,
+            "name": skill_names.get(s.id, s.id),
+        } for s in eff.skills],
         mode={
             "local_tools": _mode(channel.local_tools_override, channel.local_tools_disabled),
             "mcp_servers": _mode(channel.mcp_servers_override, channel.mcp_servers_disabled),
@@ -560,6 +585,13 @@ async def admin_channel_effective_tools(
             "pinned_tools": "override" if channel.pinned_tools_override is not None else "inherit",
             "skills": _mode(channel.skills_override, channel.skills_disabled),
         },
+        disabled={
+            "local_tools": channel.local_tools_disabled or [],
+            "mcp_servers": channel.mcp_servers_disabled or [],
+            "client_tools": channel.client_tools_disabled or [],
+            "skills": channel.skills_disabled or [],
+        },
+        skills_extra=skills_extra_list,
     )
 
 
@@ -880,6 +912,143 @@ async def admin_channel_heartbeat_fire(
     asyncio.create_task(_safe_fire_heartbeat(heartbeat))
 
     return HeartbeatConfigOut.model_validate(heartbeat)
+
+
+class InferHeartbeatOut(BaseModel):
+    prompt: str
+    workspace_file_path: str | None = None
+    workspace_id: str | None = None
+
+
+@router.post("/channels/{channel_id}/heartbeat/infer", response_model=InferHeartbeatOut)
+async def admin_channel_heartbeat_infer(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Infer a tailored heartbeat prompt from channel context and write it to a workspace file."""
+    from app.agent.bots import get_bot
+    from app.config import settings as app_settings
+    from app.services.providers import get_llm_client
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    bot = get_bot(channel.bot_id)
+    if not bot:
+        raise HTTPException(status_code=400, detail="Bot not found")
+
+    # Gather context
+    ctx_parts = []
+    if channel.display_name:
+        ctx_parts.append(f"Channel name: {channel.display_name}")
+    elif channel.name:
+        ctx_parts.append(f"Channel name: {channel.name}")
+    if channel.channel_prompt:
+        ctx_parts.append(f"Channel prompt:\n{channel.channel_prompt[:2000]}")
+    if bot.system_prompt:
+        ctx_parts.append(f"Bot system prompt (first 1000 chars):\n{bot.system_prompt[:1000]}")
+
+    # Read workspace files if channel workspace is enabled
+    if channel.channel_workspace_enabled:
+        from app.services.channel_workspace import list_workspace_files, read_workspace_file
+        try:
+            files = list_workspace_files(str(channel_id), bot)
+            for f in files[:5]:  # first 5 active files
+                content = read_workspace_file(str(channel_id), bot, f["path"])
+                if content:
+                    ctx_parts.append(f"Workspace file {f['name']} (first 500 chars):\n{content[:500]}")
+        except Exception:
+            pass
+
+    channel_context = "\n\n".join(ctx_parts) if ctx_parts else "No channel context available."
+
+    meta_prompt = f"""\
+You are an expert at designing scheduled heartbeat prompts for AI agents managing projects.
+
+A heartbeat is a periodic prompt that runs on a timer. The agent uses it to:
+- Review current state and open items
+- Check for things that need attention or follow-up
+- Identify stale items or missed deadlines
+- Proactively surface updates or recommendations
+- Maintain operational awareness between user interactions
+
+Based on the channel context below, write a heartbeat prompt tailored to this specific project/channel.
+
+CHANNEL CONTEXT:
+{channel_context}
+
+GUIDELINES:
+- The prompt should instruct the agent to review its workspace files and current state
+- It should check for items needing follow-up, approaching deadlines, or stale work
+- It should produce a concise status update or action list
+- Use the dispatch mode "optional" pattern — tell the agent to only post if there is something noteworthy
+- Reference workspace files and tools the agent has available (exec_command, search_channel_archive, etc.)
+- Keep it under 500 words — concise and actionable
+- Do NOT include markdown fences or explanations — output ONLY the prompt text"""
+
+    model = app_settings.PROMPT_GENERATION_MODEL or app_settings.COMPACTION_MODEL
+    client = get_llm_client(None)
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": meta_prompt},
+            {"role": "user", "content": "Generate the heartbeat prompt now."},
+        ],
+        temperature=0.7,
+        max_tokens=2000,
+    )
+    prompt_text = (resp.choices[0].message.content or "").strip()
+
+    # Write to channel workspace data/heartbeat.md if workspace is available
+    ws_file_path = None
+    ws_id = None
+    if channel.channel_workspace_enabled:
+        try:
+            from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
+            ensure_channel_workspace(str(channel_id), bot)
+            write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
+            ws_file_path = f"channels/{channel_id}/workspace/data/heartbeat.md"
+            ws_id = bot.shared_workspace_id
+        except Exception:
+            logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
+
+    return InferHeartbeatOut(
+        prompt=prompt_text,
+        workspace_file_path=ws_file_path,
+        workspace_id=ws_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reindex segments
+# ---------------------------------------------------------------------------
+
+@router.post("/channels/{channel_id}/reindex-segments")
+async def admin_channel_reindex_segments(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Trigger re-indexing of channel workspace index segments."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(status_code=400, detail="Channel workspace not enabled")
+
+    segments = channel.index_segments or []
+    if not segments:
+        return {"status": "no_segments", "stats": None}
+
+    bot = get_bot(channel.bot_id)
+
+    from app.services.channel_workspace_indexing import index_channel_workspace
+    stats = await index_channel_workspace(
+        str(channel_id), bot, force=True, channel_segments=segments,
+    )
+    return {"status": "ok", "stats": stats}
 
 
 # ---------------------------------------------------------------------------

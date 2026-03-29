@@ -114,7 +114,7 @@ export default function WorkspaceFileBrowser() {
             {startMutation.isPending ? "Starting..." : "Start Workspace"}
           </button>
           {startMutation.error && (
-            <span style={{ color: "#ef4444", fontSize: 12 }}>
+            <span style={{ color: t.danger, fontSize: 12 }}>
               {startMutation.error.message}
             </span>
           )}

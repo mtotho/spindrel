@@ -44,6 +44,13 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   const [filtered, setFiltered] = useState<CompletionItem[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
+  const autoResize = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+  }, []);
+
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
@@ -51,7 +58,11 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
     setText("");
     setPendingFiles([]);
     if (Platform.OS === "web") {
-      textareaRef.current?.focus();
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.style.height = "auto";
+        ta.focus();
+      }
     } else {
       inputRef.current?.focus();
     }
@@ -84,6 +95,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
   const handleWebInput = useCallback(
     (newText: string) => {
       setText(newText);
+      requestAnimationFrame(autoResize);
       const ta = textareaRef.current;
       if (!ta || !completions) return;
       const pos = ta.selectionStart;
@@ -355,12 +367,12 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
-                    background: "rgba(99,102,241,0.1)",
-                    border: "1px solid rgba(99,102,241,0.25)",
+                    background: t.purpleSubtle,
+                    border: `1px solid ${t.purpleBorder}`,
                     borderRadius: 6,
                     padding: "4px 8px",
                     fontSize: 11,
-                    color: "#8b5cf6",
+                    color: t.purple,
                     cursor: "pointer",
                     whiteSpace: "nowrap",
                     maxWidth: 180,
@@ -425,7 +437,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             style={{
               width: 44,
               height: 44,
-              backgroundColor: canSend ? "#4f46e5" : "transparent",
+              backgroundColor: canSend ? t.accent : "transparent",
               opacity: canSend ? 1 : 0.4,
             }}
           >
@@ -472,7 +484,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
         style={{
           width: 44,
           height: 44,
-          backgroundColor: text.trim() && !disabled ? "#4f46e5" : "transparent",
+          backgroundColor: text.trim() && !disabled ? t.accent : "transparent",
           opacity: text.trim() && !disabled ? 1 : 0.4,
         }}
       >

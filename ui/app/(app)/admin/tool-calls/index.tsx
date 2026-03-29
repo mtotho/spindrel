@@ -21,10 +21,11 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 
 function ToolTypeBadge({ type }: { type: string }) {
+  const t = useThemeTokens();
   const config: Record<string, { bg: string; color: string }> = {
-    local: { bg: "rgba(59,130,246,0.12)", color: "#2563eb" },
-    mcp: { bg: "rgba(168,85,247,0.12)", color: "#9333ea" },
-    client: { bg: "rgba(34,197,94,0.12)", color: "#16a34a" },
+    local: { bg: t.accentSubtle, color: t.accent },
+    mcp: { bg: t.purpleSubtle, color: t.purple },
+    client: { bg: t.successSubtle, color: t.success },
   };
   const c = config[type] || config.local;
   return (
@@ -59,7 +60,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         padding: "12px 16px",
         background: t.inputBg,
         borderRadius: 8,
-        border: hasError ? "1px solid rgba(239,68,68,0.2)" : `1px solid ${t.surfaceOverlay}`,
+        border: hasError ? `1px solid ${t.dangerBorder}` : `1px solid ${t.surfaceOverlay}`,
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
@@ -67,7 +68,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {hasError ? (
-          <AlertTriangle size={14} color="#ef4444" />
+          <AlertTriangle size={14} color={t.danger} />
         ) : (
           <Wrench size={14} color={t.textDim} />
         )}
@@ -105,7 +106,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
         )}
         <span style={{ fontSize: 11, color: t.textDim }}>{createdAt}</span>
         {hasError && (
-          <span style={{ fontSize: 11, color: "#dc2626" }}>
+          <span style={{ fontSize: 11, color: t.danger }}>
             {call.error}
           </span>
         )}
@@ -155,7 +156,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
                   background: t.surface,
                   border: `1px solid ${t.surfaceRaised}`,
                   fontSize: 11,
-                  color: hasError ? "#dc2626" : t.textMuted,
+                  color: hasError ? t.danger : t.textMuted,
                   fontFamily: "monospace",
                   overflow: "auto",
                   maxHeight: 200,
@@ -244,7 +245,7 @@ function StatsPanel({
                 }}
                 style={{
                   fontSize: 12,
-                  color: "#2563eb",
+                  color: t.accent,
                   background: "none",
                   border: "none",
                   cursor: "pointer",
@@ -270,9 +271,9 @@ function StatsPanel({
                   }}
                   style={{
                     fontSize: 12,
-                    color: "#dc2626",
-                    background: "rgba(239,68,68,0.08)",
-                    border: "1px solid rgba(239,68,68,0.15)",
+                    color: t.danger,
+                    background: t.dangerSubtle,
+                    border: `1px solid ${t.dangerBorder}`,
                     borderRadius: 4,
                     cursor: "pointer",
                     padding: "2px 8px",
@@ -404,12 +405,12 @@ export default function ToolCallsScreen() {
               {(toolName || botId || errorOnly) && (
                 <div style={{
                   fontSize: 11,
-                  color: "#2563eb",
+                  color: t.accent,
                   marginBottom: 12,
                   padding: "6px 12px",
-                  background: "rgba(59,130,246,0.06)",
+                  background: t.accentSubtle,
                   borderRadius: 6,
-                  border: "1px solid rgba(59,130,246,0.1)",
+                  border: `1px solid ${t.accentBorder}`,
                 }}>
                   Filtered:{" "}
                   {toolName && <span>tool=<strong>{toolName}</strong> </span>}

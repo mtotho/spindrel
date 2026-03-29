@@ -39,10 +39,10 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
       <div style={{
         padding: "10px 14px",
         borderRadius: 8,
-        background: !isEnabled ? "rgba(107,114,128,0.06)" : isDeny ? "rgba(239,68,68,0.06)" : "rgba(34,197,94,0.06)",
-        border: !isEnabled ? "1px solid rgba(107,114,128,0.12)" : isDeny ? "1px solid rgba(239,68,68,0.12)" : "1px solid rgba(34,197,94,0.12)",
+        background: !isEnabled ? t.surfaceOverlay : isDeny ? t.dangerSubtle : t.successSubtle,
+        border: !isEnabled ? `1px solid ${t.surfaceBorder}` : isDeny ? `1px solid ${t.dangerBorder}` : `1px solid ${t.success}22`,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: !isEnabled ? t.textMuted : isDeny ? "#dc2626" : "#16a34a" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: !isEnabled ? t.textMuted : isDeny ? t.danger : t.success }}>
           {!isEnabled
             ? "Policy engine is disabled — all tool calls are allowed"
             : isDeny
@@ -50,7 +50,7 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
               : "Default: ALLOW — this bot can use all tools unless blocked by a rule"}
         </div>
         {isEnabled && applicableRules.length === 0 && isDeny && (
-          <div style={{ fontSize: 12, color: "#ca8a04", marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: t.warning, marginTop: 4 }}>
             No rules apply to this bot. All tool calls will be blocked.
           </div>
         )}
@@ -59,9 +59,9 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
       {/* Summary */}
       {applicableRules.length > 0 && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: "#16a34a" }}>{allowCount} allow</span>
-          <span style={{ fontSize: 12, color: "#dc2626" }}>{denyCount} deny</span>
-          <span style={{ fontSize: 12, color: "#ca8a04" }}>{approvalCount} require approval</span>
+          <span style={{ fontSize: 12, color: t.success }}>{allowCount} allow</span>
+          <span style={{ fontSize: 12, color: t.danger }}>{denyCount} deny</span>
+          <span style={{ fontSize: 12, color: t.warning }}>{approvalCount} require approval</span>
           <span style={{ fontSize: 12, color: t.textDim }}>
             ({botSpecific.length} bot-specific, {globalRules.length} global)
           </span>
@@ -70,13 +70,13 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
 
       {/* Rule list */}
       {isLoading ? (
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {applicableRules
             .sort((a, b) => a.priority - b.priority)
             .map((r) => {
-              const actionColor = r.action === "allow" ? "#16a34a" : r.action === "deny" ? "#dc2626" : "#ca8a04";
+              const actionColor = r.action === "allow" ? t.success : r.action === "deny" ? t.danger : t.warning;
               return (
                 <button
                   key={r.id}
@@ -101,8 +101,8 @@ export function BotToolPoliciesSection({ botId }: { botId: string }) {
                   <span style={{
                     fontSize: 10, fontWeight: 600,
                     padding: "1px 6px", borderRadius: 3,
-                    background: r.bot_id ? "rgba(59,130,246,0.12)" : "rgba(168,85,247,0.12)",
-                    color: r.bot_id ? "#2563eb" : "#8b5cf6",
+                    background: r.bot_id ? t.accentSubtle : t.purpleSubtle,
+                    color: r.bot_id ? t.accent : t.purple,
                   }}>
                     {r.bot_id ? "bot" : "global"}
                   </span>

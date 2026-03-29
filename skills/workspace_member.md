@@ -125,6 +125,27 @@ r = httpx.get(f"{BASE}/api/v1/channels", headers=HEADERS)
 
 ---
 
+## Channels
+
+A **channel** is a persistent conversation container. You are always operating within one. Each channel has:
+
+- Its own **session** (conversation history) and **channel workspace** (persistent files in `channels/{channel_id}/workspace/`)
+- Per-channel **settings** (model overrides, tool overrides, compaction config, heartbeats)
+- Optional **indexed directories** — folders in the channel workspace indexed for RAG code search
+
+Other channels exist for your bot and for other bots. You can interact with them via the API:
+
+```sh
+agent channels                                    # List channels
+agent api GET /api/v1/channels/{id}/config        # Get channel settings
+agent api POST /api/v1/channels/{id}/messages \
+  '{"content":"message","run_agent":true}'         # Inject message + trigger processing
+```
+
+Use `list_workspace_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
+
+---
+
 ## Workspace Skills
 
 Skills placed in workspace skill directories are automatically available to you.

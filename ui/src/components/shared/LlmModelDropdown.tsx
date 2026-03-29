@@ -39,7 +39,7 @@ function ModelStatusBadge({
           width: 8,
           height: 8,
           borderRadius: "50%",
-          background: "#22c55e",
+          background: t.success,
           flexShrink: 0,
         }}
         title="Downloaded"
@@ -307,12 +307,12 @@ export function LlmModelDropdown({
                               }}
                               onMouseLeave={(e) => {
                                 (e.currentTarget as HTMLElement).style.background =
-                                  model.id === value ? "rgba(59,130,246,0.08)" : "transparent";
+                                  model.id === value ? t.accentSubtle : "transparent";
                               }}
                               style={{
                                 padding: "8px 12px",
                                 cursor: isDownloading ? "default" : "pointer",
-                                background: model.id === value ? "rgba(59,130,246,0.08)" : "transparent",
+                                background: model.id === value ? t.accentSubtle : "transparent",
                                 opacity: isDownloading ? 0.6 : 1,
                                 display: "flex",
                                 alignItems: "center",

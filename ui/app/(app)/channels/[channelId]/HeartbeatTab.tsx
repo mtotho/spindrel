@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap } from "lucide-react";
+import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, Sparkles } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -89,8 +89,8 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
                 </div>
                 <span style={{
                   fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                  background: hb.status === "complete" ? "#166534" : hb.status === "failed" ? "#7f1d1d" : t.surfaceBorder,
-                  color: hb.status === "complete" ? "#16a34a" : hb.status === "failed" ? "#dc2626" : t.textMuted,
+                  background: hb.status === "complete" ? t.successSubtle : hb.status === "failed" ? t.dangerSubtle : t.surfaceBorder,
+                  color: hb.status === "complete" ? t.success : hb.status === "failed" ? t.danger : t.textMuted,
                 }}>
                   {hb.status}
                 </span>
@@ -103,8 +103,8 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
                 }}>
                   {hb.error && (
                     <div style={{
-                      fontSize: 12, color: "#dc2626", marginBottom: 8,
-                      padding: "6px 8px", background: "#1a0505", borderRadius: 4, border: "1px solid rgba(239,68,68,0.25)",
+                      fontSize: 12, color: t.danger, marginBottom: 8,
+                      padding: "6px 8px", background: t.dangerSubtle, borderRadius: 4, border: `1px solid ${t.dangerBorder}`,
                       whiteSpace: "pre-wrap", wordBreak: "break-word",
                     }}>
                       {hb.error}
@@ -334,6 +334,28 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
     },
   });
 
+  const inferMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ prompt: string; workspace_file_path: string | null; workspace_id: string | null }>(
+        `/api/v1/admin/channels/${channelId}/heartbeat/infer`,
+        { method: "POST" },
+      ),
+    onSuccess: (result) => {
+      if (result.workspace_file_path) {
+        setHbForm((f: any) => ({
+          ...f,
+          prompt: result.prompt,
+          workspace_file_path: result.workspace_file_path,
+          workspace_id: result.workspace_id,
+          prompt_template_id: null,
+        }));
+      } else {
+        setHbForm((f: any) => ({ ...f, prompt: result.prompt }));
+      }
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+
   if (isLoading || !hbForm) return <ActivityIndicator color={t.accent} />;
 
   const enabled = data?.config?.enabled ?? false;
@@ -351,13 +373,13 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
-              background: enabled ? "#166534" : t.surfaceBorder,
-              color: enabled ? "#16a34a" : t.textMuted,
+              background: enabled ? t.successSubtle : t.surfaceBorder,
+              color: enabled ? t.success : t.textMuted,
             }}
           >
             <span style={{
               width: 8, height: 8, borderRadius: 4,
-              background: enabled ? "#16a34a" : t.textDim,
+              background: enabled ? t.success : t.textDim,
             }} />
             {enabled ? "Enabled" : "Disabled"}
           </button>
@@ -393,6 +415,25 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
         </FormRow>
 
         <div style={{ marginTop: 16 }}>
+          <button
+            onClick={() => inferMutation.mutate()}
+            disabled={inferMutation.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, marginBottom: 12,
+              padding: "7px 14px", borderRadius: 6, border: `1px solid ${t.accent}40`,
+              background: `${t.accent}12`, cursor: inferMutation.isPending ? "wait" : "pointer",
+              fontSize: 12, fontWeight: 600, color: t.accent,
+              opacity: inferMutation.isPending ? 0.6 : 1,
+            }}
+          >
+            <Sparkles size={13} />
+            {inferMutation.isPending ? "Inferring..." : "Infer Project Heartbeat"}
+          </button>
+          {inferMutation.isError && (
+            <div style={{ fontSize: 11, color: t.danger, marginBottom: 8 }}>
+              Failed to infer heartbeat: {(inferMutation.error as any)?.message || "Unknown error"}
+            </div>
+          )}
           <WorkspaceFilePrompt
             workspaceId={hbForm.workspace_id ?? workspaceId}
             filePath={hbForm.workspace_file_path}
@@ -469,8 +510,8 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
             onClick={() => saveMutation.mutate(hbForm)}
             style={{
               padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: hbSaved ? "rgba(34,197,94,0.15)" : t.accent,
-              color: hbSaved ? "#22c55e" : "#fff",
+              background: hbSaved ? t.successSubtle : t.accent,
+              color: hbSaved ? t.success : "#fff",
               fontSize: 13, fontWeight: 600,
             }}
           >
@@ -481,13 +522,13 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
             disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
             style={{
               padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: hbFired ? "rgba(34,197,94,0.15)" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#92400e" : t.surfaceBorder,
-              color: hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#ca8a04" : t.textDim,
+              background: hbFired ? t.successSubtle : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningSubtle : t.surfaceBorder,
+              color: hbFired ? t.success : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningMuted : t.textDim,
               fontSize: 13, fontWeight: 500,
               display: "flex", alignItems: "center", gap: 6,
             }}
           >
-            <Play size={12} color={hbFired ? "#22c55e" : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? "#ca8a04" : t.textDim} />
+            <Play size={12} color={hbFired ? t.success : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningMuted : t.textDim} />
             {hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
           </button>
         </div>

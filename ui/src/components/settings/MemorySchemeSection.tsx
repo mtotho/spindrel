@@ -290,12 +290,12 @@ export function MemorySchemeSection() {
             }}>
               <View style={{
                 width: 40, height: 40, borderRadius: 20,
-                backgroundColor: allEnabled ? "rgba(168,85,247,0.15)" : noneEnabled ? "rgba(100,100,100,0.15)" : "rgba(168,85,247,0.08)",
+                backgroundColor: allEnabled ? t.purpleSubtle : noneEnabled ? "rgba(100,100,100,0.15)" : t.purpleSubtle,
                 alignItems: "center", justifyContent: "center",
               }}>
                 <Text style={{
                   fontSize: 16, fontWeight: "700",
-                  color: allEnabled ? "#8b5cf6" : noneEnabled ? t.textDim : "#a78bfa",
+                  color: allEnabled ? t.purple : noneEnabled ? t.textDim : t.purpleMuted,
                 }}>
                   {enabledCount}
                 </Text>
@@ -339,7 +339,7 @@ export function MemorySchemeSection() {
                     >
                       <View style={{
                         width: 8, height: 8, borderRadius: 4,
-                        backgroundColor: enabled ? "#a855f7" : t.surfaceBorder,
+                        backgroundColor: enabled ? t.purple : t.surfaceBorder,
                         marginRight: 10,
                       }} />
                       <Text style={{
@@ -350,7 +350,7 @@ export function MemorySchemeSection() {
                       </Text>
                       <Text style={{
                         fontSize: 10, fontWeight: "600",
-                        color: enabled ? "#a78bfa" : t.surfaceBorder,
+                        color: enabled ? t.purpleMuted : t.surfaceBorder,
                       }}>
                         {enabled ? "workspace-files" : "database"}
                       </Text>
@@ -367,21 +367,21 @@ export function MemorySchemeSection() {
                 disabled={isBusy || allEnabled}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: allEnabled ? t.surfaceRaised : "rgba(168,85,247,0.15)",
+                  backgroundColor: allEnabled ? t.surfaceRaised : t.purpleSubtle,
                   paddingHorizontal: 14, paddingVertical: 8,
                   borderRadius: 8, borderWidth: 1,
-                  borderColor: allEnabled ? t.surfaceOverlay : "rgba(168,85,247,0.3)",
+                  borderColor: allEnabled ? t.surfaceOverlay : t.purpleBorder,
                   opacity: isBusy || allEnabled ? 0.5 : 1,
                 }}
               >
                 {enableAll.isPending ? (
-                  <ActivityIndicator size="small" color="#a855f7" />
+                  <ActivityIndicator size="small" color={t.purple} />
                 ) : justEnabled ? (
-                  <Check size={14} color="#a855f7" />
+                  <Check size={14} color={t.purple} />
                 ) : null}
                 <Text style={{
                   fontSize: 12, fontWeight: "600",
-                  color: allEnabled ? t.textDim : "#8b5cf6",
+                  color: allEnabled ? t.textDim : t.purple,
                 }}>
                   {justEnabled ? "Enabled" : "Enable All Bots"}
                 </Text>
@@ -433,11 +433,11 @@ export function MemorySchemeSection() {
                   System Prompt
                 </Text>
                 <View style={{
-                  backgroundColor: useCustomPrompt ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
+                  backgroundColor: useCustomPrompt ? t.warningSubtle : t.purpleSubtle,
                   paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
                   marginLeft: 4,
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: "600", color: useCustomPrompt ? "#f59e0b" : "#a78bfa" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "600", color: useCustomPrompt ? t.warning : t.purpleMuted }}>
                     {useCustomPrompt ? "custom" : "built-in"}
                   </Text>
                 </View>
@@ -452,10 +452,10 @@ export function MemorySchemeSection() {
                     <Switch
                       value={useCustomPrompt}
                       onValueChange={handleToggleCustom}
-                      trackColor={{ false: "#374151", true: "#92400e" }}
+                      trackColor={{ false: "#374151", true: t.warningSubtle }}
                       thumbColor={t.text}
                     />
-                    <Text style={{ fontSize: 11, color: useCustomPrompt ? "#f59e0b" : t.textDim }}>
+                    <Text style={{ fontSize: 11, color: useCustomPrompt ? t.warning : t.textDim }}>
                       Use custom prompt (not recommended)
                     </Text>
                   </Pressable>
@@ -479,19 +479,19 @@ export function MemorySchemeSection() {
                           disabled={!promptDirty || updateSettings.isPending}
                           style={{
                             flexDirection: "row", alignItems: "center", gap: 6,
-                            backgroundColor: promptDirty ? "#92400e" : t.surfaceRaised,
+                            backgroundColor: promptDirty ? t.warningSubtle : t.surfaceRaised,
                             paddingHorizontal: 12, paddingVertical: 6,
                             borderRadius: 6, opacity: promptDirty ? 1 : 0.5,
                           }}
                         >
                           {updateSettings.isPending ? (
-                            <ActivityIndicator size="small" color="#f59e0b" />
+                            <ActivityIndicator size="small" color={t.warning} />
                           ) : promptSaved ? (
-                            <Check size={12} color="#f59e0b" />
+                            <Check size={12} color={t.warning} />
                           ) : (
-                            <Save size={12} color="#f59e0b" />
+                            <Save size={12} color={t.warning} />
                           )}
-                          <Text style={{ fontSize: 11, fontWeight: "600", color: "#f59e0b" }}>
+                          <Text style={{ fontSize: 11, fontWeight: "600", color: t.warning }}>
                             {promptSaved ? "Saved" : "Save"}
                           </Text>
                         </Pressable>
@@ -536,18 +536,18 @@ export function MemorySchemeSection() {
                   Memory Flush Prompt
                 </Text>
                 <View style={{
-                  backgroundColor: "rgba(245,158,11,0.1)",
+                  backgroundColor: t.warningSubtle,
                   paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
                   marginLeft: 4,
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: "600", color: "#f59e0b" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "600", color: t.warning }}>
                     overridden
                   </Text>
                 </View>
               </Pressable>
               {showFlush && (
                 <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
-                  <Text style={{ fontSize: 11, color: "#f59e0b", marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, color: t.warning, marginBottom: 8 }}>
                     The "Memory Flush Default Prompt" setting above is ignored for bots with
                     workspace-files enabled. This prompt is used instead:
                   </Text>
