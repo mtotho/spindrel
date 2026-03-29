@@ -319,8 +319,11 @@ async def usage_summary(
         total_prompt += pt
         total_completion += ct
 
-        input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-        cost = _compute_cost(pt, ct, input_rate, output_rate)
+        # Prefer LiteLLM's actual response_cost over our computed estimate
+        cost = d.get("response_cost")
+        if cost is None:
+            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+            cost = _compute_cost(pt, ct, input_rate, output_rate)
 
         if cost is not None:
             total_cost += cost
@@ -496,8 +499,11 @@ async def usage_logs(
         ev_provider = d.get("provider_id")
         ev_channel = d.get("channel_id") or session_channel_map.get(ev.session_id)
 
-        input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-        cost = _compute_cost(pt, ct, input_rate, output_rate)
+        # Prefer LiteLLM's actual response_cost over computed estimate
+        cost = d.get("response_cost")
+        if cost is None:
+            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+            cost = _compute_cost(pt, ct, input_rate, output_rate)
 
         entries.append(UsageLogEntry(
             id=str(ev.id),
@@ -602,8 +608,10 @@ async def usage_breakdown(
         g.prompt_tokens += pt
         g.completion_tokens += ct
 
-        input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-        cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = d.get("response_cost")
+        if cost is None:
+            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+            cost = _compute_cost(pt, ct, input_rate, output_rate)
         if cost is not None:
             g.cost = (g.cost or 0) + cost
 
@@ -676,8 +684,10 @@ async def usage_timeseries(
         point.calls += 1
         point.tokens += tt
 
-        input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-        cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = d.get("response_cost")
+        if cost is None:
+            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+            cost = _compute_cost(pt, ct, input_rate, output_rate)
         if cost is not None:
             point.cost = (point.cost or 0) + cost
 
