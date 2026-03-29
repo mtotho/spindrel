@@ -989,44 +989,45 @@ async def admin_channel_heartbeat_infer(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """Infer a tailored heartbeat prompt from channel context and write it to a workspace file."""
-    from app.agent.bots import get_bot
+    import traceback
     from app.config import settings as app_settings
     from app.services.providers import get_llm_client
 
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
+    try:
+        channel = await db.get(Channel, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
 
-    bot = get_bot(channel.bot_id)
-    if not bot:
-        raise HTTPException(status_code=400, detail="Bot not found")
+        bot = get_bot(channel.bot_id)
+        if not bot:
+            raise HTTPException(status_code=400, detail="Bot not found")
 
-    # Gather context
-    ctx_parts = []
-    if channel.display_name:
-        ctx_parts.append(f"Channel name: {channel.display_name}")
-    elif channel.name:
-        ctx_parts.append(f"Channel name: {channel.name}")
-    if channel.channel_prompt:
-        ctx_parts.append(f"Channel prompt:\n{channel.channel_prompt[:2000]}")
-    if bot.system_prompt:
-        ctx_parts.append(f"Bot system prompt (first 1000 chars):\n{bot.system_prompt[:1000]}")
+        # Gather context
+        ctx_parts = []
+        if channel.display_name:
+            ctx_parts.append(f"Channel name: {channel.display_name}")
+        elif channel.name:
+            ctx_parts.append(f"Channel name: {channel.name}")
+        if channel.channel_prompt:
+            ctx_parts.append(f"Channel prompt:\n{channel.channel_prompt[:2000]}")
+        if bot.system_prompt:
+            ctx_parts.append(f"Bot system prompt (first 1000 chars):\n{bot.system_prompt[:1000]}")
 
-    # Read workspace files if channel workspace is enabled
-    if channel.channel_workspace_enabled:
-        from app.services.channel_workspace import list_workspace_files, read_workspace_file
-        try:
-            files = list_workspace_files(str(channel_id), bot)
-            for f in files[:5]:  # first 5 active files
-                content = read_workspace_file(str(channel_id), bot, f["path"])
-                if content:
-                    ctx_parts.append(f"Workspace file {f['name']} (first 500 chars):\n{content[:500]}")
-        except Exception:
-            pass
+        # Read workspace files if channel workspace is enabled
+        if channel.channel_workspace_enabled:
+            from app.services.channel_workspace import list_workspace_files, read_workspace_file
+            try:
+                files = list_workspace_files(str(channel_id), bot)
+                for f in files[:5]:  # first 5 active files
+                    content = read_workspace_file(str(channel_id), bot, f["path"])
+                    if content:
+                        ctx_parts.append(f"Workspace file {f['name']} (first 500 chars):\n{content[:500]}")
+            except Exception:
+                pass
 
-    channel_context = "\n\n".join(ctx_parts) if ctx_parts else "No channel context available."
+        channel_context = "\n\n".join(ctx_parts) if ctx_parts else "No channel context available."
 
-    meta_prompt = f"""\
+        meta_prompt = f"""\
 You are an expert at designing scheduled heartbeat prompts for AI agents managing projects.
 
 A heartbeat is a periodic prompt that runs on a timer. The agent uses it to:
@@ -1050,9 +1051,8 @@ GUIDELINES:
 - Keep it under 500 words — concise and actionable
 - Do NOT include markdown fences or explanations — output ONLY the prompt text"""
 
-    model = app_settings.PROMPT_GENERATION_MODEL or app_settings.COMPACTION_MODEL
-    client = get_llm_client(None)
-    try:
+        model = app_settings.PROMPT_GENERATION_MODEL or app_settings.COMPACTION_MODEL
+        client = get_llm_client(None)
         resp = await client.chat.completions.create(
             model=model,
             messages=[
@@ -1063,28 +1063,31 @@ GUIDELINES:
             max_tokens=2000,
         )
         prompt_text = (resp.choices[0].message.content or "").strip()
-    except Exception as exc:
-        logger.error("Heartbeat infer LLM call failed (model=%s): %s", model, exc, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}")
 
-    # Write to channel workspace data/heartbeat.md if workspace is available
-    ws_file_path = None
-    ws_id = None
-    if channel.channel_workspace_enabled:
-        try:
-            from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
-            ensure_channel_workspace(str(channel_id), bot)
-            write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
-            ws_file_path = f"channels/{channel_id}/workspace/data/heartbeat.md"
-            ws_id = bot.shared_workspace_id
-        except Exception:
-            logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
+        # Write to channel workspace data/heartbeat.md if workspace is available
+        ws_file_path = None
+        ws_id = None
+        if channel.channel_workspace_enabled:
+            try:
+                from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
+                ensure_channel_workspace(str(channel_id), bot)
+                write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
+                ws_file_path = f"channels/{channel_id}/workspace/data/heartbeat.md"
+                ws_id = bot.shared_workspace_id
+            except Exception:
+                logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
 
-    return InferHeartbeatOut(
-        prompt=prompt_text,
-        workspace_file_path=ws_file_path,
-        workspace_id=ws_id,
-    )
+        return InferHeartbeatOut(
+            prompt=prompt_text,
+            workspace_file_path=ws_file_path,
+            workspace_id=ws_id,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        traceback.print_exc()
+        logger.error("Heartbeat infer failed for channel %s", channel_id, exc_info=True)
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
 
 
 # ---------------------------------------------------------------------------

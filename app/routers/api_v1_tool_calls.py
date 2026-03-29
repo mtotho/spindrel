@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ToolCall
-from app.dependencies import get_db, verify_admin_auth
+from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ async def list_tool_calls(
     until: Optional[datetime] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("logs:read")),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(ToolCall).order_by(ToolCall.created_at.desc())
@@ -110,7 +110,7 @@ async def tool_call_stats(
     since: Optional[datetime] = Query(None),
     until: Optional[datetime] = Query(None),
     bot_id: Optional[str] = Query(None),
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("logs:read")),
     db: AsyncSession = Depends(get_db),
 ):
     col_map = {
@@ -155,7 +155,7 @@ async def tool_call_stats(
 @router.get("/{tool_call_id}", response_model=ToolCallDetail)
 async def get_tool_call(
     tool_call_id: uuid.UUID,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("logs:read")),
     db: AsyncSession = Depends(get_db),
 ):
     row = await db.get(ToolCall, tool_call_id)

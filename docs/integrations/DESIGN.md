@@ -229,8 +229,8 @@ table kept for backwards compatibility but no longer read by core code.
 | `passive_memory` | Whether bot silently reads all messages for memory |
 | `dispatch_config` | JSONB delivery target (channel_id, token, thread_ts) |
 
-The Slack integration reads channel config via `/api/slack/config` (60s TTL cache),
-served by `app/routers/admin_channels.py`. It does NOT query the DB directly.
+The Slack integration reads channel config via `/integrations/slack/config` (60s TTL cache),
+served by `integrations/slack/router.py`. It does NOT query the DB directly.
 
 ---
 

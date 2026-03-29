@@ -43,6 +43,8 @@ ALL_SCOPES = [
     "todos:read", "todos:write",
     # Attachments
     "attachments:read",
+    # Logs
+    "logs:read", "logs:write",
     # Tools
     "tools:read",
     # Providers
@@ -84,6 +86,8 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "todos:read": "List todos",
     "todos:write": "Create, update, and delete todos",
     "attachments:read": "Get attachment metadata and download files",
+    "logs:read": "View agent turns, tool call history, traces, and server logs",
+    "logs:write": "Change server log level",
     "tools:read": "List available tools",
     "providers:read": "List provider configurations and models",
     "providers:write": "Create and manage provider configurations",
@@ -144,6 +148,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Todos": {
         "description": "Persistent work items scoped to bot + channel",
         "scopes": ["todos:read", "todos:write"],
+    },
+    "Logs": {
+        "description": "Agent turns, tool call audit, traces, and server application logs",
+        "scopes": ["logs:read", "logs:write"],
     },
     "Attachments": {
         "description": "Access file attachments from conversations",
@@ -222,7 +230,7 @@ SCOPE_PRESETS: dict[str, dict] = {
         "description": "Read channels, sessions, tasks — no write access",
         "scopes": [
             "bots:read", "channels:read", "sessions:read",
-            "tasks:read", "todos:read", "attachments:read",
+            "tasks:read", "todos:read", "attachments:read", "logs:read",
         ],
         "instructions": "Safe for dashboards and monitoring. Cannot send messages or modify data.",
     },
@@ -507,6 +515,63 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "workspaces.files:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}/files",
         "description": "Delete a file or directory from workspace",
         "params": "?path=/path/to/delete",
+    },
+    # Logs — agent turns (high-level view of each agent invocation)
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/turns",
+        "description": "List recent agent turns (one per user message). Each turn includes tool calls, token usage, errors, timing, model, and bot/channel info. Use this to answer questions like 'were there errors in the last day' or 'what did bot X do recently'.",
+        "params": "?count=20&bot_id=&channel_id=&after=30m|2h|1d|ISO&before=ISO&has_error=true|false&has_tool_calls=true|false&search=text",
+        "response": "{turns: [{correlation_id, created_at, bot_id, model, channel_name, user_message, response_preview, total_tokens, duration_ms, has_error, tool_calls: [{tool_name, duration_ms, error}], errors: [{event_name, message}]}], total, count}",
+        "notes": "after accepts relative durations (30m, 2h, 1d) or ISO timestamps. has_error=true filters to only turns with errors. Turns are newest-first.",
+    },
+    # Logs — merged log entries (tool calls + trace events)
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/logs",
+        "description": "List log entries (tool calls + trace events merged), paginated and sorted newest-first",
+        "params": "?event_type=tool_call|error|token_usage&bot_id=&session_id=&channel_id=&page=1&page_size=50",
+        "response": "{rows: [{kind, id, created_at, correlation_id, bot_id, tool_name, error, ...}], total, page, page_size, bot_ids}",
+    },
+    # Logs — trace detail
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/traces/{correlation_id}",
+        "description": "Full trace timeline for a single agent turn (tool calls, trace events, and messages in chronological order)",
+        "response": "{events: [{kind, created_at, tool_name, error, role, content, ...}], correlation_id, session_id, bot_id}",
+    },
+    # Logs — tool call audit
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls",
+        "description": "List tool calls with detailed filtering. Use for auditing specific tools or investigating errors.",
+        "params": "?bot_id=&tool_name=&tool_type=local|mcp|client&session_id=&error_only=true&since=ISO&until=ISO&limit=50&offset=0",
+        "response": "[{id, tool_name, tool_type, arguments, result, error, duration_ms, bot_id, correlation_id, created_at}]",
+    },
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls/stats",
+        "description": "Aggregated tool call statistics (count, avg duration, error rate) grouped by tool_name, bot_id, or tool_type",
+        "params": "?group_by=tool_name|bot_id|tool_type&since=ISO&until=ISO&bot_id=",
+        "response": "{group_by, stats: [{key, count, total_duration_ms, avg_duration_ms, error_count}]}",
+    },
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls/{tool_call_id}",
+        "description": "Get full detail for a single tool call (untruncated result)",
+    },
+    # Logs — server application logs
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/server-logs",
+        "description": "Application server logs from in-memory ring buffer. Use to check for Python errors, startup issues, or debug server behavior.",
+        "params": "?tail=200&level=DEBUG|INFO|WARNING|ERROR|CRITICAL&logger=app.agent&search=text&since_minutes=60",
+        "response": "{entries: [{timestamp, level, logger, message, formatted}], total, levels}",
+        "notes": "level filters to minimum severity (e.g. ERROR returns ERROR + CRITICAL). logger is prefix-matched. since_minutes limits recency.",
+    },
+    # Logs — log level management
+    {
+        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/log-level",
+        "description": "Get current root logger level",
+        "response": "{level: 'INFO'}",
+    },
+    {
+        "scope": "logs:write", "method": "PUT", "path": "/api/v1/admin/log-level",
+        "description": "Set root logger level dynamically",
+        "body": '{"level": "DEBUG|INFO|WARNING|ERROR|CRITICAL"}',
     },
     # Discovery
     {

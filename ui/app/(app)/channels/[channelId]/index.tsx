@@ -10,6 +10,7 @@ import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInp
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
+import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChatStream } from "@/src/api/hooks/useChat";
@@ -102,6 +103,13 @@ export default function ChatScreen() {
 
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
+
+  const markRead = useChannelReadStore((s) => s.markRead);
+
+  // Mark channel as read on mount / channel switch
+  useEffect(() => {
+    if (channelId) markRead(channelId);
+  }, [channelId]);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
   const [showScrollBtn, setShowScrollBtn] = useState(false);

@@ -88,7 +88,7 @@ Configure per-channel behavior at `/admin/slack`. Each channel can have:
 
 The derived session ID for each channel is shown in the channel list (first 8 chars of the UUID).
 
-Config is served at `GET /api/slack/config` (requires `X-API-Key` header) and cached for 60 seconds by the Slack integration process.
+Config is served at `GET /integrations/slack/config` (requires `X-API-Key` header) and cached for 60 seconds by the Slack integration process.
 
 ## Multi-Bot Channels
 

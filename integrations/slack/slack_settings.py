@@ -38,7 +38,7 @@ _CONFIG_TTL = 60.0
 
 def _fetch_slack_config() -> dict:
     """Synchronously fetch Slack config from agent server API."""
-    url = f"{AGENT_BASE_URL}/api/slack/config"
+    url = f"{AGENT_BASE_URL}/integrations/slack/config"
     headers = {}
     if API_KEY:
         headers["X-API-Key"] = API_KEY

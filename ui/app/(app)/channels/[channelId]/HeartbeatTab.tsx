@@ -258,7 +258,7 @@ function ContextPreview({ form, data }: { form: any; data: any }) {
 // ---------------------------------------------------------------------------
 // Heartbeat Tab
 // ---------------------------------------------------------------------------
-export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
+export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: string; workspaceId?: string | null; botModel?: string }) {
   const t = useThemeTokens();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -402,7 +402,8 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
               label="Model"
               value={hbForm.model ?? ""}
               onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
-              placeholder="Select model..."
+              placeholder={`inherit (${botModel ?? "bot default"})`}
+              allowClear
             />
           </Col>
         </Row>
