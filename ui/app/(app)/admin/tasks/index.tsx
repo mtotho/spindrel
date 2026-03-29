@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -595,7 +595,12 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
 
   // Merge schedules + concrete tasks, generate virtual occurrences for next 14 days
   const allItems = useMemo(() => {
-    const items: TaskItem[] = [...tasks.filter(t => passesStatusFilter(t, statusFilter))];
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    const pastCutoff = new Date(now.getTime() - SIX_HOURS);
+    const items: TaskItem[] = [...tasks.filter(t =>
+      passesStatusFilter(t, statusFilter) &&
+      (getTaskTime(t) >= pastCutoff || t.status === "running" || t.status === "active")
+    )];
 
     // Build set of (schedule_id, day) for concrete tasks
     const concreteByScheduleDay = new Set<string>();
@@ -608,7 +613,7 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
 
     // Expand schedules into virtual entries for the next 14 days
     const rangeEnd = addDays(now, 14).getTime();
-    const rangeStart = startOfDay(now).getTime();
+    const rangeStart = pastCutoff.getTime();
 
     for (const sched of schedules) {
       if (!passesStatusFilter(sched, statusFilter)) continue;
@@ -786,65 +791,101 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                 </div>
 
                 {/* Task cards */}
-                {dayTasks.map((tk) => {
+                {dayTasks.map((tk, idx) => {
                   const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
                   const Icon = s.icon;
                   const time = tk.scheduled_at || tk.created_at;
                   const isPast = getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active";
                   const isVirtual = tk.is_virtual;
                   const isCancelled = tk.status === "cancelled";
+                  const pastBg = isPast && !isCancelled ? "rgba(107,114,128,0.04)" : "transparent";
+
+                  // Show NOW divider between past and future items on today
+                  const prevTask = idx > 0 ? dayTasks[idx - 1] : null;
+                  const prevIsPast = prevTask
+                    ? (getTaskTime(prevTask) < now && prevTask.status !== "running" && prevTask.status !== "active")
+                    : false;
+                  const showNowDivider = isToday(new Date(dayStr)) && !isPast && !isCancelled && prevIsPast;
 
                   return (
-                    <div
-                      key={tk.id}
-                      onClick={() => onTaskPress(tk)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "10px 20px 10px 36px",
-                        borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
-                        borderBottom: `1px solid ${t.surfaceRaised}`,
-                        cursor: "pointer",
-                        opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.5 : 1,
-                        background: "transparent",
-                        transition: "background 0.1s",
-                      }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                    >
-                      <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                    <Fragment key={tk.id}>
+                      {showNowDivider && (
                         <div style={{
-                          fontSize: 13, fontWeight: 600,
-                          color: isCancelled ? t.textDim : t.text,
-                          textDecoration: isCancelled ? "line-through" : "none",
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "6px 20px 6px 36px",
+                          borderLeft: `3px solid ${c.border}`,
                         }}>
-                          {displayTitle(tk)}
+                          <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444" }} />
+                          <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                          <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
                         </div>
-                      </div>
-
-                      <StatusBadge status={tk.status} />
-
-                      {tk.recurrence && (
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", gap: 3,
-                          background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
-                          color: isCancelled ? t.textDim : "#ca8a04",
-                          padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-                          flexShrink: 0,
-                        }}>
-                          <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
-                          {tk.recurrence}
-                        </span>
                       )}
+                      <div
+                        onClick={() => onTaskPress(tk)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "10px 20px 10px 36px",
+                          borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
+                          borderBottom: `1px solid ${t.surfaceRaised}`,
+                          cursor: "pointer",
+                          opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.35 : 1,
+                          background: pastBg,
+                          transition: "background 0.1s, opacity 0.1s",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = pastBg; }}
+                      >
+                        <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
 
-                      <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, minWidth: 90, textAlign: "right" }}>
-                        {time ? formatTime(time) : "\u2014"}
-                      </span>
-                    </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 13, fontWeight: 600,
+                            color: isCancelled ? t.textDim : t.text,
+                            textDecoration: isCancelled ? "line-through" : "none",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            {displayTitle(tk)}
+                          </div>
+                        </div>
+
+                        <StatusBadge status={tk.status} />
+
+                        {tk.recurrence && (
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
+                            color: isCancelled ? t.textDim : "#ca8a04",
+                            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                            flexShrink: 0,
+                          }}>
+                            <RefreshCw size={9} color={isCancelled ? t.textDim : "#ca8a04"} />
+                            {tk.recurrence}
+                          </span>
+                        )}
+
+                        <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, minWidth: 90, textAlign: "right" }}>
+                          {time ? formatTime(time) : "\u2014"}
+                        </span>
+                      </div>
+                    </Fragment>
                   );
                 })}
+                {/* Trailing NOW line when all of today's items are past */}
+                {isToday(new Date(dayStr)) && dayTasks.length > 0 && dayTasks.every(tk =>
+                  getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active"
+                ) && (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 20px 6px 36px",
+                    borderLeft: `3px solid ${c.border}`,
+                  }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444" }} />
+                    <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                    <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1009,7 +1050,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
   const t = useThemeTokens();
-  const [viewMode, setViewMode] = useState<ViewMode>("schedule");
+  const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");

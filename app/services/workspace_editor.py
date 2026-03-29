@@ -3,8 +3,7 @@ import asyncio
 import logging
 import os
 import platform
-import tarfile
-import tempfile
+import shutil
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -42,62 +41,51 @@ def _cached_dir() -> str:
     return os.path.join(CACHE_DIR, f"code-server-{CODE_SERVER_VERSION}")
 
 
+_download_lock = asyncio.Lock()
+
+
 async def _ensure_downloaded() -> str:
     """Download code-server tarball to host cache if not present. Returns path to unpacked dir."""
-    unpacked = _cached_dir()
-    bin_ok = os.path.isfile(os.path.join(unpacked, "bin", "code-server"))
-    node_ok = os.path.isfile(os.path.join(unpacked, "lib", "node"))
-    if os.path.isdir(unpacked) and bin_ok and node_ok and os.access(os.path.join(unpacked, "lib", "node"), os.X_OK):
-        return unpacked
-    # Clear broken extraction
-    if os.path.isdir(unpacked):
-        import shutil
-        shutil.rmtree(unpacked)
+    async with _download_lock:
+        unpacked = _cached_dir()
+        node_path = os.path.join(unpacked, "lib", "node")
+        if os.path.isfile(node_path) and os.access(node_path, os.X_OK):
+            return unpacked
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    tarball = _cached_tarball()
+        # Clear broken extraction
+        if os.path.isdir(unpacked):
+            shutil.rmtree(unpacked)
 
-    if not os.path.isfile(tarball):
-        url = _download_url()
-        logger.info("Downloading code-server %s from %s", CODE_SERVER_VERSION, url)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tarball = _cached_tarball()
+
+        if not os.path.isfile(tarball):
+            url = _download_url()
+            logger.info("Downloading code-server %s from %s", CODE_SERVER_VERSION, url)
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-fSL", "-o", tarball, url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                if os.path.exists(tarball):
+                    os.remove(tarball)
+                raise RuntimeError(f"Failed to download code-server: {stderr.decode()}")
+
+        # Unpack using tar command (preserves permissions correctly)
+        logger.info("Unpacking code-server tarball to %s", unpacked)
+        os.makedirs(unpacked, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
-            "curl", "-fSL", "-o", tarball, url,
+            "tar", "xzf", tarball, "--strip-components=1", "-C", unpacked,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            os.remove(tarball) if os.path.exists(tarball) else None
-            raise RuntimeError(f"Failed to download code-server: {stderr.decode()}")
+            raise RuntimeError(f"Failed to extract code-server: {stderr.decode()}")
 
-    # Unpack
-    logger.info("Unpacking code-server tarball to %s", unpacked)
-    os.makedirs(unpacked, exist_ok=True)
-
-    def _extract():
-        with tarfile.open(tarball, "r:gz") as tf:
-            # Tarball has a top-level dir like code-server-4.96.4-linux-amd64/
-            members = tf.getmembers()
-            prefix = members[0].name.split("/")[0] if members else ""
-            for member in members:
-                # Strip the top-level directory
-                if member.name.startswith(prefix + "/"):
-                    member.name = member.name[len(prefix) + 1:]
-                if not member.name:
-                    continue
-                # Use filter=None to preserve permissions (executables need +x)
-                tf.extract(member, unpacked, filter=None)
-
-    await asyncio.to_thread(_extract)
-
-    bin_path = os.path.join(unpacked, "bin", "code-server")
-    if not os.path.isfile(bin_path):
-        # Some releases have the binary at lib/code-server — create a bin/ wrapper
-        lib_bin = os.path.join(unpacked, "lib", "node")
-        if os.path.isfile(lib_bin):
-            os.makedirs(os.path.join(unpacked, "bin"), exist_ok=True)
-
-    logger.info("code-server %s cached at %s", CODE_SERVER_VERSION, unpacked)
+        logger.info("code-server %s cached at %s", CODE_SERVER_VERSION, unpacked)
     return unpacked
 
 

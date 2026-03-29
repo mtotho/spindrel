@@ -39,6 +39,7 @@ class HarnessConfig:
     args: list[str] = field(default_factory=list)
     working_directory: str = ""  # template string; may contain {working_directory}
     timeout: int = 300
+    prompt_mode: str = "arg"  # "arg" = embed in CLI args, "stdin" = pipe via heredoc
 
 
 @dataclass
@@ -70,6 +71,7 @@ class HarnessService:
                 args=cfg.get("args", []),
                 working_directory=cfg.get("working_directory", ""),
                 timeout=cfg.get("timeout", 300),
+                prompt_mode=cfg.get("prompt_mode", "arg"),
             )
         logger.info("Loaded %d harness config(s): %s", len(self._configs), list(self._configs.keys()))
 
@@ -89,6 +91,47 @@ class HarnessService:
                 a = a.replace("{working_directory}", template_wd)
             out.append(a)
         return out
+
+    def _build_script(
+        self,
+        cfg: HarnessConfig,
+        prompt: str,
+        working_directory: str | None,
+        extra_args: list[str] | None = None,
+    ) -> str:
+        """Build the shell script to execute, handling prompt_mode (arg vs stdin)."""
+        wd_container: str | None = None
+        if working_directory:
+            w = working_directory.strip()
+            if "\n" in w or "\x00" in w:
+                raise HarnessWorkingDirError("Invalid working directory (container path).")
+            wd_container = w
+        elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
+            wd_container = cfg.working_directory.strip() or None
+
+        if cfg.prompt_mode == "stdin":
+            # Pipe prompt via heredoc — avoids --print / -p flag issues
+            substituted_args = self._substitute_harness_args(cfg, "", wd_container)
+            if extra_args:
+                substituted_args.extend(extra_args)
+            inner = shlex.join([cfg.command] + substituted_args)
+            # Use a unique delimiter that won't appear in prompts
+            delim = f"__HARNESS_PROMPT_{uuid.uuid4().hex[:8]}__"
+            if wd_container:
+                script = f"cd {shlex.quote(wd_container)} && {inner} <<'{delim}'\n{prompt}\n{delim}"
+            else:
+                script = f"{inner} <<'{delim}'\n{prompt}\n{delim}"
+        else:
+            substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
+            if extra_args:
+                substituted_args.extend(extra_args)
+            inner = shlex.join([cfg.command] + substituted_args)
+            if wd_container:
+                script = f"cd {shlex.quote(wd_container)} && {inner}"
+            else:
+                script = inner
+
+        return script
 
     async def run(
         self,
@@ -215,24 +258,7 @@ class HarnessService:
         if not sandbox_config.image:
             raise HarnessError("Cannot run harness in bot sandbox: no image configured.")
 
-        wd_container: str | None = None
-        if working_directory:
-            w = working_directory.strip()
-            if "\n" in w or "\x00" in w:
-                raise HarnessWorkingDirError("Invalid working directory (container path).")
-            wd_container = w
-        elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
-            wd_container = cfg.working_directory.strip() or None
-
-        substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
-        if extra_args:
-            substituted_args.extend(extra_args)
-
-        inner = shlex.join([cfg.command] + substituted_args)
-        if wd_container:
-            script = f"cd {shlex.quote(wd_container)} && {inner}"
-        else:
-            script = inner
+        script = self._build_script(cfg, prompt, working_directory, extra_args)
 
         logger.info(
             "[harness] %s bot_sandbox bot=%s image=%r",
@@ -281,24 +307,7 @@ class HarnessService:
                 "docker_sandbox_profiles."
             )
 
-        wd_container: str | None = None
-        if working_directory:
-            w = working_directory.strip()
-            if "\n" in w or "\x00" in w:
-                raise HarnessWorkingDirError("Invalid working directory (container path).")
-            wd_container = w
-        elif cfg.working_directory and "{working_directory}" not in cfg.working_directory:
-            wd_container = cfg.working_directory.strip() or None
-
-        substituted_args = self._substitute_harness_args(cfg, prompt, wd_container)
-        if extra_args:
-            substituted_args.extend(extra_args)
-
-        inner = shlex.join([cfg.command] + substituted_args)
-        if wd_container:
-            script = f"cd {shlex.quote(wd_container)} && {inner}"
-        else:
-            script = inner
+        script = self._build_script(cfg, prompt, working_directory, extra_args)
 
         logger.info(
             "[harness] %s sandbox=%s profile_container=%r",
