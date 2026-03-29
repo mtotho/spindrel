@@ -33,13 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
-    """Ensure no message has null/missing content — some models reject it."""
-    out = []
-    for m in messages:
+    """Ensure no message has null/missing content — some models reject it.
+
+    Mutates *messages* in-place (replacing individual dicts where needed)
+    so that callers holding a reference to the same list see the changes.
+    Returning the same list keeps the API unchanged for call-sites that
+    reassign: ``messages = _sanitize_messages(messages)``.
+    """
+    for i, m in enumerate(messages):
         if "content" not in m or m["content"] is None:
-            m = {**m, "content": ""}
-        out.append(m)
-    return out
+            messages[i] = {**m, "content": ""}
+    return messages
 
 
 @dataclass

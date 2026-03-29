@@ -177,7 +177,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             options={[
               { label: "Hidden (just 'thinking...')", value: "hidden" },
               { label: "Replace (single updating message)", value: "replace" },
-              { label: "Append all (current behavior)", value: "append" },
+              { label: "Append all", value: "append" },
             ]}
           />
         </FormRow>

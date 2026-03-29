@@ -410,9 +410,9 @@ function ConflictBanner({ warnings }: { warnings: string[] }) {
 // Task card on timeline (Day/Week views) — simplified
 // ---------------------------------------------------------------------------
 function TaskCard({
-  task, isPast, onPress, style: extraStyle,
+  task, isPast, onPress, compact, style: extraStyle,
 }: {
-  task: TaskItem; isPast: boolean; onPress: () => void; style?: React.CSSProperties;
+  task: TaskItem; isPast: boolean; onPress: () => void; compact?: boolean; style?: React.CSSProperties;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
@@ -423,32 +423,39 @@ function TaskCard({
   const isRecurring = !!task.recurrence;
   const time = task.scheduled_at || task.created_at;
 
+  // Theme-aware backgrounds
+  const cancelledBg = hovered ? t.surfaceOverlay : t.surface;
+  const virtualBg = hovered ? t.surfaceOverlay : t.surface;
+  const normalBg = hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised;
+  const bg = isCancelled ? cancelledBg : isVirtual ? virtualBg : normalBg;
+  const borderColor = isCancelled
+    ? t.surfaceRaised
+    : isVirtual
+    ? (hovered ? t.accent : t.surfaceBorder)
+    : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay;
+
   return (
     <div
       onClick={onPress}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        padding: "8px 12px", borderRadius: 8,
-        background: isCancelled
-          ? (hovered ? "#151515" : "#0d0d0d")
-          : isVirtual
-          ? (hovered ? "#151520" : "#0e0e18")
-          : (hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised),
-        border: `1px solid ${isCancelled ? t.surfaceRaised : isVirtual ? (hovered ? t.accent : "#1a1a2e") : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay}`,
+        padding: compact ? "4px 8px" : "8px 12px", borderRadius: compact ? 6 : 8,
+        background: bg,
+        border: `1px solid ${borderColor}`,
         borderStyle: isVirtual ? "dashed" : "solid",
         opacity: isCancelled ? 0.4 : isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
         cursor: "pointer",
-        boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
+        boxShadow: hovered ? `0 4px 12px ${t.overlayLight}` : "none",
         zIndex: hovered ? 100 : undefined,
         ...extraStyle,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Icon size={13} color={s.fg} />
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 8 }}>
+        <Icon size={compact ? 10 : 13} color={s.fg} style={{ flexShrink: 0 }} />
         <span style={{
-          fontSize: 13, fontWeight: 600,
+          fontSize: compact ? 10 : 13, fontWeight: 600,
           color: isCancelled ? t.textDim : t.text,
           textDecoration: isCancelled ? "line-through" : "none",
           flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -456,31 +463,39 @@ function TaskCard({
           {displayTitle(task)}
         </span>
 
-        <StatusBadge status={task.status} />
+        {!compact && <StatusBadge status={task.status} />}
 
         {isRecurring && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,
             background: "rgba(217,119,6,0.12)", color: "#ca8a04",
-            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+            padding: compact ? "0px 5px" : "1px 7px", borderRadius: 10,
+            fontSize: compact ? 8 : 10, fontWeight: 700,
             flexShrink: 0,
           }}>
-            <RefreshCw size={9} color="#ca8a04" />
+            <RefreshCw size={compact ? 7 : 9} color="#ca8a04" />
             {task.recurrence}
           </span>
         )}
 
-        <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
-          {time ? formatTime(time) : "\u2014"}
-        </span>
+        {!compact && (
+          <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
+            {time ? formatTime(time) : "\u2014"}
+          </span>
+        )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-        <BotDot botId={task.bot_id} />
-        <span style={{ fontSize: 10, color: t.textDim }}>{task.bot_id}</span>
-        {task.task_type && <TypeBadge type={task.task_type} />}
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 6, marginTop: compact ? 2 : 4 }}>
+        <BotDot botId={task.bot_id} size={compact ? 6 : 8} />
+        <span style={{ fontSize: compact ? 9 : 10, color: t.textDim }}>{task.bot_id}</span>
+        {!compact && task.task_type && <TypeBadge type={task.task_type} />}
+        {compact && (
+          <span style={{ fontSize: 9, color: t.textDim, marginLeft: "auto" }}>
+            {time ? formatTime(time) : ""}
+          </span>
+        )}
       </div>
-      {task.error && (
+      {!compact && task.error && (
         <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4 }}>
           {task.error.substring(0, 100)}
         </div>
@@ -493,12 +508,15 @@ function TaskCard({
 // Day column
 // ---------------------------------------------------------------------------
 const CARD_HEIGHT_PX = 70;
+const CARD_COMPACT_HEIGHT_PX = 46;
 const CARD_MIN_GAP = 4;
 
-function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
+function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean }) {
   const t = useThemeTokens();
   const now = new Date();
   const showNow = isToday(date);
+
+  const cardHeight = compact ? CARD_COMPACT_HEIGHT_PX : CARD_HEIGHT_PX;
 
   const positioned = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
@@ -510,7 +528,7 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
       let topPx = minutes;
 
       for (const prev of items) {
-        const prevBottom = prev.topPx + CARD_HEIGHT_PX + CARD_MIN_GAP;
+        const prevBottom = prev.topPx + cardHeight + CARD_MIN_GAP;
         if (topPx < prevBottom) {
           topPx = prevBottom;
         }
@@ -518,7 +536,7 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
       items.push({ task: t, topPx });
     }
     return items;
-  }, [tasks]);
+  }, [tasks, cardHeight]);
 
   return (
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
@@ -546,6 +564,7 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
             task={t}
             isPast={getTaskTime(t) < now && t.status !== "running"}
             onPress={() => onTaskPress(t)}
+            compact={compact}
             style={{
               position: "absolute",
               top: topPx,
@@ -783,13 +802,13 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                         display: "flex", alignItems: "center", gap: 10,
                         padding: "10px 20px 10px 36px",
                         borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
-                        borderBottom: "1px solid #0f0f0f",
+                        borderBottom: `1px solid ${t.surfaceRaised}`,
                         cursor: "pointer",
                         opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.5 : 1,
                         background: "transparent",
                         transition: "background 0.1s",
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#151515"; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                     >
                       <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
@@ -810,7 +829,7 @@ function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, confl
                       {tk.recurrence && (
                         <span style={{
                           display: "inline-flex", alignItems: "center", gap: 3,
-                          background: isCancelled ? t.surfaceRaised : "#92400e",
+                          background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
                           color: isCancelled ? t.textDim : "#ca8a04",
                           padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                           flexShrink: 0,
@@ -900,7 +919,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "10px 14px", background: t.inputBg, borderRadius: 8,
-                  border: isCancelled ? "1px solid #151515" : `1px solid ${t.surfaceRaised}`,
+                  border: `1px solid ${isCancelled ? t.surfaceBorder : t.surfaceRaised}`,
                   cursor: "pointer", marginBottom: 2,
                   opacity: isCancelled ? 0.4 : 1,
                 }}
@@ -920,7 +939,7 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
                 {tk.recurrence && (
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 3,
-                    background: isCancelled ? t.surfaceRaised : "#92400e",
+                    background: isCancelled ? t.surfaceRaised : "rgba(217,119,6,0.15)",
                     color: isCancelled ? t.textDim : "#ca8a04",
                     padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
                   }}>
@@ -1241,7 +1260,7 @@ export default function TasksScreen() {
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 12,
                 background: statusFilter === f.key
-                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? "#7f1d1d" : t.accent)
+                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? "rgba(239,68,68,0.15)" : t.accent)
                   : t.surfaceRaised,
                 color: statusFilter === f.key
                   ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? "#dc2626" : "#fff")
@@ -1339,6 +1358,7 @@ export default function TasksScreen() {
                 date={new Date(dayStr)}
                 tasks={tasks}
                 onTaskPress={handleTaskPress}
+                compact={viewMode === "week"}
               />
             ))}
           </div>
