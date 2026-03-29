@@ -255,7 +255,8 @@ class TestToolHiding:
 
 class TestEffectiveSystemPrompt:
     def test_memory_scheme_prompt_injected(self):
-        from app.services.sessions import _effective_system_prompt, _MEMORY_SCHEME_PROMPT
+        from app.services.sessions import _effective_system_prompt
+        from app.config import DEFAULT_MEMORY_SCHEME_PROMPT
         bot = _bot(memory_scheme="workspace-files")
         prompt = _effective_system_prompt(bot)
         assert "## Memory" in prompt
@@ -286,10 +287,10 @@ class TestEffectiveSystemPrompt:
 
 class TestCompactionFlushOverride:
     def test_memory_scheme_flush_prompt(self):
-        from app.services.compaction import _MEMORY_SCHEME_FLUSH_PROMPT
-        assert "daily log" in _MEMORY_SCHEME_FLUSH_PROMPT
-        assert "MEMORY.md" in _MEMORY_SCHEME_FLUSH_PROMPT
-        assert "exec_command" in _MEMORY_SCHEME_FLUSH_PROMPT
+        from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "daily log" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "MEMORY.md" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "exec_command" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
 
 
 # ---------------------------------------------------------------------------

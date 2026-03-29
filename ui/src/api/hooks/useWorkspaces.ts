@@ -156,10 +156,10 @@ export function useAddBotToWorkspace(workspaceId: string) {
 export function useUpdateWorkspaceBot(workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { bot_id: string; role?: string; cwd_override?: string }) =>
+    mutationFn: (data: { bot_id: string; role?: string; cwd_override?: string; write_access?: string[] }) =>
       apiFetch(`/api/v1/workspaces/${workspaceId}/bots/${data.bot_id}`, {
         method: "PUT",
-        body: JSON.stringify({ role: data.role, cwd_override: data.cwd_override }),
+        body: JSON.stringify({ role: data.role, cwd_override: data.cwd_override, write_access: data.write_access }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });

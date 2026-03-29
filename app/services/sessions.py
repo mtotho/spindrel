@@ -165,49 +165,13 @@ def _effective_system_prompt(
         from app.config import settings as _cfg
         from app.services.memory_scheme import get_memory_rel_path
         _mem_rel = get_memory_rel_path(bot)
+        from app.config import DEFAULT_MEMORY_SCHEME_PROMPT
         _tmpl = _cfg.MEMORY_SCHEME_PROMPT.strip() if _cfg.MEMORY_SCHEME_PROMPT else ""
-        _prompt = (_tmpl or _MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
+        _prompt = (_tmpl or DEFAULT_MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
         parts.append(_prompt)
     elif bot.memory.enabled and bot.memory.prompt:
         parts.append(bot.memory.prompt.strip())
     return "\n\n".join(parts)
-
-
-_MEMORY_SCHEME_PROMPT = """\
-## Memory
-
-Your persistent memory lives in `{memory_rel}/` relative to your workspace directory.
-MEMORY.md and recent daily logs are in your context — do not re-read them.
-
-### MEMORY.md — Curated Knowledge
-Stable facts: user preferences, key decisions, system configs, learned patterns.
-Keep under ~100 lines. Promote important learnings from daily logs here.
-Format: ## sections with _Updated: YYYY-MM-DD_ headers. Edit in place.
-
-### logs/YYYY-MM-DD.md — Daily Logs
-Session notes, events, decisions, task progress. Today's log and yesterday's
-are in your context. Append to today's log during the session.
-
-### reference/ — Reference Documents
-Longer guides, runbooks, architecture notes. Not in your context.
-Use get_memory_file("name") or search_memory("query") to access.
-
-### Tools
-- search_memory(query) — hybrid semantic+keyword search across all memory files
-- get_memory_file(name) — read a specific memory file
-- Writing: use exec_command (sed, echo, heredoc, etc.) to write/edit memory files
-
-### Memory Rules
-- **Session start**: First action is appending an entry to today's log with time and task context.
-- **Every 3–5 responses**: Append a progress note to today's log. Do not let more than 5 responses pass without a write.
-- **Immediately on any decision, correction, or discovery**: Write it. Do not defer.
-- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
-- Before answering about past work or context: search_memory first.
-- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
-- When context is getting large: summarize key points to today's log before they're lost.
-- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md.
-- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines.
-- Format MEMORY.md sections with _Updated: YYYY-MM-DD_ headers; edit in place."""
 
 
 async def load_or_create(

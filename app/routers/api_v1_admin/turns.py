@@ -1,7 +1,6 @@
 """Turns API: /turns — high-level view of agent turns for orchestrator troubleshooting."""
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Optional
 
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Session, ToolCall, TraceEvent
 from app.dependencies import get_db, verify_auth_or_user
-from ._helpers import _parse_time
+from ._helpers import _parse_time, build_tool_call_previews
 
 router = APIRouter()
 
@@ -236,24 +235,7 @@ async def list_turns(
                     response_preview = response_preview[:300] + "..."
 
         # Tool calls
-        turn_tool_calls: list[TurnToolCall] = []
-        for tc in tcs:
-            args_preview = None
-            if tc.arguments:
-                args_str = json.dumps(tc.arguments)
-                args_preview = args_str[:200] + "..." if len(args_str) > 200 else args_str
-            result_preview = None
-            if tc.result:
-                result_preview = tc.result[:200] + "..." if len(tc.result) > 200 else tc.result
-            turn_tool_calls.append(TurnToolCall(
-                tool_name=tc.tool_name,
-                tool_type=tc.tool_type,
-                iteration=tc.iteration,
-                duration_ms=tc.duration_ms,
-                error=tc.error[:300] + "..." if tc.error and len(tc.error) > 300 else tc.error,
-                arguments_preview=args_preview,
-                result_preview=result_preview,
-            ))
+        turn_tool_calls = [TurnToolCall(**d) for d in build_tool_call_previews(tcs)]
 
         has_err = len(errors) > 0 or any(tc.error for tc in tcs)
 

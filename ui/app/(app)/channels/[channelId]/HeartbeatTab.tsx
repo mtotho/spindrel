@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
+import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap } from "lucide-react";
+import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
@@ -33,7 +34,18 @@ const INTERVAL_OPTIONS = [
 // ---------------------------------------------------------------------------
 // Heartbeat History List (expandable rows with result + trace link)
 // ---------------------------------------------------------------------------
-function HeartbeatHistoryList({ history }: { history: any[] }) {
+function fmtDuration(ms: number | null | undefined): string {
+  if (ms == null) return "";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: boolean }) {
   const t = useThemeTokens();
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -106,6 +118,31 @@ function HeartbeatHistoryList({ history }: { history: any[] }) {
                     }}>
                       {hb.result}
                     </div>
+                  )}
+                  {/* Stats row */}
+                  {(hb.iterations > 0 || hb.total_tokens > 0 || hb.duration_ms != null) && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      marginTop: 8, fontSize: 10, color: t.textDim,
+                    }}>
+                      {hb.duration_ms != null && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                          <Clock size={10} /> {fmtDuration(hb.duration_ms)}
+                        </span>
+                      )}
+                      {hb.total_tokens > 0 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                          <Zap size={10} /> {fmtTokens(hb.total_tokens)} tokens
+                        </span>
+                      )}
+                      {hb.iterations > 0 && (
+                        <span>{hb.iterations} iter</span>
+                      )}
+                    </div>
+                  )}
+                  {/* Tool calls */}
+                  {hb.tool_calls?.length > 0 && (
+                    <ToolCallsList toolCalls={hb.tool_calls} isWide={isWide} />
                   )}
                   {hb.correlation_id && (
                     <div
@@ -223,6 +260,8 @@ function ContextPreview({ form, data }: { form: any; data: any }) {
 // ---------------------------------------------------------------------------
 export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; workspaceId?: string | null }) {
   const t = useThemeTokens();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-heartbeat", channelId],
@@ -470,7 +509,7 @@ export function HeartbeatTab({ channelId, workspaceId }: { channelId: string; wo
           </div>
 
           {data.history?.length > 0 && (
-            <HeartbeatHistoryList history={data.history} />
+            <HeartbeatHistoryList history={data.history} isWide={isWide} />
           )}
         </div>
       )}

@@ -758,6 +758,7 @@ class SharedWorkspace(Base):
     indexing_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     editor_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     editor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    write_protected_paths: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     bots: Mapped[list["SharedWorkspaceBot"]] = relationship("SharedWorkspaceBot", back_populates="workspace", cascade="all, delete-orphan")
@@ -779,6 +780,7 @@ class SharedWorkspaceBot(Base):
     )
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'member'"))
     cwd_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    write_access: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
 
     workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace", back_populates="bots")
 

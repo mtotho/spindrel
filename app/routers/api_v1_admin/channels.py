@@ -26,14 +26,16 @@ from app.db.models import (
     Plan,
     Session,
     Task,
+    ToolCall,
     TraceEvent,
 )
 from app.config import settings
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.channels import apply_channel_visibility
 
-from ._helpers import _heartbeat_correlation_ids
+from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
 from ._schemas import MemoryListOut, MemoryOut
+from .turns import TurnToolCall
 
 router = APIRouter()
 
@@ -168,6 +170,10 @@ class HeartbeatHistoryRunOut(BaseModel):
     result: Optional[str] = None
     error: Optional[str] = None
     correlation_id: Optional[uuid.UUID] = None
+    tool_calls: list[TurnToolCall] = []
+    total_tokens: int = 0
+    iterations: int = 0
+    duration_ms: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -693,6 +699,48 @@ async def admin_channel_heartbeat_get(
                 )
                 for t in legacy_history
             ]
+
+    # Enrich history entries with tool calls and stats
+    correlation_ids = [h.correlation_id for h in history_out if h.correlation_id]
+    if correlation_ids:
+        tc_rows = (await db.execute(
+            select(ToolCall)
+            .where(ToolCall.correlation_id.in_(correlation_ids))
+            .order_by(ToolCall.created_at)
+        )).scalars().all()
+        tc_by_corr: dict[uuid.UUID, list] = {}
+        for tc in tc_rows:
+            tc_by_corr.setdefault(tc.correlation_id, []).append(tc)
+
+        te_rows = (await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.correlation_id.in_(correlation_ids),
+                TraceEvent.event_type == "token_usage",
+            )
+        )).scalars().all()
+
+        # Aggregate tokens + iterations per correlation_id
+        stats_by_corr: dict[uuid.UUID, dict] = {}
+        for te in te_rows:
+            s = stats_by_corr.setdefault(te.correlation_id, {"tokens": 0, "iterations": 0})
+            if te.data:
+                s["tokens"] += te.data.get("total_tokens", 0)
+                s["iterations"] = max(s["iterations"], te.data.get("iteration", 0))
+
+        for h in history_out:
+            if not h.correlation_id:
+                continue
+            tcs = tc_by_corr.get(h.correlation_id, [])
+            if tcs:
+                h.tool_calls = [TurnToolCall(**d) for d in build_tool_call_previews(tcs)]
+            stats = stats_by_corr.get(h.correlation_id)
+            if stats:
+                h.total_tokens = stats["tokens"]
+                h.iterations = stats["iterations"]
+            # Compute duration from run_at → completed_at if available
+            if h.completed_at and h.run_at:
+                h.duration_ms = int((h.completed_at - h.run_at).total_seconds() * 1000)
 
     return HeartbeatOut(
         config=config_out,

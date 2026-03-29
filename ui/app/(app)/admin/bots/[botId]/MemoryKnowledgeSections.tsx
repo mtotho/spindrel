@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Check, ChevronDown, HelpCircle, Trash2, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
@@ -24,40 +25,6 @@ const WORKSPACE_FILES_PRESETS = [
   { label: "Memory prompt auto-injected", detail: "Built-in prompt guides the bot on file-based memory workflow" },
   { label: "Compaction flush redirected", detail: "Pre-compaction memory save writes to files instead of DB" },
 ];
-
-const BUILT_IN_PROMPT = `## Memory
-
-Your persistent memory lives in \`memory/\` relative to your workspace directory.
-MEMORY.md and recent daily logs are in your context — do not re-read them.
-
-### MEMORY.md — Curated Knowledge
-Stable facts: user preferences, key decisions, system configs, learned patterns.
-Keep under ~100 lines. Promote important learnings from daily logs here.
-Format: ## sections with _Updated: YYYY-MM-DD_ headers. Edit in place.
-
-### logs/YYYY-MM-DD.md — Daily Logs
-Session notes, events, decisions, task progress. Today's log and yesterday's
-are in your context. Append to today's log during the session.
-
-### reference/ — Reference Documents
-Longer guides, runbooks, architecture notes. Not in your context.
-Use get_memory_file("name") or search_memory("query") to access.
-
-### Tools
-- search_memory(query) — hybrid semantic+keyword search across all memory files
-- get_memory_file(name) — read a specific memory file
-
-### Memory Rules
-- **Session start**: First action is appending an entry to today's log with time and task context.
-- **Every 3–5 responses**: Append a progress note to today's log. Do not let more than 5 responses pass without a write.
-- **Immediately on any decision, correction, or discovery**: Write it. Do not defer.
-- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
-- Before answering about past work or context: search_memory first.
-- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
-- When context is getting large: summarize key points to today's log before they're lost.
-- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md.
-- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines.
-- Format MEMORY.md sections with _Updated: YYYY-MM-DD_ headers; edit in place.`;
 
 const ARCHITECTURE_DIAGRAM = `
 ┌─────────────────────────────────────────────────────────────────┐
@@ -269,6 +236,8 @@ export function MemorySection({ draft, update, botId }: {
   botId: string | undefined;
 }) {
   const t = useThemeTokens();
+  const { data: defaults } = useMemorySchemeDefaults();
+  const builtInPrompt = defaults?.prompt ?? "";
   const isWorkspaceFiles = draft.memory_scheme === "workspace-files";
   const [showPrompt, setShowPrompt] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -443,7 +412,7 @@ export function MemorySection({ draft, update, botId }: {
                   margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                   fontFamily: "monospace", whiteSpace: "pre-wrap",
                   background: t.inputBg, borderRadius: 6, padding: 12,
-                }}>{BUILT_IN_PROMPT}</pre>
+                }}>{builtInPrompt}</pre>
               </div>
             )}
           </div>

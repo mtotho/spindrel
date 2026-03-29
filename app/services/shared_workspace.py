@@ -1,5 +1,6 @@
 """Shared workspace service — container lifecycle + file ops for multi-bot workspaces."""
 import asyncio
+import fnmatch
 import logging
 import os
 import re
@@ -192,12 +193,98 @@ class SharedWorkspaceService:
             bot_dir = f"/workspace/bots/{swb.bot_id}"
             await self._docker_exec(container_name, f"mkdir -p {bot_dir}")
 
+        # Fix file ownership so the host user can read/write workspace files.
+        # Container processes run as root, creating root-owned files that the
+        # server process (non-root) can't overwrite.  Setting umask + chmod
+        # ensures both sides can access everything.
+        uid, gid = os.getuid(), os.getgid()
+        await self._docker_exec(
+            container_name,
+            f"chown -R {uid}:{gid} /workspace && chmod -R a+rw /workspace"
+        )
+
         # Run startup script if configured
         if ws.startup_script:
             await self._run_startup_script(container_name, ws.startup_script)
 
         logger.info("Workspace container %s started: %s", container_name, container_id)
         return container_id
+
+    # ── Write protection ───────────────────────────────────────────
+
+    # Commands that can modify files when followed by a path
+    _WRITE_COMMANDS = re.compile(
+        r'\b(?:rm|mv|touch|mkdir|chmod|chown|tee|dd|cp|rsync|install)\b'
+    )
+    _SED_INPLACE = re.compile(r'\bsed\b.*\s-i')
+    _REDIRECT = re.compile(r'>{1,2}\s*')
+
+    def _check_write_protection(
+        self,
+        bot_id: str,
+        ws: SharedWorkspace,
+        swb: "SharedWorkspaceBot | None",
+        command: str,
+        working_dir: str,
+    ) -> None:
+        """Raise SharedWorkspaceError if command would write to a protected path.
+
+        Best-effort guard — same philosophy as host_exec blocklists.
+        The container itself is the real security boundary.
+        """
+        protected: list[str] = ws.write_protected_paths or []
+        if not protected:
+            return
+
+        bot_write_access: list[str] = (swb.write_access if swb else None) or []
+
+        for pattern in protected:
+            # Skip if this bot has an exemption matching this pattern
+            if any(fnmatch.fnmatch(pattern, exempt) for exempt in bot_write_access):
+                continue
+
+            # Check 1: working directory is inside a protected path
+            if fnmatch.fnmatch(working_dir, pattern) or (
+                working_dir.startswith(pattern.rstrip("*").rstrip("/") + "/")
+            ):
+                # Any command in a protected working dir could write via relative paths
+                if self._command_has_write_intent(command):
+                    raise SharedWorkspaceError(
+                        f"Write blocked: {working_dir} is within protected path {pattern}"
+                    )
+
+            # Check 2: command explicitly references the protected path
+            # Expand glob-style pattern to regex for matching inside command string
+            path_re = fnmatch.translate(pattern).rstrip(r"\Z$").rstrip("$")
+            # Also match any sub-path under the pattern
+            base = pattern.rstrip("*").rstrip("/")
+            if base and re.search(re.escape(base), command):
+                if self._command_has_write_intent(command):
+                    raise SharedWorkspaceError(
+                        f"Write blocked: {base} is protected"
+                    )
+
+    @staticmethod
+    def _command_has_write_intent(command: str) -> bool:
+        """Heuristic: does this command look like it intends to write/modify files?"""
+        # Redirects: > or >>
+        if re.search(r'>{1,2}\s*\S', command):
+            return True
+        # Destructive / write commands
+        if re.search(
+            r'\b(?:rm|mv|touch|mkdir|chmod|chown|tee|dd|cp|rsync|install)\b',
+            command,
+        ):
+            return True
+        # sed -i (in-place edit)
+        if re.search(r'\bsed\b.*\s-i', command):
+            return True
+        # python/node/ruby with -c that could write (too broad — skip)
+        # pip install, npm install, etc.
+        if re.search(r'\b(?:pip|npm|yarn|pnpm)\s+install\b', command):
+            return True
+        # echo/printf/cat with redirect is caught by the redirect check above
+        return False
 
     async def exec(
         self,
@@ -215,22 +302,26 @@ class SharedWorkspaceService:
             async with async_session() as db:
                 ws = await db.get(SharedWorkspace, ws.id)
 
+        # Look up bot's workspace membership (needed for cwd + write protection)
+        async with async_session() as db:
+            swb = (await db.execute(
+                select(SharedWorkspaceBot).where(
+                    SharedWorkspaceBot.workspace_id == ws.id,
+                    SharedWorkspaceBot.bot_id == bot_id,
+                )
+            )).scalar_one_or_none()
+
         # Determine working directory
         if not working_dir:
-            # Look up bot's role/cwd from junction
-            async with async_session() as db:
-                swb = (await db.execute(
-                    select(SharedWorkspaceBot).where(
-                        SharedWorkspaceBot.workspace_id == ws.id,
-                        SharedWorkspaceBot.bot_id == bot_id,
-                    )
-                )).scalar_one_or_none()
             if swb:
                 working_dir = self.get_bot_cwd(bot_id, swb.role, swb.cwd_override)
             else:
                 working_dir = f"/workspace/bots/{bot_id}"
 
-        full_cmd = f"cd {working_dir} && {command}"
+        # Enforce write protection
+        self._check_write_protection(bot_id, ws, swb, command, working_dir)
+
+        full_cmd = f"umask 0000 && cd {working_dir} && {command}"
         _timeout = timeout or 30
         _max_bytes = max_bytes or 65536
 
@@ -430,10 +521,50 @@ class SharedWorkspaceService:
         if target is None:
             raise SharedWorkspaceError("Path escapes workspace root")
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(content)
+        except PermissionError:
+            # File likely owned by root from Docker container operations.
+            # Try to fix ownership via the container and retry.
+            if not self._try_fix_file_permissions(workspace_id, target):
+                raise
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(content)
         size = os.path.getsize(target)
         return {"path": path, "size": size}
+
+    def _try_fix_file_permissions(self, workspace_id: str, host_path: str) -> bool:
+        """Fix ownership of a root-owned file using the workspace's Docker container."""
+        import subprocess
+        uid, gid = os.getuid(), os.getgid()
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
+        rel = os.path.relpath(host_path, host_root)
+        container_path = f"/workspace/{rel}"
+
+        # Find the workspace container by the workspace ID hex prefix
+        ws_hex = workspace_id.replace("-", "")[:8]
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return False
+        if result.returncode != 0:
+            return False
+
+        for name in result.stdout.strip().splitlines():
+            if ws_hex in name:
+                try:
+                    fix = subprocess.run(
+                        ["docker", "exec", name, "chown", f"{uid}:{gid}", container_path],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    return fix.returncode == 0
+                except Exception:
+                    return False
+        return False
 
     def write_binary_file(self, workspace_id: str, path: str, content: bytes) -> dict:
         """Write binary content to a file in the workspace. Creates parent dirs if needed."""

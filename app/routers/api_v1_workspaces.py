@@ -41,6 +41,7 @@ class WorkspaceCreate(BaseModel):
     read_only_root: bool = False
     startup_script: Optional[str] = "/workspace/startup.sh"
     created_by_user_id: Optional[str] = None
+    write_protected_paths: list[str] = []
 
 
 class WorkspaceUpdate(BaseModel):
@@ -59,6 +60,7 @@ class WorkspaceUpdate(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
+    write_protected_paths: Optional[list[str]] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -80,6 +82,7 @@ class WorkspaceOut(BaseModel):
     indexing_config: Optional[dict] = None
     editor_enabled: bool = False
     editor_port: Optional[int] = None
+    write_protected_paths: list[str] = []
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -97,12 +100,14 @@ class WorkspaceBotAdd(BaseModel):
     bot_id: str
     role: str = "member"
     cwd_override: Optional[str] = None
+    write_access: list[str] = []
 
 
 class WorkspaceBotUpdate(BaseModel):
     # Workspace membership fields
     role: Optional[str] = None
     cwd_override: Optional[str] = None
+    write_access: Optional[list[str]] = None
     # Bot config fields (written to bots table)
     system_prompt: Optional[str] = None
     name: Optional[str] = None
@@ -153,6 +158,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
                 "bot_name": bot.name if bot else swb.bot_id,
                 "role": swb.role,
                 "cwd_override": swb.cwd_override,
+                "write_access": swb.write_access or [],
                 "user_id": bot.user_id if bot else None,
                 "indexing_enabled": bot.workspace.indexing.enabled if bot else False,
             })
@@ -175,6 +181,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         indexing_config=ws.indexing_config,
         editor_enabled=ws.editor_enabled,
         editor_port=ws.editor_port,
+        write_protected_paths=ws.write_protected_paths or [],
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -224,6 +231,7 @@ async def create_workspace(
         docker_user=body.docker_user,
         read_only_root=body.read_only_root,
         startup_script=body.startup_script,
+        write_protected_paths=body.write_protected_paths,
         created_by_user_id=uuid.UUID(body.created_by_user_id) if body.created_by_user_id else None,
         created_at=now,
         updated_at=now,
@@ -508,6 +516,7 @@ async def add_bot_to_workspace(
         bot_id=body.bot_id,
         role=body.role,
         cwd_override=body.cwd_override,
+        write_access=body.write_access,
     )
     db.add(swb)
     try:
@@ -556,6 +565,7 @@ async def get_workspace_bot(
         "system_prompt": bot_row.system_prompt,
         "role": swb.role,
         "cwd_override": swb.cwd_override,
+        "write_access": swb.write_access or [],
         "skills": bot_row.skills or [],
         "local_tools": bot_row.local_tools or [],
         "persona": bot_row.persona,
@@ -590,6 +600,8 @@ async def update_workspace_bot(
         swb.role = updates["role"]
     if "cwd_override" in updates:
         swb.cwd_override = updates["cwd_override"] or None
+    if "write_access" in updates:
+        swb.write_access = updates["write_access"] or []
     # Bot config fields (written to bots table)
     bot_fields = {
         k: v for k, v in updates.items()
@@ -608,7 +620,7 @@ async def update_workspace_bot(
         await write_persona(bot_id, body.persona_content)
     await db.commit()
     await reload_bots()
-    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, **bot_fields}
+    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, "write_access": swb.write_access or [], **bot_fields}
 
 
 @router.delete("/{workspace_id}/bots/{bot_id}", status_code=204)

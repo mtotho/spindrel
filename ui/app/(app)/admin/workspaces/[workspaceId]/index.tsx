@@ -25,6 +25,7 @@ import {
 } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { IndexingOverview } from "./IndexingOverview";
+import { WriteProtection } from "./WriteProtection";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -121,10 +122,11 @@ function EnvEditor({ entries, onChange }: {
 // ---------------------------------------------------------------------------
 // Connected bots section
 // ---------------------------------------------------------------------------
-function ConnectedBots({ workspaceId, bots, isWide }: {
+function ConnectedBots({ workspaceId, bots, isWide, writeProtectedPaths }: {
   workspaceId: string;
-  bots: { bot_id: string; bot_name: string; role: string; cwd_override?: string | null }[];
+  bots: { bot_id: string; bot_name: string; role: string; cwd_override?: string | null; write_access?: string[] }[];
   isWide: boolean;
+  writeProtectedPaths: string[];
 }) {
   const t = useThemeTokens();
   const { data: allBots } = useBots();
@@ -147,42 +149,76 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
       {bots.length === 0 && (
         <div style={{ color: t.textDim, fontSize: 12 }}>No bots connected.</div>
       )}
-      {bots.map((b) => (
-        <div key={b.bot_id} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", background: t.surface, borderRadius: 8,
-          border: `1px solid ${t.surfaceRaised}`,
-        }}>
-          <span style={{
-            fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
-            minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      {bots.map((b) => {
+        const botWriteAccess = b.write_access || [];
+        const toggleWriteAccess = (path: string) => {
+          const has = botWriteAccess.includes(path);
+          const next = has ? botWriteAccess.filter((p) => p !== path) : [...botWriteAccess, path];
+          updateBot.mutate({ bot_id: b.bot_id, write_access: next });
+        };
+        return (
+          <div key={b.bot_id} style={{
+            display: "flex", flexDirection: "column", gap: 6,
+            padding: "8px 12px", background: t.surface, borderRadius: 8,
+            border: `1px solid ${t.surfaceRaised}`,
           }}>
-            {b.bot_name || b.bot_id}
-          </span>
-          <select
-            value={b.role}
-            onChange={(e) => updateBot.mutate({ bot_id: b.bot_id, role: e.target.value })}
-            style={{
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-              padding: "3px 8px", color: t.text, fontSize: 11, cursor: "pointer",
-              outline: "none",
-            }}
-          >
-            <option value="member">Member</option>
-            <option value="orchestrator">Orchestrator</option>
-          </select>
-          <button
-            onClick={() => removeBot.mutate(b.bot_id)}
-            disabled={removeBot.isPending}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: t.textDim, padding: 2, flexShrink: 0,
-            }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
+                minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {b.bot_name || b.bot_id}
+              </span>
+              <select
+                value={b.role}
+                onChange={(e) => updateBot.mutate({ bot_id: b.bot_id, role: e.target.value })}
+                style={{
+                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                  padding: "3px 8px", color: t.text, fontSize: 11, cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                <option value="member">Member</option>
+                <option value="orchestrator">Orchestrator</option>
+              </select>
+              <button
+                onClick={() => removeBot.mutate(b.bot_id)}
+                disabled={removeBot.isPending}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: t.textDim, padding: 2, flexShrink: 0,
+                }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            {writeProtectedPaths.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 2 }}>
+                {writeProtectedPaths.map((p) => {
+                  const allowed = botWriteAccess.includes(p);
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => toggleWriteAccess(p)}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 3,
+                        padding: "2px 8px", fontSize: 10, fontFamily: "monospace",
+                        borderRadius: 4, cursor: "pointer",
+                        border: `1px solid ${allowed ? "#16a34a" : t.surfaceBorder}`,
+                        background: allowed ? "rgba(34,197,94,0.1)" : "transparent",
+                        color: allowed ? "#16a34a" : t.textDim,
+                      }}
+                      title={allowed ? `Revoke write access to ${p}` : `Grant write access to ${p}`}
+                    >
+                      {allowed ? "W" : "—"} {p.replace("/workspace/", "")}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Add bot */}
       {availableBots.length > 0 && (
@@ -436,14 +472,47 @@ function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
 // ---------------------------------------------------------------------------
 // File browser with view/edit/create/delete
 // ---------------------------------------------------------------------------
+function useFileBrowserParams() {
+  // Persist file browser path & file in URL search params so refresh keeps state.
+  const readParams = () => {
+    if (typeof window === "undefined") return { path: "/", file: null as string | null };
+    const sp = new URLSearchParams(window.location.search);
+    return { path: sp.get("fp") || "/", file: sp.get("ff") || null };
+  };
+  const [state, setState] = useState(readParams);
+
+  const update = useCallback((path: string, file: string | null) => {
+    setState({ path, file });
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (path && path !== "/") sp.set("fp", path); else sp.delete("fp");
+    if (file) sp.set("ff", file); else sp.delete("ff");
+    const qs = sp.toString();
+    const url = window.location.pathname + (qs ? `?${qs}` : "");
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  return { browserPath: state.path, browserFile: state.file, updateBrowserParams: update };
+}
+
 function FileBrowser({ workspaceId }: { workspaceId: string }) {
   const t = useThemeTokens();
-  const [path, setPath] = useState("/");
-  const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const { browserPath, browserFile, updateBrowserParams } = useFileBrowserParams();
+  const [path, setPathRaw] = useState(browserPath);
+  const [viewingFile, setViewingFileRaw] = useState<string | null>(browserFile);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [creating, setCreating] = useState<"file" | "folder" | null>(null);
   const [newName, setNewName] = useState("");
+
+  const setPath = useCallback((p: string) => {
+    setPathRaw(p);
+    updateBrowserParams(p, null);
+  }, [updateBrowserParams]);
+  const setViewingFile = useCallback((f: string | null) => {
+    setViewingFileRaw(f);
+    updateBrowserParams(path, f);
+  }, [updateBrowserParams, path]);
 
   const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId, path);
   const { data: fileData, isLoading: fileLoading, error: fileError } = useWorkspaceFileContent(
@@ -454,9 +523,10 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
   const deleteMut = useDeleteWorkspaceFile(workspaceId);
 
   const navigateTo = (entryPath: string) => {
-    setViewingFile(null);
+    setViewingFileRaw(null);
     setEditing(false);
-    setPath(entryPath);
+    setPathRaw(entryPath);
+    updateBrowserParams(entryPath, null);
   };
   const navigateUp = () => {
     const parent = path.replace(/\/[^/]+\/?$/, "") || "/";
@@ -816,6 +886,7 @@ export default function WorkspaceDetailScreen() {
   const [startupScript, setStartupScript] = useState("/workspace/startup.sh");
   const [skillsEnabled, setSkillsEnabled] = useState(true);
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
+  const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {
@@ -839,6 +910,7 @@ export default function WorkspaceDetailScreen() {
     setStartupScript(workspace.startup_script ?? "/workspace/startup.sh");
     setSkillsEnabled(workspace.workspace_skills_enabled ?? true);
     setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
+    setWriteProtectedPaths(workspace.write_protected_paths || []);
     setInitialized(true);
   }
 
@@ -865,6 +937,7 @@ export default function WorkspaceDetailScreen() {
         startup_script: startupScript || undefined,
         workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
+        write_protected_paths: writeProtectedPaths,
       });
       goBack();
     } else {
@@ -886,13 +959,14 @@ export default function WorkspaceDetailScreen() {
         startup_script: startupScript || undefined,
         workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
+        write_protected_paths: writeProtectedPaths,
       });
       // Update snapshot so dirty tracking resets
       savedSnapshot.current = currentSnapshot;
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -903,8 +977,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -1300,6 +1374,11 @@ export default function WorkspaceDetailScreen() {
             )}
           </Section>
 
+          {/* Write Protection */}
+          <Section title="Write Protection" description="Prevent bots from writing to specific directories in the workspace.">
+            <WriteProtection paths={writeProtectedPaths} onChange={setWriteProtectedPaths} />
+          </Section>
+
           {/* Workspace Base Prompt */}
           <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
             <FormRow label="Enable workspace base prompt override">
@@ -1348,6 +1427,7 @@ export default function WorkspaceDetailScreen() {
                 workspaceId={workspaceId!}
                 bots={workspace.bots}
                 isWide={isWide}
+                writeProtectedPaths={workspace.write_protected_paths || []}
               />
             </Section>
           )}

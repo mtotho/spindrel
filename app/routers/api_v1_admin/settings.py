@@ -114,6 +114,16 @@ async def chat_history_deviations(
     return {"channels": result}
 
 
+@router.get("/settings/memory-scheme-defaults")
+async def memory_scheme_defaults(_auth: str = Depends(verify_auth_or_user)):
+    """Return built-in default prompts for the workspace-files memory scheme."""
+    from app.config import DEFAULT_MEMORY_SCHEME_PROMPT, DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+    return {
+        "prompt": DEFAULT_MEMORY_SCHEME_PROMPT,
+        "flush_prompt": DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT,
+    }
+
+
 @router.get("/global-fallback-models")
 async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
     from app.services.server_config import get_global_fallback_models
