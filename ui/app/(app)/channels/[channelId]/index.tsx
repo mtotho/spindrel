@@ -88,7 +88,14 @@ export default function ChatScreen() {
   useEffect(() => {
     if (channelId && pages) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
-        .filter((m) => m.role === "user" || m.role === "assistant");
+        .filter((m) => {
+          if (m.role !== "user" && m.role !== "assistant") return false;
+          const meta = (m as any).metadata ?? {};
+          // Hide heartbeat messages and passive dispatch echoes
+          if (meta.is_heartbeat) return false;
+          if (meta.passive) return false;
+          return true;
+        });
       setMessages(channelId, allMessages);
     }
   }, [channelId, pages]);

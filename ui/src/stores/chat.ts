@@ -71,19 +71,34 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const ch = s.channels[channelId] ?? emptyChannel;
       switch (event.event) {
         case "response": {
-          const data = event.data as { response?: string };
+          // Server sends: {"type": "response", "text": "..."}
+          const data = event.data as { text?: string };
           return {
             channels: {
               ...s.channels,
               [channelId]: {
                 ...ch,
-                streamingContent: data.response ?? ch.streamingContent,
+                streamingContent: data.text ?? ch.streamingContent,
+              },
+            },
+          };
+        }
+        case "assistant_text": {
+          // Intermediate text emitted alongside tool calls
+          const data = event.data as { text?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                streamingContent: data.text ?? ch.streamingContent,
               },
             },
           };
         }
         case "tool_start": {
-          const data = event.data as { tool_name?: string };
+          // Server sends: {"type": "tool_start", "tool": "name", "args": "..."}
+          const data = event.data as { tool?: string };
           return {
             channels: {
               ...s.channels,
@@ -91,7 +106,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 ...ch,
                 toolCalls: [
                   ...ch.toolCalls,
-                  { name: data.tool_name ?? "unknown", status: "running" },
+                  { name: data.tool ?? "unknown", status: "running" },
                 ],
               },
             },
@@ -109,11 +124,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         }
         case "error": {
-          const data = event.data as { error?: string };
+          // Server sends: {"type": "error", "message": "..."}
+          const data = event.data as { message?: string; detail?: string };
           return {
             channels: {
               ...s.channels,
-              [channelId]: { ...ch, error: data.error ?? "Unknown error" },
+              [channelId]: { ...ch, error: data.message ?? data.detail ?? "Unknown error" },
             },
           };
         }

@@ -30,8 +30,11 @@ export function useChatStream(options: UseChatStreamOptions) {
           if (!ev.data) return;
           try {
             const data = JSON.parse(ev.data);
+            // The server sends unnamed SSE events (just `data:` lines),
+            // so ev.event is always "message".  The actual event type is
+            // in data.type (e.g. "response", "tool_start", etc.).
             options.onEvent({
-              event: ev.event as SSEEvent["event"],
+              event: (data.type ?? ev.event) as SSEEvent["event"],
               data,
             });
           } catch {

@@ -803,7 +803,7 @@ async def admin_channel_heartbeat_toggle(
 
     if heartbeat.enabled and heartbeat.next_run_at is None:
         from app.services.heartbeat import next_aligned_time
-        heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes)
+        heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes or 30)
     elif not heartbeat.enabled:
         heartbeat.next_run_at = None
 

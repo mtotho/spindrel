@@ -407,6 +407,11 @@ async def persist_turn(
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
+    roles = [m.get("role") for m in new_messages]
+    logger.info(
+        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s",
+        session_id, from_index, len(messages), len(new_messages), roles,
+    )
     now = datetime.now(timezone.utc)
     first_user = True
     first_user_msg_id: uuid.UUID | None = None
