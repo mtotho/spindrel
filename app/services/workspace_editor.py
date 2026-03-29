@@ -209,6 +209,10 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
 
     Returns {"editor_url": str, "editor_port": int}.
     """
+    print(
+        f"[EDITOR] ensure_editor called: ws.id={ws.id} container_name={ws.container_name} "
+        f"status={ws.status} editor_port={ws.editor_port} editor_enabled={ws.editor_enabled}"
+    )
     logger.info(
         "ensure_editor called: ws.id=%s container_name=%s status=%s "
         "editor_port=%s editor_enabled=%s",
@@ -251,22 +255,25 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
         ws.container_name, container_alive, need_recreate,
     )
 
-    if container_alive and need_recreate:
-        # Container exists but may lack port mapping — check
+    if container_alive:
+        # Container is running — check if editor port 8443 is actually mapped
         proc = await asyncio.create_subprocess_exec(
             "docker", "port", ws.container_name, "8443",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
-        if proc.returncode != 0 or not stdout.strip():
+        port_mapped = proc.returncode == 0 and bool(stdout.strip())
+        if port_mapped:
+            logger.info("Port 8443 already mapped: %s", stdout.decode().strip())
+        else:
+            # Port not mapped — must recreate container to add -p mapping
             logger.info("Recreating container %s to add editor port mapping", ws.container_name)
             await shared_workspace_service.recreate(ws)
             async with async_session() as db:
                 ws = await db.get(SharedWorkspace, ws.id)
-        else:
-            logger.info("Port 8443 already mapped: %s", stdout.decode().strip())
-    elif not container_alive:
+    else:
+        # Container doesn't exist or isn't running — start it
         logger.info("Container not running — calling ensure_container for workspace %s", ws.id)
         try:
             container_id = await shared_workspace_service.ensure_container(ws)
@@ -280,8 +287,6 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
             "After ensure_container: container_name=%s status=%s editor_port=%s",
             ws.container_name, ws.status, ws.editor_port,
         )
-    else:
-        logger.info("Container alive and no recreate needed")
 
     # 3. Install code-server (idempotent — checks if binary exists)
     if ws.container_name:
