@@ -794,9 +794,15 @@ async def assemble_context(
                             .order_by(_SISection.sequence.desc())
                             .limit(_si_count)
                         )).scalars().all()
+                        from sqlalchemy import func as _si_func
+                        _si_total = (await _si_db.execute(
+                            _si_select(_si_func.count())
+                            .select_from(_SISection)
+                            .where(_SISection.channel_id == channel_id)
+                        )).scalar() or 0
                     if _si_rows:
                         from app.services.compaction import format_section_index
-                        _si_text = format_section_index(_si_rows, verbosity=_si_verbosity)
+                        _si_text = format_section_index(_si_rows, verbosity=_si_verbosity, total_sections=_si_total)
                         _si_chars = len(_si_text)
                         _inject_chars["section_index"] = _si_chars
                         messages.append({"role": "system", "content": _si_text})

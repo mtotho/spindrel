@@ -1390,12 +1390,21 @@ async def backfill_sections(
     messages = [_msg_to_dict(m) for m in all_msgs]
     messages = [m for m in messages if m.get("role") != "system"]
 
+    # Build active_timestamps aligned with what _messages_for_summary keeps
+    # as countable messages (user/assistant/tool — excluding passive users and
+    # heartbeats).  Tool messages become "assistant" in the conversation, so
+    # they must be counted here too for period index alignment.
     active_timestamps: list[datetime] = []
     for orig_msg in all_msgs:
         if orig_msg.role == "system":
             continue
-        is_passive = (orig_msg.metadata_ or {}).get("passive", False)
-        if orig_msg.role in ("user", "assistant") and not (orig_msg.role == "user" and is_passive):
+        meta = orig_msg.metadata_ or {}
+        if meta.get("is_heartbeat"):
+            continue
+        is_passive = meta.get("passive", False)
+        if orig_msg.role == "user" and is_passive:
+            continue
+        if orig_msg.role in ("user", "assistant", "tool"):
             active_timestamps.append(orig_msg.created_at)
 
     conversation = _messages_for_summary(messages)
@@ -1647,7 +1656,7 @@ def _format_section_period(period_start, period_end, detailed: bool = False) -> 
     return f"{period_start.strftime('%b %-d')} — {period_end.strftime('%b %-d')}"
 
 
-def format_section_index(sections: list, verbosity: str = "standard") -> str:
+def format_section_index(sections: list, verbosity: str = "standard", total_sections: int | None = None) -> str:
     """Format a section index for injection into the system prompt.
 
     Sections are expected in **most-recent-first** order; output preserves that.
@@ -1664,6 +1673,11 @@ def format_section_index(sections: list, verbosity: str = "standard") -> str:
         "  - 'messages:<query>' to grep raw messages across ALL history (exact strings, errors, ports, paths)\n"
         "  - 'tool:<id>' to retrieve full output of a summarized tool call"
     )
+    if total_sections and total_sections > len(sections):
+        header += (
+            f"\n\nShowing {len(sections)} most recent of {total_sections} total sections. "
+            "Use 'search:<query>' to find older sections by topic."
+        )
 
     if verbosity == "compact":
         lines = [header]
