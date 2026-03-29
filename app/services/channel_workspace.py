@@ -41,11 +41,30 @@ def get_channel_archive_root(channel_id: str, bot: "BotConfig") -> str:
     return os.path.join(get_channel_workspace_root(channel_id, bot), "archive")
 
 
-def ensure_channel_workspace(channel_id: str, bot: "BotConfig") -> str:
+def ensure_channel_workspace(
+    channel_id: str,
+    bot: "BotConfig",
+    *,
+    display_name: str | None = None,
+) -> str:
     """Create workspace/ + archive/ + data/ dirs, idempotent. Returns workspace root."""
     ws_path = get_channel_workspace_root(channel_id, bot)
     for subdir in ("archive", "data"):
         os.makedirs(os.path.join(ws_path, subdir), exist_ok=True)
+
+    # Write/update .channel_info so humans can identify UUID folders
+    label = display_name or channel_id
+    info_content = f"channel_id: {channel_id}\ndisplay_name: {label}\n"
+    # Write at both levels: channels/{id}/ and channels/{id}/workspace/
+    for info_dir in (os.path.dirname(ws_path), ws_path):
+        info_path = os.path.join(info_dir, ".channel_info")
+        try:
+            existing = Path(info_path).read_text() if os.path.isfile(info_path) else ""
+            if existing != info_content:
+                Path(info_path).write_text(info_content)
+        except Exception:
+            pass  # non-critical
+
     return ws_path
 
 

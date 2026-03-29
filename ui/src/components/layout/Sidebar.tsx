@@ -32,6 +32,7 @@ import { useThemeStore } from "../../stores/theme";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useWorkspaces } from "../../api/hooks/useWorkspaces";
+import { useChannelReadStore } from "../../stores/channelRead";
 import { useThemeTokens } from "../../theme/tokens";
 
 interface NavItem {
@@ -214,6 +215,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const t = useThemeTokens();
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+  const isUnread = useChannelReadStore((s) => s.isUnread);
 
   // -----------------------------------------------------------------------
   // Collapsed: icon rail (56px)
@@ -242,7 +244,22 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               style={{ width: 44, height: 44 }}
               accessibilityLabel="Channels"
             >
-              <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
+              <View>
+                <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
+                {channels?.some((ch) => !pathname.includes(ch.id) && isUnread(ch.id, ch.updated_at)) && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: t.accent,
+                    }}
+                  />
+                )}
+              </View>
             </Pressable>
           </Link>
 
@@ -342,6 +359,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             channels?.map((channel) => {
               const bot = botMap.get(channel.bot_id);
               const isActive = pathname.includes(channel.id);
+              const unread = !isActive && isUnread(channel.id, channel.updated_at);
               const displayName = channel.display_name || channel.name || channel.client_id;
               return (
                 <Link
@@ -364,7 +382,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                       <Text
                         style={mobile ? { fontSize: 15 } : undefined}
                         className={`${mobile ? "" : "text-sm"} ${
-                          isActive ? "text-accent font-medium" : "text-text-muted"
+                          isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text-muted"
                         }`}
                         numberOfLines={1}
                       >
@@ -376,6 +394,17 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                         </Text>
                       )}
                     </View>
+                    {unread && (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: t.accent,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
                   </Pressable>
                 </Link>
               );

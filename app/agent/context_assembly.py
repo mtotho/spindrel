@@ -376,7 +376,7 @@ async def assemble_context(
                 ensure_channel_workspace,
             )
             _cw_ch_id = str(_ch_row.id)
-            ensure_channel_workspace(_cw_ch_id, bot)
+            ensure_channel_workspace(_cw_ch_id, bot, display_name=_ch_row.display_name or _ch_row.name)
             _cw_root = get_channel_workspace_root(_cw_ch_id, bot)
 
             _cw_files: list[tuple[str, str]] = []  # (name, content)
@@ -415,8 +415,11 @@ async def assemble_context(
                     if _data_entries:
                         _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
 
+                _cw_abs = f"/workspace/channels/{_cw_ch_id}/workspace"
                 _cw_helper = (
-                    f"Channel workspace files (channels/{_cw_ch_id}/workspace/ relative to /workspace/):\n"
+                    f"Channel workspace — absolute path: {_cw_abs}\n"
+                    f"IMPORTANT: Always use the exact path above for file operations. The channel ID is {_cw_ch_id} (a UUID, NOT the channel name).\n"
+                    f"Example: exec_command cat {_cw_abs}/my_file.md\n"
                     "Use exec_command for creating, editing, and moving workspace files.\n"
                     "Use search_channel_archive to search archived files, search_channel_workspace for broader search.\n"
                     "Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.\n"

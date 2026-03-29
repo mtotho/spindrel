@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Session, ToolCall, TraceEvent
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from ._helpers import _parse_time, build_tool_call_previews
 
 router = APIRouter()
@@ -82,7 +82,7 @@ async def list_turns(
     has_tool_calls: Optional[bool] = Query(None, description="Filter to turns with/without tool calls"),
     search: Optional[str] = Query(None, description="Search in user message text"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("logs:read")),
 ):
     """List recent agent turns with tool calls, token usage, errors, and timing.
 

@@ -543,6 +543,7 @@ async def dispatch(
     files: list | None = None,
     thread_ts: str | None = None,
     mentioned: bool = False,
+    message_ts: str | None = None,
 ):
     text = (text or "").strip()
 
@@ -630,6 +631,7 @@ async def dispatch(
     dispatch_config = {
         "channel_id": channel,
         "thread_ts": thread_ts,
+        "message_ts": message_ts,
         "token": BOT_TOKEN,
     }
     identity = _get_identity(bot_id)
@@ -674,6 +676,7 @@ def register_message_handlers(app):
             event.get("files"),
             thread_ts=thread_ts,
             mentioned=False,
+            message_ts=event.get("ts"),
         )
 
     @app.event("message")
@@ -707,6 +710,7 @@ def register_message_handlers(app):
             event.get("files"),
             thread_ts=thread_ts,
             mentioned=False,
+            message_ts=event.get("ts"),
         )
 
     @app.event("app_mention")
@@ -724,4 +728,5 @@ def register_message_handlers(app):
             event.get("files"),
             thread_ts=thread_ts,
             mentioned=True,
+            message_ts=event.get("ts"),
         )

@@ -133,12 +133,17 @@ def _evict_stale_reactions() -> None:
 
 
 def _get_slack_ref() -> tuple[str | None, str | None, str | None]:
-    """Read Slack channel_id, thread_ts, token from current dispatch context."""
+    """Read Slack channel_id, message_ts, token from current dispatch context.
+
+    Returns the user's message timestamp (for reactions) — falls back to
+    thread_ts if message_ts isn't available.
+    """
     from app.agent.context import current_dispatch_config, current_dispatch_type
     if current_dispatch_type.get() != "slack":
         return None, None, None
     cfg = current_dispatch_config.get() or {}
-    return cfg.get("channel_id"), cfg.get("thread_ts"), cfg.get("token")
+    ts = cfg.get("message_ts") or cfg.get("thread_ts")
+    return cfg.get("channel_id"), ts, cfg.get("token")
 
 
 def _emoji_for_tool(tool_name: str) -> str:
@@ -165,7 +170,8 @@ async def _slack_react(token: str, channel: str, timestamp: str, emoji: str, *, 
         data = r.json()
         # already_reacted / no_reaction are expected races, not errors
         if not data.get("ok") and data.get("error") not in ("already_reacted", "no_reaction"):
-            logger.debug("Slack %s failed: %s", method, data.get("error"))
+            level = logging.WARNING if data.get("error") == "missing_scope" else logging.DEBUG
+            logger.log(level, "Slack %s failed: %s", method, data.get("error"))
     except Exception:
         logger.debug("Slack %s request failed", method, exc_info=True)
 
