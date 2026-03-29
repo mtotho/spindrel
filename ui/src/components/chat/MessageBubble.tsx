@@ -332,9 +332,13 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
     : trigger === "scheduled_task"
       ? { label: meta.task_title || "scheduled", icon: "🔁", color: "#8b5cf6" }
-      : meta.is_heartbeat
-        ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
-        : null;
+      : trigger === "harness_callback"
+        ? { label: meta.harness_name || "harness", icon: "⚡", color: "#06b6d4" }
+        : trigger === "callback"
+          ? { label: "callback", icon: "↩", color: "#8b5cf6" }
+          : meta.is_heartbeat
+            ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
+            : null;
 
   const messageContent = isWeb ? (
     <>

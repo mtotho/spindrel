@@ -825,6 +825,18 @@ async def run_task(task: Task) -> None:
             _task_meta = {"trigger": "scheduled_task"}
             if task.title:
                 _task_meta["task_title"] = task.title
+        elif task.task_type == "callback":
+            # Callback tasks (e.g. harness results) should identify themselves
+            # so the UI can display them properly instead of showing "You".
+            _task_meta = {"trigger": "callback", "sender_type": "bot", "sender_display_name": bot.name}
+            # Check if the parent was a harness task for richer metadata
+            if task.parent_task_id:
+                async with async_session() as _cb_db:
+                    _cb_parent = await _cb_db.get(Task, task.parent_task_id)
+                    if _cb_parent and _cb_parent.task_type == "harness":
+                        _harness_name = (_cb_parent.execution_config or {}).get("harness_name", "harness")
+                        _task_meta["trigger"] = "harness_callback"
+                        _task_meta["harness_name"] = _harness_name
         from app.services.sessions import persist_turn
         async with async_session() as db:
             await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id, msg_metadata=_task_meta)

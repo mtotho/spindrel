@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -12,6 +13,91 @@ import openai
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Think-tag handling
+# ---------------------------------------------------------------------------
+# Models like DeepSeek/Qwen embed reasoning in <think>...</think> inside
+# delta.content instead of using the reasoning_content attribute.  The parser
+# below splits streaming text into content vs. thinking on-the-fly.
+
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+_MAX_TAG_LEN = len(_THINK_CLOSE)  # 8 — longest tag we need to buffer for
+
+
+class ThinkTagParser:
+    """Streaming state machine that separates <think> blocks from content."""
+
+    def __init__(self):
+        self._in_think: bool = False
+        self._buffer: str = ""  # held-back chars that might be a partial tag
+
+    def feed(self, text: str) -> tuple[str, str]:
+        """Process a chunk of text.  Returns (content_text, thinking_text)."""
+        self._buffer += text
+        content_out: list[str] = []
+        thinking_out: list[str] = []
+
+        while self._buffer:
+            if self._in_think:
+                idx = self._buffer.find(_THINK_CLOSE)
+                if idx != -1:
+                    # Emit everything before the close tag as thinking
+                    thinking_out.append(self._buffer[:idx])
+                    self._buffer = self._buffer[idx + len(_THINK_CLOSE):]
+                    self._in_think = False
+                else:
+                    # Check if the buffer ends with a potential partial close tag
+                    safe, held = self._split_at_potential_tag(self._buffer, _THINK_CLOSE)
+                    if safe:
+                        thinking_out.append(safe)
+                    self._buffer = held
+                    break
+            else:
+                idx = self._buffer.find(_THINK_OPEN)
+                if idx != -1:
+                    # Emit everything before the open tag as content
+                    content_out.append(self._buffer[:idx])
+                    self._buffer = self._buffer[idx + len(_THINK_OPEN):]
+                    self._in_think = True
+                else:
+                    # Check if the buffer ends with a potential partial open tag
+                    safe, held = self._split_at_potential_tag(self._buffer, _THINK_OPEN)
+                    if safe:
+                        content_out.append(safe)
+                    self._buffer = held
+                    break
+
+        return "".join(content_out), "".join(thinking_out)
+
+    def flush(self) -> tuple[str, str]:
+        """Emit any remaining buffered text (call at end of stream)."""
+        remaining = self._buffer
+        self._buffer = ""
+        if self._in_think:
+            return "", remaining
+        return remaining, ""
+
+    @staticmethod
+    def _split_at_potential_tag(text: str, tag: str) -> tuple[str, str]:
+        """Split text into (safe_to_emit, held_back) based on partial tag match.
+
+        If the end of *text* is a prefix of *tag*, hold it back.
+        E.g. text="hello<th", tag="<think>" → ("hello", "<th")
+        """
+        # Check progressively shorter suffixes of text against prefixes of tag
+        max_check = min(len(tag) - 1, len(text))
+        for length in range(max_check, 0, -1):
+            if text[-length:] == tag[:length]:
+                return text[:-length], text[-length:]
+        return text, ""
+
+
+def strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> blocks from text (for non-streaming paths)."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
 
 
 @dataclass
@@ -68,6 +154,7 @@ class StreamAccumulator:
     def __init__(self):
         self._content_parts: list[str] = []
         self._thinking_parts: list[str] = []
+        self._think_parser = ThinkTagParser()
         # tool_calls indexed by delta.index
         self._tool_calls: dict[int, dict] = {}
         self._usage: Any = None
@@ -85,10 +172,15 @@ class StreamAccumulator:
         choice = chunk.choices[0]
         delta = choice.delta
 
-        # Text content
+        # Text content — route <think> blocks to thinking events
         if delta.content:
-            self._content_parts.append(delta.content)
-            events.append({"type": "text_delta", "delta": delta.content})
+            content_text, thinking_text = self._think_parser.feed(delta.content)
+            if content_text:
+                self._content_parts.append(content_text)
+                events.append({"type": "text_delta", "delta": content_text})
+            if thinking_text:
+                self._thinking_parts.append(thinking_text)
+                events.append({"type": "thinking", "delta": thinking_text})
 
         # Thinking/reasoning content (provider-dependent attribute)
         reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
@@ -121,6 +213,14 @@ class StreamAccumulator:
         is_done = choice.finish_reason is not None
         if is_done:
             self._finish_reason = choice.finish_reason
+            # Flush any remaining buffered text from the think-tag parser
+            flush_content, flush_thinking = self._think_parser.flush()
+            if flush_content:
+                self._content_parts.append(flush_content)
+                events.append({"type": "text_delta", "delta": flush_content})
+            if flush_thinking:
+                self._thinking_parts.append(flush_thinking)
+                events.append({"type": "thinking", "delta": flush_thinking})
         return events, is_done
 
     def build(self) -> AccumulatedMessage:
