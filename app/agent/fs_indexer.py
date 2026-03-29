@@ -351,7 +351,11 @@ async def _process_file(
             effective_model = seg["embedding_model"] if seg else base_model
 
             # Skip if content and model unchanged
-            if existing_hashes.get(rel) == file_hash and existing_models.get(rel) == effective_model:
+            # Treat existing_model=None as matching the default embedding model
+            # (legacy rows pre-dating the embedding_model column)
+            existing_model = existing_models.get(rel)
+            model_matches = (existing_model == effective_model) or (existing_model is None and effective_model == base_model)
+            if existing_hashes.get(rel) == file_hash and model_matches:
                 result = _FileResult(status="skipped", rel_path=rel)
 
         if result is None:
@@ -464,6 +468,7 @@ async def index_directory(
     embedding_model: str | None = None,
     segments: list[dict] | None = None,
     _progress_op_id: str | None = None,
+    skip_stale_cleanup: bool = False,
 ) -> dict:
     """
     Index a directory for semantic search.
@@ -472,6 +477,8 @@ async def index_directory(
     - client_id=None: cross-client index (accessible from all channels/clients).
     - force=True: bypass cooldown (used on startup and by the agent tool).
     - file_paths: if provided, only re-index those specific files (watcher use).
+    - skip_stale_cleanup: if True, don't remove DB entries for files not on disk
+      (use when indexing a subset of patterns, e.g. memory-only).
     - Returns stats: {indexed, skipped, removed, errors, cooldown}.
     """
     root_path = Path(root).resolve()
@@ -613,7 +620,7 @@ async def index_directory(
             stats["errors"] += 1
 
     # Remove stale DB entries for files no longer on disk (full re-index only)
-    if file_paths is None:
+    if file_paths is None and not skip_stale_cleanup:
         disk_set = {str(PurePosixPath(p.relative_to(root_path))) for p in candidates}
         stale = set(existing_hashes.keys()) - disk_set
         # When using segments, protect memory files (indexed by Phase 1) from

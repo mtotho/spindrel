@@ -49,6 +49,7 @@ async def index_memory_for_bot(bot: "BotConfig", *, force: bool = True) -> dict 
             stats = await index_directory(
                 root, bot.id, patterns, force=force,
                 embedding_model=embedding_model,
+                skip_stale_cleanup=True,
             )
             results.append(stats)
             logger.info("Memory index for bot %s root %s (model=%s): %s", bot.id, root, embedding_model, stats)

@@ -141,7 +141,7 @@ function CostTable({
             color: t.textDim,
             textTransform: "uppercase",
             borderBottom: `1px solid ${t.surfaceOverlay}`,
-            background: "#151515",
+            background: t.surfaceOverlay,
           }}
         >
           <span style={{ flex: 1, minWidth: 0 }}>Name</span>
