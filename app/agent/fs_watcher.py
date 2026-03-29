@@ -299,6 +299,67 @@ async def start_shared_workspace_watchers(
         logger.info("Started %d shared workspace watcher(s)", len(workspaces))
 
 
+async def periodic_reindex_worker() -> None:
+    """Safety-net worker: periodically re-verifies all filesystem indexes.
+
+    Runs a non-forced index pass that checks content hashes and touches
+    indexed_at timestamps.  Catches cases where the file watcher crashed
+    silently or files changed outside watched directories.
+    """
+    from app.config import settings
+    interval = settings.FS_INDEX_PERIODIC_MINUTES
+    if interval <= 0:
+        logger.info("Periodic reindex disabled (FS_INDEX_PERIODIC_MINUTES=0)")
+        return
+
+    # Wait one full interval before the first run (startup already indexed everything)
+    await asyncio.sleep(interval * 60)
+    logger.info("Periodic reindex worker started (every %dm)", interval)
+
+    while True:
+        try:
+            if settings.SYSTEM_PAUSED:
+                await asyncio.sleep(60)
+                continue
+
+            from app.agent.bots import list_bots
+            from app.agent.fs_indexer import index_directory
+            from app.services.workspace_indexing import resolve_indexing, get_all_roots
+            from app.services.workspace import workspace_service
+            from app.services.memory_indexing import index_memory_for_bot
+
+            for bot in list_bots():
+                # Memory files
+                if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+                    try:
+                        await index_memory_for_bot(bot)
+                    except Exception:
+                        logger.exception("Periodic reindex: memory failed for bot %s", bot.id)
+
+                # Workspace indexing
+                if bot.workspace.enabled and bot.workspace.indexing.enabled:
+                    _resolved = resolve_indexing(
+                        bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
+                    )
+                    _segments = _resolved.get("segments")
+                    if bot.shared_workspace_id and not _segments:
+                        continue
+                    for root in get_all_roots(bot, workspace_service):
+                        try:
+                            await index_directory(
+                                root, bot.id, _resolved["patterns"],
+                                embedding_model=_resolved["embedding_model"],
+                                segments=_segments,
+                            )
+                        except Exception:
+                            logger.exception("Periodic reindex: failed for bot %s root %s", bot.id, root)
+
+            logger.info("Periodic reindex pass complete")
+        except Exception:
+            logger.exception("Periodic reindex worker error")
+        await asyncio.sleep(interval * 60)
+
+
 async def stop_watchers() -> None:
     global _stop_event
     if _stop_event:

@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     FS_INDEX_CHUNK_OVERLAP: int = 200      # overlap chars for sliding-window chunks
     FS_INDEX_MAX_FILE_BYTES: int = 500_000 # skip files larger than this
     FS_INDEX_CONCURRENCY: int = 8          # max concurrent file embeddings during indexing
+    FS_INDEX_PERIODIC_MINUTES: int = 30     # periodic re-verify interval (0 = disabled); catches watcher crashes
 
     # Extra tool directories (colon-separated paths) scanned at startup in addition to ./tools/
     TOOL_DIRS: str = ""

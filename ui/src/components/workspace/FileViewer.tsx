@@ -314,11 +314,16 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             </button>
           </>
         )}
-        {data?.size != null && (
-          <span style={{ fontSize: 11, color: t.textDim }}>
-            {data.size > 1024 ? `${(data.size / 1024).toFixed(1)}KB` : `${data.size}B`}
-          </span>
-        )}
+        <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap", display: "flex", gap: 8 }}>
+          {data?.size != null && (
+            <span>{data.size > 1024 * 1024 ? `${(data.size / (1024 * 1024)).toFixed(1)}MB` : data.size > 1024 ? `${(data.size / 1024).toFixed(1)}KB` : `${data.size}B`}</span>
+          )}
+          {(data as any)?.modified_at != null && (
+            <span title={new Date((data as any).modified_at * 1000).toLocaleString()}>
+              Modified {new Date((data as any).modified_at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </span>
+          )}
+        </span>
       </div>
 
       {/* Search bar */}
