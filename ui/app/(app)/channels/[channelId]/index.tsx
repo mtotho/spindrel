@@ -87,7 +87,8 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (channelId && pages) {
-      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages);
+      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
+        .filter((m) => m.role === "user" || m.role === "assistant");
       setMessages(channelId, allMessages);
     }
   }, [channelId, pages]);

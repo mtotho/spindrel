@@ -152,6 +152,7 @@ class ChannelConfigOut(BaseModel):
     passive_memory: bool = True
     allow_bot_messages: bool = False
     workspace_rag: bool = True
+    thinking_display: str = "append"
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
@@ -213,6 +214,7 @@ class ChannelConfigUpdate(BaseModel):
     passive_memory: Optional[bool] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
+    thinking_display: Optional[str] = None
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     channel_prompt: Optional[str] = None
@@ -478,6 +480,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "passive_memory": channel.passive_memory,
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
+        "thinking_display": channel.thinking_display,
         "max_iterations": channel.max_iterations,
         "task_max_run_seconds": channel.task_max_run_seconds,
         "channel_prompt": channel.channel_prompt,
