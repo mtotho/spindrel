@@ -136,6 +136,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     dispatch_config = payload["dispatch_config"]
     thread_ts = payload["thread_ts"]
     msg_metadata = payload["msg_metadata"]
+    thinking_display = payload.get("thinking_display", "append")
 
     # Defer posting the thinking placeholder until we know the server is actually
     # running the agent.  If the first event back is `queued`, we skip posting
@@ -187,40 +188,58 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     **identity,
                 )
             elif etype == "assistant_text":
-                # Intermediate text the LLM produced alongside tool calls.
-                # Format distinctly (blockquoted) so it's clearly not the final answer,
-                # then post a fresh thinking placeholder for the next tool cycle.
                 _at_text = (event.get("text") or "").strip()
                 if _at_text:
-                    _assistant_texts_posted = True
-                    formatted_at = format_thinking_for_slack(_at_text)
-                    chunks_at = split_for_slack(formatted_at)
-                    # First chunk replaces the thinking placeholder
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=chunks_at[0],
-                        **identity,
-                    )
-                    # Extra chunks as follow-up messages
-                    for chunk in chunks_at[1:]:
-                        await client.chat_postMessage(
+                    if thinking_display == "hidden":
+                        # Hidden mode: skip thought content, just show working status
+                        await client.chat_update(
                             channel=thinking_channel,
-                            text=chunk,
-                            thread_ts=thread_ts,
+                            ts=thinking_ts,
+                            text="⏳ _working..._",
                             **identity,
                         )
-                    # Post a fresh thinking placeholder for the next iteration
-                    _working_kwargs: dict = {
-                        "channel": thinking_channel,
-                        "text": "⏳ _working..._",
-                        **identity,
-                    }
-                    if thread_ts:
-                        _working_kwargs["thread_ts"] = thread_ts
-                    msg = await client.chat_postMessage(**_working_kwargs)
-                    thinking_ts = msg["ts"]
-                    thinking_channel = msg["channel"]
+                    elif thinking_display == "replace":
+                        # Replace mode: update the single thinking message with latest thought
+                        _assistant_texts_posted = True
+                        formatted_at = format_thinking_for_slack(_at_text)
+                        chunks_at = split_for_slack(formatted_at)
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_at[0],
+                            **identity,
+                        )
+                    else:
+                        # Append mode (default): post each thought as a new message
+                        _assistant_texts_posted = True
+                        formatted_at = format_thinking_for_slack(_at_text)
+                        chunks_at = split_for_slack(formatted_at)
+                        # First chunk replaces the thinking placeholder
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_at[0],
+                            **identity,
+                        )
+                        # Extra chunks as follow-up messages
+                        for chunk in chunks_at[1:]:
+                            await client.chat_postMessage(
+                                channel=thinking_channel,
+                                text=chunk,
+                                thread_ts=thread_ts,
+                                **identity,
+                            )
+                        # Post a fresh thinking placeholder for the next iteration
+                        _working_kwargs: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _working_kwargs["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_working_kwargs)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
             elif etype == "cancelled":
                 # Agent loop was cancelled via STOP
                 if thinking_ts and thinking_channel:
@@ -462,6 +481,7 @@ async def dispatch(
         "dispatch_config": dispatch_config,
         "thread_ts": thread_ts,
         "msg_metadata": msg_metadata,
+        "thinking_display": config.get("thinking_display", "append"),
     }
     await _run_dispatch(channel, payload, client, identity)
 

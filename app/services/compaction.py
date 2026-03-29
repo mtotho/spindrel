@@ -378,6 +378,9 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
     Passive messages are excluded from the alternating user/assistant turns.
     If there are any passive messages, prepend a 'Channel context' system block.
 
+    Heartbeat-tagged messages are excluded entirely — they're internal automated
+    checks that shouldn't pollute conversation summaries or section transcripts.
+
     Tool call messages are included as compact representations so the summarizer
     knows what the bot actually did, not just what it said.
     """
@@ -385,6 +388,9 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
     active: list[dict] = []
 
     for m in messages:
+        # Skip heartbeat messages — they're automated internal checks
+        if (m.get("_metadata") or {}).get("is_heartbeat"):
+            continue
         role = m.get("role")
         content = m.get("content")
         tool_calls = m.get("tool_calls")

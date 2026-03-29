@@ -458,6 +458,11 @@ async def store_dispatch_echo(
     ``chat.postMessage`` results (e.g. delegated bots) never flow through
     ``store_passive_message``.  This writes the same shape of row as human passive traffic:
     ``metadata.passive`` so it appears in the channel-context system block on load.
+
+    IMPORTANT: Skips echoing if the posting bot owns the session — the assistant
+    message is already in the session via persist_turn.  Echoing it again as a
+    passive user message causes the bot to see its own output 2-3x (active history
+    + channel context + heartbeat preamble).
     """
     stripped = (text or "").strip()
     if session_id is None or not client_id or not stripped:
@@ -470,6 +475,16 @@ async def store_dispatch_echo(
     include_in_memory = True
     try:
         async with async_session() as db:
+            # Skip echo if posting bot owns this session — avoids duplication.
+            # The assistant response is already persisted via persist_turn.
+            session = await db.get(Session, session_id)
+            if session and session.bot_id == posting_bot_id:
+                logger.debug(
+                    "store_dispatch_echo: skipping self-echo for bot %s in session %s",
+                    posting_bot_id, session_id,
+                )
+                return
+
             # Check channel passive_memory setting
             from app.db.models import Channel
             from app.services.channels import is_integration_client_id
@@ -706,28 +721,18 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
 
 
 def _filter_old_heartbeats(msgs: list[dict]) -> list[dict]:
-    """Keep only the most recent heartbeat exchange; drop older ones.
+    """Strip ALL heartbeat messages from the active conversation history.
 
     Heartbeat messages are tagged with is_heartbeat=True in metadata.
-    We find the LAST heartbeat user message and keep everything from that
-    point forward. All earlier heartbeat messages are dropped.
+    They're dropped entirely because:
+    - For heartbeat turns: the preamble already includes "Previous heartbeat
+      conclusion" — keeping old exchanges is redundant.
+    - For user turns: heartbeat prompts look like user instructions and confuse
+      the LLM into continuing from the heartbeat context instead of the user's
+      actual message.
+    - The bot's memory files provide long-term heartbeat continuity.
     """
-    last_hb_start = -1
-    for i, m in enumerate(msgs):
-        meta = m.get("_metadata") or {}
-        if meta.get("is_heartbeat") and m.get("role") == "user":
-            last_hb_start = i
-
-    if last_hb_start == -1:
-        return msgs  # no heartbeat messages at all
-
-    result = []
-    for i, m in enumerate(msgs):
-        meta = m.get("_metadata") or {}
-        if meta.get("is_heartbeat") and i < last_hb_start:
-            continue  # drop older heartbeat messages
-        result.append(m)
-    return result
+    return [m for m in msgs if not (m.get("_metadata") or {}).get("is_heartbeat")]
 
 
 def _strip_metadata_keys(messages: list[dict]) -> list[dict]:

@@ -53,6 +53,7 @@ class Channel(Base):
     fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     allow_bot_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     workspace_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    thinking_display: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'append'"))
     max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     task_max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)

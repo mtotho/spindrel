@@ -266,6 +266,7 @@ class ChannelSettingsOut(BaseModel):
     user_id: Optional[uuid.UUID] = None
     allow_bot_messages: bool = False
     workspace_rag: bool = True
+    thinking_display: str = "append"
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     context_compaction: bool = True
@@ -320,6 +321,7 @@ class ChannelSettingsUpdate(BaseModel):
     user_id: Optional[uuid.UUID] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
+    thinking_display: Optional[str] = None
     max_iterations: Optional[int] = None
     task_max_run_seconds: Optional[int] = None
     context_compaction: Optional[bool] = None

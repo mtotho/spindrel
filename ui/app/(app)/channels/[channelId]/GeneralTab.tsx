@@ -170,6 +170,17 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           label="Workspace RAG"
           description="Auto-inject relevant workspace files into context each turn."
         />
+        <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
+          <SelectInput
+            value={form.thinking_display ?? "append"}
+            onChange={(v) => patch("thinking_display", v)}
+            options={[
+              { label: "Hidden (just 'thinking...')", value: "hidden" },
+              { label: "Replace (single updating message)", value: "replace" },
+              { label: "Append all (current behavior)", value: "append" },
+            ]}
+          />
+        </FormRow>
         <Row>
           <Col>
             <FormRow label="Max iterations">

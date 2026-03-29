@@ -175,6 +175,7 @@ export interface ChannelSettings {
   user_id?: string | null;
   allow_bot_messages: boolean;
   workspace_rag: boolean;
+  thinking_display?: string;
   max_iterations?: number;
   task_max_run_seconds?: number | null;
   channel_prompt?: string;
