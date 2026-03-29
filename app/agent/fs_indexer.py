@@ -331,96 +331,108 @@ async def _process_file(
 ) -> _FileResult:
     """Process a single file: chunk, embed, insert. Runs under semaphore."""
     rel = str(PurePosixPath(path.relative_to(root_path)))
+    result: _FileResult | None = None
+
     async with sem:
         chunks = chunk_file(path, root_path)
         if not chunks:
-            return _FileResult(status="skipped", rel_path=rel)
+            result = _FileResult(status="skipped", rel_path=rel)
+        else:
+            try:
+                raw = path.read_bytes()
+            except Exception:
+                result = _FileResult(status="error", rel_path=rel)
 
-        try:
-            raw = path.read_bytes()
-        except Exception:
-            return _FileResult(status="error", rel_path=rel)
-        file_hash = hashlib.sha256(raw).hexdigest()
+        if result is None:
+            file_hash = hashlib.sha256(raw).hexdigest()
 
-        # Determine effective embedding model
-        seg = _match_segment(rel, segments)
-        effective_model = seg["embedding_model"] if seg else base_model
+            # Determine effective embedding model
+            seg = _match_segment(rel, segments)
+            effective_model = seg["embedding_model"] if seg else base_model
 
-        # Skip if content and model unchanged
-        if existing_hashes.get(rel) == file_hash and existing_models.get(rel) == effective_model:
-            return _FileResult(status="skipped", rel_path=rel)
+            # Skip if content and model unchanged
+            if existing_hashes.get(rel) == file_hash and existing_models.get(rel) == effective_model:
+                result = _FileResult(status="skipped", rel_path=rel)
 
-        # Embed all chunks
-        texts = [c.content for c in chunks]
-        try:
-            embeddings: list[list[float]] = []
-            for i in range(0, len(texts), 50):
-                embeddings.extend(await embed_batch(texts[i:i + 50], model=effective_model))
-        except Exception:
-            logger.exception("Failed to embed %s", rel)
-            return _FileResult(status="error", rel_path=rel)
+        if result is None:
+            # Embed all chunks
+            texts = [c.content for c in chunks]
+            try:
+                embeddings: list[list[float]] = []
+                for i in range(0, len(texts), 50):
+                    embeddings.extend(await embed_batch(texts[i:i + 50], model=effective_model))
+            except Exception:
+                logger.exception("Failed to embed %s", rel)
+                result = _FileResult(status="error", rel_path=rel)
 
-        if not embeddings:
-            return _FileResult(status="error", rel_path=rel)
+        if result is None:
+            if not embeddings:
+                result = _FileResult(status="error", rel_path=rel)
 
-        dims = len(embeddings[0])
-        if dims != settings.EMBEDDING_DIMENSIONS:
-            logger.error(
-                "Embedding dimension mismatch: model %s returned %d dims, expected %d",
-                effective_model, dims, settings.EMBEDDING_DIMENSIONS,
-            )
-            return _FileResult(status="error", rel_path=rel, dims=dims)
-
-        # Write to DB
-        try:
-            async with async_session() as db:
-                await db.execute(
-                    delete(FilesystemChunk).where(
-                        *scope_conds,
-                        FilesystemChunk.file_path == rel,
-                    )
+        if result is None:
+            dims = len(embeddings[0])
+            if dims != settings.EMBEDDING_DIMENSIONS:
+                logger.error(
+                    "Embedding dimension mismatch: model %s returned %d dims, expected %d",
+                    effective_model, dims, settings.EMBEDDING_DIMENSIONS,
                 )
-                for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                    db.add(FilesystemChunk(
-                        bot_id=bot_id,
-                        client_id=client_id,
-                        root=str(root_path),
-                        file_path=rel,
-                        content_hash=file_hash,
-                        chunk_index=i,
-                        content=chunk.content,
-                        embedding=emb,
-                        language=chunk.language,
-                        symbol=chunk.symbol,
-                        start_line=chunk.start_line,
-                        end_line=chunk.end_line,
-                        embedding_model=effective_model,
-                    ))
-                await db.commit()
-        except Exception:
-            logger.exception("Failed to insert chunks for %s (bot=%s, root=%s)", rel, bot_id, root_path)
-            return _FileResult(status="error", rel_path=rel)
+                result = _FileResult(status="error", rel_path=rel, dims=dims)
 
-        # Populate tsvector (non-fatal)
-        try:
-            async with async_session() as db:
-                from sqlalchemy import text as _sa_text
-                await db.execute(_sa_text(
-                    "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
-                    "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
-                ).bindparams(fp=rel, rt=str(root_path)))
-                await db.commit()
-        except Exception:
-            logger.warning("TSVector population failed for %s (chunks saved without FTS)", rel)
+        if result is None:
+            # Write to DB
+            try:
+                async with async_session() as db:
+                    await db.execute(
+                        delete(FilesystemChunk).where(
+                            *scope_conds,
+                            FilesystemChunk.file_path == rel,
+                        )
+                    )
+                    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                        db.add(FilesystemChunk(
+                            bot_id=bot_id,
+                            client_id=client_id,
+                            root=str(root_path),
+                            file_path=rel,
+                            content_hash=file_hash,
+                            chunk_index=i,
+                            content=chunk.content,
+                            embedding=emb,
+                            language=chunk.language,
+                            symbol=chunk.symbol,
+                            start_line=chunk.start_line,
+                            end_line=chunk.end_line,
+                            embedding_model=effective_model,
+                        ))
+                    await db.commit()
+            except Exception:
+                logger.exception("Failed to insert chunks for %s (bot=%s, root=%s)", rel, bot_id, root_path)
+                result = _FileResult(status="error", rel_path=rel)
 
-    # Update progress after semaphore release (single-threaded asyncio = safe)
+        if result is None:
+            # Populate tsvector (non-fatal)
+            try:
+                async with async_session() as db:
+                    from sqlalchemy import text as _sa_text
+                    await db.execute(_sa_text(
+                        "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                        "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
+                    ).bindparams(fp=rel, rt=str(root_path)))
+                    await db.commit()
+            except Exception:
+                logger.warning("TSVector population failed for %s (chunks saved without FTS)", rel)
+
+            logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)
+            result = _FileResult(status="indexed", rel_path=rel, dims=dims, chunk_count=len(chunks))
+
+    # Update progress after semaphore release — always runs regardless of outcome
+    # (single-threaded asyncio = safe to mutate shared dict)
     if progress_state is not None:
         progress_state["n"] += 1
         from app.services import progress
         progress.update(progress_state["op_id"], current=progress_state["n"], message=rel)
 
-    logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)
-    return _FileResult(status="indexed", rel_path=rel, dims=dims, chunk_count=len(chunks))
+    return result
 
 
 # ---------------------------------------------------------------------------

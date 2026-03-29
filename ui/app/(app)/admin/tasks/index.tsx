@@ -303,7 +303,7 @@ function HourLabels() {
         return (
           <div key={h} style={{
             position: "absolute", left: 0, top: `${pct}%`,
-            fontSize: 10, color: t.surfaceBorder, width: 40, textAlign: "right", paddingRight: 8,
+            fontSize: 10, color: t.textDim, width: 40, textAlign: "right", paddingRight: 8,
             transform: "translateY(-50%)", pointerEvents: "none",
           }}>
             {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
@@ -425,7 +425,7 @@ function TaskCard({
 
   // Theme-aware backgrounds
   const cancelledBg = hovered ? t.surfaceOverlay : t.surface;
-  const virtualBg = hovered ? t.surfaceOverlay : t.surface;
+  const virtualBg = hovered ? t.surfaceOverlay : t.accentMuted;
   const normalBg = hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised;
   const bg = isCancelled ? cancelledBg : isVirtual ? virtualBg : normalBg;
   const borderColor = isCancelled
@@ -447,7 +447,7 @@ function TaskCard({
         opacity: isCancelled ? 0.4 : isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
         cursor: "pointer",
-        boxShadow: hovered ? `0 4px 12px ${t.overlayLight}` : "none",
+        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
         zIndex: hovered ? 100 : undefined,
         ...extraStyle,
       }}
