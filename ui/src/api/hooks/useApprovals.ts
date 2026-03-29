@@ -28,6 +28,7 @@ export interface DecideRequest {
   create_rule?: {
     tool_name: string;
     conditions: Record<string, any>;
+    scope?: "bot" | "global";
     priority?: number;
   };
 }
@@ -45,6 +46,7 @@ export interface RuleSuggestion {
   tool_name: string;
   conditions: Record<string, any>;
   description: string;
+  scope: "bot" | "global";
 }
 
 export function useApprovals(botId?: string, status?: string) {

@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ToolApproval
@@ -48,7 +48,8 @@ class DecideRequest(BaseModel):
     approved: bool
     decided_by: str = "api:admin"
     # Optional: create an allow rule along with the approval
-    create_rule: Optional[dict] = None  # {tool_name, conditions, ...}
+    # {tool_name, conditions, scope ("bot"|"global"), priority}
+    create_rule: Optional[dict] = None
 
 
 class DecideResponse(BaseModel):
@@ -64,6 +65,7 @@ class SuggestionOut(BaseModel):
     tool_name: str
     conditions: dict
     description: str
+    scope: str = "bot"
 
 
 # ---------------------------------------------------------------------------
@@ -99,11 +101,19 @@ async def get_approval_suggestions(
     row = await db.get(ToolApproval, approval_id)
     if not row:
         raise HTTPException(status_code=404, detail="Approval not found")
+
+    # Count recent approvals for this bot+tool to power escalation hints
+    recent_count = await _count_recent_approvals(db, row.bot_id, row.tool_name)
+
     from app.services.approval_suggestions import build_suggestions
-    suggestions = build_suggestions(row.tool_name, row.arguments or {})
+    suggestions = build_suggestions(
+        row.tool_name, row.arguments or {},
+        recent_approval_count=recent_count,
+    )
     return [SuggestionOut(
         label=s.label, tool_name=s.tool_name,
         conditions=s.conditions, description=s.description,
+        scope=s.scope,
     ) for s in suggestions]
 
 
@@ -143,8 +153,10 @@ async def decide_approval(
     if body.create_rule and body.approved:
         from app.db.models import ToolPolicyRule
         from app.services.tool_policies import invalidate_cache
+        # scope: "global" sets bot_id=NULL so rule applies to all bots
+        scope = body.create_rule.get("scope", "bot")
         rule = ToolPolicyRule(
-            bot_id=row.bot_id,
+            bot_id=None if scope == "global" else row.bot_id,
             tool_name=body.create_rule.get("tool_name", row.tool_name),
             action="allow",
             conditions=body.create_rule.get("conditions", {}),
@@ -155,6 +167,13 @@ async def decide_approval(
         await db.flush()
         rule_id = rule.id
         invalidate_cache()
+
+    # Session-scoped allow: when approving (even without a permanent rule),
+    # allow this tool for the rest of this conversation so the user isn't
+    # asked again for the same tool in the same agent run.
+    if body.approved and row.correlation_id:
+        from app.agent.session_allows import add_session_allow
+        add_session_allow(str(row.correlation_id), row.tool_name)
 
     await db.commit()
     await db.refresh(row)
@@ -172,3 +191,20 @@ async def decide_approval(
         decided_at=row.decided_at,
         rule_created=rule_id,
     )
+
+
+async def _count_recent_approvals(
+    db: AsyncSession, bot_id: str, tool_name: str,
+) -> int:
+    """Count approved approvals for this bot+tool (for escalation hints)."""
+    stmt = (
+        select(func.count())
+        .select_from(ToolApproval)
+        .where(
+            ToolApproval.bot_id == bot_id,
+            ToolApproval.tool_name == tool_name,
+            ToolApproval.status == "approved",
+        )
+    )
+    result = await db.execute(stmt)
+    return result.scalar() or 0

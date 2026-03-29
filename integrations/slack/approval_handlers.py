@@ -1,7 +1,13 @@
 """Slack Block Kit action handlers for tool approval buttons.
 
-Handles approve_tool_call, deny_tool_call, and allow_rule_N
-button clicks from Block Kit messages sent by SlackDispatcher.request_approval().
+Handles button clicks from Block Kit messages sent by
+SlackDispatcher.request_approval().
+
+Button actions:
+  - approve_tool_call: Approve once + session-scoped allow for this conversation
+  - deny_tool_call: Deny the request
+  - allow_rule_always: Approve + create permanent bot-scoped allow rule
+  - allow_rule_N: Approve + create rule from suggestion (bot or global scope)
 """
 import json
 import logging
@@ -17,6 +23,7 @@ def register_approval_handlers(app) -> None:
 
     @app.action("approve_tool_call")
     async def handle_approve(ack, body, respond):
+        """Approve once — also grants session-scoped allow for this conversation."""
         await ack()
         approval_id = body["actions"][0]["value"]
         user_id = body.get("user", {}).get("id", "unknown")
@@ -35,7 +42,40 @@ def register_approval_handlers(app) -> None:
             respond=respond, body=body,
         )
 
-    # Dynamic rule suggestion buttons: allow_rule_0, allow_rule_1, allow_rule_2
+    @app.action("allow_rule_always")
+    async def handle_allow_always(ack, body, respond):
+        """Approve + create a permanent bot-scoped allow rule (no conditions)."""
+        await ack()
+        raw = body["actions"][0]["value"]
+        data = json.loads(raw)
+        approval_id = data["approval_id"]
+        bot_id = data["bot_id"]
+        tool_name = data["tool_name"]
+        scope = data.get("scope", "bot")
+        label = data.get("label", f"Allow {tool_name}")
+        user_id = body.get("user", {}).get("id", "unknown")
+
+        ok = await _decide_with_rule(
+            approval_id,
+            decided_by=f"slack:{user_id}",
+            create_rule={
+                "tool_name": tool_name,
+                "conditions": {},
+                "scope": scope,
+            },
+        )
+        scope_text = " (all bots)" if scope == "global" else f" for `{bot_id}`"
+        if ok:
+            await _update_message(
+                respond, body,
+                f":white_check_mark: *Allowed* `{tool_name}`{scope_text} by <@{user_id}>",
+            )
+        elif ok is None:
+            await _update_message(respond, body, ":warning: Approval already resolved.")
+        else:
+            await _update_message(respond, body, ":x: Failed to process approval.")
+
+    # Dynamic rule suggestion buttons: allow_rule_0, allow_rule_1, ...
     @app.action(re.compile(r"^allow_rule_\d+$"))
     async def handle_allow_rule(ack, body, respond):
         await ack()
@@ -45,18 +85,24 @@ def register_approval_handlers(app) -> None:
         bot_id = data["bot_id"]
         tool_name = data["tool_name"]
         conditions = data.get("conditions", {})
+        scope = data.get("scope", "bot")
         label = data.get("label", tool_name)
         user_id = body.get("user", {}).get("id", "unknown")
 
         ok = await _decide_with_rule(
             approval_id,
             decided_by=f"slack:{user_id}",
-            create_rule={"tool_name": tool_name, "conditions": conditions},
+            create_rule={
+                "tool_name": tool_name,
+                "conditions": conditions,
+                "scope": scope,
+            },
         )
+        scope_text = " (all bots)" if scope == "global" else f" for `{bot_id}`"
         if ok:
             await _update_message(
                 respond, body,
-                f":white_check_mark: *Approved* + rule created: *{label}* for `{bot_id}` by <@{user_id}>",
+                f":white_check_mark: *Approved* + rule created: *{label}*{scope_text} by <@{user_id}>",
             )
         elif ok is None:
             await _update_message(respond, body, ":warning: Approval already resolved.")
@@ -74,7 +120,8 @@ async def _decide_and_update(
 
     ok = await _decide(approval_id, approved=approved, decided_by=decided_by)
     if ok:
-        await _update_message(respond, body, f"{emoji} *{verdict}* by <@{user_id}>")
+        suffix = " (this run)" if approved else ""
+        await _update_message(respond, body, f"{emoji} *{verdict}{suffix}* by <@{user_id}>")
     elif ok is None:
         await _update_message(respond, body, ":warning: Approval already resolved.")
     else:

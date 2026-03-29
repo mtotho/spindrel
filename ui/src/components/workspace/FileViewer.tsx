@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useFileBrowserStore, type PaneId } from "../../stores/fileBrowser";
 import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/useWorkspaces";
-import { Save, X, Edit3, FileText, Copy, Check } from "lucide-react";
+import { Save, X, Edit3, FileText, Copy, Check, Search, Eye, Code } from "lucide-react";
 import { IndexStatusBadge } from "./IndexStatusBadge";
 import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
 import { useThemeTokens } from "../../theme/tokens";
+import { FileSearchBar, highlightMatches, computeMatchPositions } from "./FileSearchBar";
+import { MarkdownViewer } from "./MarkdownViewer";
+import { highlightMarkdownLine, isCodeFence } from "./MarkdownSyntax";
 
 interface FileViewerProps {
   workspaceId: string;
@@ -28,10 +31,62 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
   const isEditing = openFile?.editContent !== null && openFile?.editContent !== undefined;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
+  // Search state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+
+  // Markdown preview toggle
+  const [mdPreview, setMdPreview] = useState(false);
+
+  const content = data?.content ?? "";
+  const lines = content.split("\n");
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const isMarkdown = ext === "md" || ext === "markdown";
+
+  // Compute match positions
+  const matchPositions = useMemo(
+    () => computeMatchPositions(lines, searchQuery),
+    [lines, searchQuery]
+  );
+
+  // Clamp currentMatch
+  useEffect(() => {
+    if (currentMatch >= matchPositions.length) {
+      setCurrentMatch(Math.max(0, matchPositions.length - 1));
+    }
+  }, [matchPositions.length, currentMatch]);
+
+  // Scroll to current match
+  useEffect(() => {
+    if (!showSearch || matchPositions.length === 0) return;
+    const el = contentRef.current?.querySelector('[data-current-match="true"]');
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [currentMatch, matchPositions.length, showSearch, searchQuery]);
+
+  const handleSearchNext = useCallback(() => {
+    if (matchPositions.length === 0) return;
+    setCurrentMatch((prev) => (prev + 1) % matchPositions.length);
+  }, [matchPositions.length]);
+
+  const handleSearchPrev = useCallback(() => {
+    if (matchPositions.length === 0) return;
+    setCurrentMatch((prev) => (prev - 1 + matchPositions.length) % matchPositions.length);
+  }, [matchPositions.length]);
+
+  const handleCloseSearch = useCallback(() => {
+    setShowSearch(false);
+    setSearchQuery("");
+    setCurrentMatch(0);
+  }, []);
+
   const handleCopy = async () => {
-    const text = isEditing ? openFile?.editContent ?? "" : data?.content ?? "";
+    const text = isEditing ? openFile?.editContent ?? "" : content;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -39,7 +94,6 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
         throw new Error("fallback");
       }
     } catch {
-      // Fallback for non-HTTPS contexts
       const ta = document.createElement("textarea");
       ta.value = text;
       ta.style.position = "fixed";
@@ -79,13 +133,52 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       handleSave();
     }
     if (e.key === "Escape") {
-      handleCancel();
+      if (showSearch) {
+        handleCloseSearch();
+      } else {
+        handleCancel();
+      }
     }
   };
 
-  // Get file extension for basic syntax hint
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  const isBinary = error?.message?.includes("Binary") || data?.content === undefined && !isLoading && !error;
+  // Global Ctrl+F handler for this viewer
+  const handleContainerKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      e.preventDefault();
+      e.stopPropagation();
+      setShowSearch(true);
+      // If in markdown preview, switch to source for search
+      if (mdPreview) setMdPreview(false);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "a" && !isEditing) {
+      e.preventDefault();
+      if (preRef.current) {
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          const range = document.createRange();
+          range.selectNodeContents(preRef.current);
+          sel.addRange(range);
+        }
+      }
+    }
+  };
+
+  // Pre-compute code block state for markdown syntax highlighting
+  const codeBlockState = useMemo(() => {
+    if (!isMarkdown) return [];
+    const state: boolean[] = [];
+    let inBlock = false;
+    for (const line of lines) {
+      if (isCodeFence(line)) {
+        state.push(inBlock); // fence line itself gets the current state
+        inBlock = !inBlock;
+      } else {
+        state.push(inBlock);
+      }
+    }
+    return state;
+  }, [isMarkdown, lines]);
 
   if (isLoading) {
     return (
@@ -113,11 +206,16 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
     );
   }
 
-  const content = data?.content ?? "";
-  const lines = content.split("\n");
+  const highlightBg = "rgba(250,204,21,0.3)";
+  const currentHighlightBg = "rgba(250,204,21,0.7)";
+  const searching = showSearch && !!searchQuery;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div
+      tabIndex={0}
+      onKeyDown={handleContainerKeyDown}
+      style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", outline: "none" }}
+    >
       {/* Toolbar */}
       <div
         style={{
@@ -162,6 +260,36 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
           </>
         ) : (
           <>
+            {/* Markdown preview toggle */}
+            {isMarkdown && (
+              <button
+                onClick={() => setMdPreview(!mdPreview)}
+                title={mdPreview ? "Show source" : "Show preview"}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  background: mdPreview ? t.overlayLight : "none",
+                  color: mdPreview ? t.accent : t.textMuted,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 4, padding: "3px 10px", fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {mdPreview ? <><Code size={12} /> Source</> : <><Eye size={12} /> Preview</>}
+              </button>
+            )}
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                background: showSearch ? t.overlayLight : "none",
+                color: showSearch ? t.accent : t.textMuted,
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 4, padding: "3px 10px", fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              <Search size={12} /> Find
+            </button>
             <button
               onClick={handleCopy}
               style={{
@@ -193,6 +321,19 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
         )}
       </div>
 
+      {/* Search bar */}
+      {showSearch && !isEditing && (
+        <FileSearchBar
+          query={searchQuery}
+          onQueryChange={(q) => { setSearchQuery(q); setCurrentMatch(0); }}
+          matchCount={matchPositions.length}
+          currentMatch={currentMatch}
+          onNext={handleSearchNext}
+          onPrev={handleSearchPrev}
+          onClose={handleCloseSearch}
+        />
+      )}
+
       {/* Content */}
       {isEditing ? (
         <textarea
@@ -217,23 +358,16 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
             overflow: "auto",
           }}
         />
+      ) : mdPreview && isMarkdown ? (
+        <div
+          ref={contentRef}
+          style={{ flex: 1, overflow: "auto", background: t.inputBg, outline: "none" }}
+        >
+          <MarkdownViewer content={content} />
+        </div>
       ) : (
         <div
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === "a") {
-              e.preventDefault();
-              if (preRef.current) {
-                const sel = window.getSelection();
-                if (sel) {
-                  sel.removeAllRanges();
-                  const range = document.createRange();
-                  range.selectNodeContents(preRef.current);
-                  sel.addRange(range);
-                }
-              }
-            }
-          }}
+          ref={contentRef}
           style={{ flex: 1, overflow: "auto", background: t.inputBg, outline: "none" }}
         >
           <pre
@@ -263,7 +397,12 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
                   {i + 1}
                 </span>
                 <span style={{ flex: 1, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                  {line || " "}
+                  {searching
+                    ? highlightMatches(line, searchQuery, i, matchPositions, currentMatch, highlightBg, currentHighlightBg)
+                    : isMarkdown
+                      ? highlightMarkdownLine(line, t, codeBlockState[i] ?? false)
+                      : line || " "
+                  }
                 </span>
               </div>
             ))}

@@ -1,6 +1,11 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useModelGroups } from "../../api/hooks/useModels";
+import { useState, useRef, useCallback } from "react";
+import {
+  useModelGroups,
+  useEmbeddingModelGroups,
+  useDownloadEmbeddingModel,
+} from "../../api/hooks/useModels";
 import { useThemeTokens } from "../../theme/tokens";
+import type { LlmModel } from "../../types/api";
 
 interface Props {
   value: string;
@@ -10,6 +15,115 @@ interface Props {
   allowClear?: boolean;
   /** Where to anchor the dropdown relative to the trigger. Default "bottom". */
   anchor?: "bottom" | "top";
+  /** "llm" (default) fetches /models; "embedding" fetches /embedding-models (includes local fastembed). */
+  variant?: "llm" | "embedding";
+}
+
+function ModelStatusBadge({
+  model,
+  onDownload,
+  isDownloadPending,
+}: {
+  model: LlmModel;
+  onDownload: (id: string) => void;
+  isDownloadPending: boolean;
+}) {
+  const t = useThemeTokens();
+
+  if (!model.download_status) return null;
+
+  if (model.download_status === "cached") {
+    return (
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: "#22c55e",
+          flexShrink: 0,
+        }}
+        title="Downloaded"
+      />
+    );
+  }
+
+  if (model.download_status === "downloading") {
+    return (
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          color: t.textDim,
+          flexShrink: 0,
+        }}
+      >
+        <Spinner size={12} />
+        downloading...
+      </span>
+    );
+  }
+
+  // not_downloaded
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+      {model.size_mb != null && (
+        <span style={{ fontSize: 10, color: t.textDim }}>{model.size_mb} MB</span>
+      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDownload(model.id);
+        }}
+        disabled={isDownloadPending}
+        style={{
+          background: "none",
+          border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 4,
+          padding: "2px 6px",
+          cursor: isDownloadPending ? "not-allowed" : "pointer",
+          color: t.accent,
+          fontSize: 12,
+          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+          opacity: isDownloadPending ? 0.5 : 1,
+        }}
+        title="Download model"
+      >
+        ↓
+      </button>
+    </span>
+  );
+}
+
+function Spinner({ size = 14 }: { size?: number }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: size,
+        height: size,
+        border: "2px solid rgba(255,255,255,0.15)",
+        borderTopColor: "rgba(255,255,255,0.6)",
+        borderRadius: "50%",
+        animation: "llm-dropdown-spin 0.8s linear infinite",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+// Inject keyframes once
+if (typeof document !== "undefined") {
+  const styleId = "llm-dropdown-spinner-style";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `@keyframes llm-dropdown-spin { to { transform: rotate(360deg); } }`;
+    document.head.appendChild(style);
+  }
 }
 
 /**
@@ -23,12 +137,16 @@ export function LlmModelDropdown({
   label,
   allowClear = true,
   anchor = "bottom",
+  variant = "llm",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [pos, setPos] = useState({ top: 0, left: 0, bottom: 0, width: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
-  const { data: groups, isLoading } = useModelGroups();
+  const llmQuery = useModelGroups();
+  const embeddingQuery = useEmbeddingModelGroups();
+  const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
+  const downloadMutation = useDownloadEmbeddingModel();
   const t = useThemeTokens();
 
   // Measure trigger position for portal dropdown
@@ -57,6 +175,13 @@ export function LlmModelDropdown({
       ),
     }))
     .filter((g) => g.models.length > 0);
+
+  const handleModelClick = (model: LlmModel) => {
+    // Don't select models that are currently downloading
+    if (model.download_status === "downloading") return;
+    onChange(model.id);
+    setOpen(false);
+  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -169,31 +294,49 @@ export function LlmModelDropdown({
                         }}>
                           {group.provider_name}
                         </div>
-                        {group.models.map((model) => (
-                          <div
-                            key={model.id}
-                            onClick={() => {
-                              onChange(model.id);
-                              setOpen(false);
-                            }}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = model.id === value ? "rgba(59,130,246,0.08)" : "transparent"; }}
-                            style={{
-                              padding: "8px 12px",
-                              cursor: "pointer",
-                              background: model.id === value ? "rgba(59,130,246,0.08)" : "transparent",
-                            }}
-                          >
-                            <div style={{ fontSize: 13, color: model.id === value ? t.accent : t.text }}>
-                              {model.id}
-                            </div>
-                            {model.display !== model.id && (
-                              <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>
-                                {model.display}
+                        {group.models.map((model) => {
+                          const isDownloading = model.download_status === "downloading";
+                          return (
+                            <div
+                              key={model.id}
+                              onClick={() => handleModelClick(model)}
+                              onMouseEnter={(e) => {
+                                if (!isDownloading) {
+                                  (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay;
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLElement).style.background =
+                                  model.id === value ? "rgba(59,130,246,0.08)" : "transparent";
+                              }}
+                              style={{
+                                padding: "8px 12px",
+                                cursor: isDownloading ? "default" : "pointer",
+                                background: model.id === value ? "rgba(59,130,246,0.08)" : "transparent",
+                                opacity: isDownloading ? 0.6 : 1,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, color: model.id === value ? t.accent : t.text }}>
+                                  {model.id}
+                                </div>
+                                {model.display !== model.id && (
+                                  <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>
+                                    {model.display}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        ))}
+                              <ModelStatusBadge
+                                model={model}
+                                onDownload={(id) => downloadMutation.mutate(id)}
+                                isDownloadPending={downloadMutation.isPending}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     ))
                   )}

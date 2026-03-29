@@ -351,6 +351,12 @@ async def run_harness_task(task: Task) -> None:
                         if _meta:
                             _cb_header += f" ({', '.join(_meta)})"
                     _cb_header += "]"
+                    # Propagate parent's model override so callback runs on the same model
+                    _cb_exec_cfg: dict = {}
+                    if cfg.get("parent_model_override"):
+                        _cb_exec_cfg["model_override"] = cfg["parent_model_override"]
+                    if cfg.get("parent_provider_id_override"):
+                        _cb_exec_cfg["model_provider_id_override"] = cfg["parent_provider_id_override"]
                     _cb_task = Task(
                         bot_id=_parent_bot_id,
                         client_id=_parent_client_id,
@@ -361,6 +367,7 @@ async def run_harness_task(task: Task) -> None:
                         task_type="callback",
                         dispatch_type=output_dispatch_type,
                         dispatch_config=dict(output_dispatch_config),
+                        execution_config=_cb_exec_cfg or None,
                         parent_task_id=task.id,
                         created_at=datetime.now(timezone.utc),
                     )

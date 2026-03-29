@@ -11,6 +11,8 @@ from app.agent.context import (
     current_correlation_id,
     current_dispatch_config,
     current_dispatch_type,
+    current_model_override,
+    current_provider_id_override,
     current_session_id,
 )
 from app.tools.registry import register
@@ -276,6 +278,13 @@ async def delegate_to_harness(
             callback_cfg["parent_session_id"] = str(session_id)
             if client_id:
                 callback_cfg["parent_client_id"] = client_id
+            # Propagate the parent's effective model so the callback task uses the same model
+            _mo = current_model_override.get()
+            _po = current_provider_id_override.get()
+            if _mo:
+                callback_cfg["parent_model_override"] = _mo
+            if _po:
+                callback_cfg["parent_provider_id_override"] = _po
         task = Task(
             bot_id=parent_bot_id,
             client_id=client_id,

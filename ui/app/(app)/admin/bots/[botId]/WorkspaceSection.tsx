@@ -411,7 +411,7 @@ export function WorkspaceSection({
                   <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
                   <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
                   <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" /></FormRow></Col>
+                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" variant="embedding" /></FormRow></Col>
                 </Row>
               </>
             )}

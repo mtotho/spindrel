@@ -15,9 +15,11 @@ import {
   useAddBotToWorkspace, useUpdateWorkspaceBot, useRemoveBotFromWorkspace,
   useWorkspaceFiles, useReindexWorkspace,
   useWorkspaceFileContent, useWriteWorkspaceFile, useMkdirWorkspace, useDeleteWorkspaceFile,
+  useEnableEditor, useDisableEditor, useEditorStatus, createEditorSession,
 } from "@/src/api/hooks/useWorkspaces";
 import { useBots } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
+import type { SharedWorkspace } from "@/src/types/api";
 import {
   FormRow, TextInput, SelectInput, Toggle, Section, Row, Col,
 } from "@/src/components/shared/FormControls";
@@ -335,6 +337,97 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
               </pre>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Editor section (code-server)
+// ---------------------------------------------------------------------------
+function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
+  const t = useThemeTokens();
+  const enableMut = useEnableEditor(workspace.id);
+  const disableMut = useDisableEditor(workspace.id);
+  const { data: editorStatus } = useEditorStatus(workspace.id);
+  const [opening, setOpening] = useState(false);
+
+  const isRunning = workspace.status === "running";
+  const editorEnabled = editorStatus?.editor_enabled ?? workspace.editor_enabled;
+  const editorRunning = editorStatus?.editor_running ?? false;
+  const busy = enableMut.isPending || disableMut.isPending;
+
+  const handleToggle = () => {
+    if (editorEnabled) {
+      disableMut.mutate();
+    } else {
+      enableMut.mutate();
+    }
+  };
+
+  const handleOpen = async () => {
+    setOpening(true);
+    try {
+      if (!editorEnabled) {
+        await enableMut.mutateAsync();
+      }
+      await createEditorSession(workspace.id);
+      const { useAuthStore } = await import("@/src/stores/auth");
+      const { serverUrl } = useAuthStore.getState();
+      const url = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/`;
+      window.open(url, `editor-${workspace.id}`);
+    } catch (err) {
+      console.error("Failed to open editor:", err);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Toggle
+            value={editorEnabled}
+            onChange={handleToggle}
+            label={editorEnabled ? "Enabled" : "Disabled"}
+          />
+          {editorEnabled && (
+            <span style={{
+              fontSize: 11, padding: "2px 8px", borderRadius: 4,
+              background: editorRunning ? "rgba(34,197,94,0.15)" : "rgba(100,100,100,0.15)",
+              color: editorRunning ? "#16a34a" : "#999",
+              fontWeight: 600,
+            }}>
+              {editorRunning ? "Running" : "Stopped"}
+            </span>
+          )}
+        </div>
+        {editorEnabled && isRunning && (
+          <button
+            onClick={handleOpen}
+            disabled={opening}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: `1px solid ${t.accent}`, borderRadius: 6,
+              background: `${t.accent}15`, color: t.accent,
+              cursor: opening ? "not-allowed" : "pointer",
+            }}
+          >
+            {opening ? "Opening..." : "Open Editor"}
+          </button>
+        )}
+      </div>
+      {editorEnabled && workspace.editor_port && (
+        <div style={{ fontSize: 11, color: t.textDim }}>
+          Port: {workspace.editor_port} (mapped to container:8443)
+        </div>
+      )}
+      {!isRunning && editorEnabled && (
+        <div style={{ fontSize: 11, color: "#d97706" }}>
+          Start the workspace to use the editor.
         </div>
       )}
     </div>
@@ -1231,6 +1324,13 @@ export default function WorkspaceDetailScreen() {
               </div>
             </div>
           </Section>
+
+          {/* Code Editor */}
+          {!isNew && workspace && (
+            <Section title="Code Editor" description="Run VS Code (code-server) inside the workspace container. Enabling requires a container restart to map the editor port.">
+              <EditorSection workspace={workspace} />
+            </Section>
+          )}
 
           {/* Container controls (only for existing workspaces) */}
           {!isNew && (

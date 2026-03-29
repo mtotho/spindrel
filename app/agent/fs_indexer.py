@@ -373,7 +373,8 @@ async def _process_file(
             dims = len(embeddings[0])
             if dims != settings.EMBEDDING_DIMENSIONS:
                 logger.error(
-                    "Embedding dimension mismatch: model %s returned %d dims, expected %d",
+                    "Embedding dimension mismatch after zero-pad: model %s returned %d dims, "
+                    "expected %d. This should not happen — check embeddings.py routing.",
                     effective_model, dims, settings.EMBEDDING_DIMENSIONS,
                 )
                 result = _FileResult(status="error", rel_path=rel, dims=dims)

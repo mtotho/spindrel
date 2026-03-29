@@ -10,6 +10,7 @@ import { useState, useMemo } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, Plus, RefreshCw, X } from "lucide-react";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useWorkspaceIndexing, useWorkspaceIndexStatus, useUpdateBotIndexing, useReindexWorkspace,
   type BotIndexingInfo, type FileIndexEntry,
@@ -215,15 +216,14 @@ function SegmentEditor({
             padding: "4px 8px", fontSize: 11, color: t.text, outline: "none", flex: 1, minWidth: 100,
           }}
         />
-        <input
-          type="text" value={newModel} onChange={(e) => setNewModel(e.target.value)}
-          placeholder="embedding model (optional)"
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSegment(); } }}
-          style={{
-            background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-            padding: "4px 8px", fontSize: 11, color: t.text, outline: "none", flex: 1, minWidth: 100,
-          }}
-        />
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <LlmModelDropdown
+            value={newModel}
+            onChange={setNewModel}
+            placeholder="embedding model (optional)"
+            variant="embedding"
+          />
+        </div>
         <button
           onClick={addSegment}
           disabled={!newPrefix.trim() || updateIndexing.isPending}

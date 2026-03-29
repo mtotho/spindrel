@@ -378,7 +378,7 @@ async def admin_channels_list(
     auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with pagination and optional filters."""
-    stmt = select(Channel).order_by(Channel.updated_at.desc())
+    stmt = select(Channel).order_by(Channel.name.asc())
     stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
@@ -1459,7 +1459,7 @@ async def admin_channels_enriched(
     auth_result=Depends(verify_auth_or_user),
 ):
     """List channels with integration-resolved display names."""
-    stmt_base = select(Channel).order_by(Channel.updated_at.desc())
+    stmt_base = select(Channel).order_by(Channel.name.asc())
     stmt_base = apply_channel_visibility(stmt_base, auth_result)
     if integration:
         stmt_base = stmt_base.where(Channel.integration == integration)

@@ -274,6 +274,8 @@ export interface LlmModel {
   id: string;
   display: string;
   max_tokens?: number;
+  download_status?: "cached" | "not_downloaded" | "downloading";
+  size_mb?: number;
 }
 
 export interface ModelGroup {
@@ -379,6 +381,9 @@ export type SSEEventType =
   | "tool_request"
   | "tool_result"
   | "assistant_text"
+  | "text_delta"
+  | "thinking"
+  | "thinking_content"
   | "transcript"
   | "response"
   | "compaction_start"
@@ -441,6 +446,8 @@ export interface SharedWorkspace {
   startup_script?: string | null;
   workspace_skills_enabled: boolean;
   workspace_base_prompt_enabled: boolean;
+  editor_enabled: boolean;
+  editor_port?: number | null;
   container_id?: string | null;
   container_name?: string | null;
   status: string;

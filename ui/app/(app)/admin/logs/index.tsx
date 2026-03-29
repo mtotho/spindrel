@@ -5,6 +5,7 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { X, Search, ChevronDown, ChevronRight, AlertTriangle, Wrench, Clock, Zap } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useTurns, type TurnSummary, type TurnToolCall } from "@/src/api/hooks/useTurns";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
@@ -387,6 +388,8 @@ export default function LogsScreen() {
         title="Logs"
         subtitle={data ? `${data.turns.length} turns` : "Loading..."}
       />
+
+      <LogsTabBar active="agent" />
 
       <FilterBar
         botFilter={botFilter}

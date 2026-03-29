@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash } from "lucide-react";
@@ -38,7 +38,6 @@ export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
   const flatListRef = useRef<FlatList>(null);
-  const insets = useSafeAreaInsets();
 
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -193,7 +192,7 @@ export default function ChatScreen() {
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
   return (
-    <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
+    <SafeAreaView className="flex-1 bg-surface" edges={["top"]} style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
         className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
@@ -201,7 +200,6 @@ export default function ChatScreen() {
           flexShrink: 0,
           zIndex: 10,
           minHeight: 52,
-          paddingTop: insets.top,
         }}
       >
         {columns === "single" && (
@@ -269,12 +267,15 @@ export default function ChatScreen() {
           onEndReachedThreshold={0.5}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
           ListHeaderComponent={
             chatState.isStreaming ? (
               <StreamingIndicator
                 content={chatState.streamingContent}
                 toolCalls={chatState.toolCalls}
                 botName={bot?.name}
+                thinkingContent={chatState.thinkingContent}
               />
             ) : null
           }
@@ -314,6 +315,6 @@ export default function ChatScreen() {
         onModelOverrideChange={setTurnModelOverride}
         defaultModel={channel?.model_override || bot?.model}
       />
-    </View>
+    </SafeAreaView>
   );
 }

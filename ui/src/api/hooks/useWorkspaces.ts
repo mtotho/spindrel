@@ -394,6 +394,61 @@ export function useUpdateBotIndexing(workspaceId: string) {
   });
 }
 
+// Editor (code-server)
+
+export function useEnableEditor(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ editor_url: string; editor_port: number; editor_enabled: boolean }>(
+        `/api/v1/workspaces/${workspaceId}/editor/enable`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspaces"] });
+      qc.invalidateQueries({ queryKey: ["editor-status", workspaceId] });
+    },
+  });
+}
+
+export function useDisableEditor(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ editor_enabled: boolean }>(
+        `/api/v1/workspaces/${workspaceId}/editor/disable`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspaces"] });
+      qc.invalidateQueries({ queryKey: ["editor-status", workspaceId] });
+    },
+  });
+}
+
+export function useEditorStatus(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["editor-status", workspaceId],
+    queryFn: () =>
+      apiFetch<{
+        editor_enabled: boolean;
+        editor_port: number | null;
+        editor_running: boolean;
+        editor_url: string | null;
+      }>(`/api/v1/workspaces/${workspaceId}/editor/status`),
+    enabled: !!workspaceId,
+    refetchInterval: 10_000,
+  });
+}
+
+export async function createEditorSession(workspaceId: string): Promise<void> {
+  await apiFetch(`/api/v1/workspaces/${workspaceId}/editor/session`, {
+    method: "POST",
+  });
+}
+
 // Reindex
 
 export function useReindexWorkspace(workspaceId: string) {

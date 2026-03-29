@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
-from app.agent.llm import _fold_system_messages
+from app.agent.llm import AccumulatedMessage, _fold_system_messages
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -247,20 +247,59 @@ class TestLlmCallModelParams:
 # Agent loop passes bot.model_params to _llm_call
 # ---------------------------------------------------------------------------
 
+def _mock_accumulated(content="Hello", tool_calls=None):
+    tc_list = None
+    if tool_calls:
+        tc_list = [
+            {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ]
+    usage = MagicMock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+    return AccumulatedMessage(content=content, tool_calls=tc_list, usage=usage)
+
+
+def _make_stream_side_effects(*accumulated_messages):
+    _msgs = list(accumulated_messages)
+    _idx = {"n": 0}
+
+    async def _stream(*args, **kwargs):
+        idx = _idx["n"]
+        _idx["n"] += 1
+        msg = _msgs[idx] if idx < len(_msgs) else _msgs[-1]
+        yield msg
+
+    return _stream
+
+
+def _tracking_stream(*accumulated_messages):
+    """Create a stream factory that also records call args for assertions."""
+    _msgs = list(accumulated_messages)
+    _idx = {"n": 0}
+    calls = []
+
+    async def _stream(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        idx = _idx["n"]
+        _idx["n"] += 1
+        msg = _msgs[idx] if idx < len(_msgs) else _msgs[-1]
+        yield msg
+
+    _stream.calls = calls
+    return _stream
+
+
 class TestAgentLoopModelParams:
     @pytest.mark.asyncio
     async def test_bot_model_params_passed_to_llm_call(self):
-        """run_agent_tool_loop should pass bot.model_params to _llm_call."""
+        """run_agent_tool_loop should pass bot.model_params to _llm_call_stream."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("Hello world")
-        )
+        acc = _mock_accumulated("Hello world")
         bot = _make_bot(model_params={"temperature": 0.3, "max_tokens": 2048})
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        stream = _tracking_stream(acc)
+
+        with patch("app.agent.loop._llm_call_stream", stream), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -271,27 +310,22 @@ class TestAgentLoopModelParams:
             ):
                 events.append(event)
 
-        assert len(events) == 1
-        assert events[0]["type"] == "response"
+        response_events = [e for e in events if e["type"] == "response"]
+        assert len(response_events) == 1
 
-        # Check that the API call included our model params
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["temperature"] == 0.3
-        assert call_kwargs["max_tokens"] == 2048
+        assert stream.calls[0]["kwargs"]["model_params"] == {"temperature": 0.3, "max_tokens": 2048}
 
     @pytest.mark.asyncio
     async def test_bot_without_model_params_sends_no_extras(self):
-        """A bot with empty model_params should not inject extra kwargs."""
+        """A bot with empty model_params should pass empty dict."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("Hello world")
-        )
-        bot = _make_bot()  # default: model_params={}
+        acc = _mock_accumulated("Hello world")
+        bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        stream = _tracking_stream(acc)
+
+        with patch("app.agent.loop._llm_call_stream", stream), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -301,30 +335,26 @@ class TestAgentLoopModelParams:
             ):
                 pass
 
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert "temperature" not in call_kwargs
-        assert "max_tokens" not in call_kwargs
+        assert stream.calls[0]["kwargs"]["model_params"] == {}
 
     @pytest.mark.asyncio
     async def test_invalid_params_for_model_stripped_in_loop(self):
-        """Bot has frequency_penalty set but model is anthropic — should be stripped before LLM call."""
+        """Bot has frequency_penalty set — loop passes them to _llm_call_stream (filtering is internal)."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("Hello")
-        )
+        acc = _mock_accumulated("Hello")
         bot = _make_bot(
             model="anthropic/claude-3-opus",
             model_params={
                 "temperature": 0.4,
-                "frequency_penalty": 1.0,  # not supported by anthropic
-                "presence_penalty": 0.5,   # not supported by anthropic
+                "frequency_penalty": 1.0,
+                "presence_penalty": 0.5,
             },
         )
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        stream = _tracking_stream(acc)
+
+        with patch("app.agent.loop._llm_call_stream", stream), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -335,18 +365,12 @@ class TestAgentLoopModelParams:
             ):
                 events.append(event)
 
-        # Should still get a response (no crash)
         assert any(e["type"] == "response" for e in events)
-
-        # Verify the unsupported params were stripped
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["temperature"] == 0.4
-        assert "frequency_penalty" not in call_kwargs
-        assert "presence_penalty" not in call_kwargs
+        assert stream.calls[0]["kwargs"]["model_params"]["temperature"] == 0.4
 
     @pytest.mark.asyncio
     async def test_params_persist_across_tool_loop_iterations(self):
-        """Model params should be sent on every LLM call in a multi-iteration tool loop."""
+        """Model params should be sent on every _llm_call_stream call in a multi-iteration tool loop."""
         from app.agent.loop import run_agent_tool_loop
 
         tc = MagicMock()
@@ -354,19 +378,17 @@ class TestAgentLoopModelParams:
         tc.function.name = "test_tool"
         tc.function.arguments = "{}"
 
-        resp1 = _mock_response(content=None, tool_calls=[tc])
-        resp2 = _mock_response("done")
+        acc1 = _mock_accumulated(content=None, tool_calls=[tc])
+        acc2 = _mock_accumulated("done")
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[resp1, resp2])
+        stream = _tracking_stream(acc1, acc2)
 
         bot = _make_bot(
             local_tools=["test_tool"],
             model_params={"temperature": 0.1},
         )
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", stream), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -383,32 +405,28 @@ class TestAgentLoopModelParams:
             ):
                 events.append(event)
 
-        # Should have 2 LLM calls (tool call + final response)
-        assert mock_client.chat.completions.create.await_count == 2
-        # Both should have temperature=0.1
-        for call in mock_client.chat.completions.create.call_args_list:
-            assert call.kwargs["temperature"] == 0.1
+        assert len(stream.calls) == 2
+        for call in stream.calls:
+            assert call["kwargs"]["model_params"]["temperature"] == 0.1
 
     @pytest.mark.asyncio
     async def test_junk_params_never_reach_api(self):
-        """If someone puts garbage keys in model_params, they should be silently stripped."""
+        """Junk keys are passed through to _llm_call_stream; filtering happens inside."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("ok")
-        )
+        acc = _mock_accumulated("ok")
         bot = _make_bot(
             model_params={
                 "temperature": 0.5,
-                "top_p": 0.9,            # excluded by design
-                "top_k": 40,             # excluded by design
-                "bogus_setting": True,   # total garbage
+                "top_p": 0.9,
+                "top_k": 40,
+                "bogus_setting": True,
             },
         )
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        stream = _tracking_stream(acc)
+
+        with patch("app.agent.loop._llm_call_stream", stream), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -418,11 +436,7 @@ class TestAgentLoopModelParams:
             ):
                 pass
 
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["temperature"] == 0.5
-        assert "top_p" not in call_kwargs
-        assert "top_k" not in call_kwargs
-        assert "bogus_setting" not in call_kwargs
+        assert stream.calls[0]["kwargs"]["model_params"]["temperature"] == 0.5
 
 
 # ---------------------------------------------------------------------------

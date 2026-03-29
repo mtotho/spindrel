@@ -14,7 +14,7 @@ export interface SettingItem {
   min?: number;
   max?: number;
   nullable?: boolean;
-  widget?: "model" | "textarea";
+  widget?: "model" | "textarea" | "embedding_model";
 }
 
 export interface SettingsGroup {

@@ -7,9 +7,10 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
-  ThumbsUp,
   ThumbsDown,
   ShieldCheck,
+  Globe,
+  Play,
 } from "lucide-react";
 import {
   useApprovals,
@@ -79,6 +80,7 @@ function SuggestionButton({
   onClick: () => void;
   disabled: boolean;
 }) {
+  const isGlobal = suggestion.scope === "global";
   return (
     <button
       onClick={onClick}
@@ -90,17 +92,17 @@ function SuggestionButton({
         gap: 6,
         padding: "6px 12px",
         borderRadius: 6,
-        background: "rgba(59,130,246,0.08)",
-        border: "1px solid rgba(59,130,246,0.2)",
+        background: isGlobal ? "rgba(147,51,234,0.08)" : "rgba(59,130,246,0.08)",
+        border: `1px solid ${isGlobal ? "rgba(147,51,234,0.2)" : "rgba(59,130,246,0.2)"}`,
         cursor: disabled ? "default" : "pointer",
         fontSize: 12,
         fontWeight: 500,
-        color: "#2563eb",
+        color: isGlobal ? "#7c3aed" : "#2563eb",
         opacity: disabled ? 0.5 : 1,
         whiteSpace: "nowrap",
       }}
     >
-      <ShieldCheck size={12} /> {suggestion.label}
+      {isGlobal ? <Globe size={12} /> : <ShieldCheck size={12} />} {suggestion.label}
     </button>
   );
 }
@@ -113,7 +115,10 @@ function ApprovalCard({
 }: {
   approval: ToolApproval;
   onDecide: (id: string, approved: boolean) => void;
-  onDecideWithRule: (id: string, rule: { tool_name: string; conditions: Record<string, any> }) => void;
+  onDecideWithRule: (
+    id: string,
+    rule: { tool_name: string; conditions: Record<string, any>; scope?: "bot" | "global" },
+  ) => void;
   deciding: boolean;
 }) {
   const t = useThemeTokens();
@@ -208,10 +213,16 @@ function ApprovalCard({
 
       {isPending && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-          {/* Primary actions */}
-          <div style={{ display: "flex", gap: 8 }}>
+          {/* Primary actions: Allow always + Approve this run + Deny */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
-              onClick={() => onDecide(approval.id, true)}
+              onClick={() =>
+                onDecideWithRule(approval.id, {
+                  tool_name: approval.tool_name,
+                  conditions: {},
+                  scope: "bot",
+                })
+              }
               disabled={deciding}
               style={{
                 display: "flex",
@@ -228,7 +239,27 @@ function ApprovalCard({
                 opacity: deciding ? 0.5 : 1,
               }}
             >
-              <ThumbsUp size={14} /> Approve Once
+              <ShieldCheck size={14} /> Allow always
+            </button>
+            <button
+              onClick={() => onDecide(approval.id, true)}
+              disabled={deciding}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 16px",
+                borderRadius: 6,
+                background: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.2)",
+                cursor: deciding ? "default" : "pointer",
+                fontSize: 13,
+                fontWeight: 500,
+                color: "#16a34a",
+                opacity: deciding ? 0.5 : 1,
+              }}
+            >
+              <Play size={14} /> Approve this run
             </button>
             <button
               onClick={() => onDecide(approval.id, false)}
@@ -251,7 +282,7 @@ function ApprovalCard({
               <ThumbsDown size={14} /> Deny
             </button>
           </div>
-          {/* Smart suggestions */}
+          {/* Smart suggestions (broadest-first from API) */}
           {suggestions && suggestions.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
@@ -266,6 +297,7 @@ function ApprovalCard({
                     onDecideWithRule(approval.id, {
                       tool_name: s.tool_name,
                       conditions: s.conditions,
+                      scope: s.scope,
                     })
                   }
                 />
@@ -301,7 +333,7 @@ export default function ApprovalsScreen() {
 
   const handleDecideWithRule = (
     approvalId: string,
-    rule: { tool_name: string; conditions: Record<string, any> },
+    rule: { tool_name: string; conditions: Record<string, any>; scope?: "bot" | "global" },
   ) => {
     decideMut.mutate({
       approvalId,

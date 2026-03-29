@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 
-from app.agent.context import current_channel_id
+from app.agent.context import current_bot_id, current_channel_id
 from app.db.engine import async_session
-from app.db.models import ConversationSection, Message, Session, ToolCall
+from app.db.models import Channel, ConversationSection, Message, Session, ToolCall
 from app.tools.registry import register
 
 _SCHEMA = {
@@ -32,6 +32,10 @@ _SCHEMA = {
                         "'messages:<query>' to search raw message content across all history, "
                         "or 'tool:<id>' to retrieve full tool call output."
                     ),
+                },
+                "channel_id": {
+                    "type": "string",
+                    "description": "The channel ID to read conversation history from.",
                 },
             },
             "required": ["section"],
@@ -91,8 +95,19 @@ async def _track_view(section_id: uuid.UUID) -> None:
 
 
 @register(_SCHEMA)
-async def read_conversation_history(section: str) -> str:
-    channel_id = current_channel_id.get()
+async def read_conversation_history(section: str, channel_id: uuid.UUID | None = None) -> str:
+    my_channel_id = current_channel_id.get()
+    bot_id = current_bot_id.get()
+
+    if channel_id and channel_id != my_channel_id:
+        # Verify the bot is a member of the requested channel
+        async with async_session() as db:
+            ch = await db.get(Channel, channel_id)
+        if not ch or ch.bot_id != bot_id:
+            return "Access denied: this bot is not a member of the requested channel."
+    else:
+        channel_id = my_channel_id
+
     if not channel_id:
         return "No channel context available. This tool requires a channel-based conversation."
 

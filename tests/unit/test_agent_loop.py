@@ -8,6 +8,7 @@ import openai
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+from app.agent.llm import AccumulatedMessage
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -21,7 +22,7 @@ def _make_bot(**overrides) -> BotConfig:
 
 
 def _mock_response(content="Hello", tool_calls=None):
-    """Build a mock ChatCompletion response."""
+    """Build a mock ChatCompletion response (for _llm_call non-streaming tests)."""
     choice = MagicMock()
     choice.message.content = content
     choice.message.tool_calls = tool_calls or []
@@ -49,6 +50,62 @@ def _mock_tool_call(name="test_tool", args='{}', tc_id="tc_1"):
     tc.function.name = name
     tc.function.arguments = args
     return tc
+
+
+def _mock_accumulated(content="Hello", tool_calls=None):
+    """Build an AccumulatedMessage for mocking _llm_call_stream."""
+    tc_list = None
+    if tool_calls:
+        tc_list = [
+            {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ]
+    usage = MagicMock()
+    usage.prompt_tokens = 100
+    usage.completion_tokens = 50
+    usage.total_tokens = 150
+    return AccumulatedMessage(
+        content=content,
+        tool_calls=tc_list,
+        usage=usage,
+    )
+
+
+async def _fake_stream(*accumulated_messages):
+    """Return a factory that produces async generators yielding AccumulatedMessage objects.
+
+    Each call to the returned function pops the next message from the list.
+    """
+    _msgs = list(accumulated_messages)
+    _call_idx = 0
+
+    async def _gen(*args, **kwargs):
+        nonlocal _call_idx
+        if _call_idx < len(_msgs):
+            msg = _msgs[_call_idx]
+            _call_idx += 1
+        else:
+            msg = _msgs[-1]
+        yield msg
+
+    return _gen
+
+
+def _make_stream_side_effects(*accumulated_messages):
+    """Create a side_effect function for patching _llm_call_stream.
+
+    Each invocation yields the next AccumulatedMessage in order.
+    """
+    _msgs = list(accumulated_messages)
+    _idx = {"n": 0}
+
+    async def _stream(*args, **kwargs):
+        idx = _idx["n"]
+        _idx["n"] += 1
+        msg = _msgs[idx] if idx < len(_msgs) else _msgs[-1]
+        yield msg
+
+    return _stream
 
 
 # ---------------------------------------------------------------------------
@@ -367,16 +424,12 @@ class TestToolDispatchRouting:
         from app.agent.loop import run_agent_tool_loop
 
         tc = _mock_tool_call("my_local_tool", '{"x": 1}', "tc_1")
-        resp1 = _mock_response(content=None, tool_calls=[tc])
-        resp2 = _mock_response("done")
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[resp1, resp2])
+        acc1 = _mock_accumulated(content=None, tool_calls=[tc])
+        acc2 = _mock_accumulated("done")
 
         bot = _make_bot(local_tools=["my_local_tool"])
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc1, acc2)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -404,16 +457,12 @@ class TestToolDispatchRouting:
         from app.agent.loop import run_agent_tool_loop
 
         tc = _mock_tool_call("mcp_action", '{}', "tc_1")
-        resp1 = _mock_response(content=None, tool_calls=[tc])
-        resp2 = _mock_response("done")
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[resp1, resp2])
+        acc1 = _mock_accumulated(content=None, tool_calls=[tc])
+        acc2 = _mock_accumulated("done")
 
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc1, acc2)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -438,16 +487,12 @@ class TestToolDispatchRouting:
         from app.agent.loop import run_agent_tool_loop
 
         tc = _mock_tool_call("nonexistent_tool", '{}', "tc_1")
-        resp1 = _mock_response(content=None, tool_calls=[tc])
-        resp2 = _mock_response("done")
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=[resp1, resp2])
+        acc1 = _mock_accumulated(content=None, tool_calls=[tc])
+        acc2 = _mock_accumulated("done")
 
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc1, acc2)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -478,14 +523,10 @@ class TestRunAgentToolLoop:
         """LLM returns text response immediately — loop yields response and terminates."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("Hello world")
-        )
+        acc = _mock_accumulated("Hello world")
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -496,9 +537,9 @@ class TestRunAgentToolLoop:
             ):
                 events.append(event)
 
-            assert len(events) == 1
-            assert events[0]["type"] == "response"
-            assert events[0]["text"] == "Hello world"
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
+            assert response_events[0]["text"] == "Hello world"
 
     @pytest.mark.asyncio
     async def test_max_iterations_guard(self):
@@ -506,20 +547,15 @@ class TestRunAgentToolLoop:
         from app.agent.loop import run_agent_tool_loop
 
         tc = _mock_tool_call("some_tool", '{}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
 
-        mock_client = AsyncMock()
-        # All calls return tool calls, except the forced final one
-        tool_resp = _mock_response(content=None, tool_calls=[tc])
+        # The forced final call uses _llm_call (non-streaming), so we mock that too.
         final_resp = _mock_response("forced response")
-        # We need max_iterations tool responses + 1 forced response
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=[tool_resp] * 3 + [final_resp]
-        )
 
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_tool, acc_tool)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
@@ -553,14 +589,10 @@ class TestRunAgentToolLoop:
         """When compaction=True, yielded events should have compaction=True."""
         from app.agent.loop import run_agent_tool_loop
 
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_mock_response("summary done")
-        )
+        acc = _mock_accumulated("summary done")
         bot = _make_bot()
 
-        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
-             patch("app.services.providers.record_usage"), \
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
              patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
              patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \

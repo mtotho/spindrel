@@ -134,7 +134,7 @@ export default function LoginScreen() {
       <View className="flex-1 bg-surface items-center justify-center p-6">
         <View className="w-full max-w-sm gap-6">
           <View className="items-center gap-2 mb-4">
-            <Text className="text-text text-2xl font-bold">Agent Server</Text>
+            <Text className="text-text text-2xl font-bold">Spindrel</Text>
             <Text className="text-text-muted text-sm">
               Enter your server URL to get started
             </Text>

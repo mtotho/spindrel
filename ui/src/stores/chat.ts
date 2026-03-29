@@ -4,6 +4,7 @@ import type { Message, SSEEvent } from "../types/api";
 interface ChatChannelState {
   messages: Message[];
   streamingContent: string;
+  thinkingContent: string;
   isStreaming: boolean;
   toolCalls: { name: string; status: "running" | "done" }[];
   error: string | null;
@@ -23,6 +24,7 @@ interface ChatState {
 const emptyChannel: ChatChannelState = {
   messages: [],
   streamingContent: "",
+  thinkingContent: "",
   isStreaming: false,
   toolCalls: [],
   error: null,
@@ -60,6 +62,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ...(s.channels[channelId] ?? emptyChannel),
           isStreaming: true,
           streamingContent: "",
+          thinkingContent: "",
           toolCalls: [],
           error: null,
         },
@@ -79,6 +82,45 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               [channelId]: {
                 ...ch,
                 streamingContent: data.text ?? ch.streamingContent,
+              },
+            },
+          };
+        }
+        case "text_delta": {
+          // Streaming text token
+          const data = event.data as { delta?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                streamingContent: ch.streamingContent + (data.delta ?? ""),
+              },
+            },
+          };
+        }
+        case "thinking": {
+          // Streaming thinking/reasoning token
+          const data = event.data as { delta?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                thinkingContent: ch.thinkingContent + (data.delta ?? ""),
+              },
+            },
+          };
+        }
+        case "thinking_content": {
+          // Consolidated thinking content (fallback for non-streaming path)
+          const data = event.data as { text?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                thinkingContent: data.text ?? ch.thinkingContent,
               },
             },
           };
@@ -163,6 +205,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             messages: newMessages,
             isStreaming: false,
             streamingContent: "",
+            thinkingContent: "",
             toolCalls: [],
           },
         },

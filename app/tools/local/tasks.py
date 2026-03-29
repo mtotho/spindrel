@@ -368,7 +368,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
 
     # List mode — cross-bot or current channel
     async with async_session() as db:
-        from sqlalchemy import or_ as _or, and_ as _and
+        from sqlalchemy import and_ as _and
 
         if bot_id:
             # Cross-bot: check delegation access
@@ -382,16 +382,9 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             # Query by bot_id across all channels
             conditions = [Task.bot_id == resolved.id]
         else:
-            session_id = current_session_id.get()
-            channel_id = current_channel_id.get()
-            if not session_id and not channel_id:
-                return "No session or channel context available."
-            scope_filters = []
-            if channel_id:
-                scope_filters.append(Task.channel_id == channel_id)
-            if session_id:
-                scope_filters.append(Task.session_id == session_id)
-            conditions = [_or(*scope_filters)]
+            # Scope by current bot to see tasks across all its channels
+            effective_bot = current_bot_id.get() or "default"
+            conditions = [Task.bot_id == effective_bot]
         if not include_completed:
             conditions.append(Task.status.in_(["pending", "running", "active"]))
         # Hide child tasks (callbacks, concrete schedule runs) by default

@@ -19,9 +19,10 @@ interface Props {
   content: string;
   toolCalls: { name: string; status: "running" | "done" }[];
   botName?: string;
+  thinkingContent?: string;
 }
 
-export function StreamingIndicator({ content, toolCalls, botName }: Props) {
+export function StreamingIndicator({ content, toolCalls, botName, thinkingContent }: Props) {
   const name = botName || "Bot";
   const letter = name[0].toUpperCase();
   const bg = avatarColor(name);
@@ -55,6 +56,30 @@ export function StreamingIndicator({ content, toolCalls, botName }: Props) {
             {name}
           </Text>
         </View>
+
+        {/* Thinking content */}
+        {thinkingContent ? (
+          <View
+            style={{
+              marginBottom: 6,
+              paddingLeft: 10,
+              borderLeftWidth: 3,
+              borderLeftColor: t.textDim,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 13,
+                lineHeight: 20,
+                color: t.textMuted,
+                fontStyle: "italic",
+              }}
+              numberOfLines={8}
+            >
+              {thinkingContent}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Tool calls in progress */}
         {toolCalls.length > 0 && (

@@ -36,6 +36,11 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
 current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
+# Effective model/provider for the current agent run (after override resolution).
+# Tools (e.g. delegate_to_harness) read these to propagate the model to callback tasks.
+current_model_override: ContextVar[str | None] = ContextVar("current_model_override", default=None)
+current_provider_id_override: ContextVar[str | None] = ContextVar("current_provider_id_override", default=None)
+
 # Dynamically injected tool schemas (e.g. heartbeat_post_to_thread for channel_and_thread mode).
 # Set explicitly in run_stream; NOT managed by set_agent_context.
 current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_injected_tools", default=None)
@@ -114,6 +119,8 @@ class AgentContextSnapshot:
     session_depth: int
     root_session_id: uuid.UUID | None
     ephemeral_delegates: list
+    model_override: str | None
+    provider_id_override: str | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -133,6 +140,8 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         session_depth=current_session_depth.get(),
         root_session_id=current_root_session_id.get(),
         ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
+        model_override=current_model_override.get(),
+        provider_id_override=current_provider_id_override.get(),
     )
 
 
@@ -152,3 +161,5 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_session_depth.set(snap.session_depth)
     current_root_session_id.set(snap.root_session_id)
     current_ephemeral_delegates.set(list(snap.ephemeral_delegates))
+    current_model_override.set(snap.model_override)
+    current_provider_id_override.set(snap.provider_id_override)
