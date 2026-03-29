@@ -47,12 +47,17 @@ Use get_memory_file("name") or search_memory("query") to access.
 - search_memory(query) — hybrid semantic+keyword search across all memory files
 - get_memory_file(name) — read a specific memory file
 
-### Rules
-- Use exec_command to write/edit memory files (sed, echo, heredoc, etc.)
-- Write session events and decisions to today's daily log
-- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines
-- Search memory before assuming you don't know something
-- Write important learnings immediately, don't wait for session end`;
+### Memory Rules
+- **Session start**: First action is appending an entry to today's log with time and task context.
+- **Every 3–5 responses**: Append a progress note to today's log. Do not let more than 5 responses pass without a write.
+- **Immediately on any decision, correction, or discovery**: Write it. Do not defer.
+- **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
+- Before answering about past work or context: search_memory first.
+- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
+- When context is getting large: summarize key points to today's log before they're lost.
+- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md.
+- Promote stable facts to MEMORY.md — keep it curated and under ~100 lines.
+- Format MEMORY.md sections with _Updated: YYYY-MM-DD_ headers; edit in place.`;
 
 const ARCHITECTURE_DIAGRAM = `
 ┌─────────────────────────────────────────────────────────────────┐
