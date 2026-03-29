@@ -3,6 +3,7 @@ import { PaneTabBar } from "./PaneTabBar";
 import { FileViewer } from "./FileViewer";
 import { FileText } from "lucide-react";
 import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface FilePaneProps {
   workspaceId: string;
@@ -11,6 +12,7 @@ interface FilePaneProps {
 }
 
 export function FilePane({ workspaceId, pane, indexMap }: FilePaneProps) {
+  const t = useThemeTokens();
   const paneState = useFileBrowserStore((s) => s[pane === "left" ? "leftPane" : "rightPane"]);
 
   if (paneState.openFiles.length === 0) {
@@ -22,14 +24,14 @@ export function FilePane({ workspaceId, pane, indexMap }: FilePaneProps) {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          background: "#0d0d0d",
-          color: "#444",
+          background: t.surface,
+          color: t.textDim,
           gap: 12,
         }}
       >
-        <FileText size={40} color="#333" />
+        <FileText size={40} color={t.surfaceBorder} />
         <span style={{ fontSize: 13 }}>Select a file to view</span>
-        <span style={{ fontSize: 11, color: "#333" }}>Click any file in the explorer</span>
+        <span style={{ fontSize: 11, color: t.surfaceBorder }}>Click any file in the explorer</span>
       </div>
     );
   }

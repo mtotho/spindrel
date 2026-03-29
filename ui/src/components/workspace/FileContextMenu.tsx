@@ -4,6 +4,7 @@ import { useFileBrowserStore } from "../../stores/fileBrowser";
 import { useDeleteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { apiFetch } from "../../api/client";
 import type { WorkspaceFileEntry } from "../../types/api";
+import { useThemeTokens } from "../../theme/tokens";
 
 /** Write text to clipboard with fallback for non-HTTPS */
 async function writeToClipboard(text: string) {
@@ -42,6 +43,7 @@ interface MenuItem {
 }
 
 export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRename, onCreateIn }: FileContextMenuProps) {
+  const t = useThemeTokens();
   const openFile = useFileBrowserStore((s) => s.openFile);
   const splitMode = useFileBrowserStore((s) => s.splitMode);
   const deleteMutation = useDeleteWorkspaceFile(workspaceId);
@@ -149,18 +151,18 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
           top: clampedY,
           left: clampedX,
           zIndex: 50001,
-          background: "#1a1a1a",
-          border: "1px solid #333",
+          background: t.surfaceRaised,
+          border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6,
           padding: "4px 0",
           minWidth: menuWidth,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
         }}
       >
         {items.map((item, i) => (
           <div key={i}>
             {item.separator && (
-              <div style={{ height: 1, background: "#333", margin: "4px 0" }} />
+              <div style={{ height: 1, background: t.surfaceBorder, margin: "4px 0" }} />
             )}
             <div
               onClick={item.onClick}
@@ -171,10 +173,10 @@ export function FileContextMenu({ x, y, entry, workspaceId, onClose, onStartRena
                 padding: "6px 12px",
                 cursor: "pointer",
                 fontSize: 13,
-                color: item.danger ? "#ef4444" : "#ccc",
+                color: item.danger ? "#ef4444" : t.text,
                 borderRadius: 0,
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.06)"; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = t.overlayLight; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
             >
               {item.icon}

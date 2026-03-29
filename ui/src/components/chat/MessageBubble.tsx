@@ -12,6 +12,37 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
+// Content extraction — handles JSON-array content blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract displayable text from message content.
+ * Content may be a plain string or a JSON-serialized array of content blocks
+ * (e.g. [{type:"text",text:"..."}, {type:"thinking",...}, {type:"tool_use",...}]).
+ */
+export function extractDisplayText(content: string | null | undefined): string {
+  if (!content) return "";
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("[")) return content;
+  try {
+    const blocks = JSON.parse(trimmed);
+    if (!Array.isArray(blocks)) return content;
+    const textParts: string[] = [];
+    for (const block of blocks) {
+      if (typeof block === "string") {
+        textParts.push(block);
+      } else if (block?.type === "text" && typeof block.text === "string") {
+        textParts.push(block.text);
+      }
+      // Skip thinking, tool_use, image_url blocks — not user-facing in message list
+    }
+    return textParts.join("\n\n");
+  } catch {
+    return content; // Not valid JSON — render as-is
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Metadata-aware display name resolution
 // ---------------------------------------------------------------------------
 
@@ -289,8 +320,9 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
-  // Always strip Slack prefix from content (handles both new and legacy messages)
-  const { slackUserId, cleaned: displayContent } = parseSlackPrefix(message.content || "");
+  // Extract text from content (handles JSON-array content blocks) then strip Slack prefix
+  const rawText = extractDisplayText(message.content);
+  const { slackUserId, cleaned: displayContent } = parseSlackPrefix(rawText);
   const { name: displayName, isCurrentUser, isSlack } = resolveDisplay(message, botName, slackUserId);
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);

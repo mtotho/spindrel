@@ -554,6 +554,110 @@ class TestBackfillSections:
                     pass
 
     @pytest.mark.asyncio
+    async def test_tool_messages_produce_valid_periods(self):
+        """Tool messages become assistant in conversation — period_start/period_end
+        must not be None.  This was the (?) dates bug: active_timestamps didn't
+        count tool messages, so the index went out of bounds."""
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        channel = _make_channel(
+            id=channel_id, active_session_id=session_id, history_mode="file"
+        )
+        session = _make_session(
+            id=session_id, channel_id=channel_id, summary_message_id=None
+        )
+
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        # Conversation with tool calls: user, assistant+tool_call, tool, assistant, user, assistant
+        messages = [
+            _make_message(role="user", content="search for X",
+                          created_at=base_time, session_id=session_id),
+            _make_message(role="assistant", content="I'll search.",
+                          created_at=base_time + timedelta(minutes=1),
+                          session_id=session_id,
+                          tool_calls=[{"function": {"name": "web_search", "arguments": "{}"}}]),
+            _make_message(role="tool", content="search results here",
+                          created_at=base_time + timedelta(minutes=2),
+                          session_id=session_id,
+                          tool_call_id="call_1",
+                          metadata_=None),
+            _make_message(role="assistant", content="Found results.",
+                          created_at=base_time + timedelta(minutes=3),
+                          session_id=session_id),
+            _make_message(role="user", content="thanks",
+                          created_at=base_time + timedelta(minutes=4),
+                          session_id=session_id),
+            _make_message(role="assistant", content="welcome",
+                          created_at=base_time + timedelta(minutes=5),
+                          session_id=session_id),
+        ]
+        # Make the tool message return "tool" role
+        messages[2].role = "tool"
+        messages[2].content = "search results here"
+
+        section_json = json.dumps({
+            "title": "Tool Search",
+            "summary": "User searched for X.",
+            "transcript": "[USER]: search for X",
+        })
+
+        async def mock_get(cls, id_val):
+            if id_val == channel_id:
+                return channel
+            if id_val == session_id:
+                return session
+            return None
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            stmt_str = str(stmt)
+            if "conversation_sections" in stmt_str.lower():
+                result.scalar.return_value = 0
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+                return result
+            result.scalars.return_value.all.return_value = messages
+            return result
+
+        added_sections = []
+        mock_db = AsyncMock()
+        mock_db.get = mock_get
+        mock_db.execute = mock_execute
+        mock_db.add = lambda s: added_sections.append(s)
+        mock_db.commit = AsyncMock()
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_mock_llm_response(section_json)
+        )
+
+        with patch("app.services.compaction.async_session") as mock_session, \
+             patch("app.agent.bots.get_bot", return_value=_make_bot()), \
+             patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.compaction._regenerate_executive_summary", new_callable=AsyncMock, return_value="Exec"):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            events = []
+            async for event in backfill_sections(channel_id, chunk_size=50):
+                events.append(event)
+
+        # 1 section with all messages in one chunk
+        assert len(added_sections) == 1
+        section = added_sections[0]
+
+        # The critical assertion: period_start and period_end must NOT be None
+        assert section.period_start is not None, (
+            "period_start is None — active_timestamps didn't count tool messages"
+        )
+        assert section.period_end is not None, (
+            "period_end is None — active_timestamps index went out of bounds"
+        )
+        # Verify actual values
+        assert section.period_start == base_time
+        assert section.period_end == base_time + timedelta(minutes=5)
+
+    @pytest.mark.asyncio
     async def test_explicit_history_mode_override(self):
         """Explicit history_mode param should override channel/bot defaults."""
         channel_id = uuid.uuid4()

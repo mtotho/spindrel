@@ -148,7 +148,7 @@ function ConnectedBots({ workspaceId, bots, isWide }: {
       {bots.map((b) => (
         <div key={b.bot_id} style={{
           display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", background: "#0d0d0d", borderRadius: 8,
+          padding: "8px 12px", background: t.surface, borderRadius: 8,
           border: `1px solid ${t.surfaceRaised}`,
         }}>
           <span style={{

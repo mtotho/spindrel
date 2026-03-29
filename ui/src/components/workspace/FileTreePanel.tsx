@@ -5,6 +5,7 @@ import { FileTreeNode } from "./FileTreeNode";
 import { FileContextMenu } from "./FileContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
 import { Folder, FileText, Search, X } from "lucide-react";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface FileTreePanelProps {
   workspaceId: string;
@@ -13,6 +14,7 @@ interface FileTreePanelProps {
 }
 
 export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePanelProps) {
+  const t = useThemeTokens();
   const treeWidth = useFileBrowserStore((s) => s.treeWidth);
   const setTreeWidth = useFileBrowserStore((s) => s.setTreeWidth);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
@@ -92,8 +94,8 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
         width: mobile ? "100%" : treeWidth,
         height: "100%",
         overflow: "auto",
-        background: "#111",
-        borderRight: mobile ? "none" : "1px solid #222",
+        background: t.surface,
+        borderRight: mobile ? "none" : `1px solid ${t.surfaceBorder}`,
         display: "flex",
         flexDirection: "column",
       }}
@@ -105,30 +107,30 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           alignItems: "center",
           gap: 6,
           padding: "10px 12px 8px",
-          borderBottom: "1px solid #1a1a1a",
+          borderBottom: `1px solid ${t.surfaceBorder}`,
           flexShrink: 0,
         }}
       >
-        <Folder size={14} color="#666" />
-        <span style={{ fontSize: 11, color: "#666", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+        <Folder size={14} color={t.textDim} />
+        <span style={{ fontSize: 11, color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
           Explorer
         </span>
       </div>
 
       {/* Search */}
-      <div style={{ padding: "6px 8px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+      <div style={{ padding: "6px 8px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0 }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
             gap: 4,
-            background: "#0a0a0a",
+            background: t.inputBg,
             borderRadius: 4,
             padding: "4px 8px",
-            border: "1px solid #222",
+            border: `1px solid ${t.inputBorder}`,
           }}
         >
-          <Search size={12} color="#555" style={{ flexShrink: 0 }} />
+          <Search size={12} color={t.textDim} style={{ flexShrink: 0 }} />
           <input
             ref={searchRef}
             type="text"
@@ -141,7 +143,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
               background: "none",
               border: "none",
               outline: "none",
-              color: "#ccc",
+              color: t.inputText,
               fontSize: 12,
               padding: 0,
               minWidth: 0,
@@ -150,7 +152,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           {searchQuery && (
             <X
               size={12}
-              color="#555"
+              color={t.textDim}
               style={{ cursor: "pointer", flexShrink: 0 }}
               onClick={() => { setSearchQuery(""); searchRef.current?.focus(); }}
             />
@@ -182,7 +184,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
         style={{ flex: 1, overflow: "auto", padding: "4px 0", background: rootDragOver ? "rgba(20,184,166,0.06)" : undefined }}
       >
         {isLoading ? (
-          <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Loading...</div>
+          <div style={{ padding: 16, color: t.textDim, fontSize: 12 }}>Loading...</div>
         ) : (
           <>
             {creatingAtRoot && (
@@ -201,7 +203,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
                 {creatingAtRoot.type === "folder" ? (
                   <Folder size={14} color="#e2a855" />
                 ) : (
-                  <FileText size={14} color="#888" />
+                  <FileText size={14} color={t.textMuted} />
                 )}
                 <input
                   ref={createRef}
@@ -214,9 +216,9 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
                   style={{
                     flex: 1,
                     fontSize: 13,
-                    color: "#e5e5e5",
-                    background: "#0a0a0a",
-                    border: "1px solid #444",
+                    color: t.inputText,
+                    background: t.inputBg,
+                    border: `1px solid ${t.inputBorder}`,
                     borderRadius: 3,
                     padding: "1px 4px",
                     outline: "none",
@@ -226,7 +228,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
               </div>
             )}
             {sortedEntries.length === 0 && !creatingAtRoot ? (
-              <div style={{ padding: 16, color: "#555", fontSize: 12 }}>Empty workspace</div>
+              <div style={{ padding: 16, color: t.textDim, fontSize: 12 }}>Empty workspace</div>
             ) : (
               sortedEntries.map((entry) => (
                 <FileTreeNode

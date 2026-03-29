@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash } from "lucide-react";
-import { MessageBubble } from "@/src/components/chat/MessageBubble";
+import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
@@ -94,6 +94,8 @@ export default function ChatScreen() {
           // Hide heartbeat messages and passive dispatch echoes
           if (meta.is_heartbeat) return false;
           if (meta.passive) return false;
+          // Hide assistant messages with no displayable content (tool-call-only messages)
+          if (m.role === "assistant" && !extractDisplayText(m.content)) return false;
           return true;
         });
       setMessages(channelId, allMessages);

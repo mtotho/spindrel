@@ -4,6 +4,7 @@ import { useFileBrowserStore } from "../../stores/fileBrowser";
 import { useWorkspaceFiles, useDeleteWorkspaceFile, useMoveWorkspaceFile, useWriteWorkspaceFile, useMkdirWorkspace } from "../../api/hooks/useWorkspaces";
 import { FileContextMenu } from "./FileContextMenu";
 import type { WorkspaceFileEntry } from "../../types/api";
+import { useThemeTokens } from "../../theme/tokens";
 
 function fuzzyMatch(needle: string, haystack: string): boolean {
   if (!needle) return true;
@@ -54,6 +55,7 @@ interface FileTreeNodeProps {
 }
 
 export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFilter, indexedPaths }: FileTreeNodeProps) {
+  const t = useThemeTokens();
   const [dragOver, setDragOver] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -260,7 +262,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
           cursor: "pointer",
           background: dragOver
             ? "rgba(20,184,166,0.15)"
-            : isActive ? "rgba(59,130,246,0.12)" : "transparent",
+            : isActive ? `${t.accent}1f` : "transparent",
           borderLeft: dragOver ? "2px solid #14b8a6" : "2px solid transparent",
           borderRadius: 4,
           userSelect: "none",
@@ -268,9 +270,9 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
       >
         {entry.is_dir ? (
           effectiveExpanded ? (
-            <ChevronDown size={14} color="#666" />
+            <ChevronDown size={14} color={t.textDim} />
           ) : (
-            <ChevronRight size={14} color="#666" />
+            <ChevronRight size={14} color={t.textDim} />
           )
         ) : (
           <span style={{ width: 14, display: "inline-block" }} />
@@ -283,7 +285,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
             <Folder size={14} color="#e2a855" />
           )
         ) : (
-          <FileText size={14} color="#888" />
+          <FileText size={14} color={t.textMuted} />
         )}
 
         {renaming ? (
@@ -297,9 +299,9 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
             style={{
               flex: 1,
               fontSize: 13,
-              color: "#e5e5e5",
-              background: "#0a0a0a",
-              border: "1px solid #444",
+              color: t.inputText,
+              background: t.inputBg,
+              border: `1px solid ${t.inputBorder}`,
               borderRadius: 3,
               padding: "1px 4px",
               outline: "none",
@@ -311,7 +313,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
             style={{
               flex: 1,
               fontSize: 13,
-              color: isActive ? "#e5e5e5" : "#aaa",
+              color: isActive ? t.text : t.textMuted,
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -337,7 +339,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
         )}
 
         {!renaming && !entry.is_dir && entry.modified_at && (
-          <span style={{ fontSize: 10, color: "#444", flexShrink: 0, paddingRight: 4 }}>
+          <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, paddingRight: 4 }}>
             {formatTimestamp(entry.modified_at)}
           </span>
         )}
@@ -361,7 +363,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
               {creatingChild.type === "folder" ? (
                 <Folder size={14} color="#e2a855" />
               ) : (
-                <FileText size={14} color="#888" />
+                <FileText size={14} color={t.textMuted} />
               )}
               <input
                 ref={createRef}
@@ -373,9 +375,9 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
                 style={{
                   flex: 1,
                   fontSize: 13,
-                  color: "#e5e5e5",
-                  background: "#0a0a0a",
-                  border: "1px solid #444",
+                  color: t.inputText,
+                  background: t.inputBg,
+                  border: `1px solid ${t.inputBorder}`,
                   borderRadius: 3,
                   padding: "1px 4px",
                   outline: "none",

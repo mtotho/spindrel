@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Database } from "lucide-react";
 import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface IndexStatusBadgeProps {
   entry: FileIndexEntry;
 }
 
 export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
+  const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -54,26 +56,26 @@ export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
             top: "100%",
             right: 0,
             marginTop: 4,
-            background: "#1a1a1a",
-            border: "1px solid #333",
+            background: t.surfaceRaised,
+            border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 6,
             padding: 12,
             minWidth: 220,
             zIndex: 100,
             fontSize: 12,
-            color: "#ccc",
+            color: t.text,
           }}
         >
           <div style={{ marginBottom: 8, fontWeight: 600, color: "#14b8a6", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Index Details
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <Row label="Chunks" value={String(entry.chunk_count)} />
-            <Row label="Last indexed" value={lastIndexed} />
-            {entry.language && <Row label="Language" value={entry.language} />}
-            {entry.embedding_model && <Row label="Model" value={entry.embedding_model} />}
+            <DetailRow label="Chunks" value={String(entry.chunk_count)} t={t} />
+            <DetailRow label="Last indexed" value={lastIndexed} t={t} />
+            {entry.language && <DetailRow label="Language" value={entry.language} t={t} />}
+            {entry.embedding_model && <DetailRow label="Model" value={entry.embedding_model} t={t} />}
             <div>
-              <span style={{ color: "#666", fontSize: 11 }}>Bots:</span>
+              <span style={{ color: t.textDim, fontSize: 11 }}>Bots:</span>
               <div style={{ marginTop: 2 }}>
                 {entry.bots.map((b) => (
                   <span
@@ -101,11 +103,11 @@ export function IndexStatusBadge({ entry }: IndexStatusBadgeProps) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, t }: { label: string; value: string; t: ReturnType<typeof useThemeTokens> }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span style={{ color: "#666", fontSize: 11 }}>{label}</span>
-      <span style={{ fontSize: 11, color: "#ddd" }}>{value}</span>
+      <span style={{ color: t.textDim, fontSize: 11 }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.text }}>{value}</span>
     </div>
   );
 }

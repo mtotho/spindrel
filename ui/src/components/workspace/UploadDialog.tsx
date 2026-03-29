@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { Upload, X, FolderOpen } from "lucide-react";
 import { useUploadWorkspaceFile } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface UploadDialogProps {
   workspaceId: string;
@@ -9,6 +10,7 @@ interface UploadDialogProps {
 }
 
 export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogProps) {
+  const t = useThemeTokens();
   const [files, setFiles] = useState<File[]>([]);
   const [targetDir, setTargetDir] = useState(currentDir);
   const [uploading, setUploading] = useState(false);
@@ -54,8 +56,8 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "#1a1a1a",
-          border: "1px solid #333",
+          background: t.surfaceRaised,
+          border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 8,
           padding: 24,
           width: 420,
@@ -63,10 +65,10 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <span style={{ fontSize: 16, fontWeight: 600, color: "#e5e5e5" }}>Upload Files</span>
+          <span style={{ fontSize: 16, fontWeight: 600, color: t.text }}>Upload Files</span>
           <button
             onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: 4 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: t.textDim, padding: 4 }}
           >
             <X size={18} />
           </button>
@@ -74,21 +76,21 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
 
         {/* Target directory */}
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+          <label style={{ fontSize: 12, color: t.textMuted, display: "block", marginBottom: 4 }}>
             Target directory
           </label>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <FolderOpen size={14} color="#666" />
+            <FolderOpen size={14} color={t.textDim} />
             <input
               value={targetDir}
               onChange={(e) => setTargetDir(e.target.value)}
               style={{
                 flex: 1,
-                background: "#111",
-                border: "1px solid #333",
+                background: t.inputBg,
+                border: `1px solid ${t.inputBorder}`,
                 borderRadius: 4,
                 padding: "6px 10px",
-                color: "#e5e5e5",
+                color: t.inputText,
                 fontSize: 13,
                 outline: "none",
                 fontFamily: "monospace",
@@ -101,7 +103,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
         <div
           onClick={() => inputRef.current?.click()}
           style={{
-            border: "2px dashed #333",
+            border: `2px dashed ${t.surfaceBorder}`,
             borderRadius: 8,
             padding: 24,
             textAlign: "center",
@@ -109,12 +111,12 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
             marginBottom: 16,
           }}
         >
-          <Upload size={24} color="#555" style={{ margin: "0 auto 8px" }} />
-          <div style={{ fontSize: 13, color: "#888" }}>
+          <Upload size={24} color={t.textDim} style={{ margin: "0 auto 8px" }} />
+          <div style={{ fontSize: 13, color: t.textMuted }}>
             {files.length > 0 ? `${files.length} file(s) selected` : "Click to select files"}
           </div>
           {files.length > 0 && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "#666" }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: t.textDim }}>
               {files.map((f) => f.name).join(", ")}
             </div>
           )}
@@ -137,10 +139,10 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
             onClick={onClose}
             style={{
               background: "none",
-              border: "1px solid #333",
+              border: `1px solid ${t.surfaceBorder}`,
               borderRadius: 6,
               padding: "6px 16px",
-              color: "#999",
+              color: t.textMuted,
               fontSize: 13,
               cursor: "pointer",
             }}
@@ -151,7 +153,7 @@ export function UploadDialog({ workspaceId, currentDir, onClose }: UploadDialogP
             onClick={handleUpload}
             disabled={files.length === 0 || uploading}
             style={{
-              background: files.length === 0 || uploading ? "#333" : "#3b82f6",
+              background: files.length === 0 || uploading ? t.surfaceBorder : t.accent,
               border: "none",
               borderRadius: 6,
               padding: "6px 16px",

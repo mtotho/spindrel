@@ -4,6 +4,7 @@ import { useWorkspaceFileContent, useWriteWorkspaceFile } from "../../api/hooks/
 import { Save, X, Edit3, FileText, Copy, Check } from "lucide-react";
 import { IndexStatusBadge } from "./IndexStatusBadge";
 import type { FileIndexEntry } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 
 interface FileViewerProps {
   workspaceId: string;
@@ -13,6 +14,7 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileViewerProps) {
+  const t = useThemeTokens();
   const { data, isLoading, error } = useWorkspaceFileContent(workspaceId, filePath);
   const writeMutation = useWriteWorkspaceFile(workspaceId);
 
@@ -87,7 +89,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
 
   if (isLoading) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#666" }}>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t.textDim }}>
         Loading...
       </div>
     );
@@ -103,7 +105,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", padding: 24 }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
-            <FileText size={32} color="#555" />
+            <FileText size={32} color={t.textDim} />
           </div>
           <div style={{ fontSize: 13 }}>{msg || "Cannot display file"}</div>
         </div>
@@ -123,12 +125,12 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
           alignItems: "center",
           gap: 8,
           padding: "4px 12px",
-          borderBottom: "1px solid #222",
-          background: "#0d0d0d",
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+          background: t.surface,
           flexShrink: 0,
         }}
       >
-        <span style={{ flex: 1, fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{ flex: 1, fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {filePath}
         </span>
         {indexEntry && <IndexStatusBadge entry={indexEntry} />}
@@ -150,7 +152,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               onClick={handleCancel}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "none", color: "#999", border: "1px solid #333",
+                background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
               }}
@@ -164,7 +166,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               onClick={handleCopy}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "none", color: copied ? "#22c55e" : "#999", border: "1px solid #333",
+                background: "none", color: copied ? "#22c55e" : t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
               }}
@@ -175,7 +177,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               onClick={handleStartEdit}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                background: "none", color: "#999", border: "1px solid #333",
+                background: "none", color: t.textMuted, border: `1px solid ${t.surfaceBorder}`,
                 borderRadius: 4, padding: "3px 10px", fontSize: 12,
                 cursor: "pointer",
               }}
@@ -185,7 +187,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
           </>
         )}
         {data?.size != null && (
-          <span style={{ fontSize: 11, color: "#555" }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>
             {data.size > 1024 ? `${(data.size / 1024).toFixed(1)}KB` : `${data.size}B`}
           </span>
         )}
@@ -201,8 +203,8 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
           spellCheck={false}
           style={{
             flex: 1,
-            background: "#0a0a0a",
-            color: "#d4d4d4",
+            background: t.inputBg,
+            color: t.inputText,
             border: "none",
             outline: "none",
             resize: "none",
@@ -232,7 +234,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               }
             }
           }}
-          style={{ flex: 1, overflow: "auto", background: "#0a0a0a", outline: "none" }}
+          style={{ flex: 1, overflow: "auto", background: t.inputBg, outline: "none" }}
         >
           <pre
             ref={preRef}
@@ -242,7 +244,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
               fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
               fontSize: 13,
               lineHeight: "20px",
-              color: "#d4d4d4",
+              color: t.contentText,
             }}
           >
             {lines.map((line, i) => (
@@ -253,7 +255,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
                     width: 48,
                     textAlign: "right",
                     paddingRight: 16,
-                    color: "#444",
+                    color: t.textDim,
                     userSelect: "none",
                     flexShrink: 0,
                   }}
