@@ -290,10 +290,7 @@ function OverviewTab({
 }
 
 // ---------------------------------------------------------------------------
-// Logs tab
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Trace group — groups log entries by correlation_id with per-trace cost
+// Logs tab — trace grouping + raw call view
 // ---------------------------------------------------------------------------
 interface TraceGroup {
   correlation_id: string;

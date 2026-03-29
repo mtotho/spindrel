@@ -135,13 +135,13 @@ async def hybrid_memory_search(
     sql = text(f"""
         WITH vector_hits AS (
             SELECT id, file_path, content,
-                   1 - (embedding <=> :vec::vector) AS sim,
-                   ROW_NUMBER() OVER (ORDER BY embedding <=> :vec::vector) AS rn
+                   1 - (embedding <=> CAST(:vec AS vector)) AS sim,
+                   ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:vec AS vector)) AS rn
             FROM filesystem_chunks
             WHERE bot_id = :bot_id AND {root_clause}
               AND file_path LIKE :path_pattern
               AND embedding IS NOT NULL
-            ORDER BY embedding <=> :vec::vector
+            ORDER BY embedding <=> CAST(:vec AS vector)
             LIMIT :v_limit
         ),
         text_hits AS (
@@ -186,7 +186,7 @@ async def hybrid_memory_search(
     try:
         async with async_session() as db:
             rows = (await db.execute(sql, params)).all()
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Hybrid memory search query FAILED: bot_id=%s, roots=%s, path_pattern=%s, "
             "embedding_model=%s, vec_dims=%d",
@@ -195,7 +195,8 @@ async def hybrid_memory_search(
         )
         # Run diagnostics to understand the state
         await _diagnose_empty_results(bot_id, search_roots, path_pattern, embedding_model)
-        return []
+        # Re-raise so callers can report the error instead of silent empty results
+        raise RuntimeError(f"Memory search SQL failed: {exc}") from exc
 
     if not rows:
         logger.warning(
