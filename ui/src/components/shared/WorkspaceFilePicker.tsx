@@ -139,7 +139,7 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                   fontFamily: "monospace",
                   fontWeight: isSelected ? 600 : 400,
                 }}>
-                  {entry.name}
+                  {entry.display_name ? `${entry.display_name} (${entry.name})` : entry.name}
                 </span>
                 {!entry.is_dir && entry.size != null && (
                   <span style={{ fontSize: 10, color: t.textDim }}>{formatSize(entry.size)}</span>

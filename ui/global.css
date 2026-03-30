@@ -43,10 +43,21 @@ button, [role="button"], nav, a {
   user-select: none;
 }
 
-/* Prevent horizontal overflow on mobile browsers */
+/* Prevent horizontal overflow on mobile browsers.
+   Use dvh to avoid the classic mobile 100vh bug where the URL bar / iOS
+   status bar eats into the visible area.  Fallback to 100vh for older
+   browsers. */
 html, body, #root {
   overflow-x: hidden;
   max-width: 100vw;
+  height: 100vh;           /* fallback */
+  height: 100dvh;
+}
+
+/* Expo web may set its own height on #root – override it. */
+#root {
+  min-height: 0;
+  max-height: 100dvh;
 }
 
 /* Theme-aware background */

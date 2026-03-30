@@ -29,7 +29,7 @@ AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 STATE_PATH = _DIR / "slack_state.json"
 
 # ---------------------------------------------------------------------------
-# Live config cache (TTL=60s) — reads from /api/slack/config on agent server
+# Live config cache (TTL=60s) — reads from /integrations/slack/config on agent server
 # ---------------------------------------------------------------------------
 _config_cache: dict = {}
 _config_cache_ts: float = 0.0

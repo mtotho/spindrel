@@ -332,7 +332,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
               gap: 4,
             }}
           >
-            {entry.name}
+            {entry.display_name ? `${entry.display_name} (${entry.name})` : entry.name}
             {indexedPaths?.has(entry.path) && (
               <span
                 style={{
