@@ -448,24 +448,40 @@ async def persist_turn(
     )
     await db.commit()
 
-    # Link orphaned attachments (created by tools like send_file with message_id=None)
-    # to the last assistant message in this turn.
-    if last_assistant_msg_id and channel_id:
+    # Link orphaned attachments to the correct message in this turn.
+    # User-uploaded attachments (posted_by IS NULL) → first user message.
+    # Bot/tool-created attachments (posted_by IS NOT NULL, e.g. send_file) → last assistant message.
+    if channel_id:
         try:
             from app.db.models import Attachment
-            linked = await db.execute(
-                update(Attachment)
-                .where(
-                    Attachment.channel_id == channel_id,
-                    Attachment.message_id.is_(None),
+            linked_count = 0
+            if first_user_msg_id:
+                res = await db.execute(
+                    update(Attachment)
+                    .where(
+                        Attachment.channel_id == channel_id,
+                        Attachment.message_id.is_(None),
+                        Attachment.posted_by.is_(None),
+                    )
+                    .values(message_id=first_user_msg_id)
                 )
-                .values(message_id=last_assistant_msg_id)
-            )
-            if linked.rowcount:
+                linked_count += res.rowcount
+            if last_assistant_msg_id:
+                res = await db.execute(
+                    update(Attachment)
+                    .where(
+                        Attachment.channel_id == channel_id,
+                        Attachment.message_id.is_(None),
+                        Attachment.posted_by.isnot(None),
+                    )
+                    .values(message_id=last_assistant_msg_id)
+                )
+                linked_count += res.rowcount
+            if linked_count:
                 await db.commit()
                 logger.info(
-                    "Linked %d orphan attachment(s) to assistant message %s",
-                    linked.rowcount, last_assistant_msg_id,
+                    "Linked %d orphan attachment(s) in channel %s",
+                    linked_count, channel_id,
                 )
         except Exception:
             logger.warning("Failed to link orphan attachments", exc_info=True)

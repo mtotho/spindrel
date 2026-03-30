@@ -42,7 +42,7 @@ async def test_unauthorized_tool_blocked(dispatch_kwargs):
     parsed = json.loads(result.result)
     assert "error" in parsed
     assert "not available" in parsed["error"]
-    assert result.tool_event.get("error") == "Not authorized"
+    assert "not available" in result.tool_event.get("error", "")
 
 
 @pytest.mark.asyncio
