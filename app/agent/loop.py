@@ -32,6 +32,37 @@ from app.tools.registry import get_local_tool_schemas
 logger = logging.getLogger(__name__)
 
 
+async def _record_fallback_event(
+    fb_info: FallbackInfo,
+    *,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    bot_id: str | None,
+) -> None:
+    """Write a ModelFallbackEvent row to the DB (fire-and-forget)."""
+    try:
+        from app.agent.llm import get_cooldown_expiry
+        from app.db.engine import async_session
+        from app.db.models import ModelFallbackEvent
+
+        cooldown_until = get_cooldown_expiry(fb_info.original_model)
+
+        async with async_session() as db:
+            db.add(ModelFallbackEvent(
+                model=fb_info.original_model,
+                fallback_model=fb_info.fallback_model,
+                reason=fb_info.reason,
+                error_message=(fb_info.original_error or "")[:2000] or None,
+                session_id=session_id,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                cooldown_until=cooldown_until,
+            ))
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to record fallback event", exc_info=True)
+
+
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
     """Ensure no message has null/missing content — some models reject it.
 
@@ -290,6 +321,10 @@ async def run_agent_tool_loop(
                         },
                         duration_ms=_llm_latency_ms,
                     ))
+                # Record fallback event to DB for admin visibility
+                asyncio.create_task(_record_fallback_event(
+                    _fb_info, session_id=session_id, channel_id=channel_id, bot_id=bot.id,
+                ))
 
             # Backfill elevation log with outcome data
             if _elev_log_id is not None:

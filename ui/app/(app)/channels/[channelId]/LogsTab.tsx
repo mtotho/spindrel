@@ -31,6 +31,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
     error:                { bg: t.dangerSubtle, fg: t.danger },
     harness:              { bg: t.warningSubtle, fg: t.warningMuted },
     response:             { bg: t.successSubtle, fg: t.success },
+    model_fallback:       { bg: t.warningSubtle, fg: t.warningMuted },
   };
 
   if (isLoading) return <ActivityIndicator color={t.accent} />;

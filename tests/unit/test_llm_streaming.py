@@ -4,7 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import openai
 import pytest
 
-from app.agent.llm import AccumulatedMessage, _llm_call_stream
+from app.agent.llm import AccumulatedMessage, _llm_call_stream, _model_cooldowns
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    _model_cooldowns.clear()
+    yield
+    _model_cooldowns.clear()
 
 
 def _make_chunk(content=None, tool_calls=None, finish_reason=None, usage=None, reasoning_content=None):
@@ -34,6 +41,7 @@ def _default_mock_settings(**overrides):
         LLM_MAX_RETRIES=3,
         LLM_RATE_LIMIT_INITIAL_WAIT=1,
         LLM_RETRY_INITIAL_WAIT=1,
+        LLM_FALLBACK_COOLDOWN_SECONDS=300,
     )
     defaults.update(overrides)
     for k, v in defaults.items():

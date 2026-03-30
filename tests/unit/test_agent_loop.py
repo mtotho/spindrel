@@ -8,7 +8,15 @@ import openai
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
-from app.agent.llm import AccumulatedMessage
+from app.agent.llm import AccumulatedMessage, _model_cooldowns
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    """Ensure cooldowns don't leak between tests."""
+    _model_cooldowns.clear()
+    yield
+    _model_cooldowns.clear()
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -120,6 +128,7 @@ def _default_mock_settings(**overrides):
         LLM_RATE_LIMIT_INITIAL_WAIT=1,
         LLM_RETRY_INITIAL_WAIT=1,
         LLM_FALLBACK_MODEL="",
+        LLM_FALLBACK_COOLDOWN_SECONDS=300,
         AGENT_TRACE=False,
     )
     defaults.update(overrides)

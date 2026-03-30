@@ -4,6 +4,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 const TABS = [
   { key: "agent", label: "Agent Logs", href: "/admin/logs" },
   { key: "server", label: "Server Logs", href: "/admin/logs/server" },
+  { key: "fallbacks", label: "Fallbacks", href: "/admin/logs/fallbacks" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];

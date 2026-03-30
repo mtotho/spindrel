@@ -137,7 +137,7 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
       await enableEditorMutation.mutateAsync();
       const { serverUrl } = useAuthStore.getState();
       const token = getAuthToken();
-      const folder = `/workspace/channels/${channelId}/workspace`;
+      const folder = `/workspace/channels/${channelId}`;
       const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
       window.open(editorUrl, `editor-${workspaceId}`);
     } catch (err) {

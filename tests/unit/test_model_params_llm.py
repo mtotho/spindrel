@@ -5,7 +5,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
-from app.agent.llm import AccumulatedMessage, _fold_system_messages
+from app.agent.llm import AccumulatedMessage, _fold_system_messages, _model_cooldowns
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    """Ensure cooldowns don't leak between tests."""
+    _model_cooldowns.clear()
+    yield
+    _model_cooldowns.clear()
 
 
 def _make_bot(**overrides) -> BotConfig:
@@ -43,6 +51,7 @@ def _default_mock_settings(**overrides):
         LLM_RATE_LIMIT_INITIAL_WAIT=1,
         LLM_RETRY_INITIAL_WAIT=1,
         LLM_FALLBACK_MODEL="",
+        LLM_FALLBACK_COOLDOWN_SECONDS=300,
         AGENT_TRACE=False,
     )
     defaults.update(overrides)
@@ -572,6 +581,77 @@ class TestFoldSystemMessages:
         _fold_system_messages(msgs)
         assert msgs[0] == original[0]
         assert msgs[1] == original[1]
+
+    def test_tool_calls_preserved_when_assistant_messages_merge(self):
+        """When a system message between two assistant messages is removed,
+        merging them must preserve tool_calls from both messages."""
+        msgs = [
+            {"role": "user", "content": "start"},
+            {"role": "assistant", "content": "first response"},
+            {"role": "system", "content": "injected context"},
+            {"role": "assistant", "content": "using tool", "tool_calls": [
+                {"id": "call_abc123", "type": "function", "function": {"name": "search", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call_abc123", "content": "result"},
+            {"role": "assistant", "content": "done"},
+        ]
+        result = _fold_system_messages(msgs)
+        # No system messages remain
+        assert all(m["role"] != "system" for m in result)
+        # The merged assistant message must contain the tool_calls
+        assistant_with_tc = [m for m in result if m.get("role") == "assistant" and m.get("tool_calls")]
+        assert len(assistant_with_tc) == 1
+        assert assistant_with_tc[0]["tool_calls"][0]["id"] == "call_abc123"
+        # The tool result must still be present
+        tool_results = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_results) == 1
+        assert tool_results[0]["tool_call_id"] == "call_abc123"
+
+    def test_both_assistant_tool_calls_preserved_on_merge(self):
+        """When both consecutive assistant messages have tool_calls, all must be kept."""
+        msgs = [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "step 1", "tool_calls": [
+                {"id": "call_111", "type": "function", "function": {"name": "a", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call_111", "content": "res_a"},
+            {"role": "assistant", "content": "step 2", "tool_calls": [
+                {"id": "call_222", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call_222", "content": "res_b"},
+            {"role": "system", "content": "context"},
+            {"role": "assistant", "content": "step 3", "tool_calls": [
+                {"id": "call_333", "type": "function", "function": {"name": "c", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call_333", "content": "res_c"},
+        ]
+        result = _fold_system_messages(msgs)
+        # All tool_call IDs must exist in some assistant message
+        all_tc_ids = set()
+        for m in result:
+            for tc in m.get("tool_calls", []):
+                all_tc_ids.add(tc["id"])
+        assert {"call_111", "call_222", "call_333"} == all_tc_ids
+        # All tool results must be present
+        tool_results = {m["tool_call_id"] for m in result if m.get("role") == "tool"}
+        assert tool_results == {"call_111", "call_222", "call_333"}
+
+    def test_tool_role_messages_never_merged(self):
+        """Consecutive tool messages should NOT be merged (each has unique tool_call_id)."""
+        msgs = [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "x", "arguments": "{}"}},
+                {"id": "call_b", "type": "function", "function": {"name": "y", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call_a", "content": "res_a"},
+            {"role": "tool", "tool_call_id": "call_b", "content": "res_b"},
+        ]
+        result = _fold_system_messages(msgs)
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 2
+        assert tool_msgs[0]["tool_call_id"] == "call_a"
+        assert tool_msgs[1]["tool_call_id"] == "call_b"
 
 
 # ---------------------------------------------------------------------------
