@@ -74,6 +74,42 @@ export interface ReindexResult {
   }>;
 }
 
+// ── Disk usage ──────────────────────────────────────────────────
+
+export interface FilesystemUsage {
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  usage_percent: number;
+}
+
+export interface WorkspaceDiskEntry {
+  type: "shared" | "bot";
+  id: string;
+  name: string;
+  path: string;
+  total_bytes: number;
+  file_count: number;
+  subdirs?: Record<string, number>;
+}
+
+export interface DiskUsageReport {
+  filesystem: FilesystemUsage;
+  workspace_base_dir: string;
+  workspace_total_bytes: number;
+  workspaces: WorkspaceDiskEntry[];
+}
+
+export function useDiskUsage() {
+  return useQuery({
+    queryKey: ["admin-diagnostics-disk-usage"],
+    queryFn: () => apiFetch<DiskUsageReport>("/api/v1/admin/diagnostics/disk-usage"),
+    staleTime: 30_000,
+  });
+}
+
+// ── Indexing ─────────────────────────────────────────────────────
+
 export function useIndexingDiagnostics() {
   return useQuery({
     queryKey: ["admin-diagnostics-indexing"],

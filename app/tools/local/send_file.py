@@ -14,6 +14,8 @@ import mimetypes
 import uuid
 from pathlib import Path
 
+from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
+from app.services.attachments import create_attachment, get_attachment_by_id
 from app.tools.registry import register
 
 
@@ -58,9 +60,6 @@ async def send_file(
     caption: str = "",
     filename: str = "",
 ) -> str:
-    from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_attachment
-
     if not path and not attachment_id:
         return json.dumps({"error": "Provide either `path` or `attachment_id`."})
 
@@ -70,8 +69,6 @@ async def send_file(
 
     # --- Mode 2: re-post an existing attachment ---
     if attachment_id:
-        from app.services.attachments import get_attachment_by_id
-
         try:
             att_uuid = uuid.UUID(attachment_id)
         except ValueError:
@@ -87,9 +84,11 @@ async def send_file(
         mime = att.mime_type or "application/octet-stream"
         data = att.file_data
 
-        # Create a new channel-linked attachment so it appears on the web UI
-        # message (orphan linking in persist_turn links it to the assistant msg)
-        if channel_id and channel_id != att.channel_id:
+        # Always create a new channel-linked attachment so persist_turn's
+        # orphan-linking attaches it to the assistant message.  Without this,
+        # same-channel re-posts leave the original attachment on its old
+        # message and the web UI only shows "[Image: caption]" text.
+        if channel_id:
             await create_attachment(
                 message_id=None,
                 channel_id=channel_id,
@@ -102,15 +101,6 @@ async def send_file(
                 attachment_type=att.type or ("image" if mime.startswith("image/") else "file"),
                 bot_id=bot_id,
             )
-        elif att.channel_id is None and channel_id:
-            # Original has no channel — claim it for this channel
-            from app.db.engine import async_session
-            from app.db.models import Attachment as AttachmentModel
-            async with async_session() as db:
-                row = await db.get(AttachmentModel, att.id)
-                if row:
-                    row.channel_id = channel_id
-                    await db.commit()
 
         b64 = base64.b64encode(data).decode("ascii")
         size_kb = len(data) / 1024

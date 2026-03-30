@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     # General transient-error retry (5xx, connection errors, timeouts)
     LLM_MAX_RETRIES: int = 3                 # additional attempts after first failure
     LLM_RETRY_INITIAL_WAIT: float = 2.0      # seconds; doubles each retry (2, 4, 8…)
+    LLM_TIMEOUT: float = 120.0              # HTTP timeout for LLM API calls (seconds); covers slow providers
     LLM_FALLBACK_MODEL: str = ""             # if set, try this model once after all retries exhaust
     LLM_FALLBACK_COOLDOWN_SECONDS: int = 300  # circuit breaker: skip broken models for this long after fallback
     # Rate limit retry (task level — reschedules entire task on rate limit failure)

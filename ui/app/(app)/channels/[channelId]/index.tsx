@@ -192,7 +192,7 @@ export default function ChatScreen() {
   });
 
   useEffect(() => {
-    if (channelId && pages) {
+    if (channelId && pages && !chatState.isStreaming) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
           if (m.role !== "user" && m.role !== "assistant") return false;
@@ -210,7 +210,7 @@ export default function ChatScreen() {
         });
       setMessages(channelId, allMessages);
     }
-  }, [channelId, pages]);
+  }, [channelId, pages, chatState.isStreaming]);
 
   const cancelChat = useCancelChat();
 

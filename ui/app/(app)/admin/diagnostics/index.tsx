@@ -12,6 +12,7 @@ import {
   type ReindexResult,
 } from "@/src/api/hooks/useDiagnostics";
 import { OperationsPanel } from "./OperationsPanel";
+import { DiskUsageSection } from "./DiskUsageSection";
 
 function StatusDot({ ok }: { ok: boolean }) {
   const t = useThemeTokens();
@@ -301,6 +302,9 @@ export default function DiagnosticsScreen() {
               </div>
               <EmbeddingSection data={data.systems.embedding} />
             </div>
+
+            {/* Disk Usage */}
+            <DiskUsageSection />
 
             {/* Filesystem Indexing (per bot) */}
             {data.systems.filesystem_indexing.length > 0 && (
