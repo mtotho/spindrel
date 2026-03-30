@@ -178,6 +178,51 @@ async def _resolve_channel_and_session(
     return channel, session_id, messages, is_integration
 
 
+async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
+    """Resolve integration type and dispatch_config for mirroring.
+
+    Checks Channel-level fields first, then falls back to ChannelIntegration
+    bindings table (used when integration was bound via the UI).
+    """
+    if channel.integration and channel.dispatch_config:
+        return channel.integration, channel.dispatch_config
+
+    # Fallback: check ChannelIntegration bindings
+    from sqlalchemy import select
+    from app.db.engine import async_session
+    from app.db.models import ChannelIntegration
+
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(ChannelIntegration)
+                .where(ChannelIntegration.channel_id == channel.id)
+                .limit(1)
+            )
+            binding = result.scalar_one_or_none()
+    except Exception:
+        return None, None
+
+    if not binding:
+        return None, None
+
+    integration = binding.integration_type
+    dispatch_config = binding.dispatch_config
+
+    # If binding has no dispatch_config, try to construct one from client_id + env
+    if not dispatch_config and binding.client_id:
+        # Extract integration-native channel ID from client_id (e.g. "slack:C01ABC" → "C01ABC")
+        prefix = f"{integration}:"
+        native_id = binding.client_id.removeprefix(prefix) if binding.client_id.startswith(prefix) else None
+        if native_id:
+            from app.services.integration_settings import get_value
+            token = get_value(integration, f"{integration.upper()}_BOT_TOKEN")
+            if token:
+                dispatch_config = {"channel_id": native_id, "token": token}
+
+    return integration, dispatch_config
+
+
 async def _mirror_to_integration(
     channel, text: str, *,
     bot_id: str | None = None,
@@ -186,7 +231,8 @@ async def _mirror_to_integration(
     client_actions: list[dict] | None = None,
 ) -> None:
     """Fire-and-forget mirror to channel's integration dispatcher."""
-    if not channel.integration or not channel.dispatch_config:
+    integration, dispatch_config = await _resolve_mirror_target(channel)
+    if not integration or not dispatch_config:
         return
     from app.agent import dispatchers
     try:
@@ -195,19 +241,19 @@ async def _mirror_to_integration(
         user_attrs: dict = {}
         if is_user_message and user:
             from app.agent.hooks import get_user_attribution
-            user_attrs = get_user_attribution(channel.integration, user)
+            user_attrs = get_user_attribution(integration, user)
         elif is_user_message:
             text = f"[web] {text}"
 
-        await dispatchers.get(channel.integration).post_message(
-            channel.dispatch_config, text,
+        await dispatchers.get(integration).post_message(
+            dispatch_config, text,
             bot_id=bot_id if not is_user_message else None,
             client_actions=client_actions,
             reply_in_thread=False,
             **user_attrs,
         )
     except Exception:
-        logger.warning("Mirror to %s failed", channel.integration, exc_info=True)
+        logger.warning("Mirror to %s failed", integration, exc_info=True)
 
 
 @router.get("/bots")
@@ -616,6 +662,22 @@ async def chat_stream(
                     )
             except Exception:
                 logger.exception("CRITICAL: persist_turn failed for session %s — messages will be lost", session_id)
+
+            # If SSE disconnected before the "response" event, extract from messages
+            if not response_text and not was_cancelled:
+                for _msg in reversed(messages[from_index:]):
+                    if _msg.get("role") == "assistant":
+                        _c = _msg.get("content", "")
+                        if isinstance(_c, str) and _c:
+                            response_text = _c
+                            break
+                        elif isinstance(_c, list):
+                            for _blk in _c:
+                                if isinstance(_blk, dict) and _blk.get("type") == "text":
+                                    response_text = _blk.get("text", "")
+                                    break
+                            if response_text:
+                                break
 
             # Mirror response to integration (skip if cancelled)
             if not was_cancelled and not req.dispatch_config and response_text:

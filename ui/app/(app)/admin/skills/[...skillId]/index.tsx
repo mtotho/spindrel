@@ -27,7 +27,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export default function SkillDetailScreen() {
   const t = useThemeTokens();
-  const { skillId } = useLocalSearchParams<{ skillId: string }>();
+  const params = useLocalSearchParams<{ skillId: string | string[] }>();
+  const skillId = Array.isArray(params.skillId) ? params.skillId.join("/") : params.skillId;
   const isNew = skillId === "new";
   const goBack = useGoBack("/admin/skills");
   const qc = useQueryClient();

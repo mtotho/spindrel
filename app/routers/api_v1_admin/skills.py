@@ -138,7 +138,7 @@ async def admin_list_skills(
     return result
 
 
-@router.get("/skills/{skill_id}", response_model=SkillOut)
+@router.get("/skills/{skill_id:path}", response_model=SkillOut)
 async def admin_get_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
@@ -193,7 +193,7 @@ async def admin_create_skill(
     )
 
 
-@router.put("/skills/{skill_id}", response_model=SkillOut)
+@router.put("/skills/{skill_id:path}", response_model=SkillOut)
 async def admin_update_skill(
     skill_id: str,
     body: SkillUpdateIn,
@@ -229,7 +229,7 @@ async def admin_update_skill(
     )
 
 
-@router.delete("/skills/{skill_id}")
+@router.delete("/skills/{skill_id:path}")
 async def admin_delete_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),

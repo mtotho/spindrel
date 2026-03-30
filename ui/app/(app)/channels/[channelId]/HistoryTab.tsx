@@ -1007,8 +1007,19 @@ function _badge(label: string, colors: { bg: string; text: string; border: strin
   );
 }
 
+function _detailRow(label: string, value: string | number | null | undefined, t: ReturnType<typeof useThemeTokens>) {
+  if (value == null || value === "") return null;
+  return (
+    <div style={{ display: "flex", gap: 8, fontSize: 10, lineHeight: "1.5" }}>
+      <span style={{ color: t.textDim, minWidth: 80, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{value}</span>
+    </div>
+  );
+}
+
 function CompactionActivity({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data, isLoading, isError } = useQuery<{ logs: CompactionLogEntry[]; total: number }>({
     queryKey: ["compaction-logs", channelId],
     queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/compaction-logs?limit=20`),
@@ -1022,63 +1033,88 @@ function CompactionActivity({ channelId }: { channelId: string }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {logs.map((log) => {
         const tierColor = TIER_COLORS[log.tier] ?? TIER_COLORS.normal;
+        const isOpen = expandedId === log.id;
         return (
           <div key={log.id} style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
-            borderRadius: 6, background: t.inputBg, fontSize: 11,
+            borderRadius: 6, background: t.inputBg, overflow: "hidden",
           }}>
-            {/* Timestamp */}
-            <span style={{ color: t.textDim, minWidth: 52, flexShrink: 0 }}>
-              {log.created_at ? _relativeTime(log.created_at) : "—"}
-            </span>
-
-            {/* Tier badge */}
-            {_badge(log.tier, tierColor)}
-
-            {/* Model */}
-            <span style={{ color: t.textMuted, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {log.model}
-            </span>
-
-            {/* Tokens */}
-            {log.total_tokens != null && (
-              <span style={{ color: t.textDim, flexShrink: 0 }}>
-                {log.total_tokens.toLocaleString()} tok
+            {/* Summary row */}
+            <button
+              onClick={() => setExpandedId(isOpen ? null : log.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+                fontSize: 11, width: "100%", background: "none", border: "none",
+                cursor: "pointer", textAlign: "left",
+              }}
+            >
+              <span style={{ color: t.textDim, minWidth: 52, flexShrink: 0 }}>
+                {log.created_at ? _relativeTime(log.created_at) : "—"}
               </span>
-            )}
-
-            {/* Duration */}
-            {log.duration_ms != null && (
-              <span style={{ color: t.textDim, flexShrink: 0 }}>
-                {(log.duration_ms / 1000).toFixed(1)}s
+              {_badge(log.tier, tierColor)}
+              <span style={{ color: t.textMuted, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {log.model}
               </span>
-            )}
+              {log.total_tokens != null && (
+                <span style={{ color: t.textDim, flexShrink: 0 }}>
+                  {log.total_tokens.toLocaleString()} tok
+                </span>
+              )}
+              {log.duration_ms != null && (
+                <span style={{ color: t.textDim, flexShrink: 0 }}>
+                  {(log.duration_ms / 1000).toFixed(1)}s
+                </span>
+              )}
+              {log.messages_archived != null && (
+                <span style={{ color: t.textDim, flexShrink: 0 }}>
+                  {log.messages_archived} msgs
+                </span>
+              )}
+              {log.memory_flush && _badge("flush", {
+                bg: "rgba(139,92,246,0.10)", text: "#7c3aed", border: "rgba(139,92,246,0.3)",
+              })}
+              {log.forced && _badge("forced", {
+                bg: "rgba(59,130,246,0.10)", text: "#2563eb", border: "rgba(59,130,246,0.3)",
+              })}
+              {log.error && (
+                <span style={{ color: "#dc2626" }}>
+                  <AlertTriangle size={12} />
+                </span>
+              )}
+              <span style={{
+                fontSize: 10, color: t.textDim, marginLeft: "auto", flexShrink: 0,
+                transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.15s",
+              }}>&#9660;</span>
+            </button>
 
-            {/* Messages */}
-            {log.messages_archived != null && (
-              <span style={{ color: t.textDim, flexShrink: 0 }}>
-                {log.messages_archived} msgs
-              </span>
-            )}
-
-            {/* Memory flush pill */}
-            {log.memory_flush && _badge("flush", {
-              bg: "rgba(139,92,246,0.10)", text: "#7c3aed", border: "rgba(139,92,246,0.3)",
-            })}
-
-            {/* Forced badge */}
-            {log.forced && _badge("forced", {
-              bg: "rgba(59,130,246,0.10)", text: "#2563eb", border: "rgba(59,130,246,0.3)",
-            })}
-
-            {/* Error indicator */}
-            {log.error && (
-              <span title={log.error} style={{ color: "#dc2626", cursor: "help" }}>
-                <AlertTriangle size={12} />
-              </span>
+            {/* Expanded details */}
+            {isOpen && (
+              <div style={{
+                padding: "8px 12px 10px", borderTop: `1px solid ${t.surfaceOverlay}`,
+                display: "flex", flexDirection: "column", gap: 4,
+              }}>
+                {_detailRow("Model", log.model, t)}
+                {_detailRow("History mode", log.history_mode, t)}
+                {_detailRow("Tier", log.tier, t)}
+                {_detailRow("Prompt tokens", log.prompt_tokens?.toLocaleString(), t)}
+                {_detailRow("Completion tokens", log.completion_tokens?.toLocaleString(), t)}
+                {_detailRow("Total tokens", log.total_tokens?.toLocaleString(), t)}
+                {_detailRow("Duration", log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(2)}s` : null, t)}
+                {_detailRow("Messages archived", log.messages_archived, t)}
+                {_detailRow("Memory flush", log.memory_flush ? "yes" : "no", t)}
+                {_detailRow("Forced", log.forced ? "yes" : "no", t)}
+                {_detailRow("Section ID", log.section_id, t)}
+                {_detailRow("Timestamp", log.created_at ? new Date(log.created_at).toLocaleString() : null, t)}
+                {log.error && (
+                  <div style={{ marginTop: 4, padding: "6px 8px", background: "rgba(239,68,68,0.08)", borderRadius: 4, border: "1px solid rgba(239,68,68,0.2)" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 2 }}>Error</div>
+                    <div style={{ fontSize: 10, color: t.textMuted, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>{log.error}</div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         );

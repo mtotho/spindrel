@@ -1,10 +1,9 @@
 /**
  * Custom DateTimePicker — replaces the awful native <input type="datetime-local">.
- * Uses a portal + fixed positioning so the dropdown escapes any ScrollView/overflow parent.
+ * Uses position:fixed so the dropdown escapes any overflow:scroll parent.
  * Value format: "YYYY-MM-DDTHH:MM" (same as datetime-local).
  */
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
-import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Calendar, X } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
@@ -14,9 +13,6 @@ interface Props {
   placeholder?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -54,11 +50,9 @@ function formatDisplay(v: string): string {
   });
 }
 
-const DROPDOWN_WIDTH = 280;
+const DROPDOWN_W = 280;
+const DROPDOWN_H = 380;
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 export function DateTimePicker({ value, onChange, placeholder = "Select date & time..." }: Props) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
@@ -66,10 +60,8 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
   const dropdownRef = useRef<HTMLDivElement>(null);
   const parsed = parseValue(value);
 
-  // Dropdown position (fixed to viewport)
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0 });
 
-  // Calendar view state — defaults to selected date or today
   const now = new Date();
   const [viewYear, setViewYear] = useState(parsed?.year ?? now.getFullYear());
   const [viewMonth, setViewMonth] = useState(parsed?.month ?? now.getMonth());
@@ -87,31 +79,29 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
     }
   }, [value]);
 
-  // Calculate position when opening
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
+  // Position dropdown relative to trigger
+  const reposition = useCallback(() => {
+    if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const dropdownHeight = 380; // approximate
     const viewH = window.innerHeight;
     const viewW = window.innerWidth;
 
-    // Prefer below, flip above if no room
     let top = rect.bottom + 4;
-    if (top + dropdownHeight > viewH && rect.top - dropdownHeight - 4 > 0) {
-      top = rect.top - dropdownHeight - 4;
+    if (top + DROPDOWN_H > viewH && rect.top - DROPDOWN_H - 4 > 0) {
+      top = rect.top - DROPDOWN_H - 4;
     }
-
-    // Align left with trigger, but clamp to viewport
     let left = rect.left;
-    if (left + DROPDOWN_WIDTH > viewW - 8) {
-      left = viewW - DROPDOWN_WIDTH - 8;
-    }
+    if (left + DROPDOWN_W > viewW - 8) left = viewW - DROPDOWN_W - 8;
     if (left < 8) left = 8;
 
     setPos({ top, left });
-  }, [open]);
+  }, []);
 
-  // Close on outside click
+  useLayoutEffect(() => {
+    if (open) reposition();
+  }, [open, reposition]);
+
+  // Close on outside click — use click (not mousedown) for RN Web compat
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -120,16 +110,29 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
       if (dropdownRef.current?.contains(target)) return;
       setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    // Use setTimeout so the opening click doesn't immediately trigger close
+    const id = setTimeout(() => {
+      document.addEventListener("click", handler, true);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("click", handler, true);
+    };
   }, [open]);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
+  // Close on scroll (the dropdown won't follow)
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => setOpen(false);
+    window.addEventListener("scroll", handler, true);
+    return () => window.removeEventListener("scroll", handler, true);
   }, [open]);
 
   const selectDay = useCallback((day: number) => {
@@ -181,12 +184,12 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
     parsed != null && viewYear === parsed.year && viewMonth === parsed.month && d === parsed.day;
 
   return (
-    <>
-      {/* Trigger button */}
+    <div style={{ position: "relative", width: "100%" }}>
+      {/* Trigger */}
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => setOpen((o) => !o)}
         style={{
           display: "flex", alignItems: "center", gap: 8, width: "100%",
           background: t.inputBg, border: `1px solid ${t.inputBorder}`, borderRadius: 8,
@@ -206,15 +209,17 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
         )}
       </button>
 
-      {/* Portal dropdown — renders at document.body so it escapes overflow:hidden/scroll */}
-      {open && createPortal(
+      {/* Dropdown — position:fixed to escape overflow parents */}
+      {open && (
         <div
           ref={dropdownRef}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
             background: t.surface, border: `1px solid ${t.surfaceBorder}`,
             borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-            padding: 12, width: DROPDOWN_WIDTH, userSelect: "none",
+            padding: 12, width: DROPDOWN_W, userSelect: "none",
           }}
         >
           {/* Month / year nav */}
@@ -287,16 +292,12 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
               Now
             </button>
           </div>
-        </div>,
-        document.body,
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Small sub-components
-// ---------------------------------------------------------------------------
 function NavBtn({ onClick, t, children }: { onClick: () => void; t: ThemeTokens; children: React.ReactNode }) {
   return (
     <button
@@ -318,7 +319,6 @@ function TimeSelect({ value, max, step = 1, onChange, t }: {
 }) {
   const options: number[] = [];
   for (let i = 0; i <= max; i += step) options.push(i);
-  // Ensure current value is in options even if not on step boundary
   if (!options.includes(value)) {
     options.push(value);
     options.sort((a, b) => a - b);
