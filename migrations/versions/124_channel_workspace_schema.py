@@ -126,7 +126,7 @@ def upgrade() -> None:
         op.execute(
             sa.text(
                 "INSERT INTO prompt_templates (id, name, description, content, category, tags, source_type) "
-                "VALUES (:id::uuid, :name, :description, :content, :category, '[]'::jsonb, 'manual') "
+                "VALUES (CAST(:id AS uuid), :name, :description, :content, :category, '[]'::jsonb, 'manual') "
                 "ON CONFLICT (id) DO NOTHING"
             ).bindparams(
                 id=schema["id"],
