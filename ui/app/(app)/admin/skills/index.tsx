@@ -312,7 +312,7 @@ export default function SkillsScreen() {
             key={skill.id}
             skill={skill}
             isWide={isWide}
-            onPress={() => router.push(`/admin/skills/${skill.id}` as any)}
+            onPress={() => router.push(`/admin/skills/${encodeURIComponent(skill.id)}` as any)}
           />
         ))}
       </RefreshableScrollView>

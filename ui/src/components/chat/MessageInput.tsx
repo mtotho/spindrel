@@ -305,15 +305,15 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
           </div>
         )}
 
-        <View className={`flex-row items-end ${isMobile ? "gap-2 px-3 py-2" : "gap-3 px-5 py-3"}`}>
+        <View className={`flex-row items-end ${isMobile ? "gap-1.5 px-2 py-2" : "gap-3 px-5 py-3"}`}>
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}
             disabled={disabled}
             className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
+            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0 }}
           >
-            <Paperclip size={20} color={t.textDim} />
+            <Paperclip size={isMobile ? 18 : 20} color={t.textDim} />
           </Pressable>
           <input
             ref={fileInputRef}
@@ -327,7 +327,7 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
             }}
           />
 
-          <div ref={containerRef} style={{ flex: 1, display: "flex" }}>
+          <div ref={containerRef} style={{ flex: 1, minWidth: 0, display: "flex" }}>
             <textarea
               ref={textareaRef}
               value={text}
@@ -336,21 +336,21 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
               onPaste={handlePaste}
               onBlur={() => setTimeout(() => setShowMenu(false), 200)}
               placeholder="Type a message..."
-              autoFocus
+              autoFocus={!isMobile}
               rows={1}
               style={{
                 flex: 1,
                 fontFamily: "inherit",
                 fontSize: 15,
                 lineHeight: "1.5",
-                padding: "10px 16px",
+                padding: isMobile ? "8px 12px" : "10px 16px",
                 borderRadius: 10,
                 border: `1px solid ${t.overlayLight}`,
                 background: t.surfaceRaised,
                 color: t.text,
                 resize: "none",
                 outline: "none",
-                minHeight: 44,
+                minHeight: isMobile ? 36 : 44,
                 maxHeight: 140,
                 overflow: "auto",
               }}
@@ -362,8 +362,8 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
               }}
             />
           </div>
-          {/* Per-turn model picker */}
-          {Platform.OS === "web" && onModelOverrideChange && (
+          {/* Per-turn model picker — hidden on mobile to save space */}
+          {Platform.OS === "web" && onModelOverrideChange && !isMobile && (
             <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
               {modelOverride ? (
                 <div
@@ -439,8 +439,9 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
             disabled={!canSend && !showStop}
             className="items-center justify-center rounded-lg"
             style={{
-              width: 44,
-              height: 44,
+              width: isMobile ? 36 : 44,
+              height: isMobile ? 36 : 44,
+              flexShrink: 0,
               backgroundColor: showStop ? "#ef4444" : canSend ? t.accent : "transparent",
               opacity: canSend || showStop ? 1 : 0.4,
             }}
@@ -448,7 +449,7 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
             {showStop ? (
               <Square size={16} color="white" fill="white" />
             ) : (
-              <Send size={18} color={canSend ? "white" : t.textDim} />
+              <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
             )}
           </Pressable>
           <AutocompleteMenu

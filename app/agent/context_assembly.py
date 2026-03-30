@@ -181,7 +181,7 @@ async def assemble_context(
             async with async_session() as _ch_db:
                 _ch_row = await _ch_db.get(Channel, channel_id)
         except Exception:
-            logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id)
+            logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
 
     # --- context pruning (trim stale tool results) ---
     _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
@@ -398,45 +398,49 @@ async def assemble_context(
                                     break
                         except Exception:
                             pass
+            else:
+                logger.warning("Channel workspace dir does not exist: %s", _cw_root)
 
+            # List data/ files for awareness
+            _cw_data_dir = _cw_os.path.join(_cw_root, "data")
+            _cw_data_listing = ""
+            if _cw_os.path.isdir(_cw_data_dir):
+                _data_entries = sorted(
+                    e.name for e in _cw_os.scandir(_cw_data_dir)
+                    if e.is_file()
+                )
+                if _data_entries:
+                    _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
+
+            # Always inject helper prompt so the agent knows about the workspace
+            _cw_abs = f"/workspace/channels/{_cw_ch_id}"
+            _cw_helper = (
+                f"Channel workspace — absolute path: {_cw_abs}\n"
+                f"IMPORTANT: Always use the exact path above for file operations. The channel ID is {_cw_ch_id} (a UUID, NOT the channel name).\n"
+                f"Example: exec_command cat {_cw_abs}/my_file.md\n"
+                "Use exec_command for creating, editing, and moving workspace files.\n"
+                "Use search_channel_archive to search archived files, search_channel_workspace for broader search.\n"
+                "Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.\n"
+                "The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.\n"
+                "When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.\n"
+                "Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, "
+                "then search_channel_workspace with its channel_id to find relevant workspace content.\n"
+                + _cw_data_listing + "\n"
+            )
+
+            _cw_body = ""
             if _cw_files:
                 _cw_sections = []
                 for _fname, _fcontent in _cw_files:
                     _cw_sections.append(f"## {_fname}\n\n{_fcontent}")
                 _cw_body = "\n\n---\n\n".join(_cw_sections)
 
-                # List data/ files for awareness
-                _cw_data_dir = _cw_os.path.join(_cw_root, "data")
-                _cw_data_listing = ""
-                if _cw_os.path.isdir(_cw_data_dir):
-                    _data_entries = sorted(
-                        e.name for e in _cw_os.scandir(_cw_data_dir)
-                        if e.is_file()
-                    )
-                    if _data_entries:
-                        _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
-
-                _cw_abs = f"/workspace/channels/{_cw_ch_id}"
-                _cw_helper = (
-                    f"Channel workspace — absolute path: {_cw_abs}\n"
-                    f"IMPORTANT: Always use the exact path above for file operations. The channel ID is {_cw_ch_id} (a UUID, NOT the channel name).\n"
-                    f"Example: exec_command cat {_cw_abs}/my_file.md\n"
-                    "Use exec_command for creating, editing, and moving workspace files.\n"
-                    "Use search_channel_archive to search archived files, search_channel_workspace for broader search.\n"
-                    "Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.\n"
-                    "The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.\n"
-                    "When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.\n"
-                    "Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, "
-                    "then search_channel_workspace with its channel_id to find relevant workspace content.\n"
-                    + _cw_data_listing + "\n"
-                )
-
-                _inject_chars["channel_workspace"] = _cw_total_chars
-                messages.append({
-                    "role": "system",
-                    "content": _cw_helper + _cw_body,
-                })
-                yield {"type": "channel_workspace_context", "count": len(_cw_files), "chars": _cw_total_chars}
+            _inject_chars["channel_workspace"] = _cw_total_chars
+            messages.append({
+                "role": "system",
+                "content": _cw_helper + _cw_body,
+            })
+            yield {"type": "channel_workspace_context", "count": len(_cw_files), "chars": _cw_total_chars}
 
             # Background re-index (content-hash makes it a no-op if nothing changed)
             from app.services.channel_workspace_indexing import index_channel_workspace as _cw_index

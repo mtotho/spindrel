@@ -3,7 +3,7 @@ import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type Nati
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash, ChevronDown } from "lucide-react";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
@@ -93,6 +93,7 @@ export default function ChatScreen() {
   const goBack = useGoBack("/");
   const flatListRef = useRef<FlatList>(null);
 
+  const queryClient = useQueryClient();
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
   const { data: systemStatus } = useSystemStatus();
@@ -181,9 +182,17 @@ export default function ChatScreen() {
     },
     onError: (error) => {
       if (channelId) setError(channelId, error.message);
+      // SSE dropped but server likely still processed the message.
+      // Refetch messages after a short delay so the response appears.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      }, 2000);
     },
     onComplete: () => {
       if (channelId) finishStreaming(channelId);
+      // Refetch messages to get real DB records (with attachments, full metadata, etc.)
+      // persist_turn runs before the SSE connection closes, so data is ready.
+      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     },
   });
 

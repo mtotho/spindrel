@@ -15,8 +15,9 @@ export function Section({ title, description, action, children }: {
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const t = useThemeTokens();
   return (
-    <View className="gap-4">
+    <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: t.surfaceOverlay, paddingTop: 16 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <View>
           <Text className="text-text text-sm font-semibold">{title}</Text>
