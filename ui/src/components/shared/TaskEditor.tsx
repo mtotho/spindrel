@@ -573,7 +573,9 @@ export function TaskEditor({
                     label="Prompt"
                     placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
                     rows={isWide ? 12 : 6}
-                    generateContext="A prompt for an AI agent task. Describe what to accomplish, constraints, and expected output."
+                    fieldType="task_prompt"
+                    botId={botId}
+                    channelId={channelId}
                   />
                 </>
               )}

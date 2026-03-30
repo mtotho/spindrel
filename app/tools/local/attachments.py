@@ -1,9 +1,10 @@
-"""Local tools: get_attachment, list_attachments, post_attachment — attachment access for the agent."""
+"""Local tools: get_attachment, list_attachments, post_attachment, save_attachment — attachment access for the agent."""
 
 import base64
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from app.tools.registry import register
 
@@ -318,4 +319,61 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
         "attachment_id": attachment_id,
         "filename": att.filename,
         "description": description,
+    })
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "save_attachment",
+        "description": (
+            "Save an attachment's file data to a path on disk. "
+            "Use this to download images or files from the conversation to the filesystem — "
+            "for example, to include Slack images in a slide deck or process uploaded files locally."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The UUID of the attachment to save.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Destination file path. If a directory, the original filename is used. "
+                        "Parent directories are created automatically."
+                    ),
+                },
+            },
+            "required": ["attachment_id", "path"],
+        },
+    },
+})
+async def save_attachment(attachment_id: str, path: str) -> str:
+    from app.services.attachments import get_attachment_by_id
+
+    try:
+        att_uuid = uuid.UUID(attachment_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+    att = await get_attachment_by_id(att_uuid)
+    if att is None:
+        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+
+    if not att.file_data:
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+    dest = Path(path).expanduser()
+    if dest.is_dir():
+        dest = dest / (att.filename or f"attachment_{attachment_id}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(att.file_data)
+
+    return json.dumps({
+        "saved": str(dest),
+        "filename": att.filename,
+        "size_bytes": len(att.file_data),
     })

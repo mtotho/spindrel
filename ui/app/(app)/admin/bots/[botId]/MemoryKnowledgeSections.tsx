@@ -453,7 +453,8 @@ export function MemorySection({ draft, update, botId }: {
             <LlmPrompt value={draft.memory?.prompt || ""}
               onChange={(v) => update({ memory: { ...draft.memory, prompt: v || undefined } })}
               rows={4} placeholder="Specific guidance on what's worth remembering..."
-              generateContext="Guidance for an AI on what information to save to long-term memory from conversations. Should describe what to prioritize (facts, preferences, decisions) and what to skip (small talk, transient info)." />
+              fieldType="memory_prompt"
+              botId={botId} />
           </FormRow>
           <BotMemoriesSection botId={botId} />
         </>

@@ -410,7 +410,9 @@ export default function TaskDetailScreen() {
                         label="Prompt"
                         placeholder={promptTemplateId ? "Using linked template..." : "Task prompt..."}
                         rows={isWide ? 12 : 6}
-                        generateContext="A prompt for an AI agent task that runs asynchronously. Should describe what the agent should accomplish, any constraints, and expected output format."
+                        fieldType="task_prompt"
+                        botId={botId}
+                        channelId={task?.channel_id ?? undefined}
                       />
                     </>
                   )}

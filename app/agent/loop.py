@@ -66,6 +66,7 @@ async def run_agent_tool_loop(
     user_msg_index: int | None = None,
     compaction: bool = False,
     pre_selected_tools: list[dict[str, Any]] | None = None,
+    authorized_tool_names: set[str] | None = None,
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
     max_iterations: int | None = None,
@@ -89,14 +90,7 @@ async def run_agent_tool_loop(
     if pre_selected_tools is not None:
         all_tools = _merge_tool_schemas(pre_selected_tools)
     else:
-        # Auto-inject workspace tools when workspace is enabled
-        _local_tool_names = list(bot.local_tools)
-        if bot.workspace.enabled or bot.shared_workspace_id:
-            from app.agent.message_utils import _WORKSPACE_TOOLS
-            for wt in _WORKSPACE_TOOLS:
-                if wt not in _local_tool_names:
-                    _local_tool_names.append(wt)
-        local_schemas = get_local_tool_schemas(_local_tool_names)
+        local_schemas = get_local_tool_schemas(list(bot.local_tools))
         mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
         client_schemas = get_client_tool_schemas(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas
@@ -116,6 +110,14 @@ async def run_agent_tool_loop(
                     all_tools.append(t)
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
+
+    # Build effective authorized tool set for dispatch enforcement
+    if authorized_tool_names:
+        _effective_allowed = authorized_tool_names
+    elif all_tools:
+        _effective_allowed = {t["function"]["name"] for t in all_tools}
+    else:
+        _effective_allowed = None
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
@@ -307,55 +309,65 @@ async def run_agent_tool_loop(
                 _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
-                    _empty_msg = (
-                        f"LLM returned empty response after {iteration + 1} iteration(s) "
-                        f"({len(tool_calls_made)} tool calls). Forcing retry."
-                    )
-                    logger.warning("LLM response was empty. Forcing a response...")
-                    yield _event_with_compaction_tag({
-                        "type": "warning",
-                        "code": "empty_response",
-                        "message": _empty_msg,
-                    }, compaction)
-                    # Remove the empty assistant message that was eagerly appended
-                    # above — it would leak into persisted history as dead weight.
-                    messages.pop()
-                    messages.append({
-                        "role": "system",
-                        "content": "You must respond to the user. Write a response now."
-                    })
-                    try:
-                        # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
-                        # retry logic, and fallback all apply.  Use tool_choice=none so we
-                        # only get a plain assistant reply.
-                        retry = await _llm_call(
-                            model, messages,
-                            tools_param,
-                            "none" if tools_param is not None else None,
-                            provider_id=provider_id,
-                            fallback_models=fallback_models,
+                    if tool_calls_made:
+                        # Silent completion: bot did work via tool calls, nothing to say.
+                        logger.info(
+                            "LLM completed silently after %d tool call(s) — accepting empty response.",
+                            len(tool_calls_made),
                         )
-                        text = strip_think_tags(retry.choices[0].message.content or "")
-                        messages.append(retry.choices[0].message.model_dump(exclude_none=True))
-                    except Exception as exc:
-                        logger.error("Forced-response retry failed: %s", exc)
-                        if correlation_id is not None:
-                            asyncio.create_task(_record_trace_event(
-                                correlation_id=correlation_id,
-                                session_id=session_id,
-                                bot_id=bot.id,
-                                client_id=client_id,
-                                event_type="llm_error",
-                                event_name="forced_response_retry",
-                                data={"message": str(exc)[:2000]},
-                            ))
-                        text = f"[Error: {_empty_msg} Retry also failed: {type(exc).__name__}]"
-                        messages.append({"role": "assistant", "content": text})
+                        # Remove empty assistant message eagerly appended above
+                        messages.pop()
+                    else:
+                        # Genuine failure: no tool calls AND no text. Force a response.
+                        _empty_msg = (
+                            f"LLM returned empty response after {iteration + 1} iteration(s) "
+                            f"({len(tool_calls_made)} tool calls). Forcing retry."
+                        )
+                        logger.warning("LLM response was empty. Forcing a response...")
                         yield _event_with_compaction_tag({
-                            "type": "error",
-                            "code": "llm_error",
-                            "message": text,
+                            "type": "warning",
+                            "code": "empty_response",
+                            "message": _empty_msg,
                         }, compaction)
+                        # Remove the empty assistant message that was eagerly appended
+                        # above — it would leak into persisted history as dead weight.
+                        messages.pop()
+                        messages.append({
+                            "role": "system",
+                            "content": "You must respond to the user. Write a response now."
+                        })
+                        try:
+                            # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+                            # retry logic, and fallback all apply.  Use tool_choice=none so we
+                            # only get a plain assistant reply.
+                            retry = await _llm_call(
+                                model, messages,
+                                tools_param,
+                                "none" if tools_param is not None else None,
+                                provider_id=provider_id,
+                                fallback_models=fallback_models,
+                            )
+                            text = strip_think_tags(retry.choices[0].message.content or "")
+                            messages.append(retry.choices[0].message.model_dump(exclude_none=True))
+                        except Exception as exc:
+                            logger.error("Forced-response retry failed: %s", exc)
+                            if correlation_id is not None:
+                                asyncio.create_task(_record_trace_event(
+                                    correlation_id=correlation_id,
+                                    session_id=session_id,
+                                    bot_id=bot.id,
+                                    client_id=client_id,
+                                    event_type="llm_error",
+                                    event_name="forced_response_retry",
+                                    data={"message": str(exc)[:2000]},
+                                ))
+                            text = f"[Error: {_empty_msg} Retry also failed: {type(exc).__name__}]"
+                            messages.append({"role": "assistant", "content": text})
+                            yield _event_with_compaction_tag({
+                                "type": "error",
+                                "code": "llm_error",
+                                "message": text,
+                            }, compaction)
 
                 if native_audio and user_msg_index is not None and not transcript_emitted:
                     transcript, text = _extract_transcript(text)
@@ -388,9 +400,15 @@ async def run_agent_tool_loop(
                     extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
                 )))
 
+                # Inject tools_used into the final assistant message for
+                # persist_turn to save in metadata.
+                if tool_calls_made and messages and messages[-1].get("role") == "assistant":
+                    messages[-1]["_tools_used"] = list(tool_calls_made)
+
                 yield _event_with_compaction_tag({
                     "type": "response",
                     "text": text,
+                    "tools_used": list(tool_calls_made) if tool_calls_made else None,
                     "client_actions": (
                         _extract_client_actions(messages, turn_start) + embedded_client_actions
                     ),
@@ -460,6 +478,7 @@ async def run_agent_tool_loop(
                     summarize_max_tokens=_eff_summarize_max_tokens,
                     summarize_exclude=_eff_summarize_exclude,
                     compaction=compaction,
+                    allowed_tool_names=_effective_allowed,
                 )
 
                 # --- Approval gate ---
@@ -508,6 +527,7 @@ async def run_agent_tool_loop(
                             summarize_exclude=_eff_summarize_exclude,
                             compaction=compaction,
                             skip_policy=True,
+                            allowed_tool_names=_effective_allowed,
                         )
                     else:
                         tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
@@ -515,6 +535,7 @@ async def run_agent_tool_loop(
                     yield _event_with_compaction_tag({
                         "type": "approval_resolved",
                         "approval_id": tc_result.approval_id,
+                        "tool": name,
                         "verdict": verdict,
                     }, compaction)
 
@@ -650,9 +671,14 @@ async def run_agent_tool_loop(
             extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
         )))
 
+        # Inject tools_used into the final assistant message (max-iterations path).
+        if tool_calls_made and messages and messages[-1].get("role") == "assistant":
+            messages[-1]["_tools_used"] = list(tool_calls_made)
+
         yield _event_with_compaction_tag({
             "type": "response",
             "text": text,
+            "tools_used": list(tool_calls_made) if tool_calls_made else None,
             "client_actions": (
                 _extract_client_actions(messages, turn_start) + embedded_client_actions
             ),
@@ -817,6 +843,7 @@ async def run_stream(
 
     max_iterations_override = assembly_result.channel_max_iterations
     pre_selected_tools = assembly_result.pre_selected_tools
+    _authorized_tool_names = assembly_result.authorized_tool_names
     user_msg_index = assembly_result.user_msg_index
 
     # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
@@ -845,6 +872,7 @@ async def run_stream(
             native_audio=native_audio,
             user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
+            authorized_tool_names=_authorized_tool_names,
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,
@@ -878,6 +906,7 @@ async def run_stream(
             native_audio=native_audio,
             user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
+            authorized_tool_names=_authorized_tool_names,
             correlation_id=correlation_id,
             channel_id=channel_id,
             max_iterations=max_iterations_override,

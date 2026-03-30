@@ -66,8 +66,6 @@ tools/*.py
 # Personal/private integrations (only slack/ and example/ ship with the repo)
 integrations/arr/
 integrations/bennieloggins/
-integrations/frigate/
-integrations/github/
 integrations/ingestion/
 
 # Planning docs (internal)

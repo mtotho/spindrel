@@ -80,8 +80,8 @@ async def _embed_knowledge_row(row: BotKnowledge) -> None:
 
 
 def _integration_dirs() -> list[Path]:
-    """Return all integration directories (in-repo + INTEGRATION_DIRS)."""
-    dirs = [Path("integrations")]
+    """Return all integration/package directories (in-repo + INTEGRATION_DIRS)."""
+    dirs = [Path("integrations"), Path("packages")]
     try:
         from app.config import settings
         extra = settings.INTEGRATION_DIRS
@@ -123,17 +123,18 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                     skill_id = f"bots/{bot_dir.name}/{p.stem}"
                     items.append((p, skill_id, SOURCE_FILE))
 
-    # integrations/*/skills/*.md (in-repo + external)
-    for integrations_dir in _integration_dirs():
-        if not integrations_dir.is_dir():
+    # integrations/*/skills/*.md and packages/*/skills/*.md (in-repo + external)
+    for base_dir in _integration_dirs():
+        if not base_dir.is_dir():
             continue
-        for intg_dir in sorted(integrations_dir.iterdir()):
+        prefix = base_dir.name  # "integrations", "packages", or external dir name
+        for intg_dir in sorted(base_dir.iterdir()):
             if not intg_dir.is_dir():
                 continue
             intg_skills = intg_dir / "skills"
             if intg_skills.is_dir():
                 for p in sorted(intg_skills.glob("*.md")):
-                    skill_id = f"integrations/{intg_dir.name}/{p.stem}"
+                    skill_id = f"{prefix}/{intg_dir.name}/{p.stem}"
                     items.append((p, skill_id, SOURCE_INTEGRATION))
 
     return items
@@ -664,7 +665,7 @@ async def watch_files() -> None:
     backoff = 1.0
     while True:
         watch_dirs: list[str] = []
-        for d in ["skills", "knowledge", "bots", "integrations", "prompts"]:
+        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts"]:
             p = Path(d)
             if p.exists():
                 watch_dirs.append(str(p))

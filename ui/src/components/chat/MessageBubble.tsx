@@ -1,4 +1,5 @@
 import { View, Text, Platform } from "react-native";
+import { Wrench } from "lucide-react";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
@@ -424,6 +425,72 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
 }
 
 // ---------------------------------------------------------------------------
+// Tool badges — shows tools used on persisted messages
+// ---------------------------------------------------------------------------
+
+function ToolBadges({ toolNames, t }: { toolNames: string[]; t: ReturnType<typeof useThemeTokens> }) {
+  if (toolNames.length === 0) return null;
+  // Deduplicate and count
+  const counts = new Map<string, number>();
+  for (const name of toolNames) {
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const isWeb = Platform.OS === "web";
+  if (isWeb) {
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+        {[...counts.entries()].map(([name, count]) => (
+          <div
+            key={name}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              paddingLeft: 6,
+              paddingRight: 8,
+              paddingTop: 3,
+              paddingBottom: 3,
+              borderRadius: 4,
+              backgroundColor: t.overlayLight,
+              border: `1px solid ${t.overlayBorder}`,
+            }}
+          >
+            <Wrench size={10} color={t.textDim} />
+            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
+              {name}{count > 1 ? ` x${count}` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+      {[...counts.entries()].map(([name, count]) => (
+        <View
+          key={name}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingHorizontal: 6,
+            paddingVertical: 3,
+            borderRadius: 4,
+            backgroundColor: t.overlayLight,
+            borderWidth: 1,
+            borderColor: t.overlayBorder,
+          }}
+        >
+          <Text style={{ fontSize: 11, color: t.textMuted }}>
+            {name}{count > 1 ? ` x${count}` : ""}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // MessageBubble — Slack-style flat layout
 // ---------------------------------------------------------------------------
 
@@ -438,6 +505,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const sourceLabel = isSlack ? "via Slack" : null;
+  const toolsUsed: string[] = (meta.tools_used as string[]) || [];
   const trigger = meta.trigger as string | undefined;
   const triggerBadge = trigger === "heartbeat"
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
@@ -459,15 +527,19 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
+      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} t={t} />}
     </>
   ) : (
-    <Text
-      className="text-[15px] leading-relaxed"
-      style={{ color: t.contentText }}
-      selectable
-    >
-      {displayContent}
-    </Text>
+    <>
+      <Text
+        className="text-[15px] leading-relaxed"
+        style={{ color: t.contentText }}
+        selectable
+      >
+        {displayContent}
+      </Text>
+      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} t={t} />}
+    </>
   );
 
   // Grouped message — compact, no avatar or name header

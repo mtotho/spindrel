@@ -380,6 +380,54 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                         msg = await client.chat_postMessage(**_wk)
                         thinking_ts = msg["ts"]
                         thinking_channel = msg["channel"]
+            elif etype == "tool_result":
+                # Tool finished — update status message to show completion
+                tool = event.get("tool", "tool")
+                error = event.get("error")
+                if error:
+                    status = f"⚠️ {tool}: _{error[:100]}_"
+                else:
+                    status = f"✅ _{tool} done_"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "approval_request":
+                tool = event.get("tool", "tool")
+                reason = event.get("reason", "")
+                status = f"🔒 _{tool}_ needs approval"
+                if reason:
+                    status += f": {reason[:100]}"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "approval_resolved":
+                verdict = event.get("verdict", "unknown")
+                tool = event.get("tool", "tool")
+                if verdict == "approved":
+                    status = f"✅ _{tool}_ approved — running..."
+                else:
+                    status = f"❌ _{tool}_ {verdict}"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
             elif etype == "cancelled":
                 # Agent loop was cancelled via STOP
                 if thinking_ts and thinking_channel:

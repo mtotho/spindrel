@@ -210,6 +210,16 @@ function buildMetadataPreview(form: any, data: any): string {
     lines.push("Dispatch: Your response will be posted to the channel.");
   }
 
+  const repEnabled = form?.repetition_detection ?? data?.default_repetition_detection ?? true;
+  if (repEnabled) {
+    lines.push("");
+    lines.push("Recent heartbeat outputs (newest first):");
+    lines.push("  #1 ({N}m ago): {first_line_of_result} [tools: ...]");
+    lines.push("  #2 ({N}m ago): {first_line_of_result} [tools: ...]");
+    lines.push("");
+    lines.push("{repetition_warning_if_detected}");
+  }
+
   lines.push(
     "",
     "--- [system: current-turn marker] ---",
@@ -287,6 +297,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         workspace_id: data.config.workspace_id ?? null,
         max_run_seconds: data.config.max_run_seconds ?? null,
         previous_result_max_chars: data.config.previous_result_max_chars ?? null,
+        repetition_detection: data.config.repetition_detection ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -303,6 +314,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         workspace_id: null,
         max_run_seconds: null,
         previous_result_max_chars: null,
+        repetition_detection: null,
       });
     }
   }, [data]);
@@ -455,7 +467,8 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
                 helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
                 rows={10}
-                generateContext="A prompt for a scheduled/periodic AI task. Runs on a timer. The AI can check on things, perform maintenance, proactively engage, or run recurring workflows. Supports @-tags for tools and skills."
+                fieldType="heartbeat"
+                channelId={channelId}
               />
             </>
           )}
@@ -484,6 +497,15 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
             onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
             label="Trigger agent response after posting"
             description="After posting the heartbeat result, the bot will process it and respond again."
+          />
+          <Toggle
+            value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
+            onChange={(v) => {
+              const globalDefault = data?.default_repetition_detection ?? true;
+              setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
+            }}
+            label="Repetition detection"
+            description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
           />
         </div>
 

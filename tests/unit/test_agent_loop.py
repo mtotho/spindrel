@@ -605,3 +605,85 @@ class TestRunAgentToolLoop:
                 events.append(event)
 
             assert all(e.get("compaction") is True for e in events)
+
+    @pytest.mark.asyncio
+    async def test_silent_completion_after_tool_calls(self):
+        """After tool calls, empty LLM response should be accepted silently (no forced retry)."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("some_tool", '{}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        acc_empty = _mock_accumulated(content="")  # empty text, no tool calls
+
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_empty)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock) as mock_llm_call, \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 10
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do stuff"}], bot
+            ):
+                events.append(event)
+
+            # Should get a response event with empty text
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
+            assert response_events[0]["text"] == ""
+
+            # No warning or error events should be emitted
+            warning_events = [e for e in events if e["type"] == "warning"]
+            error_events = [e for e in events if e["type"] == "error"]
+            assert len(warning_events) == 0
+            assert len(error_events) == 0
+
+            # Forced retry (_llm_call non-streaming) should NOT be called
+            mock_llm_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_forced_retry_when_no_tool_calls_made(self):
+        """Empty response with zero tool calls ever made should trigger forced retry."""
+        from app.agent.loop import run_agent_tool_loop
+
+        acc_empty = _mock_accumulated(content="")  # empty text, no tool calls
+
+        final_resp = _mock_response("forced response")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_empty)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp) as mock_llm_call, \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "hi"}], bot
+            ):
+                events.append(event)
+
+            # Warning event with empty_response code should be emitted
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert len(warning_events) == 1
+            assert warning_events[0]["code"] == "empty_response"
+
+            # Forced retry should have been called
+            mock_llm_call.assert_awaited_once()

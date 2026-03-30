@@ -401,6 +401,9 @@ async def persist_turn(
         # Auto-inject bot metadata on assistant messages
         if msg.get("role") == "assistant" and not meta:
             meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
+        # Carry forward tools_used from the agent loop into message metadata
+        if msg.get("_tools_used"):
+            meta = {**meta, "tools_used": msg["_tools_used"]}
         # Tag all messages in heartbeat turns so _load_messages can filter old ones
         if is_heartbeat:
             meta = {**meta, "is_heartbeat": True}

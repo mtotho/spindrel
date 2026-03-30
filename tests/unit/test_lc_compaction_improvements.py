@@ -82,7 +82,7 @@ class TestGenerateSectionDepthAndContext:
         )
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "hello"}],
                 "test-model",
             )
@@ -127,7 +127,7 @@ class TestGenerateSectionDepthAndContext:
             patch("app.services.providers.get_llm_client", return_value=mock_client),
             patch("app.services.compaction.async_session", return_value=mock_session_ctx),
         ):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "hello"}],
                 "test-model",
                 channel_id=channel_id,
@@ -160,7 +160,7 @@ class TestGenerateSectionFallback:
         )
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "hello"}],
                 "test-model",
             )
@@ -187,7 +187,7 @@ class TestGenerateSectionFallback:
         )
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "hello"}],
                 "test-model",
             )
@@ -204,7 +204,7 @@ class TestGenerateSectionFallback:
         )
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "Fix the database connection error"}],
                 "test-model",
             )
@@ -223,7 +223,7 @@ class TestGenerateSectionFallback:
         long_msg = "x" * 200
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": long_msg}],
                 "test-model",
             )
@@ -249,7 +249,7 @@ class TestGenerateSectionFallback:
         )
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, _usage = await _generate_section(
                 [{"role": "user", "content": "hello"}],
                 "test-model",
             )

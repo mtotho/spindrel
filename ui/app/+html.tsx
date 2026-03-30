@@ -9,7 +9,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, shrink-to-fit=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="theme-color" content="#111111" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -25,17 +25,14 @@ export default function Root({ children }: PropsWithChildren) {
 }
 
 const rootStyle = `
-html, body {
-  height: 100%;
-  height: 100dvh;
-}
-body {
-  overflow: hidden;
-}
 #root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
-  height: 100%;
-  height: 100dvh;
-  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
 }
 `;

@@ -4,6 +4,9 @@ import { apiFetch } from "../client";
 export function useGeneratePrompt() {
   return useMutation({
     mutationFn: (body: {
+      field_type?: string;
+      bot_id?: string;
+      channel_id?: string;
       context?: string;
       user_input: string;
       mode?: "generate" | "inline";

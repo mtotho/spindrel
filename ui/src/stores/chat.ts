@@ -74,14 +74,19 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const ch = s.channels[channelId] ?? emptyChannel;
       switch (event.event) {
         case "response": {
-          // Server sends: {"type": "response", "text": "..."}
-          const data = event.data as { text?: string };
+          // Server sends: {"type": "response", "text": "...", "tools_used": [...]}
+          const data = event.data as { text?: string; tools_used?: string[] };
+          // Capture tools_used from the response for persistence
+          const updatedToolCalls = data.tools_used?.length
+            ? data.tools_used.map((name) => ({ name, status: "done" as const }))
+            : ch.toolCalls;
           return {
             channels: {
               ...s.channels,
               [channelId]: {
                 ...ch,
                 streamingContent: data.text ?? ch.streamingContent,
+                toolCalls: updatedToolCalls,
               },
             },
           };
@@ -183,6 +188,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   finishStreaming: (channelId) =>
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
+      // Build metadata with tools_used if any tool calls were made
+      const toolsUsed = ch.toolCalls.length > 0
+        ? ch.toolCalls.map((tc) => tc.name)
+        : undefined;
+      const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
       // Convert streaming content to a real message
       const newMessages = ch.streamingContent
         ? [
@@ -193,6 +203,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               role: "assistant" as const,
               content: ch.streamingContent,
               created_at: new Date().toISOString(),
+              metadata,
             },
           ]
         : ch.messages;

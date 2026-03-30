@@ -99,7 +99,7 @@ class TestCompactionStreamStructuredMode:
             return_value=_mock_llm_response(section_json)
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(
+            title, summary, transcript, tags, usage_info = await _generate_section(
                 [{"role": "user", "content": "hello"}], "gpt-4",
             )
         assert title == "Test Section"
@@ -299,7 +299,7 @@ class TestBackfillResume:
         async def mock_generate_section(chunk, model, **kwargs):
             msg_count = sum(1 for m in chunk if m.get("role") in ("user", "assistant"))
             generated_chunks.append(msg_count)
-            return "Title", "Summary", "Transcript", ["tag"]
+            return "Title", "Summary", "Transcript", ["tag"], {"tier": "normal", "prompt_tokens": None, "completion_tokens": None}
 
         # Build fake DB context managers for each async_session() call
         session_calls = [0]

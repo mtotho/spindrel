@@ -519,10 +519,10 @@ ENDPOINT_CATALOG: list[dict] = [
     # Logs — agent turns (high-level view of each agent invocation)
     {
         "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/turns",
-        "description": "List recent agent turns (one per user message). Each turn includes tool calls, token usage, errors, timing, model, and bot/channel info. Use this to answer questions like 'were there errors in the last day' or 'what did bot X do recently'.",
-        "params": "?count=20&bot_id=&channel_id=&after=30m|2h|1d|ISO&before=ISO&has_error=true|false&has_tool_calls=true|false&search=text",
+        "description": "List recent agent turns (one per user message). Each turn includes tool calls, token usage, errors, timing, model, and bot/channel info.",
+        "params": "?count=20&bot_id=&channel_id=&after=30m|2h|1d|ISO&before=ISO&has_error=true&has_tool_calls=true&search=text",
         "response": "{turns: [{correlation_id, created_at, bot_id, model, channel_name, user_message, response_preview, total_tokens, duration_ms, has_error, tool_calls: [{tool_name, duration_ms, error}], errors: [{event_name, message}]}], total, count}",
-        "notes": "after accepts relative durations (30m, 2h, 1d) or ISO timestamps. has_error=true filters to only turns with errors. Turns are newest-first.",
+        "notes": "Examples: `?has_error=true&after=1d` = errors in the last day. `?bot_id=mybot&count=50` = last 50 turns for a bot. `after` accepts relative durations (30m, 2h, 1d) or ISO timestamps. Turns are newest-first.",
     },
     # Logs — merged log entries (tool calls + trace events)
     {
@@ -557,10 +557,10 @@ ENDPOINT_CATALOG: list[dict] = [
     # Logs — server application logs
     {
         "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/server-logs",
-        "description": "Application server logs from in-memory ring buffer. Use to check for Python errors, startup issues, or debug server behavior.",
-        "params": "?tail=200&level=DEBUG|INFO|WARNING|ERROR|CRITICAL&logger=app.agent&search=text&since_minutes=60",
+        "description": "Application server logs from in-memory ring buffer. To find errors, use `?level=ERROR`. To search for keywords, use `?search=text`.",
+        "params": "?tail=200&level=ERROR&logger=app.agent&search=text&since_minutes=60",
         "response": "{entries: [{timestamp, level, logger, message, formatted}], total, levels}",
-        "notes": "level filters to minimum severity (e.g. ERROR returns ERROR + CRITICAL). logger is prefix-matched. since_minutes limits recency.",
+        "notes": "level is minimum severity filter — `level=ERROR` returns only ERROR + CRITICAL. `level=WARNING` returns WARNING + ERROR + CRITICAL. logger is prefix-matched (e.g. `app.agent` matches `app.agent.loop`). Example: `?level=ERROR&since_minutes=60` = errors in the last hour.",
     },
     # Logs — log level management
     {
