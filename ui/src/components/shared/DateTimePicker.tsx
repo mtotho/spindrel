@@ -1,9 +1,10 @@
 /**
  * Custom DateTimePicker — replaces the awful native <input type="datetime-local">.
- * Opens a dropdown with calendar grid + time selects.
+ * Uses a portal + fixed positioning so the dropdown escapes any ScrollView/overflow parent.
  * Value format: "YYYY-MM-DDTHH:MM" (same as datetime-local).
  */
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Calendar, X } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
@@ -53,14 +54,20 @@ function formatDisplay(v: string): string {
   });
 }
 
+const DROPDOWN_WIDTH = 280;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 export function DateTimePicker({ value, onChange, placeholder = "Select date & time..." }: Props) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const parsed = parseValue(value);
+
+  // Dropdown position (fixed to viewport)
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   // Calendar view state — defaults to selected date or today
   const now = new Date();
@@ -80,14 +87,49 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
     }
   }, [value]);
 
+  // Calculate position when opening
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const dropdownHeight = 380; // approximate
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    // Prefer below, flip above if no room
+    let top = rect.bottom + 4;
+    if (top + dropdownHeight > viewH && rect.top - dropdownHeight - 4 > 0) {
+      top = rect.top - dropdownHeight - 4;
+    }
+
+    // Align left with trigger, but clamp to viewport
+    let left = rect.left;
+    if (left + DROPDOWN_WIDTH > viewW - 8) {
+      left = viewW - DROPDOWN_WIDTH - 8;
+    }
+    if (left < 8) left = 8;
+
+    setPos({ top, left });
+  }, [open]);
+
   // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
   }, [open]);
 
   const selectDay = useCallback((day: number) => {
@@ -139,9 +181,10 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
     parsed != null && viewYear === parsed.year && viewMonth === parsed.month && d === parsed.day;
 
   return (
-    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+    <>
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         style={{
@@ -163,14 +206,17 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
         )}
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100,
-          background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-          padding: 12, width: 280, userSelect: "none",
-        }}>
+      {/* Portal dropdown — renders at document.body so it escapes overflow:hidden/scroll */}
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
+            background: t.surface, border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            padding: 12, width: DROPDOWN_WIDTH, userSelect: "none",
+          }}
+        >
           {/* Month / year nav */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <NavBtn onClick={prevMonth} t={t}><ChevronLeft size={14} /></NavBtn>
@@ -207,7 +253,7 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
                         cursor: "pointer",
                         background: isSelected(day) ? t.accent : "transparent",
                         color: isSelected(day) ? "#fff" : isToday(day) ? t.accent : t.text,
-                        outline: isToday(day) && !isSelected(day) ? `1px solid ${t.accentBorder}` : "none",
+                        outline: isToday(day) && !isSelected(day) ? `1px solid ${t.accent}` : "none",
                       }}
                     >
                       {day}
@@ -234,16 +280,17 @@ export function DateTimePicker({ value, onChange, placeholder = "Select date & t
               onClick={() => { setNow(); setOpen(false); }}
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                border: `1px solid ${t.accentBorder}`, borderRadius: 6,
+                border: `1px solid ${t.accent}`, borderRadius: 6,
                 background: "transparent", color: t.accent, cursor: "pointer",
               }}
             >
               Now
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 

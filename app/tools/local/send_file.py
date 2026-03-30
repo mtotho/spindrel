@@ -1,12 +1,17 @@
-"""send_file — upload a file from disk to the current chat channel.
+"""send_file — deliver a file to the current chat channel.
 
-Saves as a DB attachment (persistent across clients) and emits a client_action
-for immediate delivery. The file bytes never enter the LLM context.
+Two modes:
+  1. path       → read from disk, create a new DB attachment, deliver to channel
+  2. attachment_id → re-post an existing DB attachment to the current channel
+
+Both modes create a channel-linked attachment (for web UI download links) AND
+emit a client_action for immediate Slack delivery.
 """
 
 import base64
 import json
 import mimetypes
+import uuid
 from pathlib import Path
 
 from app.tools.registry import register
@@ -17,45 +22,118 @@ from app.tools.registry import register
     "function": {
         "name": "send_file",
         "description": (
-            "Send a file from disk to the current chat. The file is saved as an "
-            "attachment and delivered to the channel (Slack, web UI, etc.). "
-            "Works with any file type — images, PDFs, HTML, PPTX, CSV, etc. "
-            "The file persists in message history across all clients. "
-            "Supports workspace paths (e.g. /workspace/...) — they are automatically "
-            "translated to the server-side location."
+            "Send a file to the current chat channel. Provide EITHER `path` (file on disk) "
+            "OR `attachment_id` (existing attachment UUID from list_attachments). "
+            "The file is saved as a persistent attachment visible on all clients "
+            "(Slack, web UI, etc.). Works with any file type — images, PDFs, PPTX, CSV, etc. "
+            "Workspace paths (e.g. /workspace/...) are translated automatically."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute or relative path to the file on disk (workspace paths like /workspace/... are translated automatically).",
+                    "description": "Path to the file on disk. Workspace paths like /workspace/... are translated automatically.",
+                },
+                "attachment_id": {
+                    "type": "string",
+                    "description": "UUID of an existing attachment to re-post (from list_attachments). Use instead of path.",
                 },
                 "caption": {
                     "type": "string",
-                    "description": "Optional caption or message to display with the file.",
+                    "description": "Optional caption to display with the file.",
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Override the filename shown to the user. Defaults to the file's basename.",
+                    "description": "Override the filename shown to the user. Defaults to the original filename.",
                 },
             },
-            "required": ["path"],
+            "required": [],
         },
     },
 })
-async def send_file(path: str, caption: str = "", filename: str = "") -> str:
+async def send_file(
+    path: str = "",
+    attachment_id: str = "",
+    caption: str = "",
+    filename: str = "",
+) -> str:
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
 
+    if not path and not attachment_id:
+        return json.dumps({"error": "Provide either `path` or `attachment_id`."})
+
+    channel_id = current_channel_id.get()
+    bot_id = current_bot_id.get()
+    source = current_dispatch_type.get() or "web"
+
+    # --- Mode 2: re-post an existing attachment ---
+    if attachment_id:
+        from app.services.attachments import get_attachment_by_id
+
+        try:
+            att_uuid = uuid.UUID(attachment_id)
+        except ValueError:
+            return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+        att = await get_attachment_by_id(att_uuid)
+        if att is None:
+            return json.dumps({"error": f"Attachment {attachment_id} not found."})
+        if not att.file_data:
+            return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+        display_name = filename or att.filename or "attachment"
+        mime = att.mime_type or "application/octet-stream"
+        data = att.file_data
+
+        # Create a new channel-linked attachment so it appears on the web UI
+        # message (orphan linking in persist_turn links it to the assistant msg)
+        if channel_id and channel_id != att.channel_id:
+            await create_attachment(
+                message_id=None,
+                channel_id=channel_id,
+                filename=display_name,
+                mime_type=mime,
+                size_bytes=len(data),
+                posted_by=bot_id or "agent",
+                source_integration=source,
+                file_data=data,
+                attachment_type=att.type or ("image" if mime.startswith("image/") else "file"),
+                bot_id=bot_id,
+            )
+        elif att.channel_id is None and channel_id:
+            # Original has no channel — claim it for this channel
+            from app.db.engine import async_session
+            from app.db.models import Attachment as AttachmentModel
+            async with async_session() as db:
+                row = await db.get(AttachmentModel, att.id)
+                if row:
+                    row.channel_id = channel_id
+                    await db.commit()
+
+        b64 = base64.b64encode(data).decode("ascii")
+        size_kb = len(data) / 1024
+        is_image = mime.startswith("image/")
+
+        return json.dumps({
+            "message": f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else ""),
+            "client_action": {
+                "type": "upload_image" if is_image else "upload_file",
+                "data": b64,
+                "filename": display_name,
+                "caption": caption,
+            },
+        })
+
+    # --- Mode 1: read from disk ---
     from app.config import settings
-    max_bytes = settings.ATTACHMENT_MAX_SIZE_BYTES or 50 * 1024 * 1024  # fallback 50 MB
+    max_bytes = settings.ATTACHMENT_MAX_SIZE_BYTES or 50 * 1024 * 1024
 
     file_path = Path(path).expanduser()
 
-    # If the path doesn't exist locally, try translating workspace container paths
+    # Translate workspace container paths
     if not file_path.is_file():
-        bot_id = current_bot_id.get()
         if bot_id:
             try:
                 from app.agent.bots import get_bot
@@ -66,7 +144,7 @@ async def send_file(path: str, caption: str = "", filename: str = "") -> str:
                     if translated != path:
                         file_path = Path(translated)
             except Exception:
-                pass  # fall through to the original "not found" error
+                pass
 
     if not file_path.is_file():
         return json.dumps({"error": f"File not found: {path}"})
@@ -84,11 +162,6 @@ async def send_file(path: str, caption: str = "", filename: str = "") -> str:
     mime = mime or "application/octet-stream"
     is_image = mime.startswith("image/")
 
-    # Save to DB for persistence
-    channel_id = current_channel_id.get()
-    bot_id = current_bot_id.get()
-    source = current_dispatch_type.get() or "web"
-
     await create_attachment(
         message_id=None,
         channel_id=channel_id,
@@ -102,7 +175,6 @@ async def send_file(path: str, caption: str = "", filename: str = "") -> str:
         bot_id=bot_id,
     )
 
-    # Emit client_action for immediate delivery (stripped from LLM context)
     b64 = base64.b64encode(data).decode("ascii")
     size_kb = len(data) / 1024
 
