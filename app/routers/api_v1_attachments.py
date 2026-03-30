@@ -17,18 +17,18 @@ router = APIRouter(prefix="/attachments", tags=["Attachments"])
 
 class AttachmentOut(BaseModel):
     id: uuid.UUID
-    message_id: uuid.UUID
-    channel_id: Optional[uuid.UUID]
+    message_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
     type: str
-    url: str
+    url: Optional[str] = None
     filename: str
     mime_type: str
     size_bytes: int
-    posted_by: Optional[str]
+    posted_by: Optional[str] = None
     source_integration: str
-    description: Optional[str]
-    description_model: Optional[str]
-    described_at: Optional[datetime]
+    description: Optional[str] = None
+    description_model: Optional[str] = None
+    described_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

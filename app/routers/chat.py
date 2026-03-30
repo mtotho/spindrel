@@ -201,6 +201,7 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
             )
             binding = result.scalar_one_or_none()
     except Exception:
+        logger.warning("Failed to query ChannelIntegration for channel %s", channel.id, exc_info=True)
         return None, None
 
     if not binding:

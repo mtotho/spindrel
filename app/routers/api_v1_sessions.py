@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment as AttachmentModel, Message, Session, Task
+from app.db.models import Attachment, Attachment as AttachmentModel, Message, Session, Task
 from app.dependencies import get_db, require_scopes
 from app.services.sessions import store_passive_message
 
@@ -223,8 +223,59 @@ async def list_messages(
         .order_by(Message.created_at.desc())
         .limit(limit)
     )
-    messages = result.scalars().all()
-    return [MessageOut.from_orm(m) for m in reversed(messages)]
+    messages = list(result.scalars().all())
+    messages.reverse()
+
+    # Recover orphaned attachments (send_file creates with message_id=NULL)
+    if session.channel_id:
+        await _recover_orphan_attachments(db, session.channel_id, messages)
+
+    return [MessageOut.from_orm(m) for m in messages]
+
+
+async def _recover_orphan_attachments(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    messages: list[Message],
+) -> None:
+    """Link orphaned attachments (message_id=NULL) to the nearest assistant message."""
+    orphan_result = await db.execute(
+        select(Attachment)
+        .where(
+            Attachment.channel_id == channel_id,
+            Attachment.message_id.is_(None),
+        )
+    )
+    orphans = list(orphan_result.scalars().all())
+    if not orphans:
+        return
+
+    logger.warning(
+        "Found %d orphaned attachment(s) in channel %s — recovering",
+        len(orphans), channel_id,
+    )
+    assistant_msgs = [m for m in messages if m.role == "assistant"]
+    if not assistant_msgs:
+        return
+
+    linked = 0
+    for att in orphans:
+        best = None
+        for m in assistant_msgs:
+            if m.created_at >= att.created_at:
+                best = m
+                break
+        if best is None:
+            best = assistant_msgs[-1]
+        att.message_id = best.id
+        if not hasattr(best, "attachments") or best.attachments is None:
+            best.attachments = []
+        best.attachments.append(att)
+        linked += 1
+
+    if linked:
+        await db.commit()
+        logger.info("Recovered %d orphan attachment(s) in channel %s", linked, channel_id)
 
 
 # ---------------------------------------------------------------------------

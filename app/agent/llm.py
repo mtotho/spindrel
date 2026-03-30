@@ -264,6 +264,11 @@ async def _llm_call_stream(
     last_fallback_info.set(None)
     max_retries = settings.LLM_MAX_RETRIES
 
+    def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
+        """Detect 500s that wrap non-transient upstream errors (e.g. LiteLLM wrapping a 400)."""
+        msg = str(exc).lower()
+        return any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400"))
+
     async def _try_model(m: str, pid: str | None, mp: dict | None):
         """Attempt one model with retries. Returns stream or raises."""
         client = get_llm_client(pid)
@@ -294,6 +299,11 @@ async def _llm_call_stream(
                    "wait_seconds": wait, "reason": "rate_limited", "model": model}
             await asyncio.sleep(wait)
         except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+            # Non-transient 500s (e.g. LiteLLM wrapping a 400) — skip retries, go to fallback
+            if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
+                logger.warning("Stream LLM call got non-transient 500 (%s), skipping retries", str(exc)[:200])
+                primary_exc = exc
+                break
             if attempt >= max_retries:
                 primary_exc = exc
                 break
@@ -344,6 +354,10 @@ async def _llm_call_stream(
                            "wait_seconds": wait, "reason": "rate_limited", "model": fb_model}
                     await asyncio.sleep(wait)
                 except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+                    if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
+                        logger.warning("Stream fallback %s got non-transient 500, skipping retries", fb_model)
+                        last_exc = exc
+                        break
                     if attempt >= max_retries:
                         last_exc = exc
                         break
@@ -417,6 +431,11 @@ async def _attempt_stream_with_retries(
             )
             await asyncio.sleep(wait)
         except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+            # Non-transient 500 (e.g. upstream 400 wrapped by LiteLLM) — don't retry
+            if isinstance(exc, openai.InternalServerError):
+                msg = str(exc).lower()
+                if any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400")):
+                    raise
             if attempt >= max_retries:
                 raise
             wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
