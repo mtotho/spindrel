@@ -708,6 +708,16 @@ async def run_task(task: Task) -> None:
         t.run_at = now
         await db.commit()
 
+    # Notify the dispatcher that a queued task is starting (e.g. Slack posts
+    # a thinking placeholder).  Uses duck-typing — only dispatchers that
+    # implement notify_start are called.
+    dispatcher = dispatchers.get(task.dispatch_type)
+    if hasattr(dispatcher, "notify_start"):
+        try:
+            await dispatcher.notify_start(task)
+        except Exception:
+            logger.debug("notify_start failed for task %s", task.id, exc_info=True)
+
     try:
         from app.agent.loop import run
         from app.agent.persona import get_persona
@@ -829,7 +839,7 @@ async def run_task(task: Task) -> None:
             # Callback tasks (e.g. harness results) should identify themselves
             # so the UI can display them properly instead of showing "You".
             _task_meta = {"trigger": "callback", "sender_type": "bot", "sender_display_name": bot.name}
-            # Check if the parent was a harness task for richer metadata
+            # Check if the parent was a harness or delegation task for richer metadata
             if task.parent_task_id:
                 async with async_session() as _cb_db:
                     _cb_parent = await _cb_db.get(Task, task.parent_task_id)
@@ -837,6 +847,14 @@ async def run_task(task: Task) -> None:
                         _harness_name = (_cb_parent.execution_config or {}).get("harness_name", "harness")
                         _task_meta["trigger"] = "harness_callback"
                         _task_meta["harness_name"] = _harness_name
+                    elif _cb_parent and _cb_parent.task_type == "delegation":
+                        _task_meta["trigger"] = "delegation_callback"
+                        _task_meta["delegation_child_bot_id"] = _cb_parent.bot_id
+                        try:
+                            _child_bot = get_bot(_cb_parent.bot_id)
+                            _task_meta["delegation_child_display"] = _child_bot.display_name or _child_bot.name
+                        except Exception:
+                            pass
         from app.services.sessions import persist_turn
         async with async_session() as db:
             await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id, msg_metadata=_task_meta)
@@ -856,8 +874,27 @@ async def run_task(task: Task) -> None:
         if _is_scheduled:
             _label = f"🔁 _{task.title or 'Scheduled task'}_\n"
             _dispatch_text = _label + result_text
+
+        # Build delegation metadata for dispatch echo attribution
+        _delegation_meta = None
+        if task.task_type == "delegation":
+            _parent_bot_id = (task.callback_config or {}).get("parent_bot_id")
+            _parent_display = _parent_bot_id
+            if _parent_bot_id:
+                try:
+                    _pb = get_bot(_parent_bot_id)
+                    _parent_display = _pb.display_name or _pb.name
+                except Exception:
+                    pass
+            _delegation_meta = {
+                "delegated_by": _parent_bot_id,
+                "delegated_by_display": _parent_display,
+                "delegation_task_id": str(task.id),
+            }
+
         dispatcher = dispatchers.get(task.dispatch_type)
-        await dispatcher.deliver(task, _dispatch_text, client_actions=run_result.client_actions)
+        await dispatcher.deliver(task, _dispatch_text, client_actions=run_result.client_actions,
+                                 extra_metadata=_delegation_meta)
 
         _cb = task.callback_config or {}
 

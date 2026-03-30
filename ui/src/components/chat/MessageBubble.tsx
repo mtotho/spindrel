@@ -5,6 +5,7 @@ import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { formatToolArgs } from "./toolCallUtils";
+import { DelegationCard } from "./DelegationCard";
 import type { Message, AttachmentBrief, ToolCall } from "../../types/api";
 import { normalizeToolCall } from "../../types/api";
 
@@ -405,24 +406,35 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
           />
         </a>
       ))}
-      {files.map((f) => (
-        <div
-          key={f.id}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 13,
-            color: t.textMuted,
-          }}
-        >
-          <span style={{ fontSize: 14 }}>📎</span>
-          <span>{f.filename}</span>
-          <span style={{ color: t.textDim }}>
-            ({(f.size_bytes / 1024).toFixed(1)} KB)
-          </span>
-        </div>
-      ))}
+      {files.map((f) => {
+        const href = f.has_file_data
+          ? `${serverUrl}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`
+          : undefined;
+        return (
+          <a
+            key={f.id}
+            href={href}
+            download={f.filename}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 13,
+              color: t.accent,
+              textDecoration: "none",
+              cursor: href ? "pointer" : "default",
+            }}
+          >
+            <span style={{ fontSize: 14 }}>📎</span>
+            <span style={{ textDecoration: "underline" }}>{f.filename}</span>
+            <span style={{ color: t.textDim }}>
+              ({(f.size_bytes / 1024).toFixed(1)} KB)
+            </span>
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -582,17 +594,21 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
+  const delegations = (meta.delegations as any[]) || [];
+  const delegatedByDisplay = meta.delegated_by_display as string | undefined;
   const triggerBadge = trigger === "heartbeat"
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
     : trigger === "scheduled_task"
       ? { label: meta.task_title || "scheduled", icon: "🔁", color: "#8b5cf6" }
       : trigger === "harness_callback"
         ? { label: meta.harness_name || "harness", icon: "⚡", color: "#06b6d4" }
-        : trigger === "callback"
-          ? { label: "callback", icon: "↩", color: "#8b5cf6" }
-          : meta.is_heartbeat
-            ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
-            : null;
+        : trigger === "delegation_callback"
+          ? { label: meta.delegation_child_display || "delegation", icon: "↩", color: "#8b5cf6" }
+          : trigger === "callback"
+            ? { label: "callback", icon: "↩", color: "#8b5cf6" }
+            : meta.is_heartbeat
+              ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
+              : null;
 
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;
@@ -659,6 +675,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
       {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
+      {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   ) : (
     <>
@@ -670,6 +687,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         {displayContent}
       </Text>
       {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
+      {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );
 
@@ -732,6 +750,11 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           {sourceLabel && (
             <Text style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
               {sourceLabel}
+            </Text>
+          )}
+          {delegatedByDisplay && (
+            <Text style={{ fontSize: 11, color: "#8b5cf6", fontStyle: "italic" }}>
+              delegated by {delegatedByDisplay}
             </Text>
           )}
           {triggerBadge && isWeb && (

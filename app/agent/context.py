@@ -48,6 +48,7 @@ current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_inje
 current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
+current_ephemeral_skills: ContextVar[list] = ContextVar("current_ephemeral_skills", default=[])
 
 # Accumulates child-bot Slack posts from immediate delegation so run_stream() can
 # emit them as delegation_post events BEFORE the parent's response event.
@@ -100,6 +101,11 @@ def set_ephemeral_delegates(bot_ids: list[str]) -> None:
     current_ephemeral_delegates.set(list(bot_ids))
 
 
+def set_ephemeral_skills(skill_ids: list[str]) -> None:
+    """Set ephemeral @-tagged skill IDs that bypass bot skill allowlist for this request."""
+    current_ephemeral_skills.set(list(skill_ids))
+
+
 @dataclass
 class AgentContextSnapshot:
     """Full copy of agent ContextVars for save/restore around nested runs (e.g. delegation)."""
@@ -119,6 +125,7 @@ class AgentContextSnapshot:
     session_depth: int
     root_session_id: uuid.UUID | None
     ephemeral_delegates: list
+    ephemeral_skills: list
     model_override: str | None
     provider_id_override: str | None
 
@@ -140,6 +147,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         session_depth=current_session_depth.get(),
         root_session_id=current_root_session_id.get(),
         ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
+        ephemeral_skills=list(current_ephemeral_skills.get() or []),
         model_override=current_model_override.get(),
         provider_id_override=current_provider_id_override.get(),
     )
@@ -161,5 +169,6 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_session_depth.set(snap.session_depth)
     current_root_session_id.set(snap.root_session_id)
     current_ephemeral_delegates.set(list(snap.ephemeral_delegates))
+    current_ephemeral_skills.set(list(snap.ephemeral_skills))
     current_model_override.set(snap.model_override)
     current_provider_id_override.set(snap.provider_id_override)

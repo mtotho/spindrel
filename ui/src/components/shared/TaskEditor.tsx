@@ -10,9 +10,10 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
+import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
-import { formatDateTime, isoToLocalInput, localInputToISO, getTimezoneAbbr } from "@/src/utils/time";
+import { formatDateTime, isoToLocalInput, localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
@@ -127,21 +128,11 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="datetime-local"
-            value={isRelative ? "" : value}
-            onChange={(e) => onChange(e.target.value)}
-            style={{
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-              padding: "7px 12px", color: t.text, fontSize: 13,
-              outline: "none", colorScheme: "dark",
-            }}
-          />
-          <span style={{ fontSize: 10, color: t.textDim, whiteSpace: "nowrap" }}>
-            {getTimezoneAbbr()}
-          </span>
-        </div>
+        <DateTimePicker
+          value={isRelative ? "" : value}
+          onChange={onChange}
+          placeholder="Pick a date & time..."
+        />
         {isRelative && (
           <div style={{ fontSize: 10, color: t.textDim }}>
             Relative: runs {value} from now

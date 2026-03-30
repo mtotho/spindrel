@@ -351,6 +351,7 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
     },
 })
 async def save_attachment(attachment_id: str, path: str) -> str:
+    from app.agent.context import current_bot_id
     from app.services.attachments import get_attachment_by_id
 
     try:
@@ -365,7 +366,22 @@ async def save_attachment(attachment_id: str, path: str) -> str:
     if not att.file_data:
         return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
 
-    dest = Path(path).expanduser()
+    # Translate workspace container paths (e.g. /workspace/...) to server-local paths
+    resolved_path = path
+    bot_id = current_bot_id.get()
+    if bot_id:
+        try:
+            from app.agent.bots import get_bot
+            from app.services.workspace import workspace_service
+            bot = get_bot(bot_id)
+            if bot:
+                translated = workspace_service.translate_path(bot_id, path, bot.workspace, bot=bot)
+                if translated != path:
+                    resolved_path = translated
+        except Exception:
+            pass
+
+    dest = Path(resolved_path).expanduser()
     if dest.is_dir():
         dest = dest / (att.filename or f"attachment_{attachment_id}")
 

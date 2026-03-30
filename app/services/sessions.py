@@ -405,6 +405,23 @@ async def persist_turn(
         # Carry forward tools_used from the agent loop into message metadata
         if msg.get("_tools_used"):
             meta = {**meta, "tools_used": msg["_tools_used"]}
+        # Extract delegation info from delegate_to_agent tool calls
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            _delegations = []
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function") or {}
+                if fn.get("name") == "delegate_to_agent":
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                        _delegations.append({
+                            "bot_id": args.get("bot_id"),
+                            "prompt_preview": (args.get("prompt") or "")[:200],
+                            "notify_parent": args.get("notify_parent", True),
+                        })
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if _delegations:
+                meta = {**meta, "delegations": _delegations}
         # Tag all messages in heartbeat turns so _load_messages can filter old ones
         if is_heartbeat:
             meta = {**meta, "is_heartbeat": True}
@@ -461,6 +478,7 @@ async def store_dispatch_echo(
     client_id: str | None,
     posting_bot_id: str,
     text: str,
+    extra_metadata: dict | None = None,
 ) -> None:
     """Mirror a bot-authored message into the channel session for the next agent load.
 
@@ -524,6 +542,8 @@ async def store_dispatch_echo(
                 "sender_id": f"bot:{posting_bot_id}",
                 "sender_display_name": _sender_display_name,
             }
+            if extra_metadata:
+                metadata.update(extra_metadata)
             await store_passive_message(db, session_id, content, metadata)
     except Exception:
         logger.exception(
