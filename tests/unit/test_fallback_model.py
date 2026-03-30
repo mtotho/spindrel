@@ -5,7 +5,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import openai
 import pytest
 
-from app.agent.llm import _llm_call
+from app.agent.llm import _llm_call, _model_cooldowns
+
+
+@pytest.fixture(autouse=True)
+def _clear_cooldowns():
+    """Ensure cooldowns don't leak between tests."""
+    _model_cooldowns.clear()
+    yield
+    _model_cooldowns.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +59,7 @@ def _patched(global_fallbacks=None):
             mock_settings.LLM_MAX_RETRIES = 0
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
             mock_settings.LLM_RETRY_INITIAL_WAIT = 0
+            mock_settings.LLM_FALLBACK_COOLDOWN_SECONDS = 300
             yield mock_settings, mock_get_client
     return ctx()
 
@@ -267,6 +276,7 @@ async def test_fallback_provider_id_used():
         mock_settings.LLM_MAX_RETRIES = 0
         mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
         mock_settings.LLM_RETRY_INITIAL_WAIT = 0
+        mock_settings.LLM_FALLBACK_COOLDOWN_SECONDS = 300
 
         await _llm_call(
             "primary", [], None, None,
@@ -300,6 +310,7 @@ async def test_fallback_inherits_provider_when_none():
         mock_settings.LLM_MAX_RETRIES = 0
         mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 0
         mock_settings.LLM_RETRY_INITIAL_WAIT = 0
+        mock_settings.LLM_FALLBACK_COOLDOWN_SECONDS = 300
 
         await _llm_call(
             "primary", [], None, None,

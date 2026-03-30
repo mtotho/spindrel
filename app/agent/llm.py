@@ -6,6 +6,7 @@ import re
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import openai
@@ -111,6 +112,72 @@ class FallbackInfo:
 # Set by _llm_call when a fallback is used; cleared before each call.
 # The loop reads this after _llm_call returns to emit trace events.
 last_fallback_info: ContextVar[FallbackInfo | None] = ContextVar("last_fallback_info", default=None)
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — skip models that recently failed and needed fallback
+# ---------------------------------------------------------------------------
+# model -> (expires_at, fallback_model)
+_model_cooldowns: dict[str, tuple[datetime, str]] = {}
+
+
+def set_model_cooldown(model: str, fallback_model: str) -> None:
+    """Record that *model* failed and *fallback_model* should be used until cooldown expires."""
+    cooldown_sec = settings.LLM_FALLBACK_COOLDOWN_SECONDS
+    if cooldown_sec <= 0:
+        return
+    expires = datetime.now(timezone.utc) + timedelta(seconds=cooldown_sec)
+    _model_cooldowns[model] = (expires, fallback_model)
+    logger.info("Circuit breaker: %s in cooldown until %s, using %s", model, expires.isoformat(), fallback_model)
+
+
+def get_model_cooldown(model: str) -> str | None:
+    """Return the fallback model if *model* is in cooldown, else None."""
+    entry = _model_cooldowns.get(model)
+    if entry is None:
+        return None
+    expires, fallback_model = entry
+    if datetime.now(timezone.utc) >= expires:
+        del _model_cooldowns[model]
+        return None
+    return fallback_model
+
+
+def get_active_cooldowns() -> list[dict]:
+    """Return all active cooldowns for the admin API."""
+    now = datetime.now(timezone.utc)
+    active = []
+    expired_keys = []
+    for model, (expires, fallback_model) in _model_cooldowns.items():
+        if now >= expires:
+            expired_keys.append(model)
+        else:
+            active.append({
+                "model": model,
+                "fallback_model": fallback_model,
+                "expires_at": expires.isoformat(),
+                "remaining_seconds": int((expires - now).total_seconds()),
+            })
+    for k in expired_keys:
+        del _model_cooldowns[k]
+    return active
+
+
+def get_cooldown_expiry(model: str) -> datetime | None:
+    """Return the cooldown expiry time for *model*, or None if not in cooldown."""
+    entry = _model_cooldowns.get(model)
+    if entry is None:
+        return None
+    expires, _ = entry
+    if datetime.now(timezone.utc) >= expires:
+        del _model_cooldowns[model]
+        return None
+    return expires
+
+
+def clear_model_cooldown(model: str) -> bool:
+    """Manually clear a model cooldown. Returns True if it was found."""
+    return _model_cooldowns.pop(model, None) is not None
 
 
 class EmptyChoicesError(Exception):
@@ -244,6 +311,18 @@ class StreamAccumulator:
         )
 
 
+async def _consume_stream(stream) -> AsyncGenerator[dict | AccumulatedMessage, None]:
+    """Consume a streaming response, yielding events then the final AccumulatedMessage."""
+    accumulator = StreamAccumulator()
+    async for chunk in stream:
+        events, is_done = accumulator.feed(chunk)
+        for event in events:
+            yield event
+        if is_done:
+            break
+    yield accumulator.build()
+
+
 async def _llm_call_stream(
     model: str,
     messages: list,
@@ -282,37 +361,61 @@ async def _llm_call_stream(
             stream_options={"include_usage": True}, **filtered,
         )
 
-    # --- Primary model with retries ---
-    stream = None
+    # --- Circuit breaker: skip model if in cooldown ---
     primary_exc = None
-    for attempt in range(max_retries + 1):
+    stream = None
+    cooldown_fb = get_model_cooldown(model)
+    if cooldown_fb is not None:
+        logger.info("Circuit breaker: skipping %s (in cooldown), using %s directly", model, cooldown_fb)
+        yield {"type": "llm_cooldown_skip", "model": model, "using": cooldown_fb}
         try:
-            stream = await _try_model(model, provider_id, model_params)
-            break
-        except openai.RateLimitError as exc:
-            if attempt >= max_retries:
-                primary_exc = exc
+            stream = await _try_model(cooldown_fb, provider_id, model_params)
+            last_fallback_info.set(FallbackInfo(
+                original_model=model, fallback_model=cooldown_fb,
+                reason="cooldown_skip", original_error="model in cooldown",
+            ))
+            async for ev in _consume_stream(stream):
+                yield ev
+            return
+        except _RETRYABLE_ERRORS as exc:
+            logger.warning("Cooldown fallback %s also failed: %s, skipping to fallback chain", cooldown_fb, exc)
+            clear_model_cooldown(model)
+            # Skip primary retries — go straight to fallback chain
+            primary_exc = exc
+            stream = None
+            # Jump past the primary retry loop
+            # (primary_exc is set, stream is None → fallback block runs)
+
+    # --- Primary model with retries (skipped if cooldown already set primary_exc) ---
+    if primary_exc is None:
+        for attempt in range(max_retries + 1):
+            try:
+                stream = await _try_model(model, provider_id, model_params)
                 break
-            wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
-            logger.warning("Stream LLM call rate limited (attempt %d/%d), waiting %ds...", attempt + 1, max_retries, wait)
-            yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
-                   "wait_seconds": wait, "reason": "rate_limited", "model": model}
-            await asyncio.sleep(wait)
-        except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
-            # Non-transient 500s (e.g. LiteLLM wrapping a 400) — skip retries, go to fallback
-            if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
-                logger.warning("Stream LLM call got non-transient 500 (%s), skipping retries", str(exc)[:200])
-                primary_exc = exc
-                break
-            if attempt >= max_retries:
-                primary_exc = exc
-                break
-            wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
-            logger.warning("Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
-                           type(exc).__name__, attempt + 1, max_retries, wait)
-            yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
-                   "wait_seconds": wait, "reason": type(exc).__name__, "model": model}
-            await asyncio.sleep(wait)
+            except openai.RateLimitError as exc:
+                if attempt >= max_retries:
+                    primary_exc = exc
+                    break
+                wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
+                logger.warning("Stream LLM call rate limited (attempt %d/%d), waiting %ds...", attempt + 1, max_retries, wait)
+                yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                       "wait_seconds": wait, "reason": "rate_limited", "model": model}
+                await asyncio.sleep(wait)
+            except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+                # Non-transient 500s (e.g. LiteLLM wrapping a 400) — skip retries, go to fallback
+                if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
+                    logger.warning("Stream LLM call got non-transient 500 (%s), skipping retries", str(exc)[:200])
+                    primary_exc = exc
+                    break
+                if attempt >= max_retries:
+                    primary_exc = exc
+                    break
+                wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
+                logger.warning("Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
+                               type(exc).__name__, attempt + 1, max_retries, wait)
+                yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                       "wait_seconds": wait, "reason": type(exc).__name__, "model": model}
+                await asyncio.sleep(wait)
 
     # --- Fallback models ---
     if stream is None and primary_exc is not None:
@@ -322,7 +425,7 @@ async def _llm_call_stream(
         for gfb in get_global_fallback_models():
             effective_fallbacks.append(gfb)
 
-        tried = {model}
+        tried = {model, cooldown_fb} if cooldown_fb else {model}
         last_exc = primary_exc
         for fb in effective_fallbacks:
             fb_model = fb.get("model", "")
@@ -343,6 +446,7 @@ async def _llm_call_stream(
                         reason=type(primary_exc).__name__,
                         original_error=str(primary_exc)[:500],
                     ))
+                    set_model_cooldown(model, fb_model)
                     break
                 except openai.RateLimitError as exc:
                     if attempt >= max_retries:
@@ -378,15 +482,8 @@ async def _llm_call_stream(
             raise primary_exc
         raise openai.APITimeoutError("All LLM attempts failed")
 
-    accumulator = StreamAccumulator()
-    async for chunk in stream:
-        events, is_done = accumulator.feed(chunk)
-        for event in events:
-            yield event
-        if is_done:
-            break
-
-    yield accumulator.build()
+    async for ev in _consume_stream(stream):
+        yield ev
 
 
 async def _attempt_stream_with_retries(
@@ -468,11 +565,36 @@ async def _llm_call(
     """
     # Clear any previous fallback info
     last_fallback_info.set(None)
-    try:
-        return await _llm_call_with_retries(
-            model, messages, tools_param, tool_choice, provider_id, model_params,
-        )
-    except _RETRYABLE_ERRORS as primary_exc:
+
+    # --- Circuit breaker: skip model if in cooldown ---
+    cooldown_fb = get_model_cooldown(model)
+    cooldown_exc = None
+    if cooldown_fb is not None:
+        logger.info("Circuit breaker: skipping %s (in cooldown), using %s directly", model, cooldown_fb)
+        try:
+            resp = await _llm_call_with_retries(
+                cooldown_fb, messages, tools_param, tool_choice, provider_id, model_params,
+            )
+            last_fallback_info.set(FallbackInfo(
+                original_model=model, fallback_model=cooldown_fb,
+                reason="cooldown_skip", original_error="model in cooldown",
+            ))
+            return resp
+        except _RETRYABLE_ERRORS as exc:
+            # Clear stale cooldown and skip to fallback chain (don't retry broken primary)
+            clear_model_cooldown(model)
+            cooldown_exc = exc
+
+    if cooldown_exc is None:
+        try:
+            return await _llm_call_with_retries(
+                model, messages, tools_param, tool_choice, provider_id, model_params,
+            )
+        except _RETRYABLE_ERRORS as exc:
+            cooldown_exc = exc
+
+    primary_exc = cooldown_exc
+    if primary_exc is not None:
         from app.services.server_config import get_global_fallback_models
 
         effective_fallbacks = list(fallback_models or [])
@@ -480,7 +602,7 @@ async def _llm_call(
         for gfb in get_global_fallback_models():
             effective_fallbacks.append(gfb)
 
-        tried = {model}
+        tried = {model, cooldown_fb} if cooldown_fb else {model}
         last_exc = primary_exc
         for fb in effective_fallbacks:
             fb_model = fb.get("model", "")
@@ -503,6 +625,7 @@ async def _llm_call(
                     reason=type(primary_exc).__name__,
                     original_error=str(primary_exc)[:500],
                 ))
+                set_model_cooldown(model, fb_model)
                 return resp
             except _RETRYABLE_ERRORS as fb_exc:
                 last_exc = fb_exc
@@ -548,11 +671,24 @@ def _fold_system_messages(messages: list) -> list:
     merged: list[dict] = []
     for msg in result:
         if merged and merged[-1]["role"] == msg["role"]:
-            prev_content = merged[-1].get("content", "")
+            prev = merged[-1]
+            prev_content = prev.get("content", "")
             cur_content = msg.get("content", "")
+
+            # Never merge tool-result messages — each has a unique tool_call_id
+            if msg.get("role") == "tool":
+                merged.append(msg)
+                continue
+
             # Only merge simple string content; skip complex (audio/multipart)
             if isinstance(prev_content, str) and isinstance(cur_content, str):
-                merged[-1] = {**merged[-1], "content": prev_content + "\n\n" + cur_content}
+                combined = {**prev, "content": prev_content + "\n\n" + cur_content}
+                # Preserve tool_calls from both assistant messages
+                prev_tc = prev.get("tool_calls") or []
+                cur_tc = msg.get("tool_calls") or []
+                if prev_tc or cur_tc:
+                    combined["tool_calls"] = list(prev_tc) + list(cur_tc)
+                merged[-1] = combined
             else:
                 merged.append(msg)
         else:
