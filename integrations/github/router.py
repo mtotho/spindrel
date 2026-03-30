@@ -1,6 +1,7 @@
 """FastAPI router for GitHub webhook endpoint."""
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -39,7 +40,17 @@ async def github_webhook(
     if not event_type:
         raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
 
-    payload = await request.json()
+    if not body:
+        logger.error("GitHub webhook received empty body (event=%s, content-length=%s)",
+                      event_type, request.headers.get("content-length"))
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        logger.error("GitHub webhook received invalid JSON (event=%s, body_len=%d, first_100=%r)",
+                      event_type, len(body), body[:100])
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     if event_type == "ping":
         return {"status": "pong"}

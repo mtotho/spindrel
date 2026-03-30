@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Thoth CLI — single entry point for service management."""
+"""Spindrel CLI — single entry point for service management."""
 
 import argparse
 import os
 import subprocess
 import sys
 
-SERVICES = ["thoth", "thoth-slack"]
+SERVICES = ["spindrel", "spindrel-slack"]
 
 
 def get_repo_dir():
     """Auto-detect repo directory from script location, cwd, or env var."""
     # Check env var first
-    for var in ("THOTH_HOME", "THOTH_REPO_PATH"):
+    for var in ("SPINDREL_HOME", "SPINDREL_REPO_PATH"):
         path = os.environ.get(var)
         if path and os.path.isdir(os.path.join(path, ".git")):
             return path
@@ -28,7 +28,7 @@ def get_repo_dir():
     if os.path.isdir(os.path.join(cwd, ".git")):
         return cwd
 
-    print("error: Could not find repo directory. Set THOTH_HOME or run from the repo.", file=sys.stderr)
+    print("error: Could not find repo directory. Set SPINDREL_HOME or run from the repo.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -47,7 +47,7 @@ def _daemon_reload():
 
 
 def cmd_start(args):
-    """Start thoth services."""
+    """Start spindrel services."""
     _daemon_reload()
     print("Starting services...")
     for svc in SERVICES:
@@ -55,14 +55,14 @@ def cmd_start(args):
 
 
 def cmd_stop(args):
-    """Stop thoth services."""
+    """Stop spindrel services."""
     print("Stopping services...")
     for svc in reversed(SERVICES):
         run(f"sudo systemctl stop {svc}.service")
 
 
 def cmd_restart(args):
-    """Restart thoth services."""
+    """Restart spindrel services."""
     _daemon_reload()
     print("Restarting services...")
     for svc in SERVICES:
@@ -151,14 +151,14 @@ def cmd_logs(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="thoth",
-        description="Thoth service management CLI",
+        prog="spindrel",
+        description="Spindrel service management CLI",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("start", help="Start thoth services")
-    sub.add_parser("stop", help="Stop thoth services")
-    sub.add_parser("restart", help="Restart thoth services")
+    sub.add_parser("start", help="Start spindrel services")
+    sub.add_parser("stop", help="Stop spindrel services")
+    sub.add_parser("restart", help="Restart spindrel services")
     sub.add_parser("pull", help="Git pull + restart")
     sub.add_parser("backup", help="Run backup")
 
@@ -168,7 +168,7 @@ def main():
     sub.add_parser("status", help="Show service/container/disk status")
 
     logs_p = sub.add_parser("logs", help="Tail service logs")
-    logs_p.add_argument("service", nargs="?", default=None, help="Service name (thoth or thoth-slack)")
+    logs_p.add_argument("service", nargs="?", default=None, help="Service name (spindrel or spindrel-slack)")
 
     args = parser.parse_args()
 

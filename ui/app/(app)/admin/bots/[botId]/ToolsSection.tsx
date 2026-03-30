@@ -32,6 +32,7 @@ export function ToolsSection({
   if (draft.memory_scheme === "workspace-files") {
     autoInjectedTools.add("search_memory");
     autoInjectedTools.add("get_memory_file");
+    autoInjectedTools.add("file");
   }
   if (draft.history_mode === "file" || draft.history_mode === "structured") {
     autoInjectedTools.add("read_conversation_history");

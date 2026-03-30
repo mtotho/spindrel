@@ -34,6 +34,35 @@ from app.tools.mcp import get_mcp_server_for_tool
 logger = logging.getLogger(__name__)
 
 
+def _render_channel_workspace_prompt(
+    *,
+    workspace_path: str,
+    channel_id: str,
+    data_listing: str,
+) -> str:
+    """Render the channel workspace helper prompt from the configured template.
+
+    Uses CHANNEL_WORKSPACE_PROMPT if set, otherwise DEFAULT_CHANNEL_WORKSPACE_PROMPT.
+    Template placeholders: {workspace_path}, {channel_id}, {data_listing}.
+    Falls back to appending a plain header if format_map fails.
+    """
+    from app.config import DEFAULT_CHANNEL_WORKSPACE_PROMPT
+
+    template = settings.CHANNEL_WORKSPACE_PROMPT.strip() or DEFAULT_CHANNEL_WORKSPACE_PROMPT
+    replacements = {
+        "workspace_path": workspace_path,
+        "channel_id": channel_id,
+        "data_listing": data_listing,
+    }
+    try:
+        return template.format_map(replacements)
+    except (KeyError, ValueError) as exc:
+        logger.warning(
+            "Failed to render CHANNEL_WORKSPACE_PROMPT (%s), using fallback", exc,
+        )
+        return DEFAULT_CHANNEL_WORKSPACE_PROMPT.format_map(replacements)
+
+
 def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
     """Build a compact usage hint like: tool_name(required, [optional]) — description."""
     params = fn.get("parameters", {})
@@ -272,7 +301,7 @@ async def assemble_context(
             "search_knowledge", "pin_knowledge", "unpin_knowledge",
             "set_knowledge_similarity_threshold",
         }
-        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file"]
+        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file", "file"]
         _filtered_tools = [t for t in bot.local_tools if t not in _MEMORY_SCHEME_HIDDEN_TOOLS]
         # Add memory file tools if not already present
         for _mt in _MEMORY_SCHEME_INJECT_TOOLS:
@@ -357,7 +386,7 @@ async def assemble_context(
 
     # --- channel workspace: file injection + tool injection ---
     if _ch_row is not None and _ch_row.channel_workspace_enabled:
-        _CW_TOOLS = ["search_channel_archive", "search_channel_workspace", "list_workspace_channels"]
+        _CW_TOOLS = ["file", "search_channel_archive", "search_channel_workspace", "list_workspace_channels"]
         # Inject tools
         _cw_filtered = list(bot.local_tools)
         for _cwt in _CW_TOOLS:
@@ -412,21 +441,27 @@ async def assemble_context(
                 if _data_entries:
                     _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
 
+            # Resolve workspace schema template (if set)
+            _schema_content = ""
+            if getattr(_ch_row, "workspace_schema_template_id", None):
+                try:
+                    from app.services.prompt_resolution import resolve_prompt_template
+                    _schema_content = await resolve_prompt_template(
+                        str(_ch_row.workspace_schema_template_id), fallback="", db=db,
+                    )
+                except Exception:
+                    logger.warning("Failed to resolve workspace schema template for channel %s", _ch_row.id, exc_info=True)
+
             # Always inject helper prompt so the agent knows about the workspace
             _cw_abs = f"/workspace/channels/{_cw_ch_id}"
-            _cw_helper = (
-                f"Channel workspace — absolute path: {_cw_abs}\n"
-                f"IMPORTANT: Always use the exact path above for file operations. The channel ID is {_cw_ch_id} (a UUID, NOT the channel name).\n"
-                f"Example: exec_command cat {_cw_abs}/my_file.md\n"
-                "Use exec_command for creating, editing, and moving workspace files.\n"
-                "Use search_channel_archive to search archived files, search_channel_workspace for broader search.\n"
-                "Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.\n"
-                "The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.\n"
-                "When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.\n"
-                "Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, "
-                "then search_channel_workspace with its channel_id to find relevant workspace content.\n"
-                + _cw_data_listing + "\n"
+            _cw_helper = _render_channel_workspace_prompt(
+                workspace_path=_cw_abs,
+                channel_id=_cw_ch_id,
+                data_listing=_cw_data_listing,
             )
+
+            if _schema_content:
+                _cw_helper = _schema_content + "\n\n" + _cw_helper
 
             _cw_body = ""
             if _cw_files:

@@ -66,11 +66,12 @@ class DelegationService:
                 "Cannot delegate further."
             )
 
-        # Permission check: allowlist or ephemeral @-tag override
-        if not ephemeral_delegate and delegate_bot_id not in (parent_bot.delegate_bots or []):
+        # Permission check: allowlist, wildcard, or ephemeral @-tag override
+        allowed = parent_bot.delegate_bots or []
+        if not ephemeral_delegate and "*" not in allowed and delegate_bot_id not in allowed:
             raise DelegationPermissionError(
                 f"Bot {parent_bot.id!r} is not allowed to delegate to {delegate_bot_id!r}. "
-                f"Allowed: {parent_bot.delegate_bots or []}"
+                f"Allowed: {allowed}"
             )
 
         delegate_bot = get_bot(delegate_bot_id)

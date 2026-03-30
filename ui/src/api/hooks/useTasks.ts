@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { CronEntry } from "../../types/api";
 
 export interface TaskDetail {
   id: string;
@@ -129,5 +130,16 @@ export function useTaskChildren(taskId: string | undefined) {
     queryKey: ["admin-task-children", taskId],
     queryFn: () => apiFetch<TaskDetail[]>(`/api/v1/admin/tasks/${taskId}/children`),
     enabled: !!taskId,
+  });
+}
+
+export function useCronJobs(workspaceId?: string) {
+  const params = workspaceId ? `?workspace_id=${workspaceId}` : "";
+  return useQuery({
+    queryKey: ["admin-cron-jobs", workspaceId ?? "all"],
+    queryFn: () =>
+      apiFetch<{ cron_jobs: CronEntry[]; errors: string[] }>(
+        `/api/v1/admin/cron-jobs${params}`
+      ),
   });
 }

@@ -1,7 +1,7 @@
 [Unit]
-Description=Thoth Slack Bot (socket mode)
-After=thoth.service
-BindsTo=thoth.service
+Description=Spindrel Slack Bot (socket mode)
+After=spindrel.service
+BindsTo=spindrel.service
 
 [Service]
 Type=simple
@@ -14,7 +14,7 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=thoth-slack
+SyslogIdentifier=spindrel-slack
 
 [Install]
 WantedBy=multi-user.target

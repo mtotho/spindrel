@@ -5,6 +5,7 @@ import type {
   WorkspaceCreate,
   WorkspaceUpdate,
   WorkspaceFileEntry,
+  CronEntry,
 } from "../../types/api";
 
 export function useWorkspaces() {
@@ -446,6 +447,19 @@ export function useEditorStatus(workspaceId: string | undefined) {
 export async function createEditorSession(workspaceId: string): Promise<void> {
   await apiFetch(`/api/v1/workspaces/${workspaceId}/editor/session`, {
     method: "POST",
+  });
+}
+
+// Cron jobs
+
+export function useWorkspaceCronJobs(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-cron-jobs", workspaceId],
+    queryFn: () =>
+      apiFetch<{ cron_jobs: CronEntry[]; error: string | null }>(
+        `/api/v1/workspaces/${workspaceId}/cron-jobs`
+      ),
+    enabled: !!workspaceId,
   });
 }
 

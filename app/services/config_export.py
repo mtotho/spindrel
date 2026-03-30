@@ -478,6 +478,13 @@ async def assemble_config_state(db) -> dict:
         for h in ch_rows
     ]
 
+    # --- Backup config (backup.* keys from server_settings) ---
+    backup_config = {}
+    for ss in ss_rows:
+        if ss.key.startswith("backup."):
+            short = ss.key[len("backup."):]
+            backup_config[short] = ss.value
+
     return {
         "system": system,
         "global_fallback_models": global_fallback_models,
@@ -498,6 +505,7 @@ async def assemble_config_state(db) -> dict:
         "bot_personas": bot_personas,
         "channel_integrations": channel_integrations,
         "channel_heartbeats": channel_heartbeats,
+        "backup_config": backup_config,
     }
 
 
@@ -603,6 +611,7 @@ async def restore_from_file() -> None:
 _EXCLUDED_SUFFIXES = (
     "/fire", "/infer", "/reindex", "/test", "/diagnostics",
     "/server-logs", "/config-state", "/download", "/file-sync", "/log-level",
+    "/operations/backup", "/operations/pull", "/operations/restart",
 )
 
 

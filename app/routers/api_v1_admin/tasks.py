@@ -409,6 +409,22 @@ async def admin_update_task(
     return TaskDetailOut.model_validate(task)
 
 
+@router.get("/cron-jobs")
+async def admin_list_cron_jobs(
+    workspace_id: Optional[str] = None,
+    _auth=Depends(verify_auth_or_user),
+):
+    """Discover cron jobs across workspace containers and host OS."""
+    from app.services.cron_discovery import discover_crons
+    from dataclasses import asdict
+
+    result = await discover_crons(workspace_id=workspace_id)
+    return {
+        "cron_jobs": [asdict(e) for e in result.cron_jobs],
+        "errors": result.errors,
+    }
+
+
 @router.delete("/tasks/{task_id}", status_code=204)
 async def admin_delete_task(
     task_id: uuid.UUID,

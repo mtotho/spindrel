@@ -186,6 +186,7 @@ class ChannelConfigOut(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
     index_segments: list[dict] = []
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
@@ -251,6 +252,7 @@ class ChannelConfigUpdate(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
     index_segments: Optional[list[dict]] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
@@ -515,6 +517,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "workspace_skills_enabled": channel.workspace_skills_enabled,
         "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
         "channel_workspace_enabled": channel.channel_workspace_enabled,
+        "workspace_schema_template_id": channel.workspace_schema_template_id,
         "index_segments": channel.index_segments or [],
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,

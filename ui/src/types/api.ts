@@ -227,6 +227,7 @@ export interface ChannelSettings {
   workspace_base_prompt_enabled?: boolean | null;
   // Channel workspace
   channel_workspace_enabled?: boolean | null;
+  workspace_schema_template_id?: string | null;
   index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;
   index_segment_defaults?: {
     embedding_model: string;
@@ -603,6 +604,17 @@ export interface PromptTemplate {
   source_path?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Cron job types
+export interface CronEntry {
+  expression: string;
+  command: string;
+  source_type: "container" | "host";
+  source_name: string;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  user: string;
 }
 
 // Admin types

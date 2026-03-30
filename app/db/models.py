@@ -105,6 +105,11 @@ class Channel(Base):
     section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    workspace_schema_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")

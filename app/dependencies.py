@@ -114,7 +114,8 @@ async def verify_admin_auth(
 ):
     """Validate admin access. When ADMIN_API_KEY is set, only that key (or valid JWT) is accepted.
     When empty, falls back to accepting API_KEY or JWT (backward compat).
-    Scoped keys with 'admin' scope are also accepted."""
+    Scoped API keys with any scope are authenticated here; endpoint-level
+    require_scopes() handles fine-grained authorization."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
@@ -135,11 +136,11 @@ async def verify_admin_auth(
         if token == settings.API_KEY:
             return _static_admin
 
-    # Try scoped API key with admin scope
+    # Try scoped API key — authenticate here, authorize at endpoint level via require_scopes()
     if token.startswith("ask_"):
-        from app.services.api_keys import validate_api_key, has_scope
+        from app.services.api_keys import validate_api_key
         api_key = await validate_api_key(db, token)
-        if api_key and has_scope(api_key.scopes or [], "admin"):
+        if api_key and (api_key.scopes or []):
             return ApiKeyAuth(key_id=api_key.id, scopes=api_key.scopes or [], name=api_key.name)
         raise HTTPException(status_code=403, detail="Admin access denied")
 

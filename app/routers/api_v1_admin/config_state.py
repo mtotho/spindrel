@@ -483,7 +483,19 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
             u += 1
         _track("tasks", c, u)
 
-    # 15. Tool policy rules
+    # 15. Backup config (backup.* keys in server_settings)
+    if backup_cfg := payload.get("backup_config"):
+        c, u = 0, 0
+        for short_key, value in backup_cfg.items():
+            full_key = f"backup.{short_key}"
+            vals = {"value": str(value)}
+            stmt = pg_insert(ServerSetting).values(key=full_key, **vals)
+            stmt = stmt.on_conflict_do_update(index_elements=["key"], set_=vals)
+            await db.execute(stmt)
+            u += 1
+        _track("backup_config", c, u)
+
+    # 16. Tool policy rules
     if rules := payload.get("tool_policy_rules"):
         c, u = 0, 0
         for row in rules:

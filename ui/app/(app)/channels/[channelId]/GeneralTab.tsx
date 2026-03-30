@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel } from "@/src/api/hooks/useChannels";
 import {
@@ -34,6 +34,126 @@ function ChannelOwnerSelect({ value, onChange }: { value: string | null; onChang
       onChange={(v) => onChange(v || null)}
       options={options}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Advanced — collapsible section for rarely-changed settings
+// ---------------------------------------------------------------------------
+function AdvancedSection({
+  form,
+  patch,
+  settings,
+}: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  settings: ChannelSettings;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <Pressable
+        onPress={() => setOpen(!open)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 10,
+          paddingHorizontal: 4,
+        }}
+      >
+        {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
+        <Text style={{ color: t.textMuted, fontSize: 13, fontWeight: "600" }}>Advanced Settings</Text>
+      </Pressable>
+
+      {open && (
+        <>
+          <Section title="Behavior">
+            <Toggle
+              value={form.require_mention ?? true}
+              onChange={(v) => patch("require_mention", v)}
+              label="Require @mention"
+              description="Only @mentions trigger the bot; other messages stored as context."
+            />
+            <Toggle
+              value={form.passive_memory ?? true}
+              onChange={(v) => patch("passive_memory", v)}
+              label="Passive memory"
+              description="Include passive messages in memory compaction."
+            />
+            <Toggle
+              value={form.allow_bot_messages ?? false}
+              onChange={(v) => patch("allow_bot_messages", v)}
+              label="Allow bot messages"
+              description="Process messages from other bots (e.g. GitHub) and trigger the agent."
+            />
+            <Toggle
+              value={form.workspace_rag ?? true}
+              onChange={(v) => patch("workspace_rag", v)}
+              label="Workspace RAG"
+              description="Auto-inject relevant workspace files into context each turn."
+            />
+            <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
+              <SelectInput
+                value={form.thinking_display ?? "append"}
+                onChange={(v) => patch("thinking_display", v)}
+                options={[
+                  { label: "Hidden (just 'thinking...')", value: "hidden" },
+                  { label: "Replace (single updating message)", value: "replace" },
+                  { label: "Append all", value: "append" },
+                ]}
+              />
+            </FormRow>
+            <Row>
+              <Col>
+                <FormRow label="Max iterations">
+                  <TextInput
+                    value={form.max_iterations?.toString() ?? ""}
+                    onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="default"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Max task run time (seconds)">
+                  <TextInput
+                    value={form.task_max_run_seconds?.toString() ?? ""}
+                    onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
+                    placeholder="1200 (default)"
+                    type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+          </Section>
+
+          <Section title="Privacy">
+            <Toggle
+              value={form.private ?? false}
+              onChange={(v) => patch("private", v)}
+              label="Private channel"
+              description="Private channels are only visible to the assigned user."
+            />
+            <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
+              <ChannelOwnerSelect
+                value={form.user_id ?? null}
+                onChange={(v) => patch("user_id", v || undefined)}
+              />
+            </FormRow>
+          </Section>
+
+          {/* Metadata */}
+          <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span>ID: {settings.id}</span>
+            {settings.client_id && <span>client_id: {settings.client_id}</span>}
+            {settings.integration && <span>integration: {settings.integration}</span>}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -147,87 +267,8 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
         </FormRow>
       </Section>
 
-      <Section title="Privacy">
-        <Toggle
-          value={form.private ?? false}
-          onChange={(v) => patch("private", v)}
-          label="Private channel"
-          description="Private channels are only visible to the assigned user."
-        />
-        <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
-          <ChannelOwnerSelect
-            value={form.user_id ?? null}
-            onChange={(v) => patch("user_id", v || undefined)}
-          />
-        </FormRow>
-      </Section>
-
-      <Section title="Behavior">
-        <Toggle
-          value={form.require_mention ?? true}
-          onChange={(v) => patch("require_mention", v)}
-          label="Require @mention"
-          description="Only @mentions trigger the bot; other messages stored as context."
-        />
-        <Toggle
-          value={form.passive_memory ?? true}
-          onChange={(v) => patch("passive_memory", v)}
-          label="Passive memory"
-          description="Include passive messages in memory compaction."
-        />
-        <Toggle
-          value={form.allow_bot_messages ?? false}
-          onChange={(v) => patch("allow_bot_messages", v)}
-          label="Allow bot messages"
-          description="Process messages from other bots (e.g. GitHub) and trigger the agent."
-        />
-        <Toggle
-          value={form.workspace_rag ?? true}
-          onChange={(v) => patch("workspace_rag", v)}
-          label="Workspace RAG"
-          description="Auto-inject relevant workspace files into context each turn."
-        />
-        <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
-          <SelectInput
-            value={form.thinking_display ?? "append"}
-            onChange={(v) => patch("thinking_display", v)}
-            options={[
-              { label: "Hidden (just 'thinking...')", value: "hidden" },
-              { label: "Replace (single updating message)", value: "replace" },
-              { label: "Append all", value: "append" },
-            ]}
-          />
-        </FormRow>
-        <Row>
-          <Col>
-            <FormRow label="Max iterations">
-              <TextInput
-                value={form.max_iterations?.toString() ?? ""}
-                onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
-                placeholder="default"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Max task run time (seconds)">
-              <TextInput
-                value={form.task_max_run_seconds?.toString() ?? ""}
-                onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
-                placeholder="1200 (default)"
-                type="number"
-              />
-            </FormRow>
-          </Col>
-        </Row>
-      </Section>
-
-      {/* Metadata */}
-      <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <span>ID: {settings.id}</span>
-        {settings.client_id && <span>client_id: {settings.client_id}</span>}
-        {settings.integration && <span>integration: {settings.integration}</span>}
-      </div>
+      {/* Collapsible advanced section */}
+      <AdvancedSection form={form} patch={patch} settings={settings} />
 
       {/* Danger Zone */}
       <div style={{

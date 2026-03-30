@@ -12,7 +12,74 @@ import {
   Bot,
   Activity,
   Plus,
+  Home,
 } from "lucide-react";
+import type { Channel } from "@/src/types/api";
+
+function isOrchestratorChannel(channel: Channel): boolean {
+  return channel.client_id === "orchestrator:home";
+}
+
+function ChannelCard({ channel, bot, t, isOrchestrator }: {
+  channel: Channel;
+  bot: { name: string } | undefined;
+  t: ReturnType<typeof useThemeTokens>;
+  isOrchestrator: boolean;
+}) {
+  const Icon = isOrchestrator ? Home : Hash;
+  return (
+    <Link
+      href={`/channels/${channel.id}` as any}
+      asChild
+    >
+      <Pressable
+        className="bg-surface-raised border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+        style={{
+          padding: 16,
+          borderColor: isOrchestrator ? t.accent + "40" : t.surfaceBorder,
+        }}
+      >
+        <View style={{
+          width: 44, height: 44, borderRadius: 8,
+          backgroundColor: isOrchestrator ? t.accent + "20" : t.accentSubtle,
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <Icon size={22} color={t.accent} />
+        </View>
+        <View className="flex-1 min-w-0">
+          <Text style={{ fontSize: 15, fontWeight: "600", color: t.text }} numberOfLines={1}>
+            {channel.display_name || channel.name || channel.client_id}
+          </Text>
+          <View className="flex-row items-center gap-2 mt-1">
+            {isOrchestrator ? (
+              <Text style={{ fontSize: 13, color: t.textMuted }}>
+                Setup, projects, and system management
+              </Text>
+            ) : (
+              <>
+                <Bot size={13} color={t.textMuted} />
+                <Text style={{ fontSize: 13, color: t.textMuted }}>
+                  {bot?.name ?? channel.bot_id}
+                </Text>
+                {(channel.integrations?.length ?? 0) > 0 ? (
+                  channel.integrations!.map((b) => (
+                    <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                      {b.integration_type}
+                    </Text>
+                  ))
+                ) : channel.integration ? (
+                  <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                    {channel.integration}
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    </Link>
+  );
+}
 
 export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
@@ -21,6 +88,12 @@ export default function HomeScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const t = useThemeTokens();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+
+  // Separate orchestrator channel from the rest, pin it at top
+  const orchestratorChannel = channels?.find(isOrchestratorChannel);
+  const otherChannels = channels?.filter((ch) => !isOrchestratorChannel(ch)) ?? [];
+
+  const hasChannels = (channels?.length ?? 0) > 0;
 
   return (
     <View className="flex-1 bg-surface">
@@ -55,7 +128,7 @@ export default function HomeScreen() {
           <View className="items-center py-12">
             <Activity size={24} color={t.textDim} className="animate-spin" />
           </View>
-        ) : channels?.length === 0 ? (
+        ) : !hasChannels ? (
           <View className="items-center py-16 gap-3">
             <Hash size={36} color={t.textDim} />
             <Text className="text-text-muted text-base">No channels yet</Text>
@@ -63,44 +136,23 @@ export default function HomeScreen() {
           </View>
         ) : (
           <View className="gap-2">
-            {channels?.map((channel) => {
-              const bot = botMap.get(channel.bot_id);
-              return (
-                <Link
-                  key={channel.id}
-                  href={`/channels/${channel.id}` as any}
-                  asChild
-                >
-                  <Pressable className="bg-surface-raised border border-surface-border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer" style={{ padding: 16 }}>
-                    <View style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: t.accentSubtle, alignItems: "center", justifyContent: "center" }}>
-                      <Hash size={22} color={t.accent} />
-                    </View>
-                    <View className="flex-1 min-w-0">
-                      <Text style={{ fontSize: 15, fontWeight: "600", color: t.text }} numberOfLines={1}>
-                        {channel.display_name || channel.name || channel.client_id}
-                      </Text>
-                      <View className="flex-row items-center gap-2 mt-1">
-                        <Bot size={13} color={t.textMuted} />
-                        <Text style={{ fontSize: 13, color: t.textMuted }}>
-                          {bot?.name ?? channel.bot_id}
-                        </Text>
-                        {(channel.integrations?.length ?? 0) > 0 ? (
-                          channel.integrations!.map((b) => (
-                            <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                              {b.integration_type}
-                            </Text>
-                          ))
-                        ) : channel.integration ? (
-                          <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                            {channel.integration}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </Pressable>
-                </Link>
-              );
-            })}
+            {orchestratorChannel && (
+              <ChannelCard
+                channel={orchestratorChannel}
+                bot={botMap.get(orchestratorChannel.bot_id)}
+                t={t}
+                isOrchestrator
+              />
+            )}
+            {otherChannels.map((channel) => (
+              <ChannelCard
+                key={channel.id}
+                channel={channel}
+                bot={botMap.get(channel.bot_id)}
+                t={t}
+                isOrchestrator={false}
+              />
+            ))}
           </View>
         )}
         </View>

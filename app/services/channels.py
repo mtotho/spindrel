@@ -367,3 +367,24 @@ async def resolve_integration_user(
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def ensure_orchestrator_channel() -> None:
+    """Create the orchestrator landing channel if the orchestrator bot exists.
+
+    Called from lifespan after load_bots(). Idempotent — skips if the channel
+    already exists or the orchestrator bot isn't seeded.
+    """
+    from app.agent.bots import _registry
+    if "orchestrator" not in _registry:
+        return
+    async with async_session() as db:
+        ch = await get_or_create_channel(
+            db,
+            client_id="orchestrator:home",
+            bot_id="orchestrator",
+            name="Home",
+        )
+        await ensure_active_session(db, ch)
+        await db.commit()
+    logger.info("Orchestrator landing channel ready (orchestrator:home)")

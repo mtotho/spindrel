@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -22,27 +22,29 @@ import type { ChannelSettings } from "@/src/types/api";
 import { GeneralTab } from "./GeneralTab";
 import { HistoryTab } from "./HistoryTab";
 import { ContextTab } from "./ContextTab";
-import { WorkspaceOverrideTab } from "./WorkspaceOverrideTab";
 import { ToolsOverrideTab } from "./ToolsOverrideTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SessionsTab } from "./SessionsTab";
 import { HeartbeatTab } from "./HeartbeatTab";
 import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
+import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
 
 // ---------------------------------------------------------------------------
-// Tab definitions
+// Tab definitions — ordered by importance / frequency of use.
+// Diagnostic tabs (Context, Tasks, Logs) pushed to the end.
 // ---------------------------------------------------------------------------
-const BASE_TABS = [
+const TABS = [
   { key: "general", label: "General" },
+  { key: "workspace", label: "Workspace" },
+  { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },
-  { key: "context", label: "Context" },
-  { key: "files", label: "Files" },
   { key: "tools", label: "Tools" },
   { key: "integrations", label: "Integrations" },
+  { key: "attachments", label: "Attachments" },
   { key: "sessions", label: "Sessions" },
-  { key: "heartbeat", label: "Heartbeat" },
+  { key: "context", label: "Context" },
   { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
@@ -66,17 +68,8 @@ export default function ChannelSettingsScreen() {
   const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
   const resolvedWorkspaceId = settings?.resolved_workspace_id ?? currentBot?.shared_workspace_id;
   const hasWorkspace = !!resolvedWorkspaceId;
-  const TABS = useMemo(() => {
-    if (hasWorkspace) {
-      const idx = BASE_TABS.findIndex((t) => t.key === "context");
-      const tabs = [...BASE_TABS];
-      tabs.splice(idx + 1, 0, { key: "workspace", label: "Workspace" });
-      return tabs;
-    }
-    return BASE_TABS;
-  }, [hasWorkspace]);
 
-  const tabKeys = useMemo(() => TABS.map((t) => t.key), [TABS]);
+  const tabKeys = TABS.map((t) => t.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
@@ -116,6 +109,7 @@ export default function ChannelSettingsScreen() {
         workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
         channel_workspace_enabled: settings.channel_workspace_enabled,
+        workspace_schema_template_id: settings.workspace_schema_template_id,
         index_segments: settings.index_segments ?? [],
       });
     }
@@ -143,7 +137,7 @@ export default function ChannelSettingsScreen() {
     );
   }
 
-  const showSave = tab === "general" || tab === "history" || tab === "workspace" || tab === "files";
+  const showSave = tab === "general" || tab === "history" || tab === "workspace";
 
   return (
     <View className="flex-1 bg-surface">
@@ -239,28 +233,26 @@ export default function ChannelSettingsScreen() {
         {tab === "general" && (
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
         )}
+        {tab === "workspace" && (
+          <ChannelWorkspaceTab
+            form={form}
+            patch={patch}
+            channelId={channelId!}
+            workspaceId={resolvedWorkspaceId ?? undefined}
+            indexSegmentDefaults={settings?.index_segment_defaults}
+            hasSharedWorkspace={hasWorkspace}
+            sharedWorkspaceId={currentBot?.shared_workspace_id}
+          />
+        )}
+        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} botModel={currentBot?.model} />}
         {tab === "history" && (
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
-        {tab === "context" && <ContextTab channelId={channelId!} />}
-        {tab === "files" && (
-          <ChannelWorkspaceTab form={form} patch={patch} channelId={channelId!} workspaceId={resolvedWorkspaceId ?? undefined} indexSegmentDefaults={settings?.index_segment_defaults} />
-        )}
-        {tab === "workspace" && (
-          <WorkspaceOverrideTab
-            form={form}
-            patch={patch}
-            workspaceId={currentBot?.shared_workspace_id}
-            channelId={channelId!}
-            onSave={handleSave}
-            saving={updateMutation.isPending}
-            saved={saved}
-          />
-        )}
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
+        {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
-        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} botModel={currentBot?.model} />}
+        {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>

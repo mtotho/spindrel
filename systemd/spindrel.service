@@ -1,5 +1,5 @@
 [Unit]
-Description=Thoth Agent Server
+Description=Spindrel Agent Server
 After=network.target docker.service
 Requires=docker.service
 
@@ -18,7 +18,7 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=thoth
+SyslogIdentifier=spindrel
 
 [Install]
 WantedBy=multi-user.target

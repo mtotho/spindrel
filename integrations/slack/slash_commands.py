@@ -624,11 +624,11 @@ def register_slash_commands(app):
 
         # Run all checks concurrently.
         results = await asyncio.gather(
-            _run("systemctl is-active thoth thoth-slack 2>/dev/null || echo 'unknown'"),
+            _run("systemctl is-active spindrel spindrel-slack 2>/dev/null || echo 'unknown'"),
             _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
             _run("df -h / | tail -1"),
             _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
-            _run("git -C /home/thothbot/agent-server log --oneline -1 2>/dev/null || echo 'unknown'"),
+            _run("git log --oneline -1 2>/dev/null || echo 'unknown'"),
         )
         svc_raw, docker_raw, disk_raw, backup_raw, git_raw = results
 
@@ -636,7 +636,7 @@ def register_slash_commands(app):
 
         # Services
         svc_lines = svc_raw.splitlines()
-        svc_names = ["thoth", "thoth-slack"]
+        svc_names = ["spindrel", "spindrel-slack"]
         svc_parts: list[str] = []
         for i, name in enumerate(svc_names):
             status = svc_lines[i].strip() if i < len(svc_lines) else "unknown"

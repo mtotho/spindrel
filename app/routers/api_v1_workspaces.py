@@ -534,6 +534,24 @@ async def workspace_logs(
     return {"logs": logs}
 
 
+# ── Cron Jobs ─────────────────────────────────────────────────
+
+@router.get("/{workspace_id}/cron-jobs")
+async def workspace_cron_jobs(
+    workspace_id: str,
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Discover cron jobs inside a workspace container."""
+    from app.services.cron_discovery import discover_crons
+    from dataclasses import asdict
+
+    result = await discover_crons(workspace_id=workspace_id)
+    return {
+        "cron_jobs": [asdict(e) for e in result.cron_jobs],
+        "errors": result.errors,
+    }
+
+
 # ── Code Editor ────────────────────────────────────────────────
 
 @router.post("/{workspace_id}/editor/enable")

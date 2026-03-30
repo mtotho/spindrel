@@ -248,10 +248,11 @@ class TestConsumeStream:
     async def test_slow_provider_timeout_after_finish(self):
         """A provider that hangs after finish_reason shouldn't block forever.
 
-        The 5-second timeout should fire and we still get the AccumulatedMessage
+        The timeout should fire and we still get the AccumulatedMessage
         (just without usage).
         """
         import asyncio
+        from unittest.mock import patch
         from app.agent.llm import _consume_stream
 
         async def mock_stream():
@@ -262,8 +263,9 @@ class TestConsumeStream:
             yield _make_chunk(usage=MagicMock())  # never reached
 
         items = []
-        async for item in _consume_stream(mock_stream()):
-            items.append(item)
+        with patch("app.agent.llm._USAGE_DRAIN_TIMEOUT", 0.01):
+            async for item in _consume_stream(mock_stream()):
+                items.append(item)
 
         msg = items[-1]
         assert isinstance(msg, AccumulatedMessage)

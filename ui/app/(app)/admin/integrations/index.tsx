@@ -9,11 +9,17 @@ import {
   useIntegrationSettings,
   useUpdateIntegrationSettings,
   useDeleteIntegrationSetting,
+  useStartProcess,
+  useStopProcess,
+  useRestartProcess,
+  useAutoStart,
+  useSetAutoStart,
+  useInstallDeps,
   type IntegrationItem,
   type IntegrationEnvVar,
 } from "@/src/api/hooks/useIntegrations";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
-import { Check, X, Copy, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
+import { Check, X, Copy, ChevronDown, ChevronRight, RotateCcw, Play, Square, RefreshCw, Download } from "lucide-react";
 
 const STATUS_COLORS: Record<string, { dot: string; label: string; bg: string }> = {
   ready: { dot: "#22c55e", label: "Ready", bg: "rgba(34,197,94,0.12)" },
@@ -324,6 +330,268 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
   );
 }
 
+function formatUptime(seconds: number | null): string {
+  if (seconds == null) return "";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function ProcessControls({ integrationId }: { integrationId: string }) {
+  const t = useThemeTokens();
+  const startMut = useStartProcess(integrationId);
+  const stopMut = useStopProcess(integrationId);
+  const restartMut = useRestartProcess(integrationId);
+  const { data: autoStartData } = useAutoStart(integrationId, true);
+  const setAutoStartMut = useSetAutoStart(integrationId);
+  const { data: integrations } = useIntegrations();
+
+  const item = integrations?.integrations?.find((i) => i.id === integrationId);
+  const ps = item?.process_status;
+  const isRunning = ps?.status === "running";
+  const anyPending = startMut.isPending || stopMut.isPending || restartMut.isPending;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: 10,
+        background: t.surface,
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {/* Status indicator */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              background: isRunning ? "#22c55e" : "#6b7280",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+            {isRunning ? "Running" : "Stopped"}
+          </span>
+          {isRunning && ps?.pid && (
+            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+              pid {ps.pid}
+            </span>
+          )}
+          {isRunning && ps?.uptime_seconds != null && (
+            <span style={{ fontSize: 11, color: t.textDim }}>
+              {formatUptime(ps.uptime_seconds)}
+            </span>
+          )}
+          {!isRunning && ps?.exit_code != null && ps.exit_code !== 0 && (
+            <span style={{ fontSize: 11, color: "#ef4444" }}>
+              exit {ps.exit_code}
+            </span>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+          {!isRunning && (
+            <button
+              onClick={() => startMut.mutate()}
+              disabled={anyPending}
+              title="Start"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 10px",
+                borderRadius: 4,
+                border: "none",
+                background: "rgba(34,197,94,0.15)",
+                color: "#22c55e",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: anyPending ? "wait" : "pointer",
+                opacity: anyPending ? 0.5 : 1,
+              }}
+            >
+              <Play size={10} /> Start
+            </button>
+          )}
+          {isRunning && (
+            <>
+              <button
+                onClick={() => stopMut.mutate()}
+                disabled={anyPending}
+                title="Stop"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "rgba(239,68,68,0.15)",
+                  color: "#ef4444",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: anyPending ? "wait" : "pointer",
+                  opacity: anyPending ? 0.5 : 1,
+                }}
+              >
+                <Square size={10} /> Stop
+              </button>
+              <button
+                onClick={() => restartMut.mutate()}
+                disabled={anyPending}
+                title="Restart"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "rgba(59,130,246,0.15)",
+                  color: "#3b82f6",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: anyPending ? "wait" : "pointer",
+                  opacity: anyPending ? 0.5 : 1,
+                }}
+              >
+                <RefreshCw size={10} /> Restart
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Auto-start toggle */}
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 11,
+          color: t.textDim,
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={autoStartData?.auto_start ?? true}
+          onChange={(e) => setAutoStartMut.mutate(e.target.checked)}
+          style={{ margin: 0 }}
+        />
+        Auto-start on server startup
+      </label>
+    </div>
+  );
+}
+
+function DependencySection({ item }: { item: IntegrationItem }) {
+  const t = useThemeTokens();
+  const installMut = useInstallDeps(item.id);
+
+  const deps = item.python_dependencies;
+  if (!deps || deps.length === 0) return null;
+
+  const allInstalled = deps.every((d) => d.installed);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: 10,
+        background: t.surface,
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: t.textDim,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        Python Dependencies
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {deps.map((d) => (
+          <span
+            key={d.package}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+              color: d.installed ? "#22c55e" : "#ef4444",
+              fontFamily: "monospace",
+            }}
+          >
+            {d.installed ? <Check size={10} /> : <X size={10} />}
+            {d.package}
+          </span>
+        ))}
+      </div>
+      {!allInstalled && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => installMut.mutate()}
+            disabled={installMut.isPending}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "5px 14px",
+              borderRadius: 5,
+              border: "none",
+              background: t.accent,
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: installMut.isPending ? "wait" : "pointer",
+              opacity: installMut.isPending ? 0.6 : 1,
+            }}
+          >
+            <Download size={12} />
+            {installMut.isPending ? "Installing..." : "Install Dependencies"}
+          </button>
+          {installMut.isSuccess && (
+            <span style={{ fontSize: 11, color: "#22c55e" }}>
+              Installed — restart server to activate tools
+            </span>
+          )}
+          {installMut.isError && (
+            <span style={{ fontSize: 11, color: "#ef4444" }}>
+              Install failed
+            </span>
+          )}
+        </div>
+      )}
+      {allInstalled && (
+        <span style={{ fontSize: 11, color: "#22c55e" }}>
+          All dependencies installed
+        </span>
+      )}
+    </div>
+  );
+}
+
 function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
   const t = useThemeTokens();
   const [readmeExpanded, setReadmeExpanded] = useState(false);
@@ -382,7 +650,14 @@ function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: bool
         <CapBadge label="hooks" active={item.has_hooks} />
         <CapBadge label="tools" active={item.has_tools} />
         <CapBadge label="skills" active={item.has_skills} />
+        <CapBadge label="process" active={item.has_process} />
       </div>
+
+      {/* Python dependencies */}
+      <DependencySection item={item} />
+
+      {/* Process controls */}
+      {item.has_process && <ProcessControls integrationId={item.id} />}
 
       {/* Configure section */}
       {item.env_vars.length > 0 && (

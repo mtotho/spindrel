@@ -200,6 +200,9 @@ async def lifespan(app: FastAPI):
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+    logger.info("Ensuring orchestrator landing channel...")
+    from app.services.channels import ensure_orchestrator_channel
+    await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
     logger.info("Loading MCP server config...")
@@ -295,7 +298,15 @@ async def lifespan(app: FastAPI):
     if settings.CONFIG_STATE_FILE:
         from app.services.config_export import config_export_worker
         asyncio.create_task(config_export_worker())
-    yield
+
+    # Start integration background processes (non-blocking, like other workers)
+    from app.services.integration_processes import process_manager
+    asyncio.create_task(process_manager.start_auto_start_processes())
+
+    try:
+        yield
+    finally:
+        await process_manager.shutdown_all()
 
 
 app = FastAPI(

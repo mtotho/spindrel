@@ -19,7 +19,7 @@ import type { BotConfig } from "@/src/types/api";
 const WORKSPACE_FILES_PRESETS = [
   { label: "DB memory tools hidden", detail: "save_memory, search_memories, purge_memory, merge_memories" },
   { label: "DB knowledge tools hidden", detail: "upsert_knowledge, edit_knowledge, search_knowledge, and others" },
-  { label: "File-based tools injected", detail: "search_memory (hybrid semantic+keyword) and get_memory_file" },
+  { label: "File-based tools injected", detail: "search_memory, get_memory_file, and file (direct read/write/edit)" },
   { label: "MEMORY.md always in context", detail: "Curated bootstrap file with stable facts — always injected" },
   { label: "Daily logs auto-loaded", detail: "Today's and yesterday's logs injected every turn" },
   { label: "Memory prompt auto-injected", detail: "Built-in prompt guides the bot on file-based memory workflow" },

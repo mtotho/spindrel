@@ -184,6 +184,7 @@ class BotConfig:
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
     harness_access: list[str] = field(default_factory=list)  # allowed harness names
+    cross_workspace_access: bool = False  # if True, channel workspace tools can see/search all bots' channels
     # Model elevation (per-bot overrides; None = inherit from channel or global)
     elevation_enabled: bool | None = None
     elevation_threshold: float | None = None
@@ -416,6 +417,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
+        cross_workspace_access=bool(row.delegation_config.get("cross_workspace_access", False)) if row.delegation_config else False,
         model_params=row.model_params or {},
         elevation_enabled=row.elevation_enabled,
         elevation_threshold=row.elevation_threshold,
@@ -510,6 +512,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "delegation_config": {
             "delegate_bots": data.get("delegate_bots", []),
             "harness_access": data.get("harness_access", []),
+            "cross_workspace_access": data.get("cross_workspace_access", False),
         },
         "fallback_models": data.get("fallback_models", []),
         "workspace": data.get("workspace", {"enabled": False}),
@@ -522,13 +525,21 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
     }
 
 
-async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
-    """Seed bots from YAML files into DB — only if id doesn't already exist."""
-    if not bots_dir.exists():
-        logger.info("No bots directory at %s, skipping seed", bots_dir)
-        return
+SYSTEM_BOTS_DIR = Path(__file__).parent.parent / "data" / "system_bots"
 
-    yaml_files = list(bots_dir.glob("*.yaml"))
+
+async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
+    """Seed bots from YAML files into DB — only if id doesn't already exist.
+
+    Scans both the system bots directory (app/data/system_bots/) and the
+    user bots directory (bots/).
+    """
+    source_dirs = [SYSTEM_BOTS_DIR, bots_dir]
+    yaml_files: list[Path] = []
+    for d in source_dirs:
+        if d.exists():
+            yaml_files.extend(d.glob("*.yaml"))
+
     if not yaml_files:
         return
 
