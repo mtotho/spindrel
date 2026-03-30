@@ -487,6 +487,7 @@ async def run_agent_tool_loop(
                     "client_actions": (
                         _extract_client_actions(messages, turn_start) + embedded_client_actions
                     ),
+                    **({"correlation_id": str(correlation_id)} if correlation_id else {}),
                 }, compaction)
                 return
 
@@ -686,6 +687,7 @@ async def run_agent_tool_loop(
                 "client_actions": (
                     _extract_client_actions(messages, turn_start) + embedded_client_actions
                 ),
+                **({"correlation_id": str(correlation_id)} if correlation_id else {}),
             }, compaction)
             return
 
@@ -757,6 +759,7 @@ async def run_agent_tool_loop(
             "client_actions": (
                 _extract_client_actions(messages, turn_start) + embedded_client_actions
             ),
+            **({"correlation_id": str(correlation_id)} if correlation_id else {}),
         }, compaction)
 
     except Exception as exc:

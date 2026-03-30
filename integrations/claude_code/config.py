@@ -12,6 +12,9 @@ def _get(key: str, default: str = "") -> str:
         return os.environ.get(key, default)
 
 
+_VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan", "bypassPermissions"}
+
+
 class _Settings:
     @property
     def MAX_TURNS(self) -> int:
@@ -27,7 +30,13 @@ class _Settings:
 
     @property
     def PERMISSION_MODE(self) -> str:
-        return _get("CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions")
+        v = _get("CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions")
+        if v not in _VALID_PERMISSION_MODES:
+            raise ValueError(
+                f"Invalid CLAUDE_CODE_PERMISSION_MODE={v!r}; "
+                f"must be one of {_VALID_PERMISSION_MODES}"
+            )
+        return v
 
     @property
     def ALLOWED_TOOLS(self) -> list[str]:
