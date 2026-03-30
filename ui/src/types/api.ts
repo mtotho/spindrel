@@ -159,6 +159,8 @@ export interface Channel {
   model_override?: string;
   model_provider_id_override?: string;
   integrations?: IntegrationBinding[];
+  heartbeat_enabled?: boolean;
+  heartbeat_in_quiet_hours?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -346,10 +348,22 @@ export interface Message {
   created_at: string;
 }
 
+/** OpenAI function-call format as stored in DB */
 export interface ToolCall {
   id: string;
-  name: string;
-  arguments: string;
+  type?: string;
+  function?: { name: string; arguments: string };
+  // Flattened form (for convenience)
+  name?: string;
+  arguments?: string;
+}
+
+/** Extract name and arguments from a ToolCall regardless of format */
+export function normalizeToolCall(tc: ToolCall): { name: string; arguments: string } {
+  if (tc.function) {
+    return { name: tc.function.name, arguments: tc.function.arguments };
+  }
+  return { name: tc.name ?? "unknown", arguments: tc.arguments ?? "{}" };
 }
 
 // Chat types

@@ -5,7 +5,11 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
-import { useCreateChannel } from "@/src/api/hooks/useChannels";
+import {
+  useCreateChannel,
+  useAvailableIntegrations,
+  useBindIntegration,
+} from "@/src/api/hooks/useChannels";
 import { Section, FormRow, SelectInput, TextInput } from "@/src/components/shared/FormControls";
 
 export default function NewChannelScreen() {
@@ -14,13 +18,37 @@ export default function NewChannelScreen() {
   const t = useThemeTokens();
   const { data: bots } = useBots();
   const createChannel = useCreateChannel();
+  const { data: availableIntegrations } = useAvailableIntegrations();
 
   const [name, setName] = useState("");
   const [botId, setBotId] = useState("default");
   const [isPrivate, setIsPrivate] = useState(false);
 
-  const botOptions = (bots ?? []).map((b) => ({ label: b.name, value: b.id }));
+  // Integration binding (optional)
+  const [integrationType, setIntegrationType] = useState("");
+  const [integrationClientId, setIntegrationClientId] = useState("");
+  const [integrationDisplayName, setIntegrationDisplayName] = useState("");
 
+  const botOptions = (bots ?? []).map((b) => ({ label: b.name, value: b.id }));
+  const integrationOptions = [
+    { label: "None", value: "" },
+    ...(availableIntegrations ?? []).map((i) => ({ label: i.type, value: i.type })),
+  ];
+
+  const selectedIntegration = (availableIntegrations ?? []).find(
+    (i) => i.type === integrationType
+  );
+  const binding = selectedIntegration?.binding;
+
+  const handleIntegrationTypeChange = (newType: string) => {
+    setIntegrationType(newType);
+    setIntegrationClientId("");
+    setIntegrationDisplayName("");
+  };
+
+  // We need the channelId to bind, so we use a ref to the bind mutation
+  // after create. But useBindIntegration needs channelId upfront.
+  // Instead, just pass integration/client_id to the create API.
   const handleCreate = async () => {
     if (!name.trim()) return;
     try {
@@ -29,6 +57,24 @@ export default function NewChannelScreen() {
         bot_id: botId,
         private: isPrivate,
       });
+
+      // If integration selected, bind it after creation
+      if (integrationType && integrationClientId.trim()) {
+        try {
+          const { apiFetch } = await import("@/src/api/client");
+          await apiFetch(`/api/v1/channels/${channel.id}/integrations`, {
+            method: "POST",
+            body: JSON.stringify({
+              integration_type: integrationType,
+              client_id: integrationClientId.trim(),
+              display_name: integrationDisplayName.trim() || undefined,
+            }),
+          });
+        } catch {
+          // Channel created but binding failed — user can add it later
+        }
+      }
+
       router.push(`/channels/${channel.id}` as any);
     } catch {
       // mutation error handled by react-query
@@ -78,6 +124,40 @@ export default function NewChannelScreen() {
             trackColor={{ false: t.surfaceBorder, true: t.accent }}
           />
         </View>
+
+        {/* Integration binding */}
+        <Section title="Integration (optional)" description="Bind an external integration to this channel">
+          <View className="gap-3">
+            <FormRow label="Type">
+              <SelectInput
+                value={integrationType}
+                onChange={handleIntegrationTypeChange}
+                options={integrationOptions}
+              />
+            </FormRow>
+            {integrationType !== "" && (
+              <>
+                <FormRow
+                  label="Client ID"
+                  description={binding?.client_id_description}
+                >
+                  <TextInput
+                    value={integrationClientId}
+                    onChangeText={setIntegrationClientId}
+                    placeholder={binding?.client_id_placeholder ?? `${integrationType}:...`}
+                  />
+                </FormRow>
+                <FormRow label="Display Name (optional)">
+                  <TextInput
+                    value={integrationDisplayName}
+                    onChangeText={setIntegrationDisplayName}
+                    placeholder={binding?.display_name_placeholder ?? ""}
+                  />
+                </FormRow>
+              </>
+            )}
+          </View>
+        </Section>
 
         <Pressable
           onPress={handleCreate}

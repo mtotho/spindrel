@@ -11,4 +11,10 @@ SETUP = {
         "description": "GitHub webhook receiver (push, PR, issue events)",
     },
     "instructions_url": None,
+    "binding": {
+        "client_id_prefix": "github:",
+        "client_id_placeholder": "github:owner/repo",
+        "client_id_description": "GitHub owner/repo (e.g. octocat/hello-world)",
+        "display_name_placeholder": "octocat/hello-world",
+    },
 }

@@ -133,20 +133,18 @@ def _msg(role, content):
 
 
 class TestFilterOldHeartbeats:
-    """All heartbeat-tagged messages are stripped from active conversation.
+    """Heartbeat *user* prompts are stripped but assistant responses are kept.
 
-    Heartbeat context is provided via:
-    - The heartbeat preamble ("Previous heartbeat conclusion: ...") for heartbeat turns
-    - Memory files for long-term continuity
-    Keeping heartbeat exchanges in active history causes the LLM to confuse
-    heartbeat prompts with user messages and repeat its own prior output.
+    User-role heartbeat messages are synthetic prompts that confuse the LLM
+    into continuing from the heartbeat context.  Assistant responses and tool
+    messages are kept so the bot remains aware of its own heartbeat output.
     """
 
     def test_no_heartbeat_messages(self):
         msgs = [_msg("user", "hi"), _msg("assistant", "hello")]
         assert _filter_old_heartbeats(msgs) == msgs
 
-    def test_single_heartbeat_stripped(self):
+    def test_single_heartbeat_user_stripped_assistant_kept(self):
         msgs = [
             _msg("user", "hi"),
             _hb("user", "hb prompt"),
@@ -156,11 +154,11 @@ class TestFilterOldHeartbeats:
         result = _filter_old_heartbeats(msgs)
         contents = [m["content"] for m in result]
         assert "hb prompt" not in contents
-        assert "hb response" not in contents
+        assert "hb response" in contents  # assistant response kept
         assert "hi" in contents
         assert "next" in contents
 
-    def test_all_heartbeats_stripped(self):
+    def test_multiple_heartbeats_user_stripped_assistant_kept(self):
         msgs = [
             _msg("user", "hi"),
             _hb("user", "hb1 prompt"),
@@ -173,21 +171,22 @@ class TestFilterOldHeartbeats:
         result = _filter_old_heartbeats(msgs)
         contents = [m["content"] for m in result]
         assert "hb1 prompt" not in contents
-        assert "hb1 response" not in contents
+        assert "hb1 response" in contents  # kept
         assert "hb2 prompt" not in contents
-        assert "hb2 response" not in contents
+        assert "hb2 response" in contents  # kept
         assert "hi" in contents
         assert "something" in contents
         assert "latest" in contents
 
-    def test_only_heartbeats_returns_empty(self):
+    def test_only_heartbeats_keeps_assistant_responses(self):
         msgs = [
             _hb("user", "hb1"), _hb("assistant", "r1"),
             _hb("user", "hb2"), _hb("assistant", "r2"),
             _hb("user", "hb3"), _hb("assistant", "r3"),
         ]
         result = _filter_old_heartbeats(msgs)
-        assert result == []
+        contents = [m["content"] for m in result]
+        assert contents == ["r1", "r2", "r3"]
 
     def test_interleaved_normal_and_heartbeat(self):
         msgs = [
@@ -202,14 +201,14 @@ class TestFilterOldHeartbeats:
         result = _filter_old_heartbeats(msgs)
         contents = [m["content"] for m in result]
         assert "hb1" not in contents
-        assert "r1" not in contents
+        assert "r1" in contents  # assistant kept
         assert "hb2" not in contents
-        assert "r2" not in contents
+        assert "r2" in contents  # assistant kept
         assert len([c for c in contents if c.startswith("u")]) == 3
         assert len([c for c in contents if c.startswith("a")]) == 2
 
-    def test_heartbeat_with_tool_calls(self):
-        """Heartbeat exchanges may include tool call messages."""
+    def test_heartbeat_with_tool_calls_keeps_non_user(self):
+        """Heartbeat tool and assistant messages are kept; only user prompts stripped."""
         msgs = [
             _hb("user", "hb1"),
             _hb("assistant", "r1"),
@@ -221,24 +220,24 @@ class TestFilterOldHeartbeats:
         ]
         result = _filter_old_heartbeats(msgs)
         contents = [m["content"] for m in result]
-        assert "hb1" not in contents
-        assert "r1" not in contents
-        assert "tool out" not in contents
-        assert "r1 final" not in contents
-        assert "hb2" not in contents
-        assert "r2" not in contents
-        assert contents == ["normal"]
+        assert "hb1" not in contents  # user prompt stripped
+        assert "hb2" not in contents  # user prompt stripped
+        assert "r1" in contents       # assistant kept
+        assert "tool out" in contents  # tool kept
+        assert "r1 final" in contents  # assistant kept
+        assert "r2" in contents        # assistant kept
+        assert "normal" in contents
 
     def test_empty_list(self):
         assert _filter_old_heartbeats([]) == []
 
-    def test_heartbeat_assistant_without_user(self):
-        """Heartbeat assistant message is still stripped even without a user counterpart."""
+    def test_heartbeat_assistant_without_user_kept(self):
+        """Heartbeat assistant message is kept even without a user counterpart."""
         msgs = [
             _msg("user", "hi"),
             {"role": "assistant", "content": "hb resp", "_metadata": {"is_heartbeat": True}},
         ]
         result = _filter_old_heartbeats(msgs)
         contents = [m["content"] for m in result]
-        assert "hb resp" not in contents
+        assert "hb resp" in contents  # assistant kept
         assert "hi" in contents

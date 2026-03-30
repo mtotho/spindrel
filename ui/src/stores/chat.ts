@@ -6,7 +6,7 @@ interface ChatChannelState {
   streamingContent: string;
   thinkingContent: string;
   isStreaming: boolean;
-  toolCalls: { name: string; status: "running" | "done" }[];
+  toolCalls: { name: string; args?: string; status: "running" | "done" }[];
   error: string | null;
 }
 
@@ -145,7 +145,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         }
         case "tool_start": {
           // Server sends: {"type": "tool_start", "tool": "name", "args": "..."}
-          const data = event.data as { tool?: string };
+          const data = event.data as { tool?: string; args?: string };
           return {
             channels: {
               ...s.channels,
@@ -153,7 +153,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 ...ch,
                 toolCalls: [
                   ...ch.toolCalls,
-                  { name: data.tool ?? "unknown", status: "running" },
+                  { name: data.tool ?? "unknown", args: data.args, status: "running" },
                 ],
               },
             },

@@ -17,4 +17,10 @@ SETUP = {
     ],
     "webhook": None,
     "instructions_url": None,
+    "binding": {
+        "client_id_prefix": "frigate:",
+        "client_id_placeholder": "frigate:events",
+        "client_id_description": "Frigate event channel (default: frigate:events)",
+        "display_name_placeholder": "Frigate Events",
+    },
 }

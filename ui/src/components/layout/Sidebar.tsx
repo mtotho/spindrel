@@ -396,6 +396,21 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                         </Text>
                       )}
                     </View>
+                    {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && (
+                      <View
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: "#22c55e",
+                          flexShrink: 0,
+                          opacity: 0.8,
+                        }}
+                      />
+                    )}
+                    {channel.heartbeat_in_quiet_hours && (
+                      <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
+                    )}
                     {unread && (
                       <View
                         style={{

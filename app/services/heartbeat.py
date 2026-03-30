@@ -455,12 +455,13 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         # Persist turn
         from app.services.sessions import persist_turn
+        _dispatched = hb.dispatch_results and _dispatch_mode != "optional"
         async with async_session() as db:
             await persist_turn(
                 db, eff_session_id, bot, messages, messages_start,
                 correlation_id=correlation_id, channel_id=channel_id,
                 is_heartbeat=True,
-                msg_metadata={"trigger": "heartbeat"},
+                msg_metadata={"trigger": "heartbeat", "dispatched": _dispatched},
             )
 
         # Dispatch result (skip for "optional" mode — the LLM used the tool if it wanted to post)

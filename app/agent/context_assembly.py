@@ -459,7 +459,7 @@ async def assemble_context(
                     _ch_chunks, _ch_sim = await _rfc(
                         user_message,
                         _sentinel,
-                        roots=[str(Path(_cw_root).parent.parent.parent)],
+                        roots=[str(Path(_cw_root).parent.parent)],
                         embedding_model=_ws_res["embedding_model"],
                         segments=_seg_dicts,
                         top_k=_seg_top_k,
