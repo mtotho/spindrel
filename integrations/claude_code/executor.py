@@ -116,7 +116,8 @@ async def run_claude_code_task(task) -> None:
             meta_parts.append(f"cost=${result_msg.total_cost_usd:.2f}")
         if result_msg.duration_ms is not None:
             meta_parts.append(f"{result_msg.duration_ms}ms")
-        parts.append(f"[{', '.join(meta_parts)}]")
+        if meta_parts:
+            parts.append(f"[{', '.join(meta_parts)}]")
         result_text = "\n".join(parts)
 
         # Store result
@@ -192,6 +193,7 @@ async def run_claude_code_task(task) -> None:
                     merged_ecfg = dict(t.execution_config or {})
                     merged_ecfg["resume_session_id"] = str(_resume_session_id)
                     merged_ecfg["resume_retries"] = _resume_retries + 1
+                    merged_ecfg.setdefault("original_prompt", t.prompt)
                     t.execution_config = merged_ecfg
                     t.status = "pending"
                     t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)

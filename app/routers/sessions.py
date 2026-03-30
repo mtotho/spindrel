@@ -62,6 +62,7 @@ class MessageOut(BaseModel):
     content: Optional[str] = None
     tool_calls: Optional[list] = None
     tool_call_id: Optional[str] = None
+    correlation_id: Optional[uuid.UUID] = None
     created_at: datetime
     metadata: dict = {}
     attachments: list[AttachmentBrief] = []
@@ -77,6 +78,7 @@ class MessageOut(BaseModel):
             content=msg.content,
             tool_calls=msg.tool_calls,
             tool_call_id=msg.tool_call_id,
+            correlation_id=msg.correlation_id,
             created_at=msg.created_at,
             metadata=msg.metadata_ or {},
             attachments=[AttachmentBrief.from_orm(a) for a in (msg.attachments or [])],

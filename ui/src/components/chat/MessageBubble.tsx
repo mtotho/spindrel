@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Wrench, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
+import { Wrench, ChevronRight, ChevronDown, Copy, Check, Activity } from "lucide-react";
+import { useRouter } from "expo-router";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
@@ -128,11 +129,47 @@ function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
 // Copy button — appears on hover (web only)
 // ---------------------------------------------------------------------------
 
-function CopyButton({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+function MessageActions({
+  text,
+  correlationId,
+  t,
+}: {
+  text: string;
+  correlationId?: string;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
   const [copied, setCopied] = useState(false);
+  const router = useRouter();
+
+  const btnStyle = (active?: boolean): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    border: `1px solid ${t.surfaceBorder}`,
+    backgroundColor: t.surfaceRaised,
+    color: active ? "#10b981" : t.textMuted,
+    cursor: "pointer",
+    padding: 0,
+    boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
+  });
 
   return (
     <div className="msg-actions" style={{ userSelect: "none" }}>
+      {correlationId && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            router.push(`/admin/logs/${correlationId}` as any);
+          }}
+          title="View trace"
+          style={btnStyle()}
+        >
+          <Activity size={14} />
+        </button>
+      )}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -142,20 +179,7 @@ function CopyButton({ text, t }: { text: string; t: ReturnType<typeof useThemeTo
           });
         }}
         title="Copy message"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 28,
-          height: 28,
-          borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-          backgroundColor: t.surfaceRaised,
-          color: copied ? "#10b981" : t.textMuted,
-          cursor: "pointer",
-          padding: 0,
-          boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
-        }}
+        style={btnStyle(copied)}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
@@ -744,7 +768,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           }}
         >
           {messageContent}
-          {displayContent.length > 0 && <CopyButton text={displayContent} t={t} />}
+          {displayContent.length > 0 && <MessageActions text={displayContent} correlationId={message.correlation_id} t={t} />}
         </div>
       );
     }
@@ -845,7 +869,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         }}
       >
         {inner}
-        {displayContent.length > 0 && <CopyButton text={displayContent} t={t} />}
+        {displayContent.length > 0 && <MessageActions text={displayContent} correlationId={message.correlation_id} t={t} />}
       </div>
     );
   }

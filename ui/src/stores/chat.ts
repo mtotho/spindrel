@@ -7,6 +7,7 @@ interface ChatChannelState {
   thinkingContent: string;
   isStreaming: boolean;
   toolCalls: { name: string; args?: string; status: "running" | "done" }[];
+  correlationId: string | null;
   error: string | null;
 }
 
@@ -27,6 +28,7 @@ const emptyChannel: ChatChannelState = {
   thinkingContent: "",
   isStreaming: false,
   toolCalls: [],
+  correlationId: null,
   error: null,
 };
 
@@ -64,6 +66,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           streamingContent: "",
           thinkingContent: "",
           toolCalls: [],
+          correlationId: null,
           error: null,
         },
       },
@@ -74,8 +77,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const ch = s.channels[channelId] ?? emptyChannel;
       switch (event.event) {
         case "response": {
-          // Server sends: {"type": "response", "text": "...", "tools_used": [...]}
-          const data = event.data as { text?: string; tools_used?: string[] };
+          // Server sends: {"type": "response", "text": "...", "tools_used": [...], "correlation_id": "..."}
+          const data = event.data as { text?: string; tools_used?: string[]; correlation_id?: string };
           // Capture tools_used from the response for persistence
           const updatedToolCalls = data.tools_used?.length
             ? data.tools_used.map((name) => ({ name, status: "done" as const }))
@@ -87,6 +90,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 ...ch,
                 streamingContent: data.text ?? ch.streamingContent,
                 toolCalls: updatedToolCalls,
+                correlationId: data.correlation_id ?? ch.correlationId,
               },
             },
           };
@@ -220,6 +224,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               role: "assistant" as const,
               content: ch.streamingContent,
               created_at: new Date().toISOString(),
+              correlation_id: ch.correlationId ?? undefined,
               metadata,
             },
           ]
@@ -235,6 +240,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             streamingContent: "",
             thinkingContent: "",
             toolCalls: [],
+            correlationId: null,
           },
         },
       };

@@ -132,13 +132,13 @@ textarea::placeholder {
   }
 }
 
-/* Message action bar (copy button) — revealed on hover */
+/* Message action bar (copy + trace buttons) — revealed on hover */
 .msg-actions {
   position: absolute;
   top: 4px;
   right: 16px;
   display: flex;
-  gap: 2px;
+  gap: 4px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.1s ease;
