@@ -1,8 +1,8 @@
 """Channel workspace service — resolves paths and performs file ops for channel workspaces.
 
 Channel workspaces live inside the shared workspace (or bot workspace) at:
-  {ws_root}/channels/{channel_id}/workspace/
-  {ws_root}/channels/{channel_id}/workspace/archive/
+  {ws_root}/channels/{channel_id}/
+  {ws_root}/channels/{channel_id}/archive/
 """
 from __future__ import annotations
 
@@ -18,55 +18,55 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _migrate_old_layout(channel_dir: str, channel_id: str, ws_path: str) -> None:
+def _migrate_old_layout(channel_dir: str, channel_id: str) -> None:
     """Fix old broken directory layouts, idempotent.
 
     Known bad layouts:
       1. channels/{id}/{id}/ — double-nested GUID (old bug)
-      2. channels/{id}/archive or /data — missing workspace level
+      2. channels/{id}/workspace/ — unnecessary nesting (old layout)
     """
     try:
         # Case 1: double-nested GUID — channels/{id}/{id}/{archive,data,...}
         double_nested = os.path.join(channel_dir, channel_id)
-        if os.path.isdir(double_nested) and double_nested != ws_path:
-            logger.info("Migrating double-nested channel dir: %s → %s", double_nested, ws_path)
-            os.makedirs(ws_path, exist_ok=True)
+        if os.path.isdir(double_nested):
+            logger.info("Migrating double-nested channel dir: %s → %s", double_nested, channel_dir)
             for entry in os.scandir(double_nested):
-                dest = os.path.join(ws_path, entry.name)
+                dest = os.path.join(channel_dir, entry.name)
                 if entry.name == ".channel_info":
-                    # Don't migrate .channel_info — will be rewritten
-                    continue
+                    continue  # will be rewritten
                 if os.path.exists(dest):
-                    # Merge directory contents
                     if entry.is_dir() and os.path.isdir(dest):
                         for sub in os.scandir(entry.path):
                             sub_dest = os.path.join(dest, sub.name)
                             if not os.path.exists(sub_dest):
                                 shutil.move(sub.path, sub_dest)
-                    # Skip if file already exists at dest
                 else:
                     shutil.move(entry.path, dest)
-            # Remove the now-empty double-nested dir
             try:
                 shutil.rmtree(double_nested)
             except Exception:
                 pass
 
-        # Case 2: archive/ or data/ at channel_dir level instead of inside workspace/
-        for subdir in ("archive", "data"):
-            old_path = os.path.join(channel_dir, subdir)
-            new_path = os.path.join(ws_path, subdir)
-            if os.path.isdir(old_path) and old_path != new_path:
-                logger.info("Migrating misplaced %s: %s → %s", subdir, old_path, new_path)
-                os.makedirs(new_path, exist_ok=True)
-                for entry in os.scandir(old_path):
-                    dest = os.path.join(new_path, entry.name)
-                    if not os.path.exists(dest):
-                        shutil.move(entry.path, dest)
-                try:
-                    os.rmdir(old_path)  # Only removes if empty
-                except OSError:
-                    pass
+        # Case 2: old workspace/ subdirectory — flatten into channel_dir
+        old_ws = os.path.join(channel_dir, "workspace")
+        if os.path.isdir(old_ws):
+            logger.info("Flattening old workspace/ subdir: %s → %s", old_ws, channel_dir)
+            for entry in os.scandir(old_ws):
+                dest = os.path.join(channel_dir, entry.name)
+                if entry.name == ".channel_info":
+                    continue  # will be rewritten
+                if os.path.exists(dest):
+                    if entry.is_dir() and os.path.isdir(dest):
+                        for sub in os.scandir(entry.path):
+                            sub_dest = os.path.join(dest, sub.name)
+                            if not os.path.exists(sub_dest):
+                                shutil.move(sub.path, sub_dest)
+                else:
+                    shutil.move(entry.path, dest)
+            try:
+                shutil.rmtree(old_ws)
+            except Exception:
+                pass
     except Exception:
         logger.warning("Failed to migrate old channel workspace layout for %s", channel_id, exc_info=True)
 
@@ -85,13 +85,13 @@ def _get_ws_root(bot: "BotConfig") -> str:
 
 
 def get_channel_workspace_root(channel_id: str, bot: "BotConfig") -> str:
-    """Returns {ws_root}/channels/{channel_id}/workspace/"""
+    """Returns {ws_root}/channels/{channel_id}/"""
     ws_root = _get_ws_root(bot)
-    return os.path.join(ws_root, "channels", channel_id, "workspace")
+    return os.path.join(ws_root, "channels", channel_id)
 
 
 def get_channel_archive_root(channel_id: str, bot: "BotConfig") -> str:
-    """Returns {ws_root}/channels/{channel_id}/workspace/archive/"""
+    """Returns {ws_root}/channels/{channel_id}/archive/"""
     return os.path.join(get_channel_workspace_root(channel_id, bot), "archive")
 
 
@@ -101,14 +101,11 @@ def ensure_channel_workspace(
     *,
     display_name: str | None = None,
 ) -> str:
-    """Create workspace/ + archive/ + data/ dirs, idempotent. Returns workspace root."""
+    """Create archive/ + data/ dirs inside channel dir, idempotent. Returns channel workspace root."""
     ws_path = get_channel_workspace_root(channel_id, bot)
-    channel_dir = os.path.dirname(ws_path)  # channels/{id}/
 
-    # Migrate old broken directory structures:
-    # 1. channels/{id}/{id}/ (double-nested GUID) → move into channels/{id}/workspace/
-    # 2. channels/{id}/archive or channels/{id}/data (no workspace level) → move into workspace/
-    _migrate_old_layout(channel_dir, channel_id, ws_path)
+    # Migrate old broken directory structures
+    _migrate_old_layout(ws_path, channel_id)
 
     for subdir in ("archive", "data"):
         os.makedirs(os.path.join(ws_path, subdir), exist_ok=True)
@@ -118,11 +115,10 @@ def ensure_channel_workspace(
     # rather than overwriting with the bare channel_id UUID.
     label = display_name
     if not label:
-        # Try to read existing display_name from parent .channel_info
-        parent_info = os.path.join(os.path.dirname(ws_path), ".channel_info")
+        info_path = os.path.join(ws_path, ".channel_info")
         try:
-            if os.path.isfile(parent_info):
-                for line in Path(parent_info).read_text().splitlines():
+            if os.path.isfile(info_path):
+                for line in Path(info_path).read_text().splitlines():
                     if line.startswith("display_name:"):
                         existing_name = line.split(":", 1)[1].strip()
                         if existing_name and existing_name != channel_id:
@@ -133,15 +129,13 @@ def ensure_channel_workspace(
     label = label or channel_id
 
     info_content = f"channel_id: {channel_id}\ndisplay_name: {label}\n"
-    # Write at both levels: channels/{id}/ and channels/{id}/workspace/
-    for info_dir in (os.path.dirname(ws_path), ws_path):
-        info_path = os.path.join(info_dir, ".channel_info")
-        try:
-            existing = Path(info_path).read_text() if os.path.isfile(info_path) else ""
-            if existing != info_content:
-                Path(info_path).write_text(info_content)
-        except Exception:
-            pass  # non-critical
+    info_path = os.path.join(ws_path, ".channel_info")
+    try:
+        existing = Path(info_path).read_text() if os.path.isfile(info_path) else ""
+        if existing != info_content:
+            Path(info_path).write_text(info_content)
+    except Exception:
+        pass  # non-critical
 
     return ws_path
 
@@ -244,4 +238,4 @@ def delete_workspace_file(channel_id: str, bot: "BotConfig", path: str) -> dict:
 
 def get_channel_workspace_index_prefix(channel_id: str) -> str:
     """Returns the file_path prefix for filesystem_chunks queries."""
-    return f"channels/{channel_id}/workspace"
+    return f"channels/{channel_id}"
