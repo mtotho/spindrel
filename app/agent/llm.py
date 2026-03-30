@@ -335,19 +335,38 @@ class StreamAccumulator:
         )
 
 
+_USAGE_DRAIN_TIMEOUT = 5.0  # seconds to wait for usage chunk after finish_reason
+
+
 async def _consume_stream(stream) -> AsyncGenerator[dict | AccumulatedMessage, None]:
     """Consume a streaming response, yielding events then the final AccumulatedMessage.
 
-    NOTE: We must NOT break on finish_reason.  With stream_options.include_usage
-    the provider sends a final chunk *after* finish_reason that carries the usage
-    stats (choices=[], usage={...}).  Breaking early would lose that data and
-    token_usage trace events would never be recorded.
+    After finish_reason we read up to 5 more seconds to capture the usage-only
+    chunk that providers send with stream_options.include_usage.  Without this,
+    token_usage trace events are never recorded.  The timeout prevents slow
+    providers (e.g. MiniMax) from hanging the stream after content is done.
     """
     accumulator = StreamAccumulator()
+    finish_seen = False
     async for chunk in stream:
-        events, _is_done = accumulator.feed(chunk)
+        events, is_done = accumulator.feed(chunk)
         for event in events:
             yield event
+        if is_done:
+            finish_seen = True
+            break
+
+    # After finish_reason, try to read remaining chunks (usage data) with a timeout.
+    # Use __anext__ directly on the stream — avoids creating intermediate generator
+    # wrappers that could break if the OpenAI SDK changes __aiter__ behavior.
+    if finish_seen:
+        try:
+            while True:
+                chunk = await asyncio.wait_for(stream.__anext__(), timeout=_USAGE_DRAIN_TIMEOUT)
+                accumulator.feed(chunk)
+        except (asyncio.TimeoutError, StopAsyncIteration):
+            pass
+
     yield accumulator.build()
 
 

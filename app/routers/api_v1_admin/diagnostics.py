@@ -466,3 +466,30 @@ async def diagnostics_memory_search(
         ],
         "diagnostics": diag,
     }
+
+
+@router.get("/diagnostics/disk-usage")
+async def diagnostics_disk_usage(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Workspace disk usage report."""
+    from app.services.disk_usage import get_full_disk_report
+
+    report = await get_full_disk_report()
+
+    # Enrich shared workspace entries with names from DB
+    ws_rows = (await db.execute(select(SharedWorkspace))).scalars().all()
+    ws_names = {str(r.id): r.name for r in ws_rows}
+
+    for ws in report["workspaces"]:
+        if ws["type"] == "shared" and ws["id"] in ws_names:
+            ws["name"] = ws_names[ws["id"]]
+        elif ws["type"] == "bot":
+            # Try to match bot dir name to a shared workspace
+            for row in ws_rows:
+                if row.id and str(row.id) == ws["id"]:
+                    ws["name"] = row.name
+                    break
+
+    return report

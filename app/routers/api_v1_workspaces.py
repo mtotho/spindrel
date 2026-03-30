@@ -292,6 +292,28 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
     )
 
 
+# ── Disk usage ──────────────────────────────────────────────────
+
+@router.get("/disk-usage")
+async def workspace_disk_usage(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Workspace disk usage report (bot-accessible with workspaces:read)."""
+    from app.services.disk_usage import get_full_disk_report
+
+    report = await get_full_disk_report()
+
+    # Enrich with workspace names from DB
+    ws_rows = (await db.execute(select(SharedWorkspace))).scalars().all()
+    ws_names = {str(r.id): r.name for r in ws_rows}
+    for ws in report["workspaces"]:
+        if ws["type"] == "shared" and ws["id"] in ws_names:
+            ws["name"] = ws_names[ws["id"]]
+
+    return report
+
+
 # ── CRUD ────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[WorkspaceOut])

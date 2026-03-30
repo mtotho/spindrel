@@ -516,6 +516,11 @@ ENDPOINT_CATALOG: list[dict] = [
         "description": "Delete a file or directory from workspace",
         "params": "?path=/path/to/delete",
     },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/disk-usage",
+        "description": "Get disk usage report for all workspaces",
+        "response": "{filesystem: {total_bytes, used_bytes, free_bytes, usage_percent}, workspace_base_dir, workspace_total_bytes, workspaces: [{type, id, name, path, total_bytes, file_count, subdirs?}]}",
+    },
     # Logs — agent turns (high-level view of each agent invocation)
     {
         "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/turns",

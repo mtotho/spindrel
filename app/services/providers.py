@@ -28,11 +28,11 @@ def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url=provider.base_url or settings.LITELLM_BASE_URL,
             api_key=provider.api_key or settings.LITELLM_API_KEY or "dummy",
-            timeout=60.0,
+            timeout=settings.LLM_TIMEOUT,
             max_retries=0,
         )
     elif ptype in ("openai", "openai-compatible"):
-        kw: dict = {"api_key": provider.api_key, "timeout": 60.0, "max_retries": 0}
+        kw: dict = {"api_key": provider.api_key, "timeout": settings.LLM_TIMEOUT, "max_retries": 0}
         if provider.base_url:
             kw["base_url"] = provider.base_url
         return AsyncOpenAI(**kw)
@@ -40,7 +40,7 @@ def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url=provider.base_url or "https://api.anthropic.com/v1",
             api_key=provider.api_key,
-            timeout=60.0,
+            timeout=settings.LLM_TIMEOUT,
             max_retries=0,
             default_headers={"anthropic-version": "2023-06-01"},
         )
@@ -53,7 +53,7 @@ def _fallback_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         base_url=settings.LITELLM_BASE_URL,
         api_key=settings.LITELLM_API_KEY or "dummy",
-        timeout=60.0,
+        timeout=settings.LLM_TIMEOUT,
         max_retries=0,
     )
 

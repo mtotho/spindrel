@@ -245,6 +245,33 @@ class TestConsumeStream:
         assert msg.usage is None
 
     @pytest.mark.asyncio
+    async def test_slow_provider_timeout_after_finish(self):
+        """A provider that hangs after finish_reason shouldn't block forever.
+
+        The 5-second timeout should fire and we still get the AccumulatedMessage
+        (just without usage).
+        """
+        import asyncio
+        from app.agent.llm import _consume_stream
+
+        async def mock_stream():
+            yield _make_chunk(content="Fast")
+            yield _make_chunk(finish_reason="stop")
+            # Simulate a provider that hangs and never sends the usage chunk
+            await asyncio.sleep(999)
+            yield _make_chunk(usage=MagicMock())  # never reached
+
+        items = []
+        async for item in _consume_stream(mock_stream()):
+            items.append(item)
+
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "Fast"
+        # Usage is None because the timeout fired before usage chunk arrived
+        assert msg.usage is None
+
+    @pytest.mark.asyncio
     async def test_events_yielded_before_accumulated_message(self):
         """text_delta events should be yielded before the final AccumulatedMessage."""
         from app.agent.llm import _consume_stream

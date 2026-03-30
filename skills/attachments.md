@@ -77,6 +77,14 @@ Save an attachment's file data to the filesystem. Use when you need to process a
 
 Generated images are automatically saved as attachments and delivered to the channel.
 
+## Auto-visible attachments
+
+Any tool that creates an attachment (`frigate_snapshot`, `generate_image`, `exec_sandbox` file output, etc.) automatically links it to the assistant message that triggered the tool. The image/file appears on the web UI and Slack without any extra step — you do **not** need to call `send_file` afterward.
+
+Use `send_file` only when you need to:
+- Send a file from disk (`path=...`)
+- Re-post an older attachment to highlight it with a specific caption (`attachment_id=...`)
+
 ## Common Patterns
 
 ### Send a file from disk
@@ -135,6 +143,7 @@ Generated images become attachments immediately:
 | Passing `n=3` with a Gemini model | Omit `n` or set `n=1` | Only OpenAI models support n>1 |
 | Guessing attachment UUIDs | Call `list_attachments` first | UUIDs are random; you must look them up |
 | Using `list_attachments(channel_id="C06RY3YBSLE")` | Omit channel_id | Slack IDs aren't UUIDs; current channel is used automatically |
+| Using `send_file` to re-show an attachment from the same turn | Just reference it in your response text | Attachments are auto-visible on the message that created them |
 
 ## Delegation Context
 
