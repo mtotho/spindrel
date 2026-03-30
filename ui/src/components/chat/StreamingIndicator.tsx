@@ -1,7 +1,8 @@
 import { View, Text, Platform } from "react-native";
-import { Loader2, Wrench } from "lucide-react";
+import { Loader2, Wrench, Check } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MessageBubble";
+import { formatToolArgs } from "./toolCallUtils";
 
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
@@ -18,7 +19,7 @@ function avatarColor(name: string): string {
 
 interface Props {
   content: string;
-  toolCalls: { name: string; status: "running" | "done" }[];
+  toolCalls: { name: string; args?: string; status: "running" | "done" }[];
   botName?: string;
   thinkingContent?: string;
 }
@@ -28,6 +29,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
   const letter = name[0].toUpperCase();
   const bg = avatarColor(name);
   const t = useThemeTokens();
+  const isWeb = Platform.OS === "web";
 
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
@@ -82,8 +84,76 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
           </View>
         ) : null}
 
-        {/* Tool calls in progress */}
-        {toolCalls.length > 0 && (
+        {/* Tool calls in progress — expanded with args */}
+        {toolCalls.length > 0 && isWeb && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+            {toolCalls.map((tc, i) => {
+              const formatted = formatToolArgs(tc.args);
+              return (
+                <div
+                  key={i}
+                  style={{
+                    borderRadius: 6,
+                    backgroundColor: t.overlayLight,
+                    border: `1px solid ${t.overlayBorder}`,
+                    overflow: "hidden",
+                    alignSelf: "flex-start",
+                    maxWidth: "100%",
+                  }}
+                >
+                  {/* Header row */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    <Wrench size={12} color={tc.status === "running" ? t.purple : t.success} />
+                    <span style={{ fontSize: 12, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
+                      {tc.name}
+                    </span>
+                    {tc.status === "running" && (
+                      <Loader2 size={10} color={t.purple} />
+                    )}
+                    {tc.status === "done" && (
+                      <Check size={10} color={t.success} />
+                    )}
+                  </div>
+                  {/* Args body */}
+                  {formatted && (
+                    <div
+                      style={{
+                        borderTop: `1px solid ${t.overlayBorder}`,
+                        padding: "6px 10px",
+                        maxHeight: 200,
+                        overflowY: "auto",
+                      }}
+                    >
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: 11,
+                          fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                          color: t.textMuted,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        {formatted}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Tool calls — native fallback (no args) */}
+        {toolCalls.length > 0 && !isWeb && (
           <View className="mb-2 gap-1.5">
             {toolCalls.map((tc, i) => (
               <View
@@ -102,7 +172,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
                 }}
               >
                 <Wrench size={12} color={tc.status === "running" ? t.purple : t.success} />
-                <Text style={{ fontSize: 12, color: t.textMuted, fontFamily: Platform.OS === "web" ? "'Menlo', monospace" : undefined }}>
+                <Text style={{ fontSize: 12, color: t.textMuted }}>
                   {tc.name}
                 </Text>
                 {tc.status === "running" && (
@@ -119,7 +189,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         {/* Streaming text */}
         {content.trimStart() ? (
           <View>
-            {Platform.OS === "web" ? (
+            {isWeb ? (
               <div>
                 <MarkdownContent text={content.trimStart()} t={t} />
                 <span

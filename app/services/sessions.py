@@ -392,6 +392,7 @@ async def persist_turn(
     now = datetime.now(timezone.utc)
     first_user = True
     first_user_msg_id: uuid.UUID | None = None
+    last_assistant_msg_id: uuid.UUID | None = None
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
         meta = {}
@@ -420,6 +421,8 @@ async def persist_turn(
         db.add(record)
         if first_user_msg_id is None and msg.get("role") == "user":
             first_user_msg_id = record.id
+        if msg.get("role") == "assistant":
+            last_assistant_msg_id = record.id
 
     await db.execute(
         update(Session)
@@ -427,6 +430,28 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
+
+    # Link orphaned attachments (created by tools like send_file with message_id=None)
+    # to the last assistant message in this turn.
+    if last_assistant_msg_id and channel_id:
+        try:
+            from app.db.models import Attachment
+            linked = await db.execute(
+                update(Attachment)
+                .where(
+                    Attachment.channel_id == channel_id,
+                    Attachment.message_id.is_(None),
+                )
+                .values(message_id=last_assistant_msg_id)
+            )
+            if linked.rowcount:
+                await db.commit()
+                logger.info(
+                    "Linked %d orphan attachment(s) to assistant message %s",
+                    linked.rowcount, last_assistant_msg_id,
+                )
+        except Exception:
+            logger.warning("Failed to link orphan attachments", exc_info=True)
 
     return first_user_msg_id
 
@@ -706,18 +731,23 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
 
 
 def _filter_old_heartbeats(msgs: list[dict]) -> list[dict]:
-    """Strip ALL heartbeat messages from the active conversation history.
+    """Strip heartbeat *prompt* messages but keep assistant heartbeat responses.
 
-    Heartbeat messages are tagged with is_heartbeat=True in metadata.
-    They're dropped entirely because:
-    - For heartbeat turns: the preamble already includes "Previous heartbeat
-      conclusion" — keeping old exchanges is redundant.
-    - For user turns: heartbeat prompts look like user instructions and confuse
-      the LLM into continuing from the heartbeat context instead of the user's
-      actual message.
-    - The bot's memory files provide long-term heartbeat continuity.
+    User-role heartbeat messages are synthetic prompts that look like user
+    instructions and confuse the LLM into continuing from the heartbeat
+    context instead of the user's actual message — these are dropped.
+
+    Assistant-role heartbeat responses are kept so the bot remains aware of
+    its own heartbeat output when the user messages next.  Tool-role messages
+    from heartbeat turns are also kept (they're part of the assistant's work).
     """
-    return [m for m in msgs if not (m.get("_metadata") or {}).get("is_heartbeat")]
+    return [
+        m for m in msgs
+        if not (
+            (m.get("_metadata") or {}).get("is_heartbeat")
+            and m.get("role") == "user"
+        )
+    ]
 
 
 def _strip_metadata_keys(messages: list[dict]) -> list[dict]:

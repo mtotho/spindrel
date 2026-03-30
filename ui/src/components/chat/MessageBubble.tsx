@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Wrench } from "lucide-react";
+import { Wrench, ChevronRight, ChevronDown } from "lucide-react";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
-import type { Message, AttachmentBrief } from "../../types/api";
+import { formatToolArgs } from "./toolCallUtils";
+import type { Message, AttachmentBrief, ToolCall } from "../../types/api";
+import { normalizeToolCall } from "../../types/api";
 
 interface Props {
   message: Message;
@@ -425,50 +428,120 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
 }
 
 // ---------------------------------------------------------------------------
-// Tool badges — shows tools used on persisted messages
+// Tool badges — shows tools used on persisted messages, click to expand args
 // ---------------------------------------------------------------------------
 
-function ToolBadges({ toolNames, t }: { toolNames: string[]; t: ReturnType<typeof useThemeTokens> }) {
+function ToolBadges({
+  toolNames,
+  toolCalls,
+  t,
+}: {
+  toolNames: string[];
+  toolCalls?: ToolCall[];
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   if (toolNames.length === 0) return null;
-  // Deduplicate and count
-  const counts = new Map<string, number>();
-  for (const name of toolNames) {
-    counts.set(name, (counts.get(name) || 0) + 1);
+
+  // Build display list: if we have full tool_calls, use them (preserves order + args).
+  // Otherwise fall back to toolNames with dedup/count.
+  const items: { name: string; count: number; args?: string }[] = [];
+  if (toolCalls && toolCalls.length > 0) {
+    for (const tc of toolCalls) {
+      const norm = normalizeToolCall(tc);
+      items.push({ name: norm.name, count: 1, args: norm.arguments });
+    }
+  } else {
+    const counts = new Map<string, number>();
+    for (const name of toolNames) {
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    for (const [name, count] of counts) {
+      items.push({ name, count });
+    }
   }
+
   const isWeb = Platform.OS === "web";
+
   if (isWeb) {
     return (
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-        {[...counts.entries()].map(([name, count]) => (
-          <div
-            key={name}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              paddingLeft: 6,
-              paddingRight: 8,
-              paddingTop: 3,
-              paddingBottom: 3,
-              borderRadius: 4,
-              backgroundColor: t.overlayLight,
-              border: `1px solid ${t.overlayBorder}`,
-            }}
-          >
-            <Wrench size={10} color={t.textDim} />
-            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
-              {name}{count > 1 ? ` x${count}` : ""}
-            </span>
-          </div>
-        ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {items.map((item, idx) => {
+            const hasArgs = !!item.args;
+            const isExpanded = expandedIdx === idx;
+            return (
+              <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
+                <div
+                  onClick={hasArgs ? () => setExpandedIdx(isExpanded ? null : idx) : undefined}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    paddingLeft: 6,
+                    paddingRight: 8,
+                    paddingTop: 3,
+                    paddingBottom: 3,
+                    borderRadius: 4,
+                    backgroundColor: isExpanded ? t.surfaceBorder : t.overlayLight,
+                    border: `1px solid ${t.overlayBorder}`,
+                    cursor: hasArgs ? "pointer" : "default",
+                    transition: "background-color 0.15s",
+                  }}
+                >
+                  <Wrench size={10} color={t.textDim} />
+                  <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
+                    {item.name}{item.count > 1 ? ` x${item.count}` : ""}
+                  </span>
+                  {hasArgs && (
+                    isExpanded
+                      ? <ChevronDown size={10} color={t.textDim} />
+                      : <ChevronRight size={10} color={t.textDim} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {expandedIdx !== null && items[expandedIdx]?.args && (() => {
+          const formatted = formatToolArgs(items[expandedIdx].args);
+          if (!formatted) return null;
+          return (
+            <div
+              style={{
+                borderRadius: 6,
+                backgroundColor: t.overlayLight,
+                border: `1px solid ${t.overlayBorder}`,
+                padding: "6px 10px",
+                maxHeight: 300,
+                overflowY: "auto",
+              }}
+            >
+              <pre
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                  color: t.textMuted,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: "1.4",
+                }}
+              >
+                {formatted}
+              </pre>
+            </div>
+          );
+        })()}
       </div>
     );
   }
+
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-      {[...counts.entries()].map(([name, count]) => (
+      {items.map((item, idx) => (
         <View
-          key={name}
+          key={idx}
           style={{
             flexDirection: "row",
             alignItems: "center",
@@ -482,7 +555,7 @@ function ToolBadges({ toolNames, t }: { toolNames: string[]; t: ReturnType<typeo
           }}
         >
           <Text style={{ fontSize: 11, color: t.textMuted }}>
-            {name}{count > 1 ? ` x${count}` : ""}
+            {item.name}{item.count > 1 ? ` x${item.count}` : ""}
           </Text>
         </View>
       ))}
@@ -498,6 +571,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
+  const [heartbeatExpanded, setHeartbeatExpanded] = useState(false);
   // Extract text from content (handles JSON-array content blocks) then strip Slack prefix
   const rawText = extractDisplayText(message.content);
   const { slackUserId, cleaned: displayContent } = parseSlackPrefix(rawText);
@@ -506,6 +580,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
   const timestamp = formatTimeShort(message.created_at);
   const sourceLabel = isSlack ? "via Slack" : null;
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
+  const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
   const triggerBadge = trigger === "heartbeat"
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
@@ -519,6 +594,62 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
             ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
             : null;
 
+  // Collapsed non-dispatched heartbeat messages
+  const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;
+  if (isNonDispatchedHeartbeat && isWeb) {
+    return (
+      <div
+        style={{
+          paddingLeft: 20,
+          paddingRight: 20,
+          paddingTop: 2,
+          paddingBottom: 2,
+        }}
+      >
+        <div
+          onClick={() => setHeartbeatExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+            padding: "4px 8px",
+            borderRadius: 4,
+            fontSize: 12,
+            color: t.textDim,
+          }}
+        >
+          {heartbeatExpanded
+            ? <ChevronDown size={11} color={t.textDim} />
+            : <ChevronRight size={11} color={t.textDim} />
+          }
+          <span>💓</span>
+          <span>Heartbeat ran</span>
+          <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7 }}>
+            {timestamp}
+          </span>
+        </div>
+        {heartbeatExpanded && (
+          <div style={{ paddingLeft: 30, paddingTop: 4, paddingBottom: 4 }}>
+            <div style={{ fontSize: 14, lineHeight: "1.5", color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {displayContent}
+            </div>
+            {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (isNonDispatchedHeartbeat && !isWeb) {
+    return (
+      <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
+        <Text style={{ fontSize: 12, color: t.textDim }}>
+          💓 Heartbeat ran — {timestamp}
+        </Text>
+      </View>
+    );
+  }
+
   const messageContent = isWeb ? (
     <>
       {displayContent.length > 0 && (
@@ -527,7 +658,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
-      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} t={t} />}
+      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
     </>
   ) : (
     <>
@@ -538,7 +669,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       >
         {displayContent}
       </Text>
-      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} t={t} />}
+      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
     </>
   );
 

@@ -140,10 +140,20 @@ export function useAdoptIntegration(channelId: string) {
   });
 }
 
+export interface AvailableIntegration {
+  type: string;
+  binding?: {
+    client_id_prefix: string;
+    client_id_placeholder: string;
+    client_id_description: string;
+    display_name_placeholder: string;
+  } | null;
+}
+
 export function useAvailableIntegrations() {
   return useQuery({
     queryKey: ["available-integrations"],
-    queryFn: () => apiFetch<string[]>("/api/v1/admin/channels/integrations/available"),
+    queryFn: () => apiFetch<AvailableIntegration[]>("/api/v1/admin/channels/integrations/available"),
   });
 }
 

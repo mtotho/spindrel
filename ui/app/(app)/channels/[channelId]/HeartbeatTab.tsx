@@ -182,7 +182,7 @@ function buildMetadataPreview(form: any, data: any): string {
 
   const lines = [
     "[SCHEDULED HEARTBEAT]",
-    "You are running a scheduled heartbeat — an automated periodic prompt (not a user message).",
+    "You are running a scheduled heartbeat \u2014 an automated periodic prompt (not a user message).",
     "Your job: follow the prompt below, analyze what is relevant, and produce a concise result.",
     "Current time: {current_time}",
     `Channel: ${data?.channel_name ?? "{channel_name}"}`,
@@ -191,6 +191,16 @@ function buildMetadataPreview(form: any, data: any): string {
     "Last heartbeat: {last_run_time}",
     "Activity since last heartbeat: {activity_summary}",
   ];
+
+  // Quiet hours line
+  const qStart = form?.quiet_start;
+  const qEnd = form?.quiet_end;
+  const qTz = form?.timezone;
+  if (qStart && qEnd) {
+    lines.push(`Quiet hours: ${qStart}\u2013${qEnd} (${qTz || data?.default_timezone || "server default"})`);
+  } else if (data?.default_quiet_hours) {
+    lines.push(`Quiet hours: ${data.default_quiet_hours} (global default, ${data.default_timezone})`);
+  }
 
   if (effectiveMax === 0) {
     lines.push("Previous heartbeat conclusion: {full_previous_result}");
@@ -223,7 +233,7 @@ function buildMetadataPreview(form: any, data: any): string {
   lines.push(
     "",
     "--- [system: current-turn marker] ---",
-    "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+    "Everything above is context and conversation history. The user's CURRENT message follows \u2014 respond to it directly.",
     "",
     "--- [user message: heartbeat prompt] ---",
     "{heartbeat_prompt}",
@@ -298,6 +308,9 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         max_run_seconds: data.config.max_run_seconds ?? null,
         previous_result_max_chars: data.config.previous_result_max_chars ?? null,
         repetition_detection: data.config.repetition_detection ?? null,
+        quiet_start: data.config.quiet_start ?? "",
+        quiet_end: data.config.quiet_end ?? "",
+        timezone: data.config.timezone ?? "",
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -315,13 +328,19 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         max_run_seconds: null,
         previous_result_max_chars: null,
         repetition_detection: null,
+        quiet_start: "",
+        quiet_end: "",
+        timezone: "",
       });
     }
   }, [data]);
 
   const toggleMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/toggle`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
   });
 
   const saveMutation = useMutation({
@@ -331,6 +350,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
       setHbSaved(true);
       setTimeout(() => setHbSaved(false), 2500);
     },
@@ -372,6 +392,11 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
 
   const enabled = data?.config?.enabled ?? false;
 
+  // Build quiet hours placeholder from global defaults
+  const quietPlaceholder = data?.default_quiet_hours
+    ? data.default_quiet_hours.split("-")
+    : [null, null];
+
   return (
     <>
       {/* Enable toggle + save */}
@@ -399,35 +424,65 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
       </div>
 
       <div style={{ opacity: enabled ? 1 : 0.5 }}>
-        <Row>
-          <Col>
-            <FormRow label="Interval">
-              <SelectInput
-                value={hbForm.interval_minutes?.toString() ?? "60"}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v) }))}
-                options={INTERVAL_OPTIONS}
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <LlmModelDropdown
-              label="Model"
-              value={hbForm.model ?? ""}
-              onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
-              placeholder={`inherit (${botModel ?? "bot default"})`}
-              allowClear
-            />
-          </Col>
-        </Row>
+        {/* ---- Schedule Section ---- */}
+        <Section title="Schedule">
+          <Row>
+            <Col>
+              <FormRow label="Interval">
+                <SelectInput
+                  value={hbForm.interval_minutes?.toString() ?? "60"}
+                  onChange={(v) => setHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v) }))}
+                  options={INTERVAL_OPTIONS}
+                />
+              </FormRow>
+            </Col>
+          </Row>
 
-        <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
-          <FallbackModelList
-            value={hbForm.fallback_models ?? []}
-            onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
-          />
-        </FormRow>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 8, letterSpacing: "0.03em" }}>
+              Quiet Hours
+              {!hbForm.quiet_start && !hbForm.quiet_end && data?.default_quiet_hours && (
+                <span style={{ fontWeight: 400, marginLeft: 6, color: t.textDim }}>
+                  (inheriting global: {data.default_quiet_hours})
+                </span>
+              )}
+            </div>
+            <Row>
+              <Col>
+                <FormRow label="Start">
+                  <TextInput
+                    value={hbForm.quiet_start ?? ""}
+                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
+                    placeholder={quietPlaceholder[0] ?? "HH:MM (e.g. 23:00)"}
+                    type="time"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="End">
+                  <TextInput
+                    value={hbForm.quiet_end ?? ""}
+                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
+                    placeholder={quietPlaceholder[1] ?? "HH:MM (e.g. 07:00)"}
+                    type="time"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Timezone">
+                  <TextInput
+                    value={hbForm.timezone ?? ""}
+                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
+                    placeholder={data?.default_timezone ?? "America/New_York"}
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+          </div>
+        </Section>
 
-        <div style={{ marginTop: 16 }}>
+        {/* ---- Prompt Section ---- */}
+        <Section title="Prompt">
           <button
             onClick={() => inferMutation.mutate()}
             disabled={inferMutation.isPending}
@@ -472,61 +527,84 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               />
             </>
           )}
-        </div>
+        </Section>
 
-        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Toggle
-            value={hbForm.dispatch_results ?? true}
-            onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
-            label="Post results to channel"
-          />
-          {hbForm.dispatch_results && (
-            <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
-              <SelectInput
-                value={hbForm.dispatch_mode ?? "always"}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
-                options={[
-                  { label: "Always post", value: "always" },
-                  { label: "LLM decides (via tool)", value: "optional" },
-                ]}
+        {/* ---- Dispatch Section ---- */}
+        <Section title="Dispatch">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Toggle
+              value={hbForm.dispatch_results ?? true}
+              onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
+              label="Post results to channel"
+            />
+            {hbForm.dispatch_results && (
+              <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
+                <SelectInput
+                  value={hbForm.dispatch_mode ?? "always"}
+                  onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
+                  options={[
+                    { label: "Always post", value: "always" },
+                    { label: "LLM decides (via tool)", value: "optional" },
+                  ]}
+                />
+              </FormRow>
+            )}
+            <Toggle
+              value={hbForm.trigger_response ?? false}
+              onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
+              label="Trigger agent response after posting"
+              description="After posting the heartbeat result, the bot will process it and respond again."
+            />
+            <Toggle
+              value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
+              onChange={(v) => {
+                const globalDefault = data?.default_repetition_detection ?? true;
+                setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
+              }}
+              label="Repetition detection"
+              description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
+            />
+          </div>
+        </Section>
+
+        {/* ---- Advanced Section ---- */}
+        <Section title="Advanced">
+          <Row>
+            <Col>
+              <LlmModelDropdown
+                label="Model"
+                value={hbForm.model ?? ""}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
+                placeholder={`inherit (${botModel ?? "bot default"})`}
+                allowClear
+              />
+            </Col>
+          </Row>
+          <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
+            <FallbackModelList
+              value={hbForm.fallback_models ?? []}
+              onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
+            />
+          </FormRow>
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 12 }}>
+            <FormRow label="Max run time (seconds)">
+              <TextInput
+                value={hbForm.max_run_seconds?.toString() ?? ""}
+                onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
+                placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
+                type="number"
               />
             </FormRow>
-          )}
-          <Toggle
-            value={hbForm.trigger_response ?? false}
-            onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
-            label="Trigger agent response after posting"
-            description="After posting the heartbeat result, the bot will process it and respond again."
-          />
-          <Toggle
-            value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
-            onChange={(v) => {
-              const globalDefault = data?.default_repetition_detection ?? true;
-              setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
-            }}
-            label="Repetition detection"
-            description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
-          />
-        </div>
-
-        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <FormRow label="Max run time (seconds)">
-            <TextInput
-              value={hbForm.max_run_seconds?.toString() ?? ""}
-              onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
-              placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
-              type="number"
-            />
-          </FormRow>
-          <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
-            <TextInput
-              value={hbForm.previous_result_max_chars?.toString() ?? ""}
-              onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
-              placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
-              type="number"
-            />
-          </FormRow>
-        </div>
+            <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
+              <TextInput
+                value={hbForm.previous_result_max_chars?.toString() ?? ""}
+                onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
+                placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
+                type="number"
+              />
+            </FormRow>
+          </div>
+        </Section>
 
         <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
           <button

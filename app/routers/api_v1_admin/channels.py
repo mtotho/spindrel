@@ -110,6 +110,8 @@ class ChannelOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
+    heartbeat_enabled: bool = False
+    heartbeat_in_quiet_hours: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -224,6 +226,8 @@ class HeartbeatOut(BaseModel):
     default_max_run_seconds: int = settings.TASK_MAX_RUN_SECONDS
     default_previous_result_chars: int = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
     default_repetition_detection: bool = settings.HEARTBEAT_REPETITION_DETECTION
+    default_quiet_hours: Optional[str] = settings.HEARTBEAT_QUIET_HOURS or None
+    default_timezone: str = settings.TIMEZONE
     channel_name: Optional[str] = None
     has_dispatch_config: bool = False
 
@@ -1744,10 +1748,25 @@ async def admin_channels_enriched(
 
     display_names = await _resolve_display_names(channels)
 
+    # Batch-load heartbeat rows for all channels
+    channel_ids = [ch.id for ch in channels]
+    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
+    if channel_ids:
+        hb_rows = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
+        )).scalars().all()
+        hb_map = {hb.channel_id: hb for hb in hb_rows}
+
+    from app.services.heartbeat import _is_heartbeat_in_quiet_hours
+
     enriched = []
     for ch in channels:
         out = ChannelOut.model_validate(ch)
         out.display_name = display_names.get(ch.id)
+        hb = hb_map.get(ch.id)
+        if hb and hb.enabled:
+            out.heartbeat_enabled = True
+            out.heartbeat_in_quiet_hours = _is_heartbeat_in_quiet_hours(hb)
         enriched.append(out)
 
     return ChannelListOut(
@@ -1766,9 +1785,9 @@ async def admin_channels_enriched(
 async def available_integrations(
     _auth=Depends(verify_auth_or_user),
 ):
-    """List registered integration types (from discovery + dispatcher registry)."""
+    """List registered integration types with binding metadata."""
     from app.agent import dispatchers as disp_mod
-    from integrations import discover_integrations
+    from integrations import discover_binding_metadata, discover_integrations
 
     # Collect from dispatcher registry
     types = set(disp_mod._registry.keys()) - {"none", "webhook", "internal"}
@@ -1777,4 +1796,13 @@ async def available_integrations(
     for integration_id, _ in discover_integrations():
         types.add(integration_id)
 
-    return sorted(types)
+    # Attach binding metadata from setup.py
+    binding_meta = discover_binding_metadata()
+
+    return [
+        {
+            "type": t,
+            "binding": binding_meta.get(t),
+        }
+        for t in sorted(types)
+    ]

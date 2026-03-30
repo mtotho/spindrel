@@ -9,4 +9,10 @@ SETUP = {
     ],
     "webhook": None,
     "instructions_url": None,
+    "binding": {
+        "client_id_prefix": "slack:",
+        "client_id_placeholder": "slack:C01ABC123",
+        "client_id_description": "Slack channel ID (starts with C)",
+        "display_name_placeholder": "#general",
+    },
 }
