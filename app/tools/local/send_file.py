@@ -20,14 +20,16 @@ from app.tools.registry import register
             "Send a file from disk to the current chat. The file is saved as an "
             "attachment and delivered to the channel (Slack, web UI, etc.). "
             "Works with any file type — images, PDFs, HTML, PPTX, CSV, etc. "
-            "The file persists in message history across all clients."
+            "The file persists in message history across all clients. "
+            "Supports workspace paths (e.g. /workspace/...) — they are automatically "
+            "translated to the server-side location."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute or relative path to the file on disk.",
+                    "description": "Absolute or relative path to the file on disk (workspace paths like /workspace/... are translated automatically).",
                 },
                 "caption": {
                     "type": "string",
@@ -50,6 +52,22 @@ async def send_file(path: str, caption: str = "", filename: str = "") -> str:
     max_bytes = settings.ATTACHMENT_MAX_SIZE_BYTES or 50 * 1024 * 1024  # fallback 50 MB
 
     file_path = Path(path).expanduser()
+
+    # If the path doesn't exist locally, try translating workspace container paths
+    if not file_path.is_file():
+        bot_id = current_bot_id.get()
+        if bot_id:
+            try:
+                from app.agent.bots import get_bot
+                from app.services.workspace import workspace_service
+                bot = get_bot(bot_id)
+                if bot:
+                    translated = workspace_service.translate_path(bot_id, path, bot.workspace, bot=bot)
+                    if translated != path:
+                        file_path = Path(translated)
+            except Exception:
+                pass  # fall through to the original "not found" error
+
     if not file_path.is_file():
         return json.dumps({"error": f"File not found: {path}"})
 
