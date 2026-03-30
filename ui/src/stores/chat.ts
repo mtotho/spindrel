@@ -170,6 +170,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
+        case "queued": {
+          // Message was queued — SSE stream ends, re-enable input
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, isStreaming: false },
+            },
+          };
+        }
         case "error": {
           // Server sends: {"type": "error", "message": "..."}
           const data = event.data as { message?: string; detail?: string };

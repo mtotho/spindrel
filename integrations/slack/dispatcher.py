@@ -8,14 +8,54 @@ from __future__ import annotations
 import logging
 
 from app.agent.dispatchers import register
-from integrations.slack.client import bot_attribution, post_message
+from integrations.slack.client import bot_attribution, post_message, post_message_raw, update_message
 from integrations.slack.formatting import split_for_slack
 
 logger = logging.getLogger(__name__)
 
 
 class SlackDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def notify_start(self, task) -> None:
+        """Post a thinking placeholder to Slack when a queued task starts executing.
+
+        Stores the placeholder ts in dispatch_config so deliver() can update it
+        with the final response instead of posting a new message.
+        """
+        cfg = task.dispatch_config or {}
+        channel_id = cfg.get("channel_id")
+        thread_ts = cfg.get("thread_ts")
+        token = cfg.get("token")
+        if not channel_id or not token:
+            return
+
+        attrs = bot_attribution(task.bot_id)
+        data = await post_message_raw(
+            token, channel_id, "\u23f3 _thinking..._",
+            thread_ts=thread_ts,
+            reply_in_thread=True,
+            **attrs,
+        )
+        if data:
+            # Stash placeholder info so deliver() can update it
+            cfg["_thinking_ts"] = data.get("ts")
+            cfg["_thinking_channel"] = data.get("channel")
+
+        # Remove the hourglass reaction from the user's original message
+        message_ts = cfg.get("message_ts")
+        if message_ts:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=10.0) as _client:
+                    await _client.post(
+                        "https://slack.com/api/reactions.remove",
+                        json={"channel": channel_id, "name": "hourglass_flowing_sand", "timestamp": message_ts},
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+            except Exception:
+                pass
+
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
         channel_id = cfg.get("channel_id")
         thread_ts = cfg.get("thread_ts")
@@ -27,8 +67,24 @@ class SlackDispatcher:
         reply_in_thread = cfg.get("reply_in_thread", True)
         attrs = bot_attribution(task.bot_id)
 
-        chunks = split_for_slack(result)
+        # Prepend delegation attribution for Slack
+        _slack_text = result
+        if extra_metadata and extra_metadata.get("delegated_by_display"):
+            _slack_text = f"_Delegated by {extra_metadata['delegated_by_display']}_\n{_slack_text}"
+
+        chunks = split_for_slack(_slack_text)
+
+        # If we posted a thinking placeholder via notify_start, update it with the
+        # first chunk instead of posting a new message.
+        _thinking_ts = cfg.pop("_thinking_ts", None)
+        _thinking_channel = cfg.pop("_thinking_channel", None)
         ok = True
+        if _thinking_ts and _thinking_channel and chunks:
+            ok = await update_message(
+                token, _thinking_channel, _thinking_ts, chunks[0], **attrs,
+            )
+            chunks = chunks[1:]
+
         for chunk in chunks:
             ok = await post_message(
                 token, channel_id, chunk,
@@ -45,6 +101,7 @@ class SlackDispatcher:
         from app.services.sessions import store_dispatch_echo
         await store_dispatch_echo(
             task.session_id, task.client_id, task.bot_id, result,
+            extra_metadata=extra_metadata,
         )
 
         # Upload any images generated during the task
@@ -65,7 +122,8 @@ class SlackDispatcher:
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         """Post a message to Slack via the shared client, optionally with bot/user attribution."""
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")

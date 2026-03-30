@@ -20,12 +20,14 @@ _http = httpx.AsyncClient(timeout=30.0)
 
 @runtime_checkable
 class Dispatcher(Protocol):
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None: ...
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None: ...
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool: ...
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool: ...
 
 
 _registry: dict[str, Dispatcher] = {}
@@ -44,19 +46,22 @@ def get(dispatch_type: str | None) -> Dispatcher:
 # ---------------------------------------------------------------------------
 
 class _NoneDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         pass  # result stored in DB only; caller polls get_task
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         return False
 
 
 class _WebhookDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
         url = cfg.get("url")
         if not url:
@@ -72,12 +77,14 @@ class _WebhookDispatcher:
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         return False
 
 
 class _InternalDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         """Persist result as a user message in a parent session so the parent bot can process it."""
         cfg = task.dispatch_config or {}
         session_id_str = cfg.get("session_id")
@@ -109,7 +116,8 @@ class _InternalDispatcher:
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         return False
 
 

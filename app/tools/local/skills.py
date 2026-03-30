@@ -53,10 +53,15 @@ async def get_skill(skill_id: str) -> str:
             from app.agent.bots import get_bot
             bot = get_bot(bot_id)
             if bot.skills and skill_id not in bot.skill_ids:
-                # Check workspace DB skills and channel skills_extra
-                _allowed = await _check_extra_skill_access(bot, skill_id)
-                if not _allowed:
-                    return f"Skill '{skill_id}' is not configured for this bot."
+                # Check ephemeral @-tagged skills first
+                from app.agent.context import current_ephemeral_skills
+                if skill_id in (current_ephemeral_skills.get() or []):
+                    pass  # tagged skill — allow access
+                else:
+                    # Check workspace DB skills and channel skills_extra
+                    _allowed = await _check_extra_skill_access(bot, skill_id)
+                    if not _allowed:
+                        return f"Skill '{skill_id}' is not configured for this bot."
         except Exception:
             pass  # bot not found — proceed without access check
 

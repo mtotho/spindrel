@@ -13,7 +13,7 @@ import { useUIStore } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useChatStream } from "@/src/api/hooks/useChat";
+import { useChatStream, useCancelChat } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
@@ -153,7 +153,8 @@ export default function ChatScreen() {
           if (m.role !== "user" && m.role !== "assistant") return false;
           const meta = (m as any).metadata ?? {};
           // Hide passive dispatch echoes (ambient messages bot didn't respond to)
-          if (meta.passive) return false;
+          // But show delegated child responses (they arrive as passive with delegated_by attribution)
+          if (meta.passive && !meta.delegated_by) return false;
           // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
           if (m.role === "user" && meta.is_heartbeat) return false;
           // Hide assistant messages with no displayable content (tool-call-only messages)
@@ -163,6 +164,16 @@ export default function ChatScreen() {
       setMessages(channelId, allMessages);
     }
   }, [channelId, pages]);
+
+  const cancelChat = useCancelChat();
+
+  const handleCancel = useCallback(() => {
+    if (!channel) return;
+    cancelChat.mutate({
+      client_id: channel.client_id ?? "",
+      bot_id: channel.bot_id,
+    });
+  }, [channel]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -416,7 +427,9 @@ export default function ChatScreen() {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={chatState.isStreaming || isPaused}
+        disabled={isPaused}
+        isStreaming={chatState.isStreaming}
+        onCancel={handleCancel}
         modelOverride={turnModelOverride}
         onModelOverrideChange={setTurnModelOverride}
         defaultModel={channel?.model_override || bot?.model}

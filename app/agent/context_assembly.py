@@ -13,7 +13,7 @@ from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import resolve_effective_tools
-from app.agent.context import set_ephemeral_delegates
+from app.agent.context import set_ephemeral_delegates, set_ephemeral_skills
 from app.agent.knowledge import retrieve_knowledge
 from app.agent.memory import retrieve_memories
 from app.agent.message_utils import (
@@ -500,6 +500,8 @@ async def assemble_context(
     result.tagged_bot_names = _tagged_bot_names
     if _tagged_bot_names:
         set_ephemeral_delegates(_tagged_bot_names)
+    if _tagged_skill_names:
+        set_ephemeral_skills(_tagged_skill_names)
 
     if _tagged:
         # Inject tagged skill chunks (bypasses similarity threshold)

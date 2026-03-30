@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 # Match @name or @type:name.
 # Negative lookbehind: skip Slack's <@USERID> and email addresses (foo@bar).
 # Names must start with a letter or underscore (not a digit).
+# Allows slashes for path-style IDs (e.g. packages/slides/slides).
 # tool-pack must appear before tool in the alternation to avoid partial matching.
-_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-\.]*)")
+_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-\./]*)")
 
 
 @dataclass
@@ -29,6 +30,15 @@ class ResolvedTag:
     raw: str       # original text, e.g. "@arch_linux" or "@skill:arch_linux"
     name: str      # resolved name, e.g. "arch_linux"
     tag_type: str  # "skill", "knowledge", or "tool"
+
+
+def _match_skill_short_name(short: str, skill_set: set[str]) -> str | None:
+    """Match a short name like 'slides' to a full path-style skill ID like 'packages/slides/slides'.
+
+    Returns the full ID if exactly one skill ends with the short name as its final segment.
+    """
+    matches = [s for s in skill_set if s.rsplit("/", 1)[-1] == short]
+    return matches[0] if len(matches) == 1 else None
 
 
 async def resolve_tags(
@@ -89,6 +99,8 @@ async def resolve_tags(
                     resolved.append(ResolvedTag(raw=raw, name=tool_name, tag_type="tool"))
         elif name in skill_set:
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="skill"))
+        elif (full_id := _match_skill_short_name(name, skill_set)):
+            resolved.append(ResolvedTag(raw=raw, name=full_id, tag_type="skill"))
         elif name in tool_set:
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="tool"))
         elif name in bot_id_set and name != bot_id:

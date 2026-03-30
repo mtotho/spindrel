@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { Send, Paperclip, X, Cpu } from "lucide-react";
+import { Send, Square, Paperclip, X, Cpu } from "lucide-react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
@@ -17,12 +17,14 @@ export interface PendingFile {
 interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
   disabled?: boolean;
+  isStreaming?: boolean;
+  onCancel?: () => void;
   modelOverride?: string;
   onModelOverrideChange?: (m: string | undefined) => void;
   defaultModel?: string;
 }
 
-export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideChange, defaultModel }: Props) {
+export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
@@ -219,7 +221,10 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
     }
   };
 
-  const canSend = (text.trim() || pendingFiles.length > 0) && !disabled;
+  const hasContent = !!(text.trim() || pendingFiles.length > 0);
+  const canSend = hasContent && !disabled;
+  // Show stop button when streaming and user hasn't typed anything
+  const showStop = !!isStreaming && !hasContent;
 
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
@@ -331,7 +336,6 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               onPaste={handlePaste}
               onBlur={() => setTimeout(() => setShowMenu(false), 200)}
               placeholder="Type a message..."
-              disabled={disabled}
               autoFocus
               rows={1}
               style={{
@@ -431,17 +435,21 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             </div>
           )}
           <Pressable
-            onPress={handleSend}
-            disabled={!canSend}
+            onPress={showStop ? onCancel : handleSend}
+            disabled={!canSend && !showStop}
             className="items-center justify-center rounded-lg"
             style={{
               width: 44,
               height: 44,
-              backgroundColor: canSend ? t.accent : "transparent",
-              opacity: canSend ? 1 : 0.4,
+              backgroundColor: showStop ? "#ef4444" : canSend ? t.accent : "transparent",
+              opacity: canSend || showStop ? 1 : 0.4,
             }}
           >
-            <Send size={18} color={canSend ? "white" : t.textDim} />
+            {showStop ? (
+              <Square size={16} color="white" fill="white" />
+            ) : (
+              <Send size={18} color={canSend ? "white" : t.textDim} />
+            )}
           </Pressable>
           <AutocompleteMenu
             show={showMenu}
@@ -478,20 +486,21 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
         editable={!disabled}
       />
       <Pressable
-        onPress={handleSend}
-        disabled={!text.trim() || disabled}
+        onPress={showStop ? onCancel : handleSend}
+        disabled={!(text.trim() && !disabled) && !showStop}
         className="items-center justify-center rounded-lg"
         style={{
           width: 44,
           height: 44,
-          backgroundColor: text.trim() && !disabled ? t.accent : "transparent",
-          opacity: text.trim() && !disabled ? 1 : 0.4,
+          backgroundColor: showStop ? "#ef4444" : text.trim() && !disabled ? t.accent : "transparent",
+          opacity: (text.trim() && !disabled) || showStop ? 1 : 0.4,
         }}
       >
-        <Send
-          size={18}
-          color={text.trim() && !disabled ? "white" : t.textDim}
-        />
+        {showStop ? (
+          <Square size={16} color="white" fill="white" />
+        ) : (
+          <Send size={18} color={text.trim() && !disabled ? "white" : t.textDim} />
+        )}
       </Pressable>
     </View>
   );

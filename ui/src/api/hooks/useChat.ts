@@ -3,6 +3,36 @@ import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type { ChatRequest, SSEEvent } from "../../types/api";
 
+interface CancelRequest {
+  client_id: string;
+  bot_id: string;
+}
+
+interface CancelResponse {
+  cancelled: boolean;
+  queued_tasks_cancelled: number;
+}
+
+export function useCancelChat() {
+  return useMutation({
+    mutationFn: async (req: CancelRequest): Promise<CancelResponse> => {
+      const { serverUrl } = useAuthStore.getState();
+      if (!serverUrl) throw new Error("Server not configured");
+      const token = getAuthToken();
+      const res = await fetch(`${serverUrl}/chat/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) throw new Error(`Cancel failed: ${res.status}`);
+      return res.json();
+    },
+  });
+}
+
 interface UseChatStreamOptions {
   onEvent: (event: SSEEvent) => void;
   onError?: (error: Error) => void;

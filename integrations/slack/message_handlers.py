@@ -228,7 +228,13 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             etype = event.get("type")
             if etype == "queued":
                 # Server queued the message — response will arrive later via
-                # the task dispatcher.  Nothing was posted, nothing to clean up.
+                # the task dispatcher.  React with hourglass so user knows it's queued.
+                message_ts = dispatch_config.get("message_ts")
+                if message_ts:
+                    try:
+                        await client.reactions_add(channel=channel, name="hourglass_flowing_sand", timestamp=message_ts)
+                    except Exception:
+                        logger.debug("Failed to add queued reaction", exc_info=True)
                 return
             await _ensure_thinking()
             if etype == "text_delta":
@@ -482,10 +488,13 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     child_identity["icon_emoji"] = child_display["icon_emoji"]
                 elif child_display.get("icon_url"):
                     child_identity["icon_url"] = child_display["icon_url"]
+                # Add parent attribution
+                _parent_display = identity.get("username") or bot_id
+                _attributed_text = f"_Delegated by {_parent_display}_\n{format_response_for_slack(child_text)}"
                 try:
                     await client.chat_postMessage(
                         channel=thinking_channel,
-                        text=format_response_for_slack(child_text),
+                        text=_attributed_text,
                         thread_ts=thread_ts if child_reply_in_thread else None,
                         **child_identity,
                     )
