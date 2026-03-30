@@ -174,62 +174,6 @@ async def list_attachments(
 @register({
     "type": "function",
     "function": {
-        "name": "post_attachment",
-        "description": (
-            "Post an attachment (image, video, or file) into the chat. "
-            "Looks up the attachment by ID and uploads it inline. "
-            "Works with any attachment — Frigate snapshots/clips, generated images, "
-            "uploaded files, etc."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "attachment_id": {
-                    "type": "string",
-                    "description": "The UUID of the attachment to post.",
-                },
-                "caption": {
-                    "type": "string",
-                    "description": "Optional caption to display with the attachment.",
-                },
-            },
-            "required": ["attachment_id"],
-        },
-    },
-})
-async def post_attachment(attachment_id: str, caption: str = "") -> str:
-    from app.services.attachments import get_attachment_by_id
-
-    try:
-        att_uuid = uuid.UUID(attachment_id)
-    except ValueError:
-        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
-
-    att = await get_attachment_by_id(att_uuid)
-    if att is None:
-        return json.dumps({"error": f"Attachment {attachment_id} not found."})
-
-    if not att.file_data:
-        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
-
-    mime = att.mime_type or ""
-    action_type = "upload_image" if mime.startswith("image/") else "upload_file"
-
-    b64 = base64.b64encode(att.file_data).decode("ascii")
-    return json.dumps({
-        "message": f"Posted {att.filename or attachment_id}" + (f": {caption}" if caption else ""),
-        "client_action": {
-            "type": action_type,
-            "data": b64,
-            "filename": att.filename or "attachment",
-            "caption": caption,
-        },
-    })
-
-
-@register({
-    "type": "function",
-    "function": {
         "name": "describe_attachment",
         "description": (
             "Describe or answer questions about an image attachment. "
