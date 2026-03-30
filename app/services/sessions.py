@@ -480,11 +480,19 @@ async def persist_turn(
             if linked_count:
                 await db.commit()
                 logger.info(
-                    "Linked %d orphan attachment(s) in channel %s",
-                    linked_count, channel_id,
+                    "Linked %d orphan attachment(s) in channel %s (user_msg=%s, asst_msg=%s)",
+                    linked_count, channel_id, first_user_msg_id, last_assistant_msg_id,
+                )
+            else:
+                logger.debug(
+                    "No orphan attachments to link in channel %s (user_msg=%s, asst_msg=%s)",
+                    channel_id, first_user_msg_id, last_assistant_msg_id,
                 )
         except Exception:
-            logger.warning("Failed to link orphan attachments", exc_info=True)
+            logger.exception(
+                "Failed to link orphan attachments in channel %s (user_msg=%s, asst_msg=%s)",
+                channel_id, first_user_msg_id, last_assistant_msg_id,
+            )
 
     return first_user_msg_id
 

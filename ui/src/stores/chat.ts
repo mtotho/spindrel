@@ -179,6 +179,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
+        case "cancelled": {
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, isStreaming: false, streamingContent: "", thinkingContent: "", toolCalls: [] },
+            },
+          };
+        }
         case "error": {
           // Server sends: {"type": "error", "message": "..."}
           const data = event.data as { message?: string; detail?: string };

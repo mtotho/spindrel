@@ -159,7 +159,9 @@ export default function ChatScreen() {
           // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
           if (m.role === "user" && meta.is_heartbeat) return false;
           // Hide assistant messages with no displayable content (tool-call-only messages)
-          if (m.role === "assistant" && !extractDisplayText(m.content)) return false;
+          // BUT keep messages that have attachments so download links are visible
+          if (m.role === "assistant" && !extractDisplayText(m.content)
+              && (!m.attachments || m.attachments.length === 0)) return false;
           return true;
         });
       setMessages(channelId, allMessages);
@@ -181,6 +183,8 @@ export default function ChatScreen() {
       if (channelId) handleSSEEvent(channelId, event);
     },
     onError: (error) => {
+      // Finish streaming first so any partial content is preserved in messages
+      if (channelId) finishStreaming(channelId);
       if (channelId) setError(channelId, error.message);
       // SSE dropped but server likely still processed the message.
       // Refetch messages after a short delay so the response appears.

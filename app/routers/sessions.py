@@ -116,13 +116,73 @@ async def get_session(
         .where(Message.session_id == session_id)
         .order_by(Message.created_at)
     )
-    messages = result.scalars().all()
+    messages = list(result.scalars().all())
+    if session.channel_id:
+        await _recover_orphan_attachments(db, session.channel_id, messages)
     return SessionDetail(session=session, messages=[MessageOut.from_orm(m) for m in messages])
 
 
 class MessagePage(BaseModel):
     messages: list[MessageOut]
     has_more: bool
+
+
+import logging
+_logger = logging.getLogger(__name__)
+
+
+async def _recover_orphan_attachments(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    messages: list["Message"],
+) -> None:
+    """Find attachments with message_id=NULL in this channel and link them to
+    the nearest assistant message.  This is a fallback for when persist_turn's
+    orphan-linking step fails silently (try/except swallows errors)."""
+    orphan_result = await db.execute(
+        select(Attachment)
+        .where(
+            Attachment.channel_id == channel_id,
+            Attachment.message_id.is_(None),
+        )
+    )
+    orphans = list(orphan_result.scalars().all())
+    if not orphans:
+        return
+
+    _logger.warning(
+        "Found %d orphaned attachment(s) in channel %s — recovering",
+        len(orphans), channel_id,
+    )
+
+    # Build time-sorted list of assistant messages from the loaded set
+    assistant_msgs = [
+        m for m in messages if m.role == "assistant"
+    ]
+    if not assistant_msgs:
+        return
+
+    linked = 0
+    for att in orphans:
+        # Find the closest assistant message by time (prefer one created AFTER the attachment)
+        best = None
+        for m in assistant_msgs:
+            if m.created_at >= att.created_at:
+                best = m
+                break
+        if best is None:
+            # Fallback: use the last assistant message
+            best = assistant_msgs[-1]
+        att.message_id = best.id
+        # Also populate the in-memory relationship so the current response includes it
+        if not hasattr(best, "attachments") or best.attachments is None:
+            best.attachments = []
+        best.attachments.append(att)
+        linked += 1
+
+    if linked:
+        await db.commit()
+        _logger.info("Recovered %d orphan attachment(s) in channel %s", linked, channel_id)
 
 
 @router.get("/{session_id}/messages", response_model=MessagePage)
@@ -159,6 +219,11 @@ async def get_session_messages(
     messages = rows[:limit]
     # Reverse to chronological order
     messages.reverse()
+
+    # Recover orphaned attachments: if persist_turn's orphan linking failed,
+    # attachments created by send_file have message_id=NULL.  Link them now.
+    if session.channel_id:
+        await _recover_orphan_attachments(db, session.channel_id, messages)
 
     return MessagePage(messages=[MessageOut.from_orm(m) for m in messages], has_more=has_more)
 

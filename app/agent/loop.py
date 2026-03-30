@@ -35,14 +35,36 @@ logger = logging.getLogger(__name__)
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
     """Ensure no message has null/missing content — some models reject it.
 
+    Also removes orphaned tool-result messages whose tool_call_id doesn't
+    match any tool_call in the conversation (e.g. after compaction strips
+    the assistant message with tool_calls but leaves the tool results).
+
     Mutates *messages* in-place (replacing individual dicts where needed)
     so that callers holding a reference to the same list see the changes.
     Returning the same list keeps the API unchanged for call-sites that
     reassign: ``messages = _sanitize_messages(messages)``.
     """
-    for i, m in enumerate(messages):
+    # Collect all valid tool_call IDs from assistant messages
+    valid_tc_ids: set[str] = set()
+    for m in messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            for tc in m["tool_calls"]:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    valid_tc_ids.add(tc_id)
+
+    # Remove orphaned tool results and fix null content
+    i = 0
+    while i < len(messages):
+        m = messages[i]
         if "content" not in m or m["content"] is None:
             messages[i] = {**m, "content": ""}
+        # Drop tool results with no matching tool_call
+        if m.get("role") == "tool" and m.get("tool_call_id"):
+            if m["tool_call_id"] not in valid_tc_ids:
+                messages.pop(i)
+                continue
+        i += 1
     return messages
 
 
@@ -217,6 +239,7 @@ async def run_agent_tool_loop(
 
             # --- Streaming LLM call ---
             accumulated_msg: AccumulatedMessage | None = None
+            _llm_cancelled = False
             async for item in _llm_call_stream(
                 effective_model, messages, tools_param, tool_choice,
                 provider_id=provider_id, model_params=bot.model_params,
@@ -226,6 +249,14 @@ async def run_agent_tool_loop(
                     accumulated_msg = item
                 else:
                     yield _event_with_compaction_tag(item, compaction)
+                # Check cancel during LLM streaming/retries
+                if session_id and session_locks.is_cancel_requested(session_id):
+                    logger.info("Cancellation requested for session %s (during LLM stream)", session_id)
+                    _llm_cancelled = True
+                    break
+            if _llm_cancelled:
+                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                return
 
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
             assert accumulated_msg is not None

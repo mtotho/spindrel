@@ -106,7 +106,7 @@ const LIGHT: ThemeTokens = {
   surfaceBorder: "#e5e7eb",
   text: "#171717",
   textMuted: "#737373",
-  textDim: "#a3a3a3",
+  textDim: "#6b7280",
   accent: "#3b82f6",
   accentHover: "#2563eb",
   accentMuted: "#dbeafe",

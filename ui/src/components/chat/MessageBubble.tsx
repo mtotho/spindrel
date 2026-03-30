@@ -407,9 +407,8 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
         </a>
       ))}
       {files.map((f) => {
-        const href = f.has_file_data
-          ? `${serverUrl}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`
-          : undefined;
+        // Always generate a download link — let the server return 404 if data was purged
+        const href = `${serverUrl}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`;
         return (
           <a
             key={f.id}
@@ -424,7 +423,7 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
               fontSize: 13,
               color: t.accent,
               textDecoration: "none",
-              cursor: href ? "pointer" : "default",
+              cursor: "pointer",
             }}
           >
             <span style={{ fontSize: 14 }}>📎</span>
