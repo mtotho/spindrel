@@ -403,6 +403,32 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     )
                 except Exception:
                     pass
+            elif etype == "llm_retry":
+                attempt = event.get("attempt", "?")
+                max_att = event.get("max_retries", "?")
+                reason = event.get("reason", "timeout")
+                status = f"⏳ _LLM {reason}, retrying ({attempt}/{max_att})..._"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "llm_fallback":
+                fallback_model = event.get("to_model", "fallback")
+                status = f"⏳ _Switching to fallback model ({fallback_model})..._"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
             elif etype == "approval_request":
                 tool = event.get("tool", "tool")
                 reason = event.get("reason", "")

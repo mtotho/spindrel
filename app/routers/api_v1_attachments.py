@@ -46,17 +46,43 @@ async def get_attachment(
     return att
 
 
-def _verify_token_or_header(
+async def _verify_token_or_header(
     token: Optional[str],
     authorization: Optional[str],
+    db: AsyncSession,
 ) -> None:
+    """Accept static API key, scoped API key, or JWT — via query param or header."""
     from app.config import settings
-    if token and token == settings.API_KEY:
+
+    # Collect the raw bearer value from whichever source is available
+    raw = token
+    if not raw and authorization and authorization.startswith("Bearer "):
+        raw = authorization.removeprefix("Bearer ")
+    if not raw:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    # Static API key
+    if raw == settings.API_KEY:
         return
-    if authorization and authorization.startswith("Bearer "):
-        if authorization.removeprefix("Bearer ") == settings.API_KEY:
+
+    # Scoped API key
+    if raw.startswith("ask_"):
+        from app.services.api_keys import validate_api_key
+        if await validate_api_key(db, raw) is not None:
             return
-    raise HTTPException(status_code=401, detail="Invalid or missing token")
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # JWT access token
+    from app.services.auth import decode_access_token, get_user_by_id
+    import jwt as _jwt
+    try:
+        payload = decode_access_token(raw)
+    except _jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    from uuid import UUID as _UUID
+    user = await get_user_by_id(db, _UUID(payload["sub"]))
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or deactivated")
 
 
 @router.get("/{attachment_id}/file")
@@ -67,7 +93,7 @@ async def get_attachment_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Serve raw file data for an attachment. Accepts auth via query param for <img> tags."""
-    _verify_token_or_header(token, authorization)
+    await _verify_token_or_header(token, authorization, db)
 
     att = await db.get(Attachment, attachment_id)
     if att is None:

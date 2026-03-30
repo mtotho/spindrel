@@ -255,13 +255,57 @@ async def _llm_call_stream(
 ) -> AsyncGenerator[dict | AccumulatedMessage, None]:
     """Streaming LLM call with retry + fallback. Yields events then AccumulatedMessage last.
 
-    Retry logic applies only to the initial create() call. Mid-stream errors propagate.
+    Retry logic is inlined so retry/fallback status events can be yielded to
+    the SSE stream, keeping Slack and other consumers informed during retries.
     """
-    last_fallback_info.set(None)
+    from app.agent.model_params import filter_model_params
+    from app.services.providers import get_llm_client, requires_system_message_folding
 
-    try:
-        stream = await _attempt_stream_with_retries(model, messages, tools_param, tool_choice, provider_id, model_params)
-    except _RETRYABLE_ERRORS as primary_exc:
+    last_fallback_info.set(None)
+    max_retries = settings.LLM_MAX_RETRIES
+
+    async def _try_model(m: str, pid: str | None, mp: dict | None):
+        """Attempt one model with retries. Returns stream or raises."""
+        client = get_llm_client(pid)
+        filtered = filter_model_params(m, mp or {})
+        eff_msgs = messages
+        if requires_system_message_folding(m):
+            eff_msgs = _fold_system_messages(messages)
+        return await client.chat.completions.create(
+            model=m, messages=eff_msgs, tools=tools_param,
+            tool_choice=tool_choice, stream=True,
+            stream_options={"include_usage": True}, **filtered,
+        )
+
+    # --- Primary model with retries ---
+    stream = None
+    primary_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            stream = await _try_model(model, provider_id, model_params)
+            break
+        except openai.RateLimitError as exc:
+            if attempt >= max_retries:
+                primary_exc = exc
+                break
+            wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
+            logger.warning("Stream LLM call rate limited (attempt %d/%d), waiting %ds...", attempt + 1, max_retries, wait)
+            yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                   "wait_seconds": wait, "reason": "rate_limited", "model": model}
+            await asyncio.sleep(wait)
+        except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+            if attempt >= max_retries:
+                primary_exc = exc
+                break
+            wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
+            logger.warning("Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
+                           type(exc).__name__, attempt + 1, max_retries, wait)
+            yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                   "wait_seconds": wait, "reason": type(exc).__name__, "model": model}
+            await asyncio.sleep(wait)
+
+    # --- Fallback models ---
+    if stream is None and primary_exc is not None:
         from app.services.server_config import get_global_fallback_models
 
         effective_fallbacks = list(fallback_models or [])
@@ -270,33 +314,55 @@ async def _llm_call_stream(
 
         tried = {model}
         last_exc = primary_exc
-        stream = None
         for fb in effective_fallbacks:
             fb_model = fb.get("model", "")
             if not fb_model or fb_model in tried:
                 continue
             tried.add(fb_model)
             fb_provider = fb.get("provider_id") or provider_id
-            logger.warning(
-                "Stream: Model %s failed (%s: %s), attempting fallback %s",
-                model, type(last_exc).__name__, last_exc, fb_model,
-            )
-            try:
-                stream = await _attempt_stream_with_retries(
-                    fb_model, messages, tools_param, tool_choice, fb_provider, model_params,
-                )
-                last_fallback_info.set(FallbackInfo(
-                    original_model=model,
-                    fallback_model=fb_model,
-                    reason=type(primary_exc).__name__,
-                    original_error=str(primary_exc)[:500],
-                ))
+            logger.warning("Stream: Model %s failed (%s: %s), attempting fallback %s",
+                           model, type(last_exc).__name__, last_exc, fb_model)
+            yield {"type": "llm_fallback", "from_model": model, "to_model": fb_model,
+                   "reason": type(last_exc).__name__}
+
+            for attempt in range(max_retries + 1):
+                try:
+                    stream = await _try_model(fb_model, fb_provider, model_params)
+                    last_fallback_info.set(FallbackInfo(
+                        original_model=model, fallback_model=fb_model,
+                        reason=type(primary_exc).__name__,
+                        original_error=str(primary_exc)[:500],
+                    ))
+                    break
+                except openai.RateLimitError as exc:
+                    if attempt >= max_retries:
+                        last_exc = exc
+                        break
+                    wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
+                    logger.warning("Stream LLM call rate limited (attempt %d/%d), waiting %ds...", attempt + 1, max_retries, wait)
+                    yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                           "wait_seconds": wait, "reason": "rate_limited", "model": fb_model}
+                    await asyncio.sleep(wait)
+                except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+                    if attempt >= max_retries:
+                        last_exc = exc
+                        break
+                    wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
+                    logger.warning("Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
+                                   type(exc).__name__, attempt + 1, max_retries, wait)
+                    yield {"type": "llm_retry", "attempt": attempt + 1, "max_retries": max_retries,
+                           "wait_seconds": wait, "reason": type(exc).__name__, "model": fb_model}
+                    await asyncio.sleep(wait)
+            if stream is not None:
                 break
-            except _RETRYABLE_ERRORS as fb_exc:
-                last_exc = fb_exc
-                continue
+
         if stream is None:
             raise last_exc
+
+    if stream is None:
+        if primary_exc:
+            raise primary_exc
+        raise openai.APITimeoutError("All LLM attempts failed")
 
     accumulator = StreamAccumulator()
     async for chunk in stream:

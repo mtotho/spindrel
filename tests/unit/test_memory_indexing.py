@@ -85,6 +85,7 @@ class TestIndexMemoryForBot:
         mock_index.assert_called_once_with(
             "/ws/mem_bot", "mem_bot", ["memory/**/*.md"], force=True,
             embedding_model=settings.EMBEDDING_MODEL,
+            skip_stale_cleanup=True,
         )
 
     @pytest.mark.asyncio
@@ -109,6 +110,7 @@ class TestIndexMemoryForBot:
         mock_index.assert_called_once_with(
             "/ws/custom", "custom_model_bot", ["memory/**/*.md"], force=True,
             embedding_model="custom/embed-model",
+            skip_stale_cleanup=True,
         )
 
     @pytest.mark.asyncio

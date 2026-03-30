@@ -194,15 +194,28 @@ class TestListTasks:
 
     @pytest.mark.asyncio
     async def test_list_mode_no_context(self):
+        """When no session/channel context, list_tasks scopes by bot_id and returns no tasks."""
         from app.tools.local.tasks import list_tasks
 
+        db = AsyncMock()
+        # Return empty result set
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=mock_result)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
         with patch("app.tools.local.tasks.current_session_id") as mock_sid, \
-             patch("app.tools.local.tasks.current_channel_id") as mock_cid:
+             patch("app.tools.local.tasks.current_channel_id") as mock_cid, \
+             patch("app.tools.local.tasks.current_bot_id") as mock_bid, \
+             patch("app.tools.local.tasks.async_session", return_value=cm):
             mock_sid.get.return_value = None
             mock_cid.get.return_value = None
+            mock_bid.get.return_value = None
 
             result = await list_tasks()
-            assert "No session or channel" in result
+            assert "No" in result and "tasks" in result
 
 
 # ---------------------------------------------------------------------------
