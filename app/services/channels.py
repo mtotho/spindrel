@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:")
+INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:", "github:")
 
 
 def derive_channel_id(client_id: str) -> uuid.UUID:

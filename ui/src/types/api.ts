@@ -524,6 +524,7 @@ export interface WorkspaceFileEntry {
   size?: number | null;
   path: string;
   modified_at?: number | null; // unix timestamp (seconds)
+  display_name?: string | null; // from .channel_info for channel UUID dirs
 }
 
 // Context breakdown types

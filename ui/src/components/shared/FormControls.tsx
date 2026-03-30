@@ -232,7 +232,7 @@ export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: n
 
 export function Col({ children, flex = 1 }: { children: React.ReactNode; flex?: number }) {
   return (
-    <div style={{ flex, minWidth: 140 }}>{children}</div>
+    <div style={{ flex, minWidth: 200 }}>{children}</div>
   );
 }
 
@@ -254,6 +254,7 @@ export function TabBar({ tabs, active, onChange }: {
         WebkitOverflowScrolling: "touch",
         scrollbarWidth: "none",
         paddingBottom: 4,
+        paddingRight: 24, // extra space so last tab isn't under fade gradient
         scrollSnapType: "x mandatory",
       }}
       className="hide-scrollbar"
@@ -265,8 +266,8 @@ export function TabBar({ tabs, active, onChange }: {
             key={tab.key}
             onClick={() => onChange(tab.key)}
             style={{
-              padding: "7px 14px",
-              fontSize: 13,
+              padding: "6px 10px",
+              fontSize: 12,
               fontWeight: isActive ? 600 : 500,
               border: "1px solid",
               borderColor: isActive ? t.accent : t.surfaceBorder,
@@ -278,6 +279,8 @@ export function TabBar({ tabs, active, onChange }: {
               transition: "all 0.15s",
               flexShrink: 0,
               scrollSnapAlign: "start",
+              // Touch-friendly min tap target
+              minHeight: 32,
             }}
           >
             {tab.label}

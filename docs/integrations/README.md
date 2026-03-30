@@ -470,6 +470,16 @@ See [example.md](example.md) for the minimal `integrations/example/` scaffold.
 
 ---
 
+## Planned Integrations
+
+| Integration | Description | Effort |
+|-------------|-------------|--------|
+| **GitHub** | Webhook receiver for PR/issue events → agent code review, issue triage, activity summaries | Medium |
+| **Telegram** | Mobile chat access to all bots via Telegram Bot API (polling or webhook mode) | Small |
+| **Ntfy** | Push notifications from bots to phone/desktop via [ntfy.sh](https://ntfy.sh) (self-hostable) | Tiny |
+
+---
+
 ## What Integration Code Must Not Do
 
 - Import from `app/` directly — use `integrations/_register.py` for tool registration, `integrations/utils.py` for helpers, and keep config in your own `config.py`

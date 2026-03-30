@@ -472,13 +472,25 @@ class SharedWorkspaceService:
         try:
             for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
                 stat = entry.stat()
-                entries.append({
+                item: dict = {
                     "name": entry.name,
                     "is_dir": entry.is_dir(),
                     "size": stat.st_size if entry.is_file() else None,
                     "path": os.path.relpath(os.path.realpath(entry.path), host_root),
                     "modified_at": stat.st_mtime,
-                })
+                }
+                # Enrich directories with .channel_info display_name
+                if entry.is_dir():
+                    info_path = os.path.join(entry.path, ".channel_info")
+                    if os.path.isfile(info_path):
+                        try:
+                            for line in open(info_path).readlines():
+                                if line.startswith("display_name:"):
+                                    item["display_name"] = line.split(":", 1)[1].strip()
+                                    break
+                        except Exception:
+                            pass
+                entries.append(item)
         except OSError:
             pass
         return entries

@@ -143,67 +143,89 @@ export default function ChannelSettingsScreen() {
     );
   }
 
+  const showSave = tab === "general" || tab === "history" || tab === "workspace" || tab === "files";
+
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border" style={{ flexShrink: 0, paddingTop: Math.max(insets.top, 12) }}>
-        <Pressable
-          onPress={goBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
-        >
-          <ArrowLeft size={20} color={t.textMuted} />
-        </Pressable>
-        <View className="flex-1 min-w-0">
-          <Text className="text-text font-semibold" style={{ fontSize: 16 }} numberOfLines={1}>
-            {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text className="text-text-dim text-xs" numberOfLines={1}>
-              Channel Settings
-            </Text>
-            {settings?.bot_id && (
-              <Link href={`/admin/bots/${settings.bot_id}` as any} asChild>
-                <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                  <ExternalLink size={10} color={t.accent} />
-                  <Text style={{ fontSize: 11, color: t.accent }}>{currentBot?.name || settings.bot_id}</Text>
-                </Pressable>
-              </Link>
-            )}
-          </View>
-        </View>
-        {(tab === "general" || tab === "history" || tab === "workspace" || tab === "files") && (
+      <View
+        className="border-b border-surface-border"
+        style={{ flexShrink: 0, paddingTop: Math.max(insets.top, 12) }}
+      >
+        <View className="flex-row items-center gap-2 px-3 py-2" style={{ minHeight: 48 }}>
           <Pressable
-            onPress={handleSave}
-            disabled={updateMutation.isPending}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              paddingHorizontal: 14,
-              minHeight: 44,
-              borderRadius: 8,
-              backgroundColor: saved ? t.successSubtle : t.accent,
-            }}
+            onPress={goBack}
+            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+            style={{ width: 40, height: 40, flexShrink: 0 }}
           >
-            {saved ? (
-              <>
-                <Check size={14} color={t.success} />
-                <Text style={{ color: t.success, fontSize: 13, fontWeight: "600" }}>Saved</Text>
-              </>
-            ) : (
-              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-                {updateMutation.isPending ? "Saving..." : "Save"}
-              </Text>
-            )}
+            <ArrowLeft size={20} color={t.textMuted} />
           </Pressable>
-        )}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text className="text-text font-semibold" style={{ fontSize: 15 }} numberOfLines={1}>
+              {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <Text className="text-text-dim" style={{ fontSize: 11 }} numberOfLines={1}>
+                Settings
+              </Text>
+              {settings?.bot_id && (
+                <Link href={`/admin/bots/${settings.bot_id}` as any} asChild>
+                  <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                    <ExternalLink size={10} color={t.accent} />
+                    <Text style={{ fontSize: 11, color: t.accent }} numberOfLines={1}>{currentBot?.name || settings.bot_id}</Text>
+                  </Pressable>
+                </Link>
+              )}
+            </View>
+          </View>
+          {showSave && (
+            <Pressable
+              onPress={handleSave}
+              disabled={updateMutation.isPending}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 5,
+                paddingHorizontal: 12,
+                minHeight: 36,
+                borderRadius: 8,
+                backgroundColor: saved ? t.successSubtle : t.accent,
+                flexShrink: 0,
+              }}
+            >
+              {saved ? (
+                <>
+                  <Check size={14} color={t.success} />
+                  <Text style={{ color: t.success, fontSize: 12, fontWeight: "600" }}>Saved</Text>
+                </>
+              ) : (
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  {updateMutation.isPending ? "..." : "Save"}
+                </Text>
+              )}
+            </Pressable>
+          )}
+        </View>
       </View>
 
-      {/* Tabs */}
-      <View className="px-4 pt-2">
-        <TabBar tabs={TABS} active={tab} onChange={setTab} />
+      {/* Tabs — with gradient fade hints for scrollability */}
+      <View style={{ flexShrink: 0, position: "relative" }}>
+        <View className="px-3 pt-2 pb-1">
+          <TabBar tabs={TABS} active={tab} onChange={setTab} />
+        </View>
+        {/* Right fade to hint at scrollable tabs */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 32,
+            background: `linear-gradient(to right, transparent, ${t.surface})`,
+            pointerEvents: "none",
+          }}
+        />
       </View>
 
       {/* Tab content */}
