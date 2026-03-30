@@ -7,13 +7,15 @@ interface Props {
   templateId: string | null | undefined;
   onLink: (id: string) => void;
   onUnlink: () => void;
+  /** When set, only show templates matching this category */
+  category?: string;
 }
 
-export function PromptTemplateLink({ templateId, onLink, onUnlink }: Props) {
+export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
-  const { data: templates } = usePromptTemplates();
+  const { data: templates } = usePromptTemplates(undefined, category);
   const t = useThemeTokens();
 
   const linked = templates?.find((tpl) => tpl.id === templateId);

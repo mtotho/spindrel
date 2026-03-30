@@ -1,12 +1,18 @@
-"""Integration setup status and settings management."""
+"""Integration setup status, settings management, process control, and dependency management."""
 from __future__ import annotations
+
+import asyncio
+import logging
+import sys
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.services.integration_processes import process_manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -81,3 +87,107 @@ async def delete_integration_setting(
 
     await delete_setting(integration_id, key, db)
     return {"deleted": key}
+
+
+# ---------------------------------------------------------------------------
+# Process control endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/{integration_id}/process")
+async def get_process_status(integration_id: str):
+    return process_manager.status(integration_id)
+
+
+@router.post("/integrations/{integration_id}/process/start")
+async def start_process(integration_id: str):
+    ok = await process_manager.start(integration_id)
+    if not ok:
+        status = process_manager.status(integration_id)
+        if status["status"] == "running":
+            raise HTTPException(status_code=409, detail="Process is already running")
+        raise HTTPException(status_code=400, detail="Failed to start process (check env vars and logs)")
+    return process_manager.status(integration_id)
+
+
+@router.post("/integrations/{integration_id}/process/stop")
+async def stop_process(integration_id: str):
+    ok = await process_manager.stop(integration_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Process is not running")
+    return process_manager.status(integration_id)
+
+
+@router.post("/integrations/{integration_id}/process/restart")
+async def restart_process(integration_id: str):
+    ok = await process_manager.restart(integration_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Failed to restart process")
+    return process_manager.status(integration_id)
+
+
+class AutoStartBody(BaseModel):
+    enabled: bool
+
+
+@router.put("/integrations/{integration_id}/process/auto-start")
+async def set_auto_start(integration_id: str, body: AutoStartBody):
+    await process_manager.set_auto_start(integration_id, body.enabled)
+    return {"integration_id": integration_id, "auto_start": body.enabled}
+
+
+@router.get("/integrations/{integration_id}/process/auto-start")
+async def get_auto_start(integration_id: str):
+    enabled = await process_manager.get_auto_start(integration_id)
+    return {"integration_id": integration_id, "auto_start": enabled}
+
+
+# ---------------------------------------------------------------------------
+# Python dependency installation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/{integration_id}/install-deps")
+async def install_deps(integration_id: str):
+    """Install Python dependencies from the integration's requirements.txt."""
+    from integrations import _iter_integration_candidates
+
+    # Find the integration directory
+    req_path = None
+    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+        if iid == integration_id:
+            rp = candidate / "requirements.txt"
+            if rp.exists():
+                req_path = str(rp)
+            break
+
+    if req_path is None:
+        raise HTTPException(status_code=404, detail=f"No requirements.txt found for integration {integration_id!r}")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "pip", "install", "-q", "-r", req_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+        if proc.returncode != 0:
+            err = (stderr or stdout or b"").decode(errors="replace").strip()
+            logger.error("pip install failed for %s: %s", integration_id, err)
+            raise HTTPException(status_code=500, detail=f"pip install failed: {err[:500]}")
+
+        logger.info("Installed dependencies for integration %s", integration_id)
+        return {
+            "integration_id": integration_id,
+            "installed": True,
+            "message": "Dependencies installed. Restart the server to activate new tools.",
+        }
+
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="pip install timed out after 120s")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to install deps for %s", integration_id)
+        raise HTTPException(status_code=500, detail=str(exc))

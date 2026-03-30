@@ -112,7 +112,7 @@ export function WorkspaceSection({
       {/* Per-bot workspace toggle — only when NOT in a shared workspace */}
       {!inSharedWorkspace && (
         <Toggle value={ws.enabled ?? false} onChange={(v) => setWs({ enabled: v })} label="Enable Workspace"
-          description="Auto-injects exec_command, search_workspace, delegate_to_exec tools." />
+          description="Auto-injects exec_command, search_workspace, delegate_to_exec, file tools." />
       )}
 
       {(ws.enabled || inSharedWorkspace) && (

@@ -663,6 +663,21 @@ async def run_task(task: Task) -> None:
     if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
         return
+    if task.task_type == "claude_code":
+        try:
+            from integrations.claude_code.executor import run_claude_code_task
+        except ImportError:
+            logger.error("claude_code integration not installed; failing task %s", task.id)
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    t.status = "failed"
+                    t.error = "claude_code integration not installed"
+                    t.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+            return
+        await run_claude_code_task(task)
+        return
 
     # Resolve the channel's current active session so tasks always run in the
     # live session, not a stale session_id captured at task-creation time.

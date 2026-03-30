@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus,
   Clock, AlertCircle, CheckCircle2, Loader2, RefreshCw, Calendar,
-  List, AlertTriangle, XCircle,
+  List, AlertTriangle, XCircle, Terminal,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -15,6 +15,7 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatTime, formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { CronJobsView } from "./CronJobsView";
 
 interface TaskItem {
   id: string;
@@ -47,7 +48,7 @@ interface TasksResponse {
   total: number;
 }
 
-type ViewMode = "schedule" | "day" | "week" | "list";
+type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
 type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api";
 type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
@@ -1218,7 +1219,7 @@ export default function TasksScreen() {
             </select>
 
             <div style={{ display: "flex", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
-              {(["schedule", "day", "week", "list"] as ViewMode[]).map((m) => (
+              {(["schedule", "day", "week", "list", "cron"] as ViewMode[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => setViewMode(m)}
@@ -1233,7 +1234,8 @@ export default function TasksScreen() {
                 >
                   {m === "schedule" && <Calendar size={12} />}
                   {m === "list" && <List size={12} />}
-                  {m === "schedule" ? "Schedule" : m}
+                  {m === "cron" && <Terminal size={12} />}
+                  {m === "schedule" ? "Schedule" : m === "cron" ? "Cron Jobs" : m}
                 </button>
               ))}
             </div>
@@ -1263,8 +1265,8 @@ export default function TasksScreen() {
         }
       />
 
-      {/* Filter rows */}
-      <div style={{
+      {/* Filter rows (hidden in cron mode) */}
+      {viewMode !== "cron" && <div style={{
         display: "flex", alignItems: "center", gap: 6,
         padding: "8px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
         overflowX: "auto", flexWrap: "wrap",
@@ -1330,7 +1332,7 @@ export default function TasksScreen() {
             </span>
           </>
         )}
-      </div>
+      </div>}
 
       {/* Invalid schedule warning */}
       {invalidSchedules.length > 0 && (
@@ -1365,7 +1367,11 @@ export default function TasksScreen() {
       )}
 
       {/* Body */}
-      {isLoading ? (
+      {viewMode === "cron" ? (
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
+          <CronJobsView />
+        </RefreshableScrollView>
+      ) : isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={t.accent} />
         </View>

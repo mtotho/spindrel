@@ -93,11 +93,18 @@ export interface WorkspaceDiskEntry {
   subdirs?: Record<string, number>;
 }
 
+export interface AttachmentDiskStats {
+  total_count: number;
+  with_file_data_count: number;
+  total_size_bytes: number;
+}
+
 export interface DiskUsageReport {
   filesystem: FilesystemUsage;
   workspace_base_dir: string;
   workspace_total_bytes: number;
   workspaces: WorkspaceDiskEntry[];
+  attachments?: AttachmentDiskStats;
 }
 
 export function useDiskUsage() {

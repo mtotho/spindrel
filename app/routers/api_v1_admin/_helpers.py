@@ -97,6 +97,7 @@ def _bot_to_out(
         delegation_config={
             "delegate_bots": bot.delegate_bots or [],
             "harness_access": bot.harness_access or [],
+            "cross_workspace_access": bot.cross_workspace_access,
         },
         user_id=getattr(bot, "user_id", None),
         shared_workspace_id=getattr(bot, "shared_workspace_id", None),

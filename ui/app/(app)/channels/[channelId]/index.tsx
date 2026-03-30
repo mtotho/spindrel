@@ -210,6 +210,7 @@ export default function ChatScreen() {
         });
       setMessages(channelId, allMessages);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, pages, chatState.isStreaming]);
 
   const cancelChat = useCancelChat();

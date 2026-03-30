@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ── install-service.sh ───────────────────────────────────────────────────────
-# Install Thoth systemd services: the main server + any integration services
+# Install Spindrel systemd services: the main server + any integration services
 # discovered under integrations/*/service.
 #
 # Paths are resolved from where the repo actually lives. User/group default
@@ -95,8 +95,8 @@ if [ -n "$OLD_PID" ]; then
     sleep 1
 fi
 
-# Stop+disable any thoth-related services (catches old names like agent-server.service)
-for old_unit in /etc/systemd/system/thoth*.service /etc/systemd/system/agent-server*.service; do
+# Stop+disable any old services (catches old names like thoth.service, agent-server.service)
+for old_unit in /etc/systemd/system/spindrel*.service /etc/systemd/system/thoth*.service /etc/systemd/system/agent-server*.service; do
     [ -f "$old_unit" ] || continue
     unit_name="$(basename "$old_unit")"
     echo "Stopping old service: $unit_name"
@@ -109,15 +109,15 @@ systemctl daemon-reload
 UNITS=()
 
 # ── Main service ─────────────────────────────────────────────────────────────
-install_unit "$REPO_DIR/systemd/thoth.service" "thoth.service"
-UNITS+=("thoth.service")
+install_unit "$REPO_DIR/systemd/spindrel.service" "spindrel.service"
+UNITS+=("spindrel.service")
 
 # ── Integration services (auto-discover) ─────────────────────────────────────
 for svc_file in "$REPO_DIR"/integrations/*/service; do
     [ -f "$svc_file" ] || continue
     integration_id="$(basename "$(dirname "$svc_file")")"
-    install_unit "$svc_file" "thoth-$integration_id.service"
-    UNITS+=("thoth-$integration_id.service")
+    install_unit "$svc_file" "spindrel-$integration_id.service"
+    UNITS+=("spindrel-$integration_id.service")
 done
 
 # ── Build Docker images (before starting services) ──────────────────────────
@@ -147,9 +147,9 @@ for unit in "${UNITS[@]}"; do
     echo "  - $unit"
 done
 
-# ── Install thoth CLI symlink ────────────────────────────────────────────────
-CLI_SCRIPT="$REPO_DIR/scripts/thoth"
-CLI_LINK="/usr/local/bin/thoth"
+# ── Install spindrel CLI symlink ─────────────────────────────────────────────
+CLI_SCRIPT="$REPO_DIR/scripts/spindrel"
+CLI_LINK="/usr/local/bin/spindrel"
 if [ -x "$CLI_SCRIPT" ]; then
     ln -sf "$CLI_SCRIPT" "$CLI_LINK"
     echo ""
@@ -158,7 +158,7 @@ fi
 
 echo ""
 echo "Commands:"
-echo "  thoth status    Show service status"
-echo "  thoth restart   Restart services"
-echo "  thoth logs      Tail logs"
-echo "  thoth --help    All commands"
+echo "  spindrel status    Show service status"
+echo "  spindrel restart   Restart services"
+echo "  spindrel logs      Tail logs"
+echo "  spindrel --help    All commands"

@@ -1,15 +1,9 @@
 import { ActivityIndicator } from "react-native";
-import { HardDrive, Database } from "lucide-react";
+import { HardDrive, Database, Paperclip } from "lucide-react";
+import { Link } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDiskUsage, type WorkspaceDiskEntry } from "@/src/api/hooks/useDiagnostics";
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const val = bytes / Math.pow(1024, i);
-  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
-}
+import { formatBytes } from "@/src/utils/format";
 
 function UsageBar({ percent }: { percent: number }) {
   const t = useThemeTokens();
@@ -116,6 +110,27 @@ export function DiskUsageSection() {
           {data.workspace_base_dir}
         </div>
       </div>
+
+      {/* Attachment storage */}
+      {data.attachments && (
+        <div style={{
+          padding: "14px 16px", background: t.inputBg, borderRadius: 8,
+          border: `1px solid ${t.surfaceRaised}`, marginBottom: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Paperclip size={14} color={t.textMuted} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>Attachments</span>
+            <Link href={"/admin/attachments" as any}>
+              <span style={{ fontSize: 11, color: t.accent, cursor: "pointer" }}>Manage →</span>
+            </Link>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim }}>
+            <span>Total: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{data.attachments.total_count.toLocaleString()}</span></span>
+            <span>With data: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{data.attachments.with_file_data_count.toLocaleString()}</span></span>
+            <span>Size: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{formatBytes(data.attachments.total_size_bytes)}</span></span>
+          </div>
+        </div>
+      )}
 
       {/* Per-workspace cards */}
       {workspaces.length > 0 ? (

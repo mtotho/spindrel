@@ -60,7 +60,7 @@ def _mock_tool_call(name="test_tool", args='{}', tc_id="tc_1"):
     return tc
 
 
-def _mock_accumulated(content="Hello", tool_calls=None):
+def _mock_accumulated(content="Hello", tool_calls=None, completion_tokens=50):
     """Build an AccumulatedMessage for mocking _llm_call_stream."""
     tc_list = None
     if tool_calls:
@@ -70,8 +70,8 @@ def _mock_accumulated(content="Hello", tool_calls=None):
         ]
     usage = MagicMock()
     usage.prompt_tokens = 100
-    usage.completion_tokens = 50
-    usage.total_tokens = 150
+    usage.completion_tokens = completion_tokens
+    usage.total_tokens = 100 + completion_tokens
     return AccumulatedMessage(
         content=content,
         tool_calls=tc_list,
@@ -696,3 +696,52 @@ class TestRunAgentToolLoop:
 
             # Forced retry should have been called
             mock_llm_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_zero_completion_tokens_triggers_retry_despite_tool_calls(self):
+        """0 completion tokens after tool calls = model API glitch, NOT intentional silence.
+
+        Regression test: previously the "silent completion" path accepted ANY empty
+        response when tool_calls_made was truthy, even if completion_tokens was 0
+        (indicating the model didn't generate anything at all).
+        """
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("some_tool", '{}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        # Key: completion_tokens=0 means the model didn't generate anything
+        acc_zero = _mock_accumulated(content="", completion_tokens=0)
+
+        final_resp = _mock_response("Here is the actual response")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_zero)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp) as mock_llm_call, \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "check the cameras"}], bot
+            ):
+                events.append(event)
+
+            # Warning event should be emitted (not silently swallowed)
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert len(warning_events) == 1
+            assert warning_events[0]["code"] == "empty_response"
+            assert "0 completion tokens" in warning_events[0]["message"]
+
+            # Forced retry should have been called
+            mock_llm_call.assert_awaited_once()
+
+            # Final response should contain the retry text
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
+            assert response_events[0]["text"] == "Here is the actual response"

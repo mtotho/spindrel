@@ -478,6 +478,15 @@ async def diagnostics_disk_usage(
 
     report = await get_full_disk_report()
 
+    # Attachment storage stats (reuse the stats endpoint query)
+    from app.routers.api_v1_admin.attachments import attachment_global_stats
+    att_stats = await attachment_global_stats(db=db)
+    report["attachments"] = {
+        "total_count": att_stats.total_count,
+        "with_file_data_count": att_stats.with_file_data_count,
+        "total_size_bytes": att_stats.total_size_bytes,
+    }
+
     # Enrich shared workspace entries with names from DB
     ws_rows = (await db.execute(select(SharedWorkspace))).scalars().all()
     ws_names = {str(r.id): r.name for r in ws_rows}

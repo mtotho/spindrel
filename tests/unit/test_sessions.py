@@ -91,11 +91,13 @@ class TestRedactImagesForDb:
 # ---------------------------------------------------------------------------
 
 class TestEffectiveSystemPrompt:
+    @patch("app.config.settings.GLOBAL_BASE_PROMPT", "")
     def test_basic_prompt(self):
         from app.services.sessions import _effective_system_prompt
         bot = _make_bot(system_prompt="Hello bot")
         assert _effective_system_prompt(bot) == "Hello bot"
 
+    @patch("app.config.settings.GLOBAL_BASE_PROMPT", "")
     def test_with_memory_prompt(self):
         from app.services.sessions import _effective_system_prompt
         mem = MemoryConfig(enabled=True, prompt="Remember things.")
@@ -104,6 +106,7 @@ class TestEffectiveSystemPrompt:
         assert "Hello bot" in result
         assert "Remember things." in result
 
+    @patch("app.config.settings.GLOBAL_BASE_PROMPT", "")
     def test_memory_disabled_no_prompt(self):
         from app.services.sessions import _effective_system_prompt
         mem = MemoryConfig(enabled=False, prompt="Remember things.")
@@ -111,6 +114,14 @@ class TestEffectiveSystemPrompt:
         result = _effective_system_prompt(bot)
         assert result == "Hello bot"
         assert "Remember" not in result
+
+    def test_global_base_prompt_prepended(self):
+        from app.services.sessions import _effective_system_prompt
+        with patch("app.config.settings.GLOBAL_BASE_PROMPT", "Global rules."):
+            bot = _make_bot(system_prompt="Hello bot")
+            result = _effective_system_prompt(bot)
+        assert result.startswith("Global rules.")
+        assert "Hello bot" in result
 
 
 # ---------------------------------------------------------------------------

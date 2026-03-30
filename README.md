@@ -946,7 +946,7 @@ RCLONE_REMOTE=:s3:your-bucket-name
 
 ## Production CLI
 
-The `thoth` script in the repo root is a shell dispatcher for managing a production deployment (systemd service + Docker backing services). Run `./install-service.sh` to install. Commands: `start`, `stop`, `restart`, `pull`, `backup`, `restore`, `status`, `logs`.
+The `spindrel` script in `scripts/` is a CLI for managing a production deployment (systemd service + Docker backing services). Run `./scripts/install-service.sh` to install. Commands: `start`, `stop`, `restart`, `pull`, `backup`, `restore`, `status`, `logs`.
 
 ## API
 

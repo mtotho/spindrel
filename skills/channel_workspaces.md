@@ -46,6 +46,7 @@ to load them — they are already present.
 - New information arrived that belongs to an existing concern
 
 **File writing rules:**
+- Use the `file` tool for all text file operations — it bypasses shell quoting issues entirely
 - Use relative paths — they resolve to the channel workspace automatically
 - Write clean, structured markdown — these files will be re-injected on every future message
 - Keep files focused. One concern per file. Do not create catch-all files.
@@ -100,7 +101,7 @@ The `data/` subfolder holds binary files (PDFs, images, spreadsheets, etc.) that
 auto-injected into context. These files are indexed for search.
 
 **When data arrives** (user sends a PDF, image, or any non-markdown file):
-1. Save it to `data/` via `exec_command`
+1. Save it to `data/` via the `file` tool (or `exec_command` for binary files)
 2. Create or update a workspace `.md` file that describes the data — what it is, key details,
    when it was received, and a reference to the data path
 

@@ -27,6 +27,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { IndexingOverview } from "./IndexingOverview";
 import { WriteProtection } from "./WriteProtection";
 import { WorkspaceSkills } from "./WorkspaceSkills";
+import { CronJobs } from "./CronJobs";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -1428,6 +1429,13 @@ export default function WorkspaceDetailScreen() {
           {!isNew && (
             <Section title="Container Controls">
               <ContainerControls workspaceId={workspaceId!} status={currentStatus} />
+            </Section>
+          )}
+
+          {/* Cron Jobs (only for existing running workspaces) */}
+          {!isNew && workspace && (
+            <Section title="Cron Jobs" description="Cron jobs scheduled inside this workspace container.">
+              <CronJobs workspaceId={workspaceId!} status={currentStatus} />
             </Section>
           )}
 

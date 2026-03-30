@@ -2,7 +2,6 @@
 from fastapi import APIRouter
 
 from app.routers.api_v1_admin import router as admin_router
-from app.routers.api_v1_admin import logs as admin_logs, turns as admin_turns
 from app.routers.api_v1_attachments import router as attachments_router
 from app.routers.api_v1_channels import router as channels_router
 from app.routers.api_v1_documents import router as documents_router
@@ -21,9 +20,6 @@ from app.routers.api_v1_approvals import router as approvals_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router, include_in_schema=False)
-# Logs & turns: mounted outside admin gate so scoped API keys with logs:read work
-router.include_router(admin_logs.router, prefix="/admin", tags=["Logs"], include_in_schema=False)
-router.include_router(admin_turns.router, prefix="/admin", tags=["Logs"], include_in_schema=False)
 router.include_router(approvals_router)
 router.include_router(attachments_router)
 router.include_router(channels_router)

@@ -2,14 +2,16 @@ import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import {
   FileText, Archive, Trash2, ChevronDown, ChevronRight,
-  ExternalLink, Code, Database, Plus, X, RefreshCw, FolderSearch,
+  ExternalLink, Code, Database, Plus, X, RefreshCw, FolderSearch, RotateCw,
 } from "lucide-react";
 import { Link } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  Section, Toggle, EmptyState, TextInput, FormRow,
+  Section, Toggle, EmptyState, TextInput, FormRow, SelectInput,
 } from "@/src/components/shared/FormControls";
+import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
+import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFiles,
@@ -475,16 +477,24 @@ export function ChannelWorkspaceTab({
   channelId,
   workspaceId,
   indexSegmentDefaults,
+  hasSharedWorkspace,
+  sharedWorkspaceId,
 }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
   workspaceId?: string;
   indexSegmentDefaults?: SegmentDefaults | null;
+  hasSharedWorkspace?: boolean;
+  sharedWorkspaceId?: string | null;
 }) {
   const t = useThemeTokens();
   const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+
+  // Look up linked schema template for description display
+  const { data: schemaTemplates } = usePromptTemplates(undefined, "workspace_schema");
+  const linkedSchema = schemaTemplates?.find((tpl) => tpl.id === form.workspace_schema_template_id);
 
   const { data: filesData, isLoading } = useChannelWorkspaceFiles(
     enabled ? channelId : undefined,
@@ -497,6 +507,7 @@ export function ChannelWorkspaceTab({
 
   return (
     <>
+      {/* Channel workspace — persistent working documents */}
       <Section title="Channel Workspace" description="Persistent working documents for this channel. Auto-injected into every request when enabled.">
         <Toggle
           label="Enable channel workspace"
@@ -507,18 +518,28 @@ export function ChannelWorkspaceTab({
 
       {enabled && (
         <>
+          <Section
+            title="Workspace Schema"
+            description="Choose an organization template that defines how workspace files should be structured for this type of project."
+          >
+            <PromptTemplateLink
+              templateId={form.workspace_schema_template_id ?? null}
+              onLink={(id) => patch("workspace_schema_template_id", id)}
+              onUnlink={() => patch("workspace_schema_template_id", null)}
+              category="workspace_schema"
+            />
+            {linkedSchema?.description && (
+              <Text style={{ color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
+                {linkedSchema.description}
+              </Text>
+            )}
+          </Section>
+
           {workspaceId && (
             <Section title="Workspace Access" description="Open the channel workspace folder in the file browser or VS Code editor.">
               <WorkspaceLinks workspaceId={workspaceId} channelId={channelId} />
             </Section>
           )}
-
-          <IndexedDirectoriesSection
-            segments={form.index_segments ?? []}
-            onChange={(segs) => patch("index_segments", segs)}
-            channelId={channelId}
-            defaults={indexSegmentDefaults}
-          />
 
           <Section title="Active Files" description="Markdown files in the channel workspace root. Injected into context automatically.">
             {isLoading ? (
@@ -561,6 +582,75 @@ export function ChannelWorkspaceTab({
               <FileViewer channelId={channelId} path={selectedPath} />
             </Section>
           )}
+
+          <IndexedDirectoriesSection
+            segments={form.index_segments ?? []}
+            onChange={(segs) => patch("index_segments", segs)}
+            channelId={channelId}
+            defaults={indexSegmentDefaults}
+          />
+        </>
+      )}
+
+      {/* Shared workspace overrides — only when bot has a workspace */}
+      {hasSharedWorkspace && (
+        <>
+          <div style={{
+            height: 1,
+            backgroundColor: t.surfaceBorder,
+            marginTop: 12,
+            marginBottom: 4,
+          }} />
+
+          <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
+            <FormRow label="Workspace skills" description="Skill .md files from the workspace filesystem, injected into context by mode (pinned/rag/on-demand).">
+              <SelectInput
+                value={form.workspace_skills_enabled === null || form.workspace_skills_enabled === undefined ? "inherit" : form.workspace_skills_enabled ? "on" : "off"}
+                options={[
+                  { label: "Inherit from workspace", value: "inherit" },
+                  { label: "Enabled", value: "on" },
+                  { label: "Disabled", value: "off" },
+                ]}
+                onChange={(v) => patch("workspace_skills_enabled" as any, v === "inherit" ? null : v === "on")}
+              />
+            </FormRow>
+            {sharedWorkspaceId && (
+              <div style={{ marginTop: 4 }}>
+                <button
+                  onClick={async () => {
+                    try {
+                      const data = await apiFetch<{ embedded?: number; unchanged?: number; errors?: number }>(
+                        `/api/v1/workspaces/${sharedWorkspaceId}/reindex-skills`,
+                        { method: "POST" },
+                      );
+                      alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
+                    } catch (e) {
+                      alert("Failed to reindex skills");
+                    }
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                    background: "transparent", color: t.textMuted, cursor: "pointer",
+                  }}
+                >
+                  <RotateCw size={11} /> Reindex Skills
+                </button>
+              </div>
+            )}
+            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenated after.">
+              <SelectInput
+                value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
+                options={[
+                  { label: "Inherit from workspace", value: "inherit" },
+                  { label: "Enabled", value: "on" },
+                  { label: "Disabled", value: "off" },
+                ]}
+                onChange={(v) => patch("workspace_base_prompt_enabled" as any, v === "inherit" ? null : v === "on")}
+              />
+            </FormRow>
+          </Section>
         </>
       )}
     </>

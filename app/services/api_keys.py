@@ -43,6 +43,7 @@ ALL_SCOPES = [
     "todos:read", "todos:write",
     # Attachments
     "attachments:read",
+    "attachments:write",
     # Logs
     "logs:read", "logs:write",
     # Tools
@@ -53,6 +54,8 @@ ALL_SCOPES = [
     "users:read", "users:write",
     # Settings
     "settings:read", "settings:write",
+    # Operations
+    "operations:read", "operations:write",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -86,6 +89,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "todos:read": "List todos",
     "todos:write": "Create, update, and delete todos",
     "attachments:read": "Get attachment metadata and download files",
+    "attachments:write": "Upload, delete, and purge attachments",
     "logs:read": "View agent turns, tool call history, traces, and server logs",
     "logs:write": "Change server log level",
     "tools:read": "List available tools",
@@ -95,6 +99,8 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "users:write": "Create and manage users",
     "settings:read": "Read server settings",
     "settings:write": "Modify server settings",
+    "operations:read": "View backup config, backup history, and active operations",
+    "operations:write": "Trigger backups, git pull, server restart, and update backup config",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -155,7 +161,7 @@ SCOPE_GROUPS: dict[str, dict] = {
     },
     "Attachments": {
         "description": "Access file attachments from conversations",
-        "scopes": ["attachments:read"],
+        "scopes": ["attachments:read", "attachments:write"],
     },
     "Tools": {
         "description": "Read registered tool schemas",
@@ -172,6 +178,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Settings": {
         "description": "Server-wide settings",
         "scopes": ["settings:read", "settings:write"],
+    },
+    "Operations": {
+        "description": "System operations: backup, pull, restart",
+        "scopes": ["operations:read", "operations:write"],
     },
 }
 
@@ -203,7 +213,7 @@ SCOPE_PRESETS: dict[str, dict] = {
             "chat", "bots:read",
             "channels:read", "channels:write",
             "sessions:read",
-            "attachments:read",
+            "attachments:read", "attachments:write",
         ],
         "instructions": "Set as `AGENT_SERVER_API_KEY` in the client environment.",
     },
@@ -218,7 +228,7 @@ SCOPE_PRESETS: dict[str, dict] = {
             "documents:read", "documents:write",
             "todos:read", "todos:write",
             "workspaces.files:read", "workspaces.files:write",
-            "attachments:read",
+            "attachments:read", "attachments:write",
         ],
         "instructions": (
             "Injected automatically when a bot has API permissions configured.\n"
@@ -447,6 +457,33 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments/{id}/file",
         "description": "Download raw attachment file",
     },
+    {
+        "scope": "attachments:write", "method": "POST", "path": "/api/v1/attachments/upload",
+        "description": "Upload a file as a standalone attachment",
+        "body": "multipart/form-data: file (UploadFile), channel_id (UUID)",
+        "response": "{id, channel_id, type, filename, mime_type, size_bytes, created_at, ...}",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/attachments",
+        "description": "List all attachments with pagination and filters",
+        "params": "?channel_id=&type=&limit=50&offset=0",
+        "response": "{attachments: [{id, filename, type, size_bytes, channel_name, ...}], total}",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/attachments/stats",
+        "description": "Global attachment storage stats",
+        "response": "{total_count, with_file_data_count, total_size_bytes, by_type, by_channel}",
+    },
+    {
+        "scope": "admin", "method": "DELETE", "path": "/api/v1/admin/attachments/{id}",
+        "description": "Delete an attachment",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/attachments/purge",
+        "description": "Bulk purge attachments by date/channel/type",
+        "body": '{"before_date": "ISO", "channel_id?": "uuid", "type?": "str", "purge_file_data_only?": false}',
+        "response": "{purged_count}",
+    },
     # Workspaces
     {
         "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces",
@@ -577,6 +614,43 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "logs:write", "method": "PUT", "path": "/api/v1/admin/log-level",
         "description": "Set root logger level dynamically",
         "body": '{"level": "DEBUG|INFO|WARNING|ERROR|CRITICAL"}',
+    },
+    # Operations
+    {
+        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations",
+        "description": "List active background operations",
+        "response": "{operations: [{id, type, label, current, total, status, elapsed, message}]}",
+    },
+    {
+        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/backup",
+        "description": "Trigger backup (runs scripts/backup.sh as background task)",
+        "response": "{operation_id, status}",
+    },
+    {
+        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/pull",
+        "description": "Run git pull origin master (synchronous)",
+        "response": "{exit_code, stdout, stderr}",
+    },
+    {
+        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/restart",
+        "description": "Pull + restart server via systemd (requires confirm: true)",
+        "body": '{"confirm": true}',
+        "response": "{pull: {exit_code, stdout, stderr}, restart: {exit_code, stdout, stderr}}",
+    },
+    {
+        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations/backup/config",
+        "description": "Get backup configuration (DB overrides > .env > defaults)",
+        "response": "{rclone_remote, local_keep, aws_region, backup_dir}",
+    },
+    {
+        "scope": "operations:write", "method": "PUT", "path": "/api/v1/admin/operations/backup/config",
+        "description": "Update backup settings in server_settings table",
+        "body": '{"rclone_remote?": "str", "local_keep?": int, "aws_region?": "str", "backup_dir?": "str"}',
+    },
+    {
+        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations/backup/history",
+        "description": "List local backup archives with sizes and dates",
+        "response": "{backup_dir, files: [{name, size_bytes, modified_at}]}",
     },
     # Discovery
     {

@@ -437,3 +437,109 @@ async def github_list_branches(owner: str, repo: str) -> str:
         lines.append(f"- {b['name']}{protected}")
 
     return "\n".join(lines)
+
+
+@reg.register({"type": "function", "function": {
+    "name": "github_get_issue",
+    "description": "Get details of a single GitHub issue by number, including title, body, state, labels, assignees, and comments.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "owner": {"type": "string", "description": "Repository owner"},
+            "repo": {"type": "string", "description": "Repository name"},
+            "issue_number": {"type": "integer", "description": "Issue number"},
+        },
+        "required": ["owner", "repo", "issue_number"],
+    },
+}})
+async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
+    r = await _http.get(
+        f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}",
+        headers=_headers(),
+    )
+    r.raise_for_status()
+    issue = r.json()
+
+    labels = ", ".join(l["name"] for l in issue.get("labels", []))
+    assignees = ", ".join(f"@{a['login']}" for a in issue.get("assignees", []))
+
+    lines = [
+        f"# Issue #{issue_number}: {issue.get('title', '')}",
+        f"State: {issue.get('state', '')}",
+        f"Author: @{issue.get('user', {}).get('login', '')}",
+    ]
+    if labels:
+        lines.append(f"Labels: {labels}")
+    if assignees:
+        lines.append(f"Assignees: {assignees}")
+    if issue.get("milestone"):
+        lines.append(f"Milestone: {issue['milestone'].get('title', '')}")
+    lines += [
+        f"Created: {issue.get('created_at', '')[:10]} | Updated: {issue.get('updated_at', '')[:10]}",
+        f"URL: {issue.get('html_url', '')}",
+        "",
+        "## Body",
+        issue.get("body") or "(no description)",
+    ]
+
+    # Fetch comments
+    if issue.get("comments", 0) > 0:
+        r_comments = await _http.get(
+            f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            headers=_headers(),
+            params={"per_page": 30},
+        )
+        if r_comments.status_code == 200:
+            comments = r_comments.json()
+            lines += ["", f"## Comments ({len(comments)})"]
+            for c in comments:
+                author = c.get("user", {}).get("login", "")
+                date = c.get("created_at", "")[:10]
+                body = c.get("body", "")
+                if len(body) > 2000:
+                    body = body[:2000] + "... (truncated)"
+                lines += [f"### @{author} ({date})", body, ""]
+
+    return "\n".join(lines)
+
+
+@reg.register({"type": "function", "function": {
+    "name": "github_create_issue",
+    "description": "Create a new GitHub issue.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "owner": {"type": "string", "description": "Repository owner"},
+            "repo": {"type": "string", "description": "Repository name"},
+            "title": {"type": "string", "description": "Issue title"},
+            "body": {"type": "string", "description": "Issue body (Markdown)"},
+            "labels": {"type": "array", "items": {"type": "string"}, "description": "Labels to apply (must already exist in the repo)."},
+            "assignees": {"type": "array", "items": {"type": "string"}, "description": "GitHub usernames to assign."},
+        },
+        "required": ["owner", "repo", "title"],
+    },
+}})
+async def github_create_issue(
+    owner: str,
+    repo: str,
+    title: str,
+    body: str = "",
+    labels: list[str] | None = None,
+    assignees: list[str] | None = None,
+) -> str:
+    payload: dict = {"title": title}
+    if body:
+        payload["body"] = body
+    if labels:
+        payload["labels"] = labels
+    if assignees:
+        payload["assignees"] = assignees
+
+    r = await _http.post(
+        f"{_GITHUB_API}/repos/{owner}/{repo}/issues",
+        headers=_headers(),
+        json=payload,
+    )
+    r.raise_for_status()
+    issue = r.json()
+    return f"Issue created: #{issue['number']} — {issue.get('html_url', '')}"

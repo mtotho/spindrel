@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -126,3 +126,29 @@ async def list_attachments(
     q = q.order_by(Attachment.created_at.desc()).limit(limit)
     result = await db.execute(q)
     return list(result.scalars().all())
+
+
+@router.post("/upload", response_model=AttachmentOut, status_code=201)
+async def upload_attachment(
+    file: UploadFile = File(...),
+    channel_id: uuid.UUID = Form(...),
+    _auth=Depends(require_scopes("attachments:write")),
+):
+    """Upload a file as a standalone attachment (no message)."""
+    from app.services.attachments import create_attachment
+
+    file_data = await file.read()
+    mime = file.content_type or "application/octet-stream"
+    filename = file.filename or "upload"
+
+    attachment = await create_attachment(
+        message_id=None,
+        channel_id=channel_id,
+        filename=filename,
+        mime_type=mime,
+        size_bytes=len(file_data),
+        posted_by=None,
+        source_integration="web",
+        file_data=file_data,
+    )
+    return attachment

@@ -363,6 +363,7 @@ class ChannelSettingsOut(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
     index_segments: list[dict] = []
     # Resolved defaults for index segment fields (computed, not stored)
     index_segment_defaults: Optional[dict] = None
@@ -428,6 +429,7 @@ class ChannelSettingsUpdate(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
     index_segments: Optional[list[dict]] = None
 
 

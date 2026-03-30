@@ -24,6 +24,7 @@ import {
   Code2,
   Server,
   Plug,
+  Paperclip,
   Sun,
   Moon,
   Clock,
@@ -57,6 +58,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
       { label: "Templates", href: "/admin/prompt-templates", icon: FileText },
+      { label: "Attachments", href: "/admin/attachments", icon: Paperclip },
     ],
   },
   {

@@ -41,6 +41,10 @@ dev = [
     "pytest-asyncio",
     "aiosqlite",
 ]
+setup = [
+    "questionary",
+    "pyyaml",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

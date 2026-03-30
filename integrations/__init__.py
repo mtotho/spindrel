@@ -177,6 +177,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        has_process = (candidate / "process.py").exists()
         entry: dict = {
             "id": integration_id,
             "name": integration_id.replace("_", " ").replace("-", " ").title(),
@@ -186,11 +187,21 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": (candidate / "tools").is_dir(),
             "has_skills": (candidate / "skills").is_dir(),
+            "has_process": has_process,
+            "process_status": None,
             "env_vars": [],
             "webhook": None,
             "status": "not_configured",
             "readme": None,
         }
+
+        # Include live process status if process manager is available
+        if has_process:
+            try:
+                from app.services.integration_processes import process_manager
+                entry["process_status"] = process_manager.status(integration_id)
+            except ImportError:
+                pass
 
         # Load setup.py if present
         setup_file = candidate / "setup.py"
@@ -213,6 +224,22 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                         "is_set": is_set,
                     })
 
+                # Python dependencies check
+                py_deps = setup.get("python_dependencies", [])
+                if py_deps:
+                    deps_status = []
+                    all_installed = True
+                    for dep in py_deps:
+                        import_name = dep.get("import_name", dep.get("package", "").replace("-", "_"))
+                        try:
+                            importlib.import_module(import_name)
+                            deps_status.append({"package": dep["package"], "installed": True})
+                        except ImportError:
+                            deps_status.append({"package": dep["package"], "installed": False})
+                            all_installed = False
+                    entry["python_dependencies"] = deps_status
+                    entry["deps_installed"] = all_installed
+
                 # Webhook
                 wh = setup.get("webhook")
                 if wh:
@@ -234,17 +261,18 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             except Exception:
                 pass
 
-        # Determine status from required env vars
+        # Determine status from required env vars + python dependencies
         required_vars = [v for v in entry["env_vars"] if v["required"]]
+        deps_ok = entry.get("deps_installed", True)  # True if no deps declared
         if not required_vars:
-            # No required vars declared — "ready" if has any capability file
+            # No required vars declared — "ready" if has any capability file AND deps installed
             if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"]:
-                entry["status"] = "ready"
+                entry["status"] = "ready" if deps_ok else "partial"
         else:
             set_count = sum(1 for v in required_vars if v["is_set"])
-            if set_count == len(required_vars):
+            if set_count == len(required_vars) and deps_ok:
                 entry["status"] = "ready"
-            elif set_count > 0:
+            elif set_count > 0 or not deps_ok:
                 entry["status"] = "partial"
             # else remains "not_configured"
 

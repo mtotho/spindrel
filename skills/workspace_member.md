@@ -214,111 +214,65 @@ Memory files are indexed and searched automatically each turn. You don't need to
 
 You work inside a persistent filesystem shared with other bots. Files you write survive across sessions. Careless writes corrupt memory, clobber output, or leave partial files that break downstream consumers. Every write should be non-destructive by default.
 
+### Primary Method: `file` Tool
+
+Use the `file` tool for all text file operations. It bypasses the shell entirely — no quoting issues with apostrophes, backticks, dollar signs, or special characters.
+
+```
+# Read a file
+file(operation="read", path="memory/MEMORY.md")
+
+# Append to a file (safe — preserves existing content)
+file(operation="append", path="memory/MEMORY.md", content="\n## New Finding\n- Key insight\n")
+
+# Write/create a file
+file(operation="write", path="output/report.md", content="# Report\n\n...")
+
+# Find-and-replace
+file(operation="edit", path="memory/MEMORY.md", find="status: pending", replace="status: complete")
+
+# List directory
+file(operation="list", path="output")
+
+# Create directories
+file(operation="mkdir", path="output/charts")
+```
+
 ### The Cardinal Rule
 
-**Never overwrite a file you haven't read first.** If you need to modify a file, read it, apply the change, write the result. Never blindly `echo >` or `cat >` a file that may already have content.
-
-### Appending (the safe default)
-
-Most memory and log writes are appends. Always use `>>`, never `>`:
-
-```sh
-# CORRECT — appends to existing content
-echo "## New Finding" >> memory/MEMORY.md
-
-# WRONG — destroys everything already in the file
-echo "## New Finding" > memory/MEMORY.md
-```
-
-For multi-line appends, use a heredoc with `>>`:
-
-```sh
-cat >> memory/MEMORY.md << 'EOF'
-
-## Auth System Notes
-- Uses JWT with 15-minute expiry
-- Refresh tokens stored in httpOnly cookies
-EOF
-```
-
-### Atomic Writes (for full-file replacements)
-
-When you need to replace an entire file (not append), write to a temp file first, then move. This prevents partial writes if the command is interrupted:
-
-```sh
-# Write to temp, then atomic move
-cat > output/report.md.tmp << 'EOF'
-# Analysis Report
-...full content...
-EOF
-mv output/report.md.tmp output/report.md
-```
-
-**Why**: A direct `cat > file` that gets interrupted leaves a truncated file. `mv` is atomic on the same filesystem — the file is either fully replaced or untouched.
-
-### Editing Specific Sections
-
-To modify a specific part of an existing file without rewriting the whole thing, use `sed` or a Python script:
-
-```sh
-# Replace a specific line
-sed -i 's/status: pending/status: complete/' output/status.yaml
-
-# Delete a section by marker
-sed -i '/^## Old Section$/,/^## /{ /^## [^O]/!d; }' memory/MEMORY.md
-
-# Insert after a marker line
-sed -i '/^## References$/a - New reference: https://example.com' memory/MEMORY.md
-```
-
-For complex edits, a short Python script is safer than fragile sed:
-
-```python
-import pathlib
-p = pathlib.Path("memory/MEMORY.md")
-content = p.read_text()
-content = content.replace("old value", "new value")
-p.write_text(content)
-```
+**Never overwrite a file you haven't read first.** Use `file(read)` before `file(write)` or `file(edit)`. Use `file(append)` when adding to existing files.
 
 ### Memory File Best Practices
 
 | Operation | Pattern | Why |
 |---|---|---|
-| Add a new finding | `cat >> memory/MEMORY.md << 'EOF'` | Preserves existing memory |
-| Update a known fact | Read → modify → write back (Python or sed) | Don't lose surrounding content |
-| Create a daily log | `cat >> memory/daily/$(date +%Y-%m-%d).md << 'EOF'` | Appends to today's log |
-| Create a reference doc | `cat > memory/references/topic.md << 'EOF'` | Full replacement is fine for new files |
-| Remove stale memory | Read file → remove section → write back | Never `> /dev/null` or truncate |
+| Add a new finding | `file(append, "memory/MEMORY.md", content)` | Preserves existing memory |
+| Update a known fact | `file(read)` → `file(edit, find, replace)` | Don't lose surrounding content |
+| Create a daily log | `file(append, "memory/daily/2026-03-30.md", content)` | Appends to today's log |
+| Create a reference doc | `file(write, "memory/references/topic.md", content)` | Full replacement is fine for new files |
+| Remove stale memory | `file(read)` → `file(edit)` or `file(write)` | Never truncate blindly |
 
-### Output Files
+### Fallback: Shell Commands
 
-When producing work output:
+Use `exec_command` with heredocs only when you need shell features (pipes, variable expansion, running programs). For plain text files, always prefer `file`:
 
 ```sh
-# Create output directory if needed
-mkdir -p output
-
-# For reports/deliverables — atomic write
-cat > output/results.md.tmp << 'EOF'
-...
+# Only for shell operations — NOT for file writing
+cat >> memory/MEMORY.md << 'EOF'
+## Section
+content
 EOF
-mv output/results.md.tmp output/results.md
-
-# For incremental logs — append
-echo "[$(date -Iseconds)] Step 3 complete: 42 items processed" >> output/progress.log
 ```
 
 ### Avoiding Common File Corruption
 
 | Mistake | What Happens | Safe Alternative |
 |---|---|---|
-| `echo "new" > MEMORY.md` | All existing memory destroyed | `echo "new" >> MEMORY.md` |
-| `cat > file` interrupted | File left truncated/empty | Write to `.tmp`, then `mv` |
-| `sed -i` on wrong file | Irreversible in-place edit | `cp file file.bak && sed -i ...` for risky edits |
+| `echo "Bennie's..."` via shell | Apostrophe breaks quoting | `file(append)` — no shell involved |
+| `echo "new" > MEMORY.md` via shell | All existing memory destroyed | `file(append)` |
+| `file(write)` without reading first | Previous content lost | `file(read)` first, or use `append`/`edit` |
+| `file(edit)` without reading first | `find` string may not match exactly | `file(read)` first to see exact content |
 | Concurrent writes from script | Lines interleaved/corrupted | Use `flock` or write to separate files |
-| Heredoc without quoting (`<< EOF`) | Shell expands `$variables` in content | Use `<< 'EOF'` (single-quoted) to write literal content |
-| `echo` with unescaped special chars | Mangled output, broken JSON | Use `printf '%s\n'` or `cat <<` for complex content |
 
 ---
 

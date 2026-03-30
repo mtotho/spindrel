@@ -375,7 +375,14 @@ async def run_agent_tool_loop(
                 _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
-                    if tool_calls_made:
+                    # Distinguish genuine silent completion from model API failures.
+                    # 0 completion tokens means the model didn't generate anything at
+                    # all — almost certainly a model glitch, not intentional silence.
+                    _zero_tokens = (
+                        accumulated_msg.usage is not None
+                        and accumulated_msg.usage.completion_tokens == 0
+                    )
+                    if tool_calls_made and not _zero_tokens:
                         # Silent completion: bot did work via tool calls, nothing to say.
                         logger.info(
                             "LLM completed silently after %d tool call(s) — accepting empty response.",
@@ -384,12 +391,14 @@ async def run_agent_tool_loop(
                         # Remove empty assistant message eagerly appended above
                         messages.pop()
                     else:
-                        # Genuine failure: no tool calls AND no text. Force a response.
+                        # Genuine failure — either no tool calls at all, or 0 completion
+                        # tokens (model API glitch, not intentional silence). Force retry.
+                        _reason = "0 completion tokens" if _zero_tokens else "no tool calls"
                         _empty_msg = (
                             f"LLM returned empty response after {iteration + 1} iteration(s) "
-                            f"({len(tool_calls_made)} tool calls). Forcing retry."
+                            f"({len(tool_calls_made)} tool calls, {_reason}). Forcing retry."
                         )
-                        logger.warning("LLM response was empty. Forcing a response...")
+                        logger.warning("LLM response was empty (%s). Forcing a response...", _reason)
                         yield _event_with_compaction_tag({
                             "type": "warning",
                             "code": "empty_response",

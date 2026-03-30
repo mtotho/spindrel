@@ -56,7 +56,7 @@ crontab -e
 Add:
 
 ```cron
-0 2 * * * /path/to/scripts/backup.sh >> /var/log/thoth-backup.log 2>&1
+0 2 * * * /path/to/scripts/backup.sh >> /var/log/spindrel-backup.log 2>&1
 ```
 
 ## Restore

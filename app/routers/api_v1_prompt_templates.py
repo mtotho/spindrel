@@ -66,16 +66,19 @@ class PromptTemplateUpdateIn(BaseModel):
 @router.get("", response_model=list[PromptTemplateOut])
 async def list_prompt_templates(
     workspace_id: Optional[UUID] = None,
+    category: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("settings:read")),
 ):
-    """List prompt templates. If workspace_id provided, returns global + workspace-scoped."""
+    """List prompt templates. Supports workspace_id and category filters."""
     stmt = select(PromptTemplate).order_by(PromptTemplate.category, PromptTemplate.name)
     if workspace_id is not None:
         stmt = stmt.where(
             (PromptTemplate.workspace_id == workspace_id)
             | (PromptTemplate.workspace_id.is_(None))
         )
+    if category is not None:
+        stmt = stmt.where(PromptTemplate.category == category)
     rows = (await db.execute(stmt)).scalars().all()
     return rows
 

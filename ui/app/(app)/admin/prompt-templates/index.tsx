@@ -125,18 +125,31 @@ export default function PromptTemplatesScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+
+  const categories = useMemo(() => {
+    if (!templates) return [];
+    const cats = new Set(templates.map((t) => t.category).filter(Boolean) as string[]);
+    return Array.from(cats).sort();
+  }, [templates]);
 
   const filteredTemplates = useMemo(() => {
     if (!templates) return [];
-    if (!search.trim()) return templates;
-    const q = search.toLowerCase();
-    return templates.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        (t.category || "").toLowerCase().includes(q) ||
-        (t.description || "").toLowerCase().includes(q),
-    );
-  }, [templates, search]);
+    let result = templates;
+    if (categoryFilter) {
+      result = result.filter((t) => t.category === categoryFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (t) =>
+          t.name.toLowerCase().includes(q) ||
+          (t.category || "").toLowerCase().includes(q) ||
+          (t.description || "").toLowerCase().includes(q),
+      );
+    }
+    return result;
+  }, [templates, search, categoryFilter]);
 
   if (isLoading) {
     return (
@@ -166,10 +179,11 @@ export default function PromptTemplatesScreen() {
         }
       />
 
-      {/* Search bar */}
+      {/* Search bar + category chips */}
       <div style={{
         padding: isWide ? "8px 16px" : "8px 12px",
         borderBottom: `1px solid ${tk.surfaceRaised}`,
+        display: "flex", flexDirection: "column", gap: 8,
       }}>
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
@@ -188,6 +202,37 @@ export default function PromptTemplatesScreen() {
             }}
           />
         </div>
+        {categories.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setCategoryFilter(null)}
+              style={{
+                padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600,
+                border: `1px solid ${!categoryFilter ? tk.accent : tk.surfaceBorder}`,
+                background: !categoryFilter ? tk.accentSubtle : "transparent",
+                color: !categoryFilter ? tk.accent : tk.textDim,
+                cursor: "pointer",
+              }}
+            >
+              All
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setCategoryFilter(categoryFilter === cat ? null : cat)}
+                style={{
+                  padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600,
+                  border: `1px solid ${categoryFilter === cat ? tk.accent : tk.surfaceBorder}`,
+                  background: categoryFilter === cat ? tk.accentSubtle : "transparent",
+                  color: categoryFilter === cat ? tk.accent : tk.textDim,
+                  cursor: "pointer",
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Table header (desktop only) */}

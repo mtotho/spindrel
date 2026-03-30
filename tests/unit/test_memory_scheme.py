@@ -290,7 +290,7 @@ class TestCompactionFlushOverride:
         from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
         assert "daily log" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
         assert "MEMORY.md" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
-        assert "exec_command" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "file" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
 
 
 # ---------------------------------------------------------------------------
