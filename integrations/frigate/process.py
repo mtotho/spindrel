@@ -11,4 +11,4 @@ CMD = [
     "python integrations/frigate/mqtt_listener.py",
     "integrations/frigate/",
 ]
-REQUIRED_ENV = ["FRIGATE_MQTT_BROKER", "FRIGATE_BOT_ID"]
+REQUIRED_ENV = ["FRIGATE_MQTT_BROKER"]

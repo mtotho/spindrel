@@ -9,7 +9,7 @@ import logging
 
 from app.agent.dispatchers import register
 from integrations.slack.client import bot_attribution, post_message, post_message_raw, update_message
-from integrations.slack.formatting import split_for_slack
+from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ class SlackDispatcher:
         if extra_metadata and extra_metadata.get("delegated_by_display"):
             _slack_text = f"_Delegated by {extra_metadata['delegated_by_display']}_\n{_slack_text}"
 
+        _slack_text = markdown_to_slack_mrkdwn(_slack_text)
         chunks = split_for_slack(_slack_text)
 
         # If we posted a thinking placeholder via notify_start, update it with the
@@ -146,7 +147,7 @@ class SlackDispatcher:
             attrs = bot_attribution(bot_id) if bot_id else {}
 
         ok = await post_message(
-            token, channel_id, text,
+            token, channel_id, markdown_to_slack_mrkdwn(text),
             thread_ts=thread_ts,
             reply_in_thread=reply_in_thread,
             **attrs,

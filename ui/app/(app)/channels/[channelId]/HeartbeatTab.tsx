@@ -309,7 +309,7 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
               </div>
               {isExpanded && (
                 <div style={{
-                  padding: "10px 12px", background: "#151515",
+                  padding: "10px 12px", background: t.codeBg,
                   borderRadius: "0 0 6px 6px",
                   border: `1px solid ${t.accent}`, borderTop: "none",
                 }}>
@@ -473,7 +473,7 @@ function ContextPreview({ form, data }: { form: any; data: any }) {
       </div>
       {expanded && (
         <pre style={{
-          marginTop: 8, padding: 12, background: "#111", borderRadius: 6,
+          marginTop: 8, padding: 12, background: t.codeBg, borderRadius: 6,
           border: `1px solid ${t.surfaceBorder}`,
           fontSize: 11, lineHeight: 1.6, color: t.textMuted,
           whiteSpace: "pre-wrap", wordBreak: "break-word",

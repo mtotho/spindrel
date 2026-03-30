@@ -21,7 +21,7 @@ from app.agent.message_utils import (
 from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
-from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, last_fallback_info, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -371,7 +371,7 @@ async def run_agent_tool_loop(
                 )
 
             if not accumulated_msg.tool_calls:
-                text = accumulated_msg.content or ""
+                text = strip_malformed_tool_calls(accumulated_msg.content or "")
                 _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
@@ -413,7 +413,7 @@ async def run_agent_tool_loop(
                                 provider_id=provider_id,
                                 fallback_models=fallback_models,
                             )
-                            text = strip_think_tags(retry.choices[0].message.content or "")
+                            text = strip_malformed_tool_calls(strip_think_tags(retry.choices[0].message.content or ""))
                             messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                         except Exception as exc:
                             logger.error("Forced-response retry failed: %s", exc)

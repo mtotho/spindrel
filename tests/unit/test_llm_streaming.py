@@ -183,6 +183,41 @@ class TestLlmCallStream:
         assert msg.content == "fallback ok"
 
     @pytest.mark.asyncio
+    async def test_usage_captured_from_separate_chunk(self):
+        """Usage in a separate chunk after finish_reason must propagate to AccumulatedMessage.
+
+        This is the critical test: with stream_options.include_usage, the provider
+        sends usage in a final chunk with empty choices AFTER the finish_reason chunk.
+        Without this, token_usage trace events are never recorded.
+        """
+        usage = MagicMock()
+        usage.prompt_tokens = 100
+        usage.completion_tokens = 50
+        usage.total_tokens = 150
+
+        chunks = [
+            _make_chunk(content="Hello"),
+            _make_chunk(finish_reason="stop"),
+            _make_chunk(usage=usage),  # separate usage-only chunk
+        ]
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_async_iter(chunks))
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.requires_system_message_folding", return_value=False), \
+             patch("app.services.server_config.get_global_fallback_models", return_value=[]):
+            items = []
+            async for item in _llm_call_stream("gpt-4", [{"role": "user", "content": "hi"}], None, None):
+                items.append(item)
+
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "Hello"
+        assert msg.usage is usage
+        assert msg.usage.prompt_tokens == 100
+        assert msg.usage.completion_tokens == 50
+
+    @pytest.mark.asyncio
     async def test_thinking_content_emitted(self):
         """Thinking/reasoning content should be emitted as events."""
         chunks = [

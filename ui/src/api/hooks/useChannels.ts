@@ -147,6 +147,7 @@ export interface AvailableIntegration {
     client_id_placeholder: string;
     client_id_description: string;
     display_name_placeholder: string;
+    event_types?: { value: string; label: string }[];
   } | null;
 }
 

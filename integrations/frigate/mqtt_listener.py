@@ -1,7 +1,8 @@
 """Frigate MQTT event listener — pushes detection events to the agent server.
 
 Standalone process (like the Slack bot). Connects to MQTT broker, subscribes
-to Frigate event topics, filters events, and POSTs to /chat.
+to Frigate event topics, applies global filters + cooldown, and POSTs raw
+payloads to the Frigate webhook endpoint for channel fan-out.
 
 Usage:
     pip install -r integrations/frigate/requirements.txt
@@ -37,8 +38,6 @@ MQTT_USERNAME = os.environ.get("FRIGATE_MQTT_USERNAME", "")
 MQTT_PASSWORD = os.environ.get("FRIGATE_MQTT_PASSWORD", "")
 MQTT_TOPIC_PREFIX = os.environ.get("FRIGATE_MQTT_TOPIC_PREFIX", "frigate")
 
-BOT_ID = os.environ.get("FRIGATE_BOT_ID", "")
-CLIENT_ID = os.environ.get("FRIGATE_CLIENT_ID", "frigate:events")
 AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 API_KEY = os.environ.get("AGENT_API_KEY", "")
 
@@ -178,27 +177,22 @@ def format_event_message(event: dict) -> str:
 http = httpx.AsyncClient(timeout=120.0)
 
 
-async def post_chat(message: str) -> None:
-    """POST a message to the agent server /chat endpoint."""
-    payload = {
-        "message": message,
-        "bot_id": BOT_ID,
-        "client_id": CLIENT_ID,
-    }
+async def post_webhook(event_payload: dict) -> None:
+    """POST a raw Frigate event payload to the webhook endpoint for fan-out."""
     headers = {}
     if API_KEY:
         headers["Authorization"] = f"Bearer {API_KEY}"
 
     try:
         r = await http.post(
-            f"{AGENT_BASE_URL}/chat",
-            json=payload,
+            f"{AGENT_BASE_URL}/integrations/frigate/webhook",
+            json=event_payload,
             headers=headers,
         )
         r.raise_for_status()
-        logger.info("Posted event to agent server (status=%d)", r.status_code)
+        logger.info("Posted event to webhook (status=%d)", r.status_code)
     except Exception:
-        logger.exception("Failed to post event to agent server")
+        logger.exception("Failed to post event to webhook")
 
 
 # ---------------------------------------------------------------------------
@@ -218,14 +212,11 @@ async def run() -> None:
     if not MQTT_BROKER:
         logger.error("FRIGATE_MQTT_BROKER is not set — exiting")
         sys.exit(1)
-    if not BOT_ID:
-        logger.error("FRIGATE_BOT_ID is not set — exiting")
-        sys.exit(1)
 
     topic = f"{MQTT_TOPIC_PREFIX}/events"
     logger.info(
-        "Connecting to MQTT broker %s:%d, topic=%s, bot=%s, client=%s",
-        MQTT_BROKER, MQTT_PORT, topic, BOT_ID, CLIENT_ID,
+        "Connecting to MQTT broker %s:%d, topic=%s, webhook=%s/integrations/frigate/webhook",
+        MQTT_BROKER, MQTT_PORT, topic, AGENT_BASE_URL,
     )
     if CAMERA_FILTER:
         logger.info("Camera filter: %s", CAMERA_FILTER)
@@ -254,9 +245,10 @@ async def run() -> None:
                     if not should_process_event(payload):
                         continue
 
-                    message = format_event_message(payload)
-                    logger.info("Processing event: %s", message.split("\n")[0])
-                    await post_chat(message)
+                    camera = (payload.get("after") or payload.get("before", {})).get("camera", "?")
+                    label = (payload.get("after") or payload.get("before", {})).get("label", "?")
+                    logger.info("Processing event: %s detected on %s", label, camera)
+                    await post_webhook(payload)
 
         except aiomqtt.MqttError as e:
             logger.error("MQTT connection error: %s — reconnecting in 5s", e)

@@ -1,11 +1,13 @@
 ---
-name: Slide Decks
+name: Slide Decks (Marp)
 description: Create presentations using Marp Markdown syntax — HTML, PDF, or PPTX output
 ---
 # SKILL: Slide Decks (Marp)
 
+> Powered by [Marp](https://marp.app) — an open-source Markdown presentation ecosystem by [@marp-team](https://github.com/marp-team). MIT licensed.
+
 ## Overview
-Create slide presentations from Markdown using the `create_slides` tool. Slides use Marp syntax — standard Markdown with `---` separators between slides and optional directives for theming and layout.
+Create slide presentations from Markdown using the `create_slides` tool. Slides use [Marp](https://github.com/marp-team/marp-cli) syntax — standard Markdown with `---` separators between slides and optional directives for theming and layout.
 
 ## Tool
 - `create_slides` — takes Marp Markdown content, converts to HTML/PDF/PPTX, and **sends the file directly to the chat** in one step. No separate send/post call needed — the file is delivered to Slack/web UI automatically. Parameters: `markdown`, `format` (html/pdf/pptx), `filename`

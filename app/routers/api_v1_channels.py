@@ -845,14 +845,17 @@ async def bind_channel_integration(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    # Check for duplicate client_id
+    # Check for duplicate binding within the same channel
     existing = (await db.execute(
-        select(ChannelIntegration).where(ChannelIntegration.client_id == body.client_id)
+        select(ChannelIntegration).where(
+            ChannelIntegration.client_id == body.client_id,
+            ChannelIntegration.channel_id == channel_id,
+        )
     )).scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=409,
-            detail=f"client_id '{body.client_id}' is already bound to channel {existing.channel_id}",
+            detail=f"client_id '{body.client_id}' is already bound to this channel",
         )
 
     binding = await bind_integration(

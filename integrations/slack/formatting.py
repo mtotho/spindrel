@@ -44,6 +44,44 @@ def format_thinking_for_slack(text: str) -> str:
     return f"> 💭 *Thinking:*\n{quoted}"
 
 
+def markdown_to_slack_mrkdwn(text: str) -> str:
+    """Convert common Markdown formatting to Slack mrkdwn.
+
+    Transforms (outside code blocks and inline code):
+    - ``**bold**`` → ``*bold*``
+    - ``~~strike~~`` → ``~strike~``
+    - ``[text](url)`` → ``<url|text>``
+    """
+    if not text:
+        return text
+
+    # Protect fenced code blocks and inline code by replacing with placeholders.
+    # We restore them after the transforms so code content is never modified.
+    _placeholders: list[str] = []
+
+    def _protect(m: re.Match) -> str:
+        _placeholders.append(m.group(0))
+        return f"\x00PH{len(_placeholders) - 1}\x00"
+
+    protected = re.sub(r"```[\s\S]*?```", _protect, text)
+    protected = re.sub(r"`[^`\n]+`", _protect, protected)
+
+    # **bold** → *bold*
+    protected = re.sub(r"\*\*(.+?)\*\*", r"*\1*", protected)
+    # ~~strike~~ → ~strike~
+    protected = re.sub(r"~~(.+?)~~", r"~\1~", protected)
+    # [text](url) → <url|text>
+    protected = re.sub(
+        r"\[([^\]]+)\]\((https?://[^\)]+)\)", r"<\2|\1>", protected
+    )
+
+    # Restore protected code segments.
+    for i, original in enumerate(_placeholders):
+        protected = protected.replace(f"\x00PH{i}\x00", original, 1)
+
+    return protected
+
+
 def format_response_for_slack(response: str) -> str:
     if not response or not response.strip():
         return "_(no response)_"
@@ -56,7 +94,7 @@ def format_response_for_slack(response: str) -> str:
     formatted = re.sub(r"\[/?silent\]", "", formatted, flags=re.IGNORECASE).strip()
     if not formatted:
         return "_(no response)_"
-    return formatted
+    return markdown_to_slack_mrkdwn(formatted)
 
 
 def _truncate(text: str, limit: int) -> str:

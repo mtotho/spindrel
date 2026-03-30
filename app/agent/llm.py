@@ -100,6 +100,30 @@ def strip_think_tags(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
 
 
+# Pattern to match XML-style tool calls that models sometimes emit as plain text
+# instead of using the proper OpenAI tool_calls format.  Covers:
+#   <invoke name="...">...</invoke>
+#   </minimax:tool_call>   (trailing close tag)
+#   <tool_call>...</tool_call>
+_MALFORMED_TOOL_CALL_RE = re.compile(
+    r"<invoke\b[^>]*>.*?</invoke>"       # <invoke …>…</invoke>
+    r"|</?\w+:tool_call\b[^>]*>"         # <minimax:tool_call> or </minimax:tool_call>
+    r"|<tool_call\b[^>]*>.*?</tool_call>"  # <tool_call>…</tool_call>
+    , re.DOTALL,
+)
+
+
+def strip_malformed_tool_calls(text: str) -> str:
+    """Strip XML tool-call fragments some models emit as plain text.
+
+    When a model fails to use the OpenAI function-calling format and instead
+    returns tool invocations as XML in text content, this strips them so they
+    don't leak into user-facing messages.
+    """
+    cleaned = _MALFORMED_TOOL_CALL_RE.sub("", text).strip()
+    return cleaned
+
+
 @dataclass
 class FallbackInfo:
     """Metadata about a fallback that occurred during _llm_call."""
@@ -312,14 +336,18 @@ class StreamAccumulator:
 
 
 async def _consume_stream(stream) -> AsyncGenerator[dict | AccumulatedMessage, None]:
-    """Consume a streaming response, yielding events then the final AccumulatedMessage."""
+    """Consume a streaming response, yielding events then the final AccumulatedMessage.
+
+    NOTE: We must NOT break on finish_reason.  With stream_options.include_usage
+    the provider sends a final chunk *after* finish_reason that carries the usage
+    stats (choices=[], usage={...}).  Breaking early would lose that data and
+    token_usage trace events would never be recorded.
+    """
     accumulator = StreamAccumulator()
     async for chunk in stream:
-        events, is_done = accumulator.feed(chunk)
+        events, _is_done = accumulator.feed(chunk)
         for event in events:
             yield event
-        if is_done:
-            break
     yield accumulator.build()
 
 

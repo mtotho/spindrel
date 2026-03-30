@@ -171,6 +171,108 @@ class TestStreamAccumulator:
         assert msg.usage.total_tokens == 42
 
 
+class TestConsumeStream:
+    """Tests for _consume_stream — ensures usage from the final chunk is captured."""
+
+    @pytest.mark.asyncio
+    async def test_usage_separate_chunk_after_finish(self):
+        """Usage in a separate chunk after finish_reason must be captured.
+
+        This is the standard OpenAI pattern with stream_options.include_usage:
+        content chunks → finish chunk → usage-only chunk.
+        """
+        from app.agent.llm import _consume_stream
+
+        usage = MagicMock()
+        usage.prompt_tokens = 100
+        usage.completion_tokens = 50
+        usage.total_tokens = 150
+
+        async def mock_stream():
+            yield _make_chunk(content="Hello ")
+            yield _make_chunk(content="world")
+            yield _make_chunk(finish_reason="stop")
+            yield _make_chunk(usage=usage)  # usage-only chunk AFTER finish
+
+        items = []
+        async for item in _consume_stream(mock_stream()):
+            items.append(item)
+
+        # Last item should be AccumulatedMessage with usage
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "Hello world"
+        assert msg.usage is usage
+        assert msg.usage.prompt_tokens == 100
+        assert msg.usage.completion_tokens == 50
+        assert msg.usage.total_tokens == 150
+
+    @pytest.mark.asyncio
+    async def test_usage_on_finish_chunk_via_consume_stream(self):
+        """Usage attached to finish chunk should also work."""
+        from app.agent.llm import _consume_stream
+
+        usage = MagicMock()
+        usage.total_tokens = 42
+
+        async def mock_stream():
+            yield _make_chunk(content="Hi", finish_reason="stop", usage=usage)
+
+        items = []
+        async for item in _consume_stream(mock_stream()):
+            items.append(item)
+
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.usage is usage
+        assert msg.usage.total_tokens == 42
+
+    @pytest.mark.asyncio
+    async def test_no_usage_when_provider_omits_it(self):
+        """If no usage chunk is sent, usage should be None."""
+        from app.agent.llm import _consume_stream
+
+        async def mock_stream():
+            yield _make_chunk(content="Hello")
+            yield _make_chunk(finish_reason="stop")
+
+        items = []
+        async for item in _consume_stream(mock_stream()):
+            items.append(item)
+
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.usage is None
+
+    @pytest.mark.asyncio
+    async def test_events_yielded_before_accumulated_message(self):
+        """text_delta events should be yielded before the final AccumulatedMessage."""
+        from app.agent.llm import _consume_stream
+
+        usage = MagicMock()
+        usage.total_tokens = 10
+
+        async def mock_stream():
+            yield _make_chunk(content="A")
+            yield _make_chunk(content="B")
+            yield _make_chunk(finish_reason="stop")
+            yield _make_chunk(usage=usage)
+
+        items = []
+        async for item in _consume_stream(mock_stream()):
+            items.append(item)
+
+        deltas = [i for i in items if isinstance(i, dict) and i.get("type") == "text_delta"]
+        assert len(deltas) == 2
+        assert deltas[0]["delta"] == "A"
+        assert deltas[1]["delta"] == "B"
+
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "AB"
+        assert msg.usage.total_tokens == 10
+
+
 class TestAccumulatedMessage:
     def test_to_msg_dict_text_only(self):
         msg = AccumulatedMessage(content="Hello")

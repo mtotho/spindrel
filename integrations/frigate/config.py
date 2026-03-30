@@ -72,15 +72,5 @@ class _Settings:
         """Seconds between alerts for same camera+label."""
         return int(_get("FRIGATE_MQTT_COOLDOWN", "300"))
 
-    # -- Agent server connection --
-
-    @property
-    def FRIGATE_BOT_ID(self) -> str:
-        return _get("FRIGATE_BOT_ID")
-
-    @property
-    def FRIGATE_CLIENT_ID(self) -> str:
-        return _get("FRIGATE_CLIENT_ID", "frigate:events")
-
 
 settings = _Settings()

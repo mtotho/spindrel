@@ -120,6 +120,7 @@ textarea::placeholder {
 
 /* Message hover effect (Slack-style, pointer devices only) */
 .msg-hover {
+  position: relative;
   transition: background-color 0.08s ease;
 }
 @media (hover: hover) {
@@ -128,6 +129,25 @@ textarea::placeholder {
   }
   :not(.dark) .msg-hover:hover {
     background-color: rgba(0, 0, 0, 0.02);
+  }
+}
+
+/* Message action bar (copy button) — revealed on hover */
+.msg-actions {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+  z-index: 5;
+}
+@media (hover: hover) {
+  .msg-hover:hover .msg-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

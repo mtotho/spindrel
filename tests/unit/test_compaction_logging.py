@@ -184,6 +184,7 @@ class TestRecordCompactionLog:
             mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
+            corr_id = uuid.uuid4()
             await _record_compaction_log(
                 channel_id=uuid.uuid4(),
                 session_id=uuid.uuid4(),
@@ -198,6 +199,8 @@ class TestRecordCompactionLog:
                 completion_tokens=80,
                 duration_ms=3500,
                 section_id=uuid.uuid4(),
+                correlation_id=corr_id,
+                flush_result="Updated MEMORY.md with session notes.",
             )
 
         assert len(added_objects) == 1
@@ -212,6 +215,8 @@ class TestRecordCompactionLog:
         assert log.prompt_tokens == 200
         assert log.completion_tokens == 80
         assert log.duration_ms == 3500
+        assert log.correlation_id == corr_id
+        assert log.flush_result == "Updated MEMORY.md with session notes."
         mock_db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -267,6 +272,8 @@ class TestRecordCompactionLog:
         assert log.duration_ms is None
         assert log.section_id is None
         assert log.error is None
+        assert log.correlation_id is None
+        assert log.flush_result is None
         assert log.tier == "aggressive"
 
 
@@ -291,6 +298,8 @@ class TestCompactionLogModel:
         assert log.duration_ms is None
         assert log.error is None
         assert log.section_id is None
+        assert log.correlation_id is None
+        assert log.flush_result is None
 
     def test_table_name(self):
         from app.db.models import CompactionLog

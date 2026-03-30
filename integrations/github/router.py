@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
 from integrations import utils
 from integrations.github.config import settings
 from integrations.github.handlers import parse_event
@@ -24,8 +25,9 @@ async def github_webhook(
 ):
     """Receive and process GitHub webhook events.
 
-    Validates HMAC-SHA256 signature, parses event, injects message into
-    the agent session for github:{owner}/{repo}.
+    Validates HMAC-SHA256 signature, parses event, then fans out the message
+    to every channel that has a binding for github:{owner}/{repo}.
+    Per-binding event_filter narrows which event types reach each channel.
     """
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
@@ -62,26 +64,50 @@ async def github_webhook(
     if parsed.comment_target:
         dispatch_config["comment_target"] = parsed.comment_target
 
-    session_id = await utils.get_or_create_session(
-        client_id,
-        "default",
-        dispatch_config=dispatch_config,
-        db=db,
-    )
+    # Fan-out to all channels bound to this client_id
+    pairs = await resolve_all_channels_by_client_id(db, client_id)
 
-    result = await utils.inject_message(
-        session_id,
-        parsed.message,
-        source="github",
-        run_agent=parsed.run_agent,
-        notify=False,
-        db=db,
-    )
+    if not pairs:
+        # Backward compat: fall back to legacy single-session flow
+        session_id = await utils.get_or_create_session(
+            client_id, "default", dispatch_config=dispatch_config, db=db,
+        )
+        result = await utils.inject_message(
+            session_id, parsed.message, source="github",
+            run_agent=parsed.run_agent, notify=False,
+            dispatch_config=dispatch_config, db=db,
+        )
+        return {
+            "status": "processed",
+            "event": event_type,
+            "run_agent": parsed.run_agent,
+            "session_id": result["session_id"],
+            "task_id": result.get("task_id"),
+        }
+
+    results = []
+    for channel, binding in pairs:
+        # Per-binding event filtering
+        event_filter = (binding.dispatch_config or {}).get("event_filter")
+        if event_filter and event_type not in event_filter:
+            continue
+
+        session_id = await ensure_active_session(db, channel)
+
+        result = await utils.inject_message(
+            session_id, parsed.message, source="github",
+            run_agent=parsed.run_agent, notify=False,
+            dispatch_config=dispatch_config, db=db,
+        )
+        results.append(result)
+
+    if not results:
+        return {"status": "filtered", "event": event_type, "channels": len(pairs)}
 
     return {
         "status": "processed",
         "event": event_type,
         "run_agent": parsed.run_agent,
-        "session_id": result["session_id"],
-        "task_id": result.get("task_id"),
+        "channels": len(results),
+        "results": results,
     }
