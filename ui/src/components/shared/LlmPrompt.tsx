@@ -12,6 +12,9 @@ interface Props {
   rows?: number;
   helpText?: string;
   generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
 }
 
 export function scoreMatch(value: string, label: string, query: string): number {
@@ -45,11 +48,17 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
 // ---------------------------------------------------------------------------
 export function GenerateButton({
   generateContext,
+  fieldType,
+  botId,
+  channelId,
   value,
   onChange,
   size = "small",
 }: {
-  generateContext: string;
+  generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
   value: string;
   onChange: (text: string) => void;
   size?: "small" | "normal";
@@ -63,7 +72,14 @@ export function GenerateButton({
 
   const handleGenerate = useCallback((guidanceText: string) => {
     gen.mutate(
-      { context: generateContext, user_input: value, guidance: guidanceText || undefined },
+      {
+        field_type: fieldType || undefined,
+        bot_id: botId || undefined,
+        channel_id: channelId || undefined,
+        context: generateContext || undefined,
+        user_input: value,
+        guidance: guidanceText || undefined,
+      },
       {
         onSuccess: (data) => {
           onChange(data.prompt);
@@ -78,7 +94,7 @@ export function GenerateButton({
         },
       }
     );
-  }, [gen, generateContext, value, onChange]);
+  }, [gen, fieldType, botId, channelId, generateContext, value, onChange]);
 
   const isSmall = size === "small";
   const baseStyle: React.CSSProperties = isSmall
@@ -278,6 +294,9 @@ function FullscreenEditor({
   label,
   placeholder,
   generateContext,
+  fieldType,
+  botId,
+  channelId,
   onClose,
 }: {
   value: string;
@@ -285,6 +304,9 @@ function FullscreenEditor({
   label?: string;
   placeholder?: string;
   generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
   onClose: () => void;
 }) {
   const t = useThemeTokens();
@@ -369,8 +391,8 @@ function FullscreenEditor({
           <span style={{ color: t.textDim, fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {generateContext && (
-            <GenerateButton generateContext={generateContext} value={value} onChange={onChange} size="normal" />
+          {(generateContext || fieldType) && (
+            <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} size="normal" />
           )}
           <button
             onClick={onClose}
@@ -431,6 +453,9 @@ export function LlmPrompt({
   rows = 5,
   helpText,
   generateContext,
+  fieldType,
+  botId,
+  channelId,
 }: Props) {
   const t = useThemeTokens();
   const { data: completions } = useCompletions();
@@ -506,8 +531,8 @@ export function LlmPrompt({
             <span style={{ color: t.textDim, fontWeight: 400 }}>(type @ to insert tags)</span>
           </span>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {generateContext && (
-              <GenerateButton generateContext={generateContext} value={value} onChange={onChange} />
+            {(generateContext || fieldType) && (
+              <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} />
             )}
             <button
               onClick={() => setExpanded(true)}
@@ -564,6 +589,9 @@ export function LlmPrompt({
           label={label}
           placeholder={placeholder}
           generateContext={generateContext}
+          fieldType={fieldType}
+          botId={botId}
+          channelId={channelId}
           onClose={() => setExpanded(false)}
         />
       )}

@@ -261,7 +261,8 @@ export default function BotEditorScreen() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>System Prompt</div>
                 <GenerateButton
-                  generateContext="The main system prompt for an AI bot. Defines the bot's role, capabilities, personality, and behavioral guidelines. This is the foundational instruction the bot receives on every request."
+                  fieldType="system_prompt"
+                  botId={botId}
                   value={draft.system_prompt || ""}
                   onChange={(v) => update({ system_prompt: v })}
                 />

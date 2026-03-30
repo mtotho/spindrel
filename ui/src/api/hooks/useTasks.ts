@@ -25,6 +25,8 @@ export interface TaskDetail {
   delegation_session_id?: string | null;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   retry_count: number;
   correlation_id?: string | null;
@@ -47,6 +49,8 @@ export interface TaskCreatePayload {
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
@@ -63,6 +67,8 @@ export interface TaskUpdatePayload {
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;

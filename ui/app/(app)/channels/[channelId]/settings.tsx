@@ -233,7 +233,7 @@ export default function ChannelSettingsScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: 20, maxWidth: 680 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: 20, maxWidth: 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (

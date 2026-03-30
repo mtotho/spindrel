@@ -183,7 +183,7 @@ class TestGenerateSummaryExtended:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary(
+            title, summary, _usage = await _generate_summary(
                 [{"role": "user", "content": "hi"}], "test/model", None
             )
 
@@ -198,7 +198,7 @@ class TestGenerateSummaryExtended:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         assert title == "Conversation"
         assert summary == "Some summary"
@@ -211,7 +211,7 @@ class TestGenerateSummaryExtended:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         assert title == "My Chat"
         # Falls back to raw string when summary missing
@@ -225,7 +225,7 @@ class TestGenerateSummaryExtended:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         # None → "{}" → parsed as empty dict
         assert title == "Conversation"
@@ -239,7 +239,7 @@ class TestGenerateSummaryExtended:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         # When there's no newline, split("\n", 1)[1] won't work as expected
         # so it does raw[3:] which gives '{"title": "T", "summary": "S"}```'

@@ -89,7 +89,7 @@ class TestGenerateSummary:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary(
+            title, summary, _usage = await _generate_summary(
                 [{"role": "user", "content": "what's the weather?"}],
                 "test/model", None,
             )
@@ -106,7 +106,7 @@ class TestGenerateSummary:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         assert title == "T"
         assert summary == "S"
@@ -119,7 +119,7 @@ class TestGenerateSummary:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
             from app.services.compaction import _generate_summary
-            title, summary = await _generate_summary([], "test/model", None)
+            title, summary, _usage = await _generate_summary([], "test/model", None)
 
         assert title == "Conversation"
         assert summary == "Just a plain text summary"

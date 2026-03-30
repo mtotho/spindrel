@@ -757,7 +757,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                       value={form.memory_flush_prompt ?? ""}
                       onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
                       placeholder="Uses global default memory flush prompt"
-                      generateContext="A pre-compaction memory flush prompt. Tells the AI what important context to save before history is summarized."
+                      fieldType="memory_flush"
+                      channelId={channelId}
                     />
                   )}
                 </>
@@ -923,7 +924,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                           value={form.memory_flush_prompt ?? ""}
                           onChange={(v: string) => patch("memory_flush_prompt", v || undefined)}
                           placeholder="Uses global default memory flush prompt"
-                          generateContext="A pre-compaction memory flush prompt. Tells the AI what important context to save before history is summarized."
+                          fieldType="memory_flush"
+                          channelId={channelId}
                         />
                       )}
                     </>
@@ -949,6 +951,143 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         </Section>
       )}
 
+      {/* Compaction activity — visible for all modes */}
+      <Section title="Compaction Activity" description="Recent compaction events.">
+        <CompactionActivity channelId={channelId} />
+      </Section>
     </>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Compaction Activity log viewer
+// ---------------------------------------------------------------------------
+
+interface CompactionLogEntry {
+  id: string;
+  model: string;
+  history_mode: string;
+  tier: string;
+  forced: boolean;
+  memory_flush: boolean;
+  messages_archived: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  duration_ms: number | null;
+  section_id: string | null;
+  error: string | null;
+  created_at: string | null;
+}
+
+const TIER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  normal: { bg: "rgba(34,197,94,0.10)", text: "#16a34a", border: "rgba(34,197,94,0.3)" },
+  aggressive: { bg: "rgba(234,179,8,0.10)", text: "#ca8a04", border: "rgba(234,179,8,0.3)" },
+  deterministic: { bg: "rgba(239,68,68,0.10)", text: "#dc2626", border: "rgba(239,68,68,0.3)" },
+};
+
+function _relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function _badge(label: string, colors: { bg: string; text: string; border: string }) {
+  return (
+    <span style={{
+      display: "inline-block", padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+      background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`,
+    }}>{label}</span>
+  );
+}
+
+function CompactionActivity({ channelId }: { channelId: string }) {
+  const t = useThemeTokens();
+  const { data, isLoading, isError } = useQuery<{ logs: CompactionLogEntry[]; total: number }>({
+    queryKey: ["compaction-logs", channelId],
+    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/compaction-logs?limit=20`),
+  });
+
+  if (isLoading) return <ActivityIndicator size="small" />;
+  if (isError) return <div style={{ fontSize: 12, color: "#ef4444", padding: "8px 0" }}>Failed to load compaction logs.</div>;
+  const logs: CompactionLogEntry[] = data?.logs ?? [];
+  if (logs.length === 0) {
+    return <div style={{ fontSize: 12, color: t.textDim, padding: "8px 0" }}>No compaction events yet.</div>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      {logs.map((log) => {
+        const tierColor = TIER_COLORS[log.tier] ?? TIER_COLORS.normal;
+        return (
+          <div key={log.id} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+            borderRadius: 6, background: t.inputBg, fontSize: 11,
+          }}>
+            {/* Timestamp */}
+            <span style={{ color: t.textDim, minWidth: 52, flexShrink: 0 }}>
+              {log.created_at ? _relativeTime(log.created_at) : "—"}
+            </span>
+
+            {/* Tier badge */}
+            {_badge(log.tier, tierColor)}
+
+            {/* Model */}
+            <span style={{ color: t.textMuted, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {log.model}
+            </span>
+
+            {/* Tokens */}
+            {log.total_tokens != null && (
+              <span style={{ color: t.textDim, flexShrink: 0 }}>
+                {log.total_tokens.toLocaleString()} tok
+              </span>
+            )}
+
+            {/* Duration */}
+            {log.duration_ms != null && (
+              <span style={{ color: t.textDim, flexShrink: 0 }}>
+                {(log.duration_ms / 1000).toFixed(1)}s
+              </span>
+            )}
+
+            {/* Messages */}
+            {log.messages_archived != null && (
+              <span style={{ color: t.textDim, flexShrink: 0 }}>
+                {log.messages_archived} msgs
+              </span>
+            )}
+
+            {/* Memory flush pill */}
+            {log.memory_flush && _badge("flush", {
+              bg: "rgba(139,92,246,0.10)", text: "#7c3aed", border: "rgba(139,92,246,0.3)",
+            })}
+
+            {/* Forced badge */}
+            {log.forced && _badge("forced", {
+              bg: "rgba(59,130,246,0.10)", text: "#2563eb", border: "rgba(59,130,246,0.3)",
+            })}
+
+            {/* Error indicator */}
+            {log.error && (
+              <span title={log.error} style={{ color: "#dc2626", cursor: "help" }}>
+                <AlertTriangle size={12} />
+              </span>
+            )}
+          </div>
+        );
+      })}
+      {(data?.total ?? 0) > logs.length && (
+        <div style={{ fontSize: 10, color: t.textDim, padding: "4px 10px" }}>
+          Showing {logs.length} of {data?.total ?? 0} events
+        </div>
+      )}
+    </div>
   );
 }

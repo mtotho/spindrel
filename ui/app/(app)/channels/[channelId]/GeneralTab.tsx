@@ -120,7 +120,9 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             placeholder="Leave blank for no channel-level prompt..."
             helpText="Inserted after all context (skills, memories, knowledge, tools) but before the user's message."
             rows={4}
-            generateContext="A system-level prompt injected into every request in this channel. Used for persistent instructions, personality, behavioral guidelines, or domain-specific context for the AI."
+            fieldType="channel_prompt"
+            botId={settings.bot_id}
+            channelId={channelId}
           />
         )}
       </Section>

@@ -1,9 +1,17 @@
-"""Tests for heartbeat quiet-hours logic and prompt fallback."""
-from datetime import datetime, time, timezone
+"""Tests for heartbeat quiet-hours logic, prompt fallback, and repetition detection."""
+import uuid
+from datetime import datetime, time, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
-from app.services.heartbeat import is_quiet_hours, parse_quiet_hours, get_effective_interval, next_aligned_time
+from app.services.heartbeat import (
+    is_quiet_hours,
+    parse_quiet_hours,
+    get_effective_interval,
+    next_aligned_time,
+    _detect_repetition,
+)
 
 
 class TestParseQuietHours:
@@ -219,3 +227,119 @@ class TestHeartbeatDefaultPrompt:
         """HEARTBEAT_DEFAULT_PROMPT should default to empty string."""
         from app.config import Settings
         assert Settings.model_fields["HEARTBEAT_DEFAULT_PROMPT"].default == ""
+
+
+def _make_run(result=None, error=None, correlation_id=None, minutes_ago=0):
+    """Create a fake HeartbeatRun-like object for testing."""
+    return SimpleNamespace(
+        result=result,
+        error=error,
+        correlation_id=correlation_id or uuid.uuid4(),
+        completed_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+    )
+
+
+class TestDetectRepetition:
+    """Tests for _detect_repetition() helper."""
+
+    def test_no_runs_returns_false(self):
+        assert _detect_repetition([], {}) is False
+
+    def test_two_similar_runs_not_enough(self):
+        runs = [
+            _make_run(result="Hello world, nothing new."),
+            _make_run(result="Hello world, nothing new."),
+        ]
+        assert _detect_repetition(runs, {}) is False
+
+    def test_three_identical_results_detected(self):
+        runs = [
+            _make_run(result="Understood. I'll be judicious."),
+            _make_run(result="Understood. I'll be judicious."),
+            _make_run(result="Understood. I'll be judicious."),
+        ]
+        assert _detect_repetition(runs, {}) is True
+
+    def test_three_similar_results_above_threshold(self):
+        runs = [
+            _make_run(result="The weather today is sunny and clear in the region."),
+            _make_run(result="The weather today is sunny and clear in the area."),
+            _make_run(result="The weather today is sunny and clear in the zone."),
+        ]
+        assert _detect_repetition(runs, {}, threshold=0.7) is True
+
+    def test_three_different_results_not_detected(self):
+        runs = [
+            _make_run(result="Today I checked the weather: sunny."),
+            _make_run(result="New deployment detected: v2.3.1 is live."),
+            _make_run(result="No updates to report."),
+        ]
+        assert _detect_repetition(runs, {}) is False
+
+    def test_identical_tool_calls_detected(self):
+        cid1, cid2, cid3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        runs = [
+            _make_run(result="a", correlation_id=cid1),
+            _make_run(result="b", correlation_id=cid2),
+            _make_run(result="c", correlation_id=cid3),
+        ]
+        tool_calls = {
+            cid1: ["web_search", "post_heartbeat_to_channel"],
+            cid2: ["web_search", "post_heartbeat_to_channel"],
+            cid3: ["web_search", "post_heartbeat_to_channel"],
+        }
+        assert _detect_repetition(runs, tool_calls) is True
+
+    def test_different_tool_calls_not_detected(self):
+        cid1, cid2, cid3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        runs = [
+            _make_run(result="a", correlation_id=cid1),
+            _make_run(result="b", correlation_id=cid2),
+            _make_run(result="c", correlation_id=cid3),
+        ]
+        tool_calls = {
+            cid1: ["web_search", "post_heartbeat_to_channel"],
+            cid2: ["get_weather"],
+            cid3: ["web_search", "post_heartbeat_to_channel"],
+        }
+        assert _detect_repetition(runs, tool_calls) is False
+
+    def test_empty_tool_calls_not_flagged(self):
+        """Runs with no tool calls should not trigger action repetition."""
+        cid1, cid2, cid3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        runs = [
+            _make_run(result="a", correlation_id=cid1),
+            _make_run(result="b", correlation_id=cid2),
+            _make_run(result="c", correlation_id=cid3),
+        ]
+        # All empty — identical but should NOT flag (the `and sequences[0]` guard)
+        tool_calls = {cid1: [], cid2: [], cid3: []}
+        assert _detect_repetition(runs, tool_calls) is False
+
+    def test_old_repetitive_runs_dont_trigger_when_recent_differ(self):
+        """Only the most recent 3 runs matter — old repetitive runs are ignored."""
+        runs = [
+            _make_run(result="Fresh new content today!", minutes_ago=0),
+            _make_run(result="Another unique update.", minutes_ago=30),
+            _make_run(result="Something completely different.", minutes_ago=60),
+            _make_run(result="Understood. I'll be judicious.", minutes_ago=90),
+            _make_run(result="Understood. I'll be judicious.", minutes_ago=120),
+        ]
+        # Most recent 3 are all different — should NOT trigger
+        assert _detect_repetition(runs, {}) is False
+
+    def test_mixed_results_with_none(self):
+        """Runs with None results should be skipped in text comparison."""
+        runs = [
+            _make_run(result="Same output."),
+            _make_run(result=None),
+            _make_run(result="Same output."),
+        ]
+        assert _detect_repetition(runs, {}) is False
+
+    def test_config_defaults(self):
+        """Verify config defaults for repetition detection settings."""
+        from app.config import Settings
+        assert Settings.model_fields["HEARTBEAT_REPETITION_DETECTION"].default is True
+        assert Settings.model_fields["HEARTBEAT_REPETITION_THRESHOLD"].default == 0.8
+        assert "repetitive" in Settings.model_fields["HEARTBEAT_REPETITION_WARNING"].default.lower()

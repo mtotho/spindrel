@@ -57,6 +57,7 @@ def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
 class AssemblyResult:
     """Side-channel outputs from context assembly needed by the caller."""
     pre_selected_tools: list[dict[str, Any]] | None = None
+    authorized_tool_names: set[str] | None = None
     user_msg_index: int = 0
     tagged_tool_names: list[str] = field(default_factory=list)
     tagged_bot_names: list[str] = field(default_factory=list)
@@ -466,9 +467,12 @@ async def assemble_context(
                     )
                     if _ch_chunks:
                         _ch_seg_body = "\n\n".join(_ch_chunks)
+                        _ch_seg_header = "Relevant code/files from channel indexed directories:\n\n"
+                        if "search_workspace" in bot.local_tools:
+                            _ch_seg_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
                         messages.append({
                             "role": "system",
-                            "content": f"Relevant code/files from channel indexed directories:\n\n{_ch_seg_body}",
+                            "content": _ch_seg_header + _ch_seg_body,
                         })
                         _inject_chars["channel_index_segments"] = len(_ch_seg_body)
                         yield {"type": "channel_index_segments", "count": len(_ch_chunks), "similarity": _ch_sim}
@@ -1067,8 +1071,10 @@ async def assemble_context(
 
     # --- tool retrieval (tool RAG) ---
     pre_selected_tools: list[dict[str, Any]] | None = None
+    _authorized_names: set[str] | None = None
     if bot.tool_retrieval and (bot.local_tools or bot.mcp_servers or bot.client_tools):
         by_name = await _all_tool_schemas_by_name(bot)
+        _authorized_names = set(by_name.keys())
         if by_name:
             th = (
                 bot.tool_similarity_threshold
@@ -1140,7 +1146,11 @@ async def assemble_context(
                 if t["function"]["name"] not in _existing:
                     pre_selected_tools.append(t)
 
+    # Include dynamically injected tool names in the authorized set
+    if _injected and _authorized_names is not None:
+        _authorized_names.update(t["function"]["name"] for t in _injected)
     result.pre_selected_tools = pre_selected_tools
+    result.authorized_tool_names = _authorized_names
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:

@@ -38,7 +38,7 @@ class TestGenerateSection:
             {"role": "assistant", "content": "I'll help."},
         ]
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(conversation, "gpt-4")
+            title, summary, transcript, tags, _usage = await _generate_section(conversation, "gpt-4")
         assert title == "Setting Up Slack"
         assert "socket mode" in summary
         # Transcript is deterministic from raw messages, not LLM output
@@ -55,7 +55,7 @@ class TestGenerateSection:
             return_value=_mock_llm_response(raw)
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags, _usage = await _generate_section([], "gpt-4")
         assert title == "Test"
         assert summary == "s"
         assert tags == ["t"]
@@ -71,7 +71,7 @@ class TestGenerateSection:
         )
         conversation = [{"role": "user", "content": "hello"}]
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section(conversation, "gpt-4")
+            title, summary, transcript, tags, _usage = await _generate_section(conversation, "gpt-4")
         # With 3-tier escalation, both normal+aggressive fail (non-JSON),
         # so deterministic fallback uses first user message as title
         assert title == "hello"
@@ -108,7 +108,7 @@ class TestGenerateSection:
             )
         )
         with patch("app.services.providers.get_llm_client", return_value=mock_client):
-            title, summary, transcript, tags = await _generate_section([], "gpt-4")
+            title, summary, transcript, tags, _usage = await _generate_section([], "gpt-4")
         assert title == "Empty"
         assert "Nothing" in summary
         assert transcript == ""

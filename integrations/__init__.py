@@ -25,11 +25,12 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 _INTEGRATIONS_DIR = Path(__file__).parent
+_PACKAGES_DIR = _INTEGRATIONS_DIR.parent / "packages"
 
 
 def _all_integration_dirs() -> list[Path]:
-    """Return all integration directories: the in-repo dir + any from INTEGRATION_DIRS."""
-    dirs = [_INTEGRATIONS_DIR]
+    """Return all integration directories: in-repo integrations/, packages/, + INTEGRATION_DIRS."""
+    dirs = [_INTEGRATIONS_DIR, _PACKAGES_DIR]
 
     try:
         from app.config import settings
@@ -49,14 +50,16 @@ def _all_integration_dirs() -> list[Path]:
     return dirs
 
 
-def _import_module(integration_id: str, module_name: str, file_path: Path, is_external: bool):
-    """Import a module from an integration directory.
+def _import_module(integration_id: str, module_name: str, file_path: Path, is_external: bool, source: str = "integration"):
+    """Import a module from an integration/package directory.
 
     For in-repo integrations, uses the standard dotted import.
+    For in-repo packages, uses the packages.* dotted import.
     For external directories, uses importlib file-based loading.
     """
     if not is_external:
-        return importlib.import_module(f"integrations.{integration_id}.{module_name}")
+        prefix = "packages" if source == "package" else "integrations"
+        return importlib.import_module(f"{prefix}.{integration_id}.{module_name}")
 
     mod_name = f"_ext_integration_{integration_id}_{module_name}"
     spec = importlib.util.spec_from_file_location(mod_name, file_path)
@@ -68,17 +71,28 @@ def _import_module(integration_id: str, module_name: str, file_path: Path, is_ex
     return mod
 
 
-def _iter_integration_candidates() -> list[tuple[Path, str, bool]]:
-    """Yield (candidate_dir, integration_id, is_external) for all integration directories."""
+def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
+    """Yield (candidate_dir, integration_id, is_external, source) for all directories.
+
+    source is 'integration', 'package', or 'external'.
+    """
     results = []
     for base_dir in _all_integration_dirs():
-        is_external = base_dir != _INTEGRATIONS_DIR
+        if base_dir == _INTEGRATIONS_DIR:
+            source = "integration"
+        elif base_dir == _PACKAGES_DIR:
+            source = "package"
+        else:
+            source = "external"
+        is_external = source not in ("integration", "package")
+        if not base_dir.is_dir():
+            continue
         for candidate in sorted(base_dir.iterdir()):
             if not candidate.is_dir():
                 continue
             if candidate.name.startswith("_"):
                 continue
-            results.append((candidate, candidate.name, is_external))
+            results.append((candidate, candidate.name, is_external, source))
     return results
 
 
@@ -86,12 +100,12 @@ def discover_integrations() -> list[tuple[str, APIRouter]]:
     """Discover and load all integrations. Returns [(integration_id, router)]."""
     results: list[tuple[str, APIRouter]] = []
 
-    for candidate, integration_id, is_external in _iter_integration_candidates():
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
         # Auto-import dispatcher.py to trigger register() (independent of router.py)
         dispatcher_file = candidate / "dispatcher.py"
         if dispatcher_file.exists():
             try:
-                _import_module(integration_id, "dispatcher", dispatcher_file, is_external)
+                _import_module(integration_id, "dispatcher", dispatcher_file, is_external, source)
                 logger.debug("Loaded dispatcher for integration: %s", integration_id)
             except Exception:
                 logger.exception("Failed to load dispatcher for integration %r", integration_id)
@@ -100,7 +114,7 @@ def discover_integrations() -> list[tuple[str, APIRouter]]:
         hooks_file = candidate / "hooks.py"
         if hooks_file.exists():
             try:
-                _import_module(integration_id, "hooks", hooks_file, is_external)
+                _import_module(integration_id, "hooks", hooks_file, is_external, source)
                 logger.debug("Loaded hooks for integration: %s", integration_id)
             except Exception:
                 logger.exception("Failed to load hooks for integration %r", integration_id)
@@ -111,7 +125,7 @@ def discover_integrations() -> list[tuple[str, APIRouter]]:
             continue
 
         try:
-            module = _import_module(integration_id, "router", router_file, is_external)
+            module = _import_module(integration_id, "router", router_file, is_external, source)
         except Exception:
             logger.exception("Failed to load integration %r — skipping", integration_id)
             continue
@@ -134,13 +148,13 @@ def discover_identity_fields() -> list[dict]:
     """
     results: list[dict] = []
 
-    for candidate, integration_id, is_external in _iter_integration_candidates():
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
         config_file = candidate / "config.py"
         if not config_file.exists():
             continue
 
         try:
-            module = _import_module(integration_id, "config", config_file, is_external)
+            module = _import_module(integration_id, "config", config_file, is_external, source)
             fields = getattr(module, "IDENTITY_FIELDS", None)
             if fields:
                 results.append({
@@ -154,6 +168,86 @@ def discover_identity_fields() -> list[dict]:
     return results
 
 
+def discover_setup_status(base_url: str = "") -> list[dict]:
+    """Return setup status for all integrations.
+
+    Returns list of dicts with id, name, capabilities, env var status,
+    webhook info, overall status, and README contents.
+    """
+    results: list[dict] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        entry: dict = {
+            "id": integration_id,
+            "name": integration_id.replace("_", " ").replace("-", " ").title(),
+            "source": source,
+            "has_router": (candidate / "router.py").exists(),
+            "has_dispatcher": (candidate / "dispatcher.py").exists(),
+            "has_hooks": (candidate / "hooks.py").exists(),
+            "has_tools": (candidate / "tools").is_dir(),
+            "has_skills": (candidate / "skills").is_dir(),
+            "env_vars": [],
+            "webhook": None,
+            "status": "not_configured",
+            "readme": None,
+        }
+
+        # Load setup.py if present
+        setup_file = candidate / "setup.py"
+        if setup_file.exists():
+            try:
+                module = _import_module(integration_id, "setup", setup_file, is_external, source)
+                setup = getattr(module, "SETUP", {})
+
+                # Env vars with is_set check
+                for var in setup.get("env_vars", []):
+                    entry["env_vars"].append({
+                        "key": var["key"],
+                        "required": var.get("required", False),
+                        "description": var.get("description", ""),
+                        "is_set": bool(os.environ.get(var["key"])),
+                    })
+
+                # Webhook
+                wh = setup.get("webhook")
+                if wh:
+                    full_url = f"{base_url.rstrip('/')}{wh['path']}" if base_url else wh["path"]
+                    entry["webhook"] = {
+                        "path": wh["path"],
+                        "url": full_url,
+                        "description": wh.get("description", ""),
+                    }
+            except Exception:
+                logger.exception("Failed to load setup.py for integration %r", integration_id)
+
+        # Read README.md if present
+        readme_file = candidate / "README.md"
+        if readme_file.exists():
+            try:
+                _readme_text = readme_file.read_text()
+                entry["readme"] = _readme_text[:5000]
+            except Exception:
+                pass
+
+        # Determine status from required env vars
+        required_vars = [v for v in entry["env_vars"] if v["required"]]
+        if not required_vars:
+            # No required vars declared — "ready" if has any capability file
+            if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"]:
+                entry["status"] = "ready"
+        else:
+            set_count = sum(1 for v in required_vars if v["is_set"])
+            if set_count == len(required_vars):
+                entry["status"] = "ready"
+            elif set_count > 0:
+                entry["status"] = "partial"
+            # else remains "not_configured"
+
+        results.append(entry)
+
+    return results
+
+
 def discover_processes() -> list[dict]:
     """Discover integration background processes.
 
@@ -162,13 +256,13 @@ def discover_processes() -> list[dict]:
     """
     results: list[dict] = []
 
-    for candidate, integration_id, is_external in _iter_integration_candidates():
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
         process_file = candidate / "process.py"
         if not process_file.exists():
             continue
 
         try:
-            module = _import_module(integration_id, "process", process_file, is_external)
+            module = _import_module(integration_id, "process", process_file, is_external, source)
             cmd = getattr(module, "CMD", None)
             required_env = getattr(module, "REQUIRED_ENV", [])
             description = getattr(module, "DESCRIPTION", integration_id)

@@ -4,6 +4,7 @@ import logging
 import os
 import re as _re_mod
 import shutil
+import time as _time
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -16,7 +17,7 @@ from app.agent.bots import BotConfig
 from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, ConversationSection, Message, Session
+from app.db.models import Channel, CompactionLog, ConversationSection, Message, Session
 from app.services.sessions import normalize_stored_content
 
 logger = logging.getLogger(__name__)
@@ -433,8 +434,8 @@ async def _generate_summary(
     model: str,
     existing_summary: str | None,
     provider_id: str | None = None,
-) -> tuple[str, str]:
-    """Call the LLM to produce a title and summary."""
+) -> tuple[str, str, dict]:
+    """Call the LLM to produce a title and summary. Returns (title, summary, usage_info)."""
     prompt_messages: list[dict] = [{"role": "system", "content": settings.BASE_COMPACTION_PROMPT}]
 
     if existing_summary:
@@ -458,6 +459,13 @@ async def _generate_summary(
         temperature=0.3,
     )
 
+    usage = getattr(response, "usage", None)
+    usage_info = {
+        "tier": "normal",
+        "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
+        "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+    }
+
     raw = response.choices[0].message.content or "{}"
     raw = raw.strip()
     if raw.startswith("```"):
@@ -468,11 +476,11 @@ async def _generate_summary(
         data = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("Compaction LLM returned non-JSON: %s", raw[:200])
-        return ("Conversation", raw)
+        return ("Conversation", raw, usage_info)
 
     title = data.get("title", "Conversation")
     summary = data.get("summary", raw)
-    return (title, summary)
+    return (title, summary, usage_info)
 
 
 def _build_transcript(conversation: list[dict]) -> str:
@@ -512,13 +520,16 @@ async def _generate_section(
     session_id: uuid.UUID | None = None,
     bot_id: str | None = None,
     client_id: str | None = None,
-) -> tuple[str, str, str, list[str]]:
+) -> tuple[str, str, str, list[str], dict]:
     """LLM generates title/summary/tags; transcript is built deterministically.
 
     Three-tier escalation:
     1. Normal — depth-aware prompt with previous-context injection
     2. Aggressive — tighter prompt, lower max_tokens, temperature 0.1
     3. Deterministic — no LLM call, mechanical title/summary from first user message
+
+    Returns (title, summary, transcript, tags, usage_info).
+    usage_info contains: tier, prompt_tokens, completion_tokens.
     """
     transcript = _build_transcript(conversation)
     compaction_tier = "normal"
@@ -576,6 +587,12 @@ async def _generate_section(
             timeout=180.0,
         )
         raw = response.choices[0].message.content or "{}"
+        usage = getattr(response, "usage", None)
+        usage_info = {
+            "tier": compaction_tier,
+            "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
+            "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+        }
         data = _parse_section_response(raw)
         if data is not None:
             title = data.get("title", "Conversation")
@@ -584,7 +601,7 @@ async def _generate_section(
             if not isinstance(tags, list):
                 tags = []
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
-            return (title, summary, transcript, tags)
+            return (title, summary, transcript, tags, usage_info)
         # Non-JSON response — fall through to aggressive
         logger.warning("Section LLM returned non-JSON (tier normal): %s", raw[:200])
     except Exception:
@@ -604,6 +621,12 @@ async def _generate_section(
             timeout=120.0,
         )
         raw = response.choices[0].message.content or "{}"
+        usage = getattr(response, "usage", None)
+        usage_info = {
+            "tier": compaction_tier,
+            "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
+            "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+        }
         data = _parse_section_response(raw)
         if data is not None:
             title = data.get("title", "Conversation")
@@ -612,7 +635,7 @@ async def _generate_section(
             if not isinstance(tags, list):
                 tags = []
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
-            return (title, summary, transcript, tags)
+            return (title, summary, transcript, tags, usage_info)
         logger.warning("Section LLM returned non-JSON (tier aggressive): %s", raw[:200])
     except Exception:
         logger.warning("Section LLM failed (tier aggressive), escalating to deterministic", exc_info=True)
@@ -631,7 +654,8 @@ async def _generate_section(
             break
     det_title = (first_user_msg[:80] + "…") if len(first_user_msg) > 80 else (first_user_msg or "Conversation")
     _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
-    return (det_title, "Auto-archived conversation segment.", transcript, ["auto-truncated"])
+    usage_info = {"tier": compaction_tier, "prompt_tokens": None, "completion_tokens": None}
+    return (det_title, "Auto-archived conversation segment.", transcript, ["auto-truncated"], usage_info)
 
 
 def _log_compaction_tier(
@@ -693,6 +717,47 @@ async def _regenerate_executive_summary(
     return (response.choices[0].message.content or "").strip()
 
 
+async def _record_compaction_log(
+    *,
+    channel_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    bot_id: str,
+    model: str,
+    history_mode: str,
+    tier: str,
+    forced: bool = False,
+    memory_flush: bool = False,
+    messages_archived: int | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+    duration_ms: int | None = None,
+    section_id: uuid.UUID | None = None,
+    error: str | None = None,
+) -> None:
+    """Persist a compaction log row. Fire-and-forget safe."""
+    try:
+        async with async_session() as db:
+            db.add(CompactionLog(
+                channel_id=channel_id,
+                session_id=session_id,
+                bot_id=bot_id,
+                model=model,
+                history_mode=history_mode,
+                tier=tier,
+                forced=forced,
+                memory_flush=memory_flush,
+                messages_archived=messages_archived,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                duration_ms=duration_ms,
+                section_id=section_id,
+                error=error,
+            ))
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to record compaction log", exc_info=True)
+
+
 async def run_compaction_stream(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     *,
@@ -748,12 +813,14 @@ async def run_compaction_stream(
 
     client_id: str
     existing_summary: str | None
+    prev_watermark_id: uuid.UUID | None = None
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
             return
         client_id = session.client_id
         existing_summary = session.summary
+        prev_watermark_id = session.summary_message_id
 
     asyncio.create_task(_record_trace_event(
         correlation_id=correlation_id,
@@ -782,9 +849,11 @@ async def run_compaction_stream(
 
     # Run dedicated memory flush before compaction so the bot can save
     # memories/knowledge/persona while it still sees the full recent window.
+    memory_flush_ran = False
     if channel and _resolve_memory_flush_enabled(bot, channel):
         try:
             await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+            memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
     elif _resolve_trigger_heartbeat(channel) and channel:
@@ -796,6 +865,7 @@ async def run_compaction_stream(
         except Exception:
             logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
 
+    _t0 = _time.monotonic()
     try:
         model = _get_compaction_model(bot, channel)
         history_mode = _get_history_mode(bot, channel)
@@ -831,7 +901,7 @@ async def run_compaction_stream(
 
         if history_mode in ("structured", "file"):
             # --- Section-based compaction ---
-            sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
+            sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
                 to_summarize, model, provider_id=bot.model_provider_id,
                 channel_id=channel.id if channel else None,
                 correlation_id=correlation_id,
@@ -847,7 +917,7 @@ async def run_compaction_stream(
             period_start = None
             period_end = None
             async with async_session() as db:
-                period_result = await db.execute(
+                period_query = (
                     select(
                         func.min(Message.created_at),
                         func.max(Message.created_at),
@@ -856,6 +926,14 @@ async def run_compaction_stream(
                     .where(Message.created_at < oldest_kept.created_at)
                     .where(Message.role.in_(["user", "assistant"]))
                 )
+                # Lower bound: only messages AFTER the previous watermark
+                if prev_watermark_id:
+                    prev_wm_msg = await db.get(Message, prev_watermark_id)
+                    if prev_wm_msg:
+                        period_query = period_query.where(
+                            Message.created_at > prev_wm_msg.created_at
+                        )
+                period_result = await db.execute(period_query)
                 row = period_result.one_or_none()
                 if row:
                     period_start, period_end = row[0], row[1]
@@ -952,7 +1030,7 @@ async def run_compaction_stream(
             summary = exec_summary
         else:
             # --- Default summary mode ---
-            title, summary = await _generate_summary(
+            title, summary, sum_usage = await _generate_summary(
                 to_summarize, model, existing_summary, provider_id=bot.model_provider_id,
             )
 
@@ -968,6 +1046,11 @@ async def run_compaction_stream(
                 )
                 await db.commit()
 
+        _duration_ms = int((_time.monotonic() - _t0) * 1000)
+        # Resolve usage info from whichever path ran
+        _usage = sec_usage if history_mode in ("structured", "file") else sum_usage
+        _section_id = section.id if history_mode in ("structured", "file") else None
+
         logger.info(
             "Compaction complete for %s: mode=%s, title=%r, summary_len=%d",
             session_id, history_mode, title, len(summary),
@@ -979,6 +1062,21 @@ async def run_compaction_stream(
             client_id=client_id,
             event_type="compaction_done",
             data={"title": title, "summary_len": len(summary), "history_mode": history_mode},
+        ))
+        asyncio.create_task(_record_compaction_log(
+            channel_id=channel.id if channel else None,
+            session_id=session_id,
+            bot_id=bot.id,
+            model=model,
+            history_mode=history_mode,
+            tier=_usage.get("tier", "normal"),
+            forced=False,
+            memory_flush=memory_flush_ran,
+            messages_archived=msg_count if history_mode in ("structured", "file") else len(to_summarize),
+            prompt_tokens=_usage.get("prompt_tokens"),
+            completion_tokens=_usage.get("completion_tokens"),
+            duration_ms=_duration_ms,
+            section_id=_section_id,
         ))
         yield {"type": "compaction_done", "title": title}
     except Exception:
@@ -1048,6 +1146,7 @@ async def run_compaction_forced(
 
     client_id = session.client_id
     existing_summary = session.summary
+    prev_watermark_id = session.summary_message_id
     correlation_id = uuid.uuid4()
 
     asyncio.create_task(_record_trace_event(
@@ -1074,9 +1173,11 @@ async def run_compaction_forced(
         raise ValueError("No conversation content to summarize")
 
     # Run dedicated memory flush before compaction
+    memory_flush_ran = False
     if channel and _resolve_memory_flush_enabled(bot, channel):
         try:
             await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+            memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
     elif _resolve_trigger_heartbeat(channel) and channel:
@@ -1088,6 +1189,7 @@ async def run_compaction_forced(
         except Exception:
             logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
 
+    _t0 = _time.monotonic()
     model = _get_compaction_model(bot, channel)
     history_mode = _get_history_mode(bot, channel)
 
@@ -1115,7 +1217,7 @@ async def run_compaction_forced(
         raise ValueError("All messages within keep window, nothing to compact")
 
     if history_mode in ("structured", "file"):
-        sec_title, sec_summary, sec_transcript, sec_tags = await _generate_section(
+        sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
             conversation, model, provider_id=bot.model_provider_id,
             channel_id=session.channel_id,
             correlation_id=correlation_id,
@@ -1128,7 +1230,7 @@ async def run_compaction_forced(
         # Compute period from actual message timestamps
         period_start = None
         period_end = None
-        period_result = await db.execute(
+        period_query = (
             select(
                 func.min(Message.created_at),
                 func.max(Message.created_at),
@@ -1137,6 +1239,14 @@ async def run_compaction_forced(
             .where(Message.created_at < oldest_kept.created_at)
             .where(Message.role.in_(["user", "assistant"]))
         )
+        # Lower bound: only messages AFTER the previous watermark
+        if prev_watermark_id:
+            prev_wm_msg = await db.get(Message, prev_watermark_id)
+            if prev_wm_msg:
+                period_query = period_query.where(
+                    Message.created_at > prev_wm_msg.created_at
+                )
+        period_result = await db.execute(period_query)
         row = period_result.one_or_none()
         if row:
             period_start, period_end = row[0], row[1]
@@ -1212,7 +1322,7 @@ async def run_compaction_forced(
 
         title, summary = sec_title, exec_summary
     else:
-        title, summary = await _generate_summary(
+        title, summary, sec_usage = await _generate_summary(
             conversation, model, existing_summary, provider_id=bot.model_provider_id,
         )
 
@@ -1222,6 +1332,10 @@ async def run_compaction_forced(
         .values(title=title, summary=summary, summary_message_id=last_msg_id)
     )
 
+    _duration_ms = int((_time.monotonic() - _t0) * 1000)
+    _section_id = section.id if history_mode in ("structured", "file") else None
+    _msg_count = msg_count if history_mode in ("structured", "file") else len(conversation)
+
     asyncio.create_task(_record_trace_event(
         correlation_id=correlation_id,
         session_id=session_id,
@@ -1229,6 +1343,21 @@ async def run_compaction_forced(
         client_id=client_id,
         event_type="compaction_done",
         data={"forced": True, "title": title, "summary_len": len(summary), "history_mode": history_mode},
+    ))
+    asyncio.create_task(_record_compaction_log(
+        channel_id=session.channel_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        model=model,
+        history_mode=history_mode,
+        tier=sec_usage.get("tier", "normal"),
+        forced=True,
+        memory_flush=memory_flush_ran,
+        messages_archived=_msg_count,
+        prompt_tokens=sec_usage.get("prompt_tokens"),
+        completion_tokens=sec_usage.get("completion_tokens"),
+        duration_ms=_duration_ms,
+        section_id=_section_id,
     ))
     return (title, summary)
 
@@ -1483,7 +1612,7 @@ async def backfill_sections(
     sections_created = 0
     for i, chunk in enumerate(chunks):
         seq = start_seq + i
-        title, summary, transcript, tags = await _generate_section(
+        title, summary, transcript, tags, _usage = await _generate_section(
             chunk, effective_model, provider_id=effective_provider,
             channel_id=channel_id,
             session_id=session.id,

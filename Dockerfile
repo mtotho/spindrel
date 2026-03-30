@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir .
 
 COPY app/ app/
 COPY integrations/ integrations/
+COPY packages/ packages/
 COPY alembic.ini .
 COPY migrations/ migrations/
 

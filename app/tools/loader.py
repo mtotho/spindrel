@@ -70,8 +70,9 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
                 continue
             _import_tool_file(py_file)
 
-    # Auto-discover integrations/*/tools/*.py (in-repo)
+    # Auto-discover integrations/*/tools/*.py and packages/*/tools/*.py (in-repo)
     _scan_integration_tools(root / "integrations")
+    _scan_integration_tools(root / "packages")
 
     # Auto-discover INTEGRATION_DIRS/*/tools/*.py (external)
     try:

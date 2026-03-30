@@ -89,6 +89,7 @@ class Settings(BaseSettings):
 
     # Prompt generation (AI-assisted prompt authoring in admin UI)
     PROMPT_GENERATION_MODEL: str = ""  # empty = uses default LiteLLM model
+    PROMPT_GENERATION_TEMPERATURE: float = 0.7
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
@@ -277,6 +278,14 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     HEARTBEAT_ACTIVE_INTERVAL_MINUTES: int = 5  # default active interval (per-heartbeat DB value takes precedence)
     HEARTBEAT_DEFAULT_PROMPT: str = ""  # fallback prompt when channel heartbeat has no prompt/template/workspace file
     HEARTBEAT_PREVIOUS_CONCLUSION_CHARS: int = 500  # max chars of previous heartbeat conclusion injected into next heartbeat
+    HEARTBEAT_REPETITION_DETECTION: bool = True
+    HEARTBEAT_REPETITION_THRESHOLD: float = 0.8  # SequenceMatcher ratio
+    HEARTBEAT_REPETITION_WARNING: str = (
+        "WARNING: Your recent heartbeat outputs are repetitive — you keep producing "
+        "very similar responses or taking the same actions. Break the pattern: find "
+        "something genuinely new to report, try a different approach, or respond "
+        "with just 'No updates.' Do NOT repeat the same text or tool calls as last time."
+    )
 
     # Attachments
     ATTACHMENT_SUMMARY_ENABLED: bool = True

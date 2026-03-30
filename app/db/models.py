@@ -155,6 +155,37 @@ class ConversationSection(Base):
     )
 
 
+class CompactionLog(Base):
+    __tablename__ = "compaction_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=True,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True,
+    )
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    history_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    tier: Mapped[str] = mapped_column(Text, nullable=False)
+    forced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    memory_flush: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    messages_archived: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_sections.id", ondelete="SET NULL"), nullable=True,
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_compaction_logs_channel_created", "channel_id", created_at.desc()),
+    )
+
+
 class ChannelIntegration(Base):
     __tablename__ = "channel_integrations"
 
@@ -873,6 +904,7 @@ class ChannelHeartbeat(Base):
     max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dispatch_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'always'"))
     previous_result_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repetition_detection: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 

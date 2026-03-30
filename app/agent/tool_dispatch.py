@@ -63,11 +63,22 @@ async def dispatch_tool_call(
     compaction: bool,
     # Policy override — skip check when re-dispatching after approval
     skip_policy: bool = False,
+    # Authorization — if set, only these tool names are allowed
+    allowed_tool_names: set[str] | None = None,
 ) -> ToolCallResult:
     """Route a single tool call to the appropriate handler, record it, and build the result event."""
     from app.agent.message_utils import _event_with_compaction_tag
 
     result_obj = ToolCallResult()
+
+    # --- Authorization check ---
+    if allowed_tool_names is not None and name not in allowed_tool_names:
+        _trace("✗ %s not authorized for bot %s", name, bot_id)
+        _auth_err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
+        result_obj.result = json.dumps({"error": _auth_err})
+        result_obj.result_for_llm = result_obj.result
+        result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _auth_err}
+        return result_obj
 
     # --- Policy check ---
     if not skip_policy:

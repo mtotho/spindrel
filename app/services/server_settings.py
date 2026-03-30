@@ -102,6 +102,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "HEARTBEAT_ACTIVE_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Active Interval (min)", "description": "Default active heartbeat interval", "type": "int", "min": 1, "max": 1440},
     "HEARTBEAT_DEFAULT_PROMPT": {"group": "Heartbeat", "label": "Default Prompt", "description": "Fallback prompt used when a channel heartbeat has no prompt, template, or workspace file configured.", "type": "string", "widget": "textarea"},
     "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS": {"group": "Heartbeat", "label": "Previous Conclusion Max Chars", "description": "Max characters of previous heartbeat conclusion injected into the next heartbeat. Truncates at sentence boundary.", "type": "int", "min": 0, "max": 5000},
+    "HEARTBEAT_REPETITION_DETECTION": {"group": "Heartbeat", "label": "Repetition Detection", "description": "Detect and warn when heartbeat outputs are repetitive", "type": "bool"},
+    "HEARTBEAT_REPETITION_THRESHOLD": {"group": "Heartbeat", "label": "Repetition Threshold", "description": "Similarity ratio (0-1) above which consecutive outputs are considered repetitive", "type": "float", "min": 0.0, "max": 1.0},
+    "HEARTBEAT_REPETITION_WARNING": {"group": "Heartbeat", "label": "Repetition Warning", "description": "Warning text injected when repetition is detected", "type": "string", "widget": "textarea"},
     # --- Attachments ---
     "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
     "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},
@@ -113,6 +116,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
     # --- Prompt Generation ---
     "PROMPT_GENERATION_MODEL": {"group": "Prompt Generation", "label": "Model", "description": "Model used for the Generate Prompt feature in admin UI (empty = default LiteLLM model)", "type": "string", "widget": "model"},
+    "PROMPT_GENERATION_TEMPERATURE": {"group": "Prompt Generation", "label": "Temperature", "description": "LLM temperature for prompt generation (0.0-1.0)", "type": "float", "min": 0.0, "max": 1.0},
 }
 
 # Group ordering for consistent display

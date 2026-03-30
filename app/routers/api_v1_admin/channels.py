@@ -21,6 +21,7 @@ from app.db.models import (
     BotKnowledge,
     Channel,
     ChannelHeartbeat,
+    CompactionLog,
     HeartbeatRun,
     KnowledgeAccess,
     Memory,
@@ -177,6 +178,7 @@ class HeartbeatConfigOut(BaseModel):
     timezone: Optional[str] = None
     max_run_seconds: Optional[int] = None
     previous_result_max_chars: Optional[int] = None
+    repetition_detection: Optional[bool] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -191,7 +193,7 @@ class HeartbeatConfigOut(BaseModel):
             "model_provider_id", "fallback_models", "prompt", "prompt_template_id",
             "workspace_file_path", "workspace_id",
             "dispatch_results", "dispatch_mode", "trigger_response",
-            "timezone", "max_run_seconds", "previous_result_max_chars",
+            "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -221,6 +223,7 @@ class HeartbeatOut(BaseModel):
     total_history: int = 0
     default_max_run_seconds: int = settings.TASK_MAX_RUN_SECONDS
     default_previous_result_chars: int = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
+    default_repetition_detection: bool = settings.HEARTBEAT_REPETITION_DETECTION
     channel_name: Optional[str] = None
     has_dispatch_config: bool = False
 
@@ -243,6 +246,7 @@ class HeartbeatUpdate(BaseModel):
     timezone: Optional[str] = None
     max_run_seconds: Optional[int] = None
     previous_result_max_chars: Optional[int] = None
+    repetition_detection: Optional[bool] = None
 
 
 class TaskOut(BaseModel):
@@ -903,6 +907,8 @@ async def admin_channel_heartbeat_update(
         heartbeat.dispatch_mode = updates["dispatch_mode"] if updates["dispatch_mode"] in ("always", "optional") else "always"
     if "previous_result_max_chars" in updates:
         heartbeat.previous_result_max_chars = updates["previous_result_max_chars"]
+    if "repetition_detection" in updates:
+        heartbeat.repetition_detection = updates["repetition_detection"]
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
@@ -990,8 +996,7 @@ async def admin_channel_heartbeat_infer(
 ):
     """Infer a tailored heartbeat prompt from channel context and write it to a workspace file."""
     import traceback
-    from app.config import settings as app_settings
-    from app.services.providers import get_llm_client
+    from app.routers.api_v1_admin.prompts import GeneratePromptIn, generate_prompt
 
     try:
         channel = await db.get(Channel, channel_id)
@@ -1002,67 +1007,13 @@ async def admin_channel_heartbeat_infer(
         if not bot:
             raise HTTPException(status_code=400, detail="Bot not found")
 
-        # Gather context
-        ctx_parts = []
-        if channel.display_name:
-            ctx_parts.append(f"Channel name: {channel.display_name}")
-        elif channel.name:
-            ctx_parts.append(f"Channel name: {channel.name}")
-        if channel.channel_prompt:
-            ctx_parts.append(f"Channel prompt:\n{channel.channel_prompt[:2000]}")
-        if bot.system_prompt:
-            ctx_parts.append(f"Bot system prompt (first 1000 chars):\n{bot.system_prompt[:1000]}")
-
-        # Read workspace files if channel workspace is enabled
-        if channel.channel_workspace_enabled:
-            from app.services.channel_workspace import list_workspace_files, read_workspace_file
-            try:
-                files = list_workspace_files(str(channel_id), bot)
-                for f in files[:5]:  # first 5 active files
-                    content = read_workspace_file(str(channel_id), bot, f["path"])
-                    if content:
-                        ctx_parts.append(f"Workspace file {f['name']} (first 500 chars):\n{content[:500]}")
-            except Exception:
-                pass
-
-        channel_context = "\n\n".join(ctx_parts) if ctx_parts else "No channel context available."
-
-        meta_prompt = f"""\
-You are an expert at designing scheduled heartbeat prompts for AI agents managing projects.
-
-A heartbeat is a periodic prompt that runs on a timer. The agent uses it to:
-- Review current state and open items
-- Check for things that need attention or follow-up
-- Identify stale items or missed deadlines
-- Proactively surface updates or recommendations
-- Maintain operational awareness between user interactions
-
-Based on the channel context below, write a heartbeat prompt tailored to this specific project/channel.
-
-CHANNEL CONTEXT:
-{channel_context}
-
-GUIDELINES:
-- The prompt should instruct the agent to review its workspace files and current state
-- It should check for items needing follow-up, approaching deadlines, or stale work
-- It should produce a concise status update or action list
-- Use the dispatch mode "optional" pattern — tell the agent to only post if there is something noteworthy
-- Reference workspace files and tools the agent has available (exec_command, search_channel_archive, etc.)
-- Keep it under 500 words — concise and actionable
-- Do NOT include markdown fences or explanations — output ONLY the prompt text"""
-
-        model = app_settings.PROMPT_GENERATION_MODEL or app_settings.COMPACTION_MODEL
-        client = get_llm_client(None)
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": meta_prompt},
-                {"role": "user", "content": "Generate the heartbeat prompt now."},
-            ],
-            temperature=0.7,
-            max_tokens=2000,
-        )
-        prompt_text = (resp.choices[0].message.content or "").strip()
+        # Use unified prompt generator
+        result = await generate_prompt(GeneratePromptIn(
+            field_type="heartbeat",
+            bot_id=channel.bot_id,
+            channel_id=str(channel_id),
+        ))
+        prompt_text = result.prompt
 
         # Write to channel workspace data/heartbeat.md if workspace is available
         ws_file_path = None
@@ -1476,6 +1427,57 @@ async def admin_section_index_preview(
 
     content = format_section_index(rows, verbosity=verbosity)
     return {"content": content, "section_count": len(rows), "chars": len(content)}
+
+
+# ---------------------------------------------------------------------------
+# Compaction logs
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/compaction-logs")
+async def admin_channel_compaction_logs(
+    channel_id: uuid.UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Return recent compaction log entries for a channel."""
+    total_result = await db.execute(
+        select(func.count())
+        .select_from(CompactionLog)
+        .where(CompactionLog.channel_id == channel_id)
+    )
+    total = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(CompactionLog)
+        .where(CompactionLog.channel_id == channel_id)
+        .order_by(CompactionLog.created_at.desc())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+
+    logs = []
+    for r in rows:
+        prompt = r.prompt_tokens or 0
+        completion = r.completion_tokens or 0
+        logs.append({
+            "id": str(r.id),
+            "model": r.model,
+            "history_mode": r.history_mode,
+            "tier": r.tier,
+            "forced": r.forced,
+            "memory_flush": r.memory_flush,
+            "messages_archived": r.messages_archived,
+            "prompt_tokens": r.prompt_tokens,
+            "completion_tokens": r.completion_tokens,
+            "total_tokens": prompt + completion if (r.prompt_tokens or r.completion_tokens) else None,
+            "duration_ms": r.duration_ms,
+            "section_id": str(r.section_id) if r.section_id else None,
+            "error": r.error,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    return {"logs": logs, "total": total}
 
 
 # ---------------------------------------------------------------------------

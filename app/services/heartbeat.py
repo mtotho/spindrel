@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,34 @@ def resolve_heartbeat_timeout(hb: ChannelHeartbeat) -> int:
     return settings.TASK_MAX_RUN_SECONDS
 
 
+def _detect_repetition(
+    recent_runs: list[HeartbeatRun],
+    tool_calls_by_corr: dict[uuid.UUID, list[str]],
+    threshold: float = 0.8,
+) -> bool:
+    """True if 3+ consecutive runs have highly similar output OR identical tool call patterns."""
+    from difflib import SequenceMatcher
+
+    results = [r.result for r in recent_runs if r.result]
+    # Text repetition: most recent 3 results highly similar
+    if len(results) >= 3:
+        a, b, c = results[0][:500], results[1][:500], results[2][:500]
+        if (
+            SequenceMatcher(None, a, b).ratio() > threshold
+            and SequenceMatcher(None, b, c).ratio() > threshold
+        ):
+            return True
+
+    # Action repetition: 3+ runs with identical tool call sequences
+    corr_ids = [r.correlation_id for r in recent_runs if r.correlation_id]
+    if len(corr_ids) >= 3:
+        sequences = [tuple(tool_calls_by_corr.get(cid, [])) for cid in corr_ids[:3]]
+        if all(s == sequences[0] for s in sequences[1:]) and sequences[0]:
+            return True
+
+    return False
+
+
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     """Execute a heartbeat directly (no Task row) and record history."""
     now = datetime.now(timezone.utc)
@@ -211,17 +239,18 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             f"Run number: {(hb.run_count or 0) + 1}",
         ]
 
-        # Last heartbeat info
-        last_run_stmt = (
+        # Fetch last 5 completed runs (newest first)
+        recent_runs_stmt = (
             select(HeartbeatRun)
             .where(
                 HeartbeatRun.heartbeat_id == hb.id,
                 HeartbeatRun.status == "complete",
             )
             .order_by(HeartbeatRun.completed_at.desc())
-            .limit(1)
+            .limit(5)
         )
-        last_run = (await db.execute(last_run_stmt)).scalars().first()
+        recent_runs = list((await db.execute(recent_runs_stmt)).scalars().all())
+        last_run = recent_runs[0] if recent_runs else None
         if last_run and last_run.completed_at:
             elapsed = now - last_run.completed_at
             elapsed_str = f"{int(elapsed.total_seconds() // 60)} minutes ago"
@@ -299,6 +328,40 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 metadata_lines.append(f"Previous heartbeat conclusion: {conclusion}")
                 if len(last_run.result) > _prev_max:
                     metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
+
+        # Recent run digest + repetition detection
+        _rep_enabled = hb.repetition_detection if hb.repetition_detection is not None else settings.HEARTBEAT_REPETITION_DETECTION
+        tool_calls_by_corr: dict[uuid.UUID, list[str]] = {}
+        if len(recent_runs) >= 2:
+            # Fetch tool calls for recent runs (for digest display + repetition detection)
+            if _rep_enabled:
+                corr_ids = [r.correlation_id for r in recent_runs if r.correlation_id]
+                if corr_ids:
+                    tc_rows = (await db.execute(
+                        select(ToolCall.correlation_id, ToolCall.tool_name)
+                        .where(ToolCall.correlation_id.in_(corr_ids))
+                        .order_by(ToolCall.created_at)
+                    )).all()
+                    for cid, name in tc_rows:
+                        tool_calls_by_corr.setdefault(cid, []).append(name)
+
+            digest_lines = ["", "Recent heartbeat outputs (newest first):"]
+            for i, r in enumerate(recent_runs[:5]):
+                if r.result:
+                    first_line = r.result.strip().split("\n")[0][:120]
+                    ago = int((now - r.completed_at).total_seconds() // 60) if r.completed_at else 0
+                    tools = tool_calls_by_corr.get(r.correlation_id, [])
+                    tool_str = f" [tools: {', '.join(tools)}]" if tools else ""
+                    digest_lines.append(f"  #{i + 1} ({ago}m ago): {first_line}{tool_str}")
+                elif r.error:
+                    digest_lines.append(f"  #{i + 1}: [error]")
+            metadata_lines.extend(digest_lines)
+
+            if _rep_enabled and _detect_repetition(
+                recent_runs, tool_calls_by_corr, settings.HEARTBEAT_REPETITION_THRESHOLD
+            ):
+                metadata_lines.append("")
+                metadata_lines.append(settings.HEARTBEAT_REPETITION_WARNING)
 
         # Dispatch mode guidance
         if _dispatch_mode == "optional":
