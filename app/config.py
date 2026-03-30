@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     GLOBAL_BASE_PROMPT: str = ""
 
     TIMEZONE: str = "America/New_York"
+    BASE_URL: str = ""  # Public URL (e.g. tunnel); used to build webhook URLs in admin UI
+
     # Auth
     API_KEY: str
     ADMIN_API_KEY: str = ""  # empty = fall back to API_KEY for backward compat
@@ -304,6 +306,9 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     JWT_REFRESH_EXPIRY: int = 2592000  # 30 days
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+
+    # Config state auto-export (empty = disabled)
+    CONFIG_STATE_FILE: str = "config-state.json"
 
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""

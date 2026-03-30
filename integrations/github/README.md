@@ -6,24 +6,69 @@ Receives GitHub webhook events, injects them into agent sessions (one channel pe
 
 ### 1. Environment Variables
 
+Add to your `.env`:
+
 ```bash
 GITHUB_TOKEN=ghp_...              # PAT with `repo` scope (or fine-grained with issues:write, pull_requests:read)
 GITHUB_WEBHOOK_SECRET=your_secret # Shared secret for webhook signature verification
 GITHUB_BOT_LOGIN=my-bot           # GitHub username of the PAT owner (prevents responding to own comments)
 ```
 
-### 2. Configure Webhook on GitHub
+Generate the webhook secret with: `openssl rand -hex 20`
 
-Go to **Settings → Webhooks → Add webhook** on your repo or org:
+### 2. Expose Your Server to the Internet
+
+GitHub needs to reach your server to deliver webhook events. If your server is already publicly accessible, skip to step 3.
+
+#### Option A: Cloudflare Tunnel (recommended)
+
+Free, stable URL, production-grade. Runs as a system service on your host.
+
+**One-time setup:**
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com/) go to **Networking → Tunnels → Create a tunnel**
+2. Choose **Cloudflared** as connector type, name it (e.g. `agent-server`)
+3. The dashboard gives you an install command — run it on your host. This installs `cloudflared` as a system service that starts on boot.
+4. Once the connector shows as healthy, add a **public hostname**:
+   - Subdomain: e.g. `agent` on your domain → `agent.yourdomain.com`
+   - Service type: HTTP
+   - URL: `localhost:8000`
+5. Set `BASE_URL` in your `.env` so the admin UI shows the full webhook URL:
+   ```bash
+   BASE_URL=https://agent.yourdomain.com
+   ```
+
+Your webhook URL is now `https://agent.yourdomain.com/integrations/github/webhook` — stable across restarts.
+
+> **Note:** The tunnel exposes your full server, but all endpoints require `API_KEY` bearer auth except the webhook route (which uses HMAC signature verification). Your server is safe to expose.
+
+#### Option B: ngrok (quick testing)
+
+Easiest for trying things out, but the free tier gives you a random URL that changes on restart.
+
+```bash
+# Install: https://ngrok.com/download
+ngrok http 8000
+```
+
+Copy the `https://xxxx.ngrok-free.app` URL. Your webhook URL is `https://xxxx.ngrok-free.app/integrations/github/webhook`.
+
+> Note: You'll need to update the GitHub webhook URL each time ngrok restarts (unless you have a paid plan with a static domain).
+
+### 3. Configure Webhook on GitHub
+
+Go to **Settings → Webhooks → Add webhook** on your repo (or org for all repos):
 
 | Field | Value |
 |-------|-------|
-| Payload URL | `https://your-server/integrations/github/webhook` |
+| Payload URL | `https://your-tunnel-url/integrations/github/webhook` |
 | Content type | `application/json` |
 | Secret | Same value as `GITHUB_WEBHOOK_SECRET` |
 | Events | "Send me everything" or select specific events below |
 
-### 3. Restart the Server
+Click **Add webhook**. GitHub sends a ping event immediately — you should see a green checkmark if your tunnel and server are running.
+
+### 4. Restart the Server
 
 The integration is auto-discovered on startup. You should see:
 ```

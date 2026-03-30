@@ -570,9 +570,18 @@ async def admin_channel_settings_update(
         try:
             bot = get_bot(channel.bot_id)
             from app.services.channel_workspace import ensure_channel_workspace
-            ensure_channel_workspace(str(channel_id), bot)
+            ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
         except Exception:
             pass  # non-fatal — will be created on next message
+
+    # Update .channel_info when name changes and workspace is active
+    if "name" in updates and channel.channel_workspace_enabled:
+        try:
+            bot = get_bot(channel.bot_id)
+            from app.services.channel_workspace import ensure_channel_workspace
+            ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
+        except Exception:
+            pass
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -1021,7 +1030,7 @@ async def admin_channel_heartbeat_infer(
         if channel.channel_workspace_enabled:
             try:
                 from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
-                ensure_channel_workspace(str(channel_id), bot)
+                ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
                 write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
                 ws_file_path = f"channels/{channel_id}/workspace/data/heartbeat.md"
                 ws_id = bot.shared_workspace_id

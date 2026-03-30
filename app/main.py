@@ -166,6 +166,9 @@ async def lifespan(app: FastAPI):
     logger.info("Loading server settings from DB...")
     from app.services.server_settings import load_settings_from_db
     await load_settings_from_db()
+    logger.info("Loading integration settings from DB...")
+    from app.services.integration_settings import load_from_db as load_integration_settings
+    await load_integration_settings()
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()
@@ -176,6 +179,23 @@ async def lifespan(app: FastAPI):
     logger.info("Loading server config (global fallback models)...")
     from app.services.server_config import load_server_config
     await load_server_config()
+    # Restore config state from file on first boot (empty DB)
+    if settings.CONFIG_STATE_FILE:
+        from sqlalchemy import select as sa_sel, func as sa_func
+        from app.db.models import Bot as BotModel
+        async with async_session() as _cs_db:
+            bot_count = (await _cs_db.execute(sa_sel(sa_func.count()).select_from(BotModel))).scalar() or 0
+        if bot_count == 0:
+            from app.services.config_export import restore_from_file
+            await restore_from_file()
+            # Reload providers/settings/server_config/integration_settings after restore
+            await load_providers()
+            from app.services.server_settings import load_settings_from_db as _reload_ss
+            await _reload_ss()
+            from app.services.server_config import load_server_config as _reload_sc
+            await _reload_sc()
+            await load_integration_settings()
+
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
@@ -272,6 +292,9 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(attachment_sweep_worker())
     from app.services.attachment_retention import attachment_retention_worker
     asyncio.create_task(attachment_retention_worker())
+    if settings.CONFIG_STATE_FILE:
+        from app.services.config_export import config_export_worker
+        asyncio.create_task(config_export_worker())
     yield
 
 
@@ -296,6 +319,47 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Config-mutation middleware: mark config dirty after admin mutations.
+# Uses raw ASGI (not BaseHTTPMiddleware) to avoid buffering streaming responses.
+from app.services.config_export import is_config_mutation, mark_config_dirty  # noqa: E402
+
+
+class ConfigExportMiddleware:
+    """ASGI middleware that marks config dirty on successful admin mutations."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+
+        # Fast path: skip non-mutation requests entirely (zero overhead)
+        if not is_config_mutation(method, path):
+            await self.app(scope, receive, send)
+            return
+
+        status_code = None
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        if status_code is not None and status_code < 300:
+            mark_config_dirty()
+
+
+if settings.CONFIG_STATE_FILE:
+    app.add_middleware(ConfigExportMiddleware)
 
 # Register routers
 from app.routers import auth, chat, sessions, transcribe  # noqa: E402

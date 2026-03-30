@@ -377,7 +377,7 @@ async def assemble_context(
                 ensure_channel_workspace,
             )
             _cw_ch_id = str(_ch_row.id)
-            ensure_channel_workspace(_cw_ch_id, bot, display_name=_ch_row.display_name or _ch_row.name)
+            ensure_channel_workspace(_cw_ch_id, bot, display_name=_ch_row.name)
             _cw_root = get_channel_workspace_root(_cw_ch_id, bot)
 
             _cw_files: list[tuple[str, str]] = []  # (name, content)

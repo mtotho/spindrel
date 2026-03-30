@@ -242,6 +242,169 @@ class TestChannelWorkspaceFileOps:
                 assert os.path.isdir(root)
                 assert os.path.isdir(os.path.join(root, "archive"))
 
+    def test_ensure_writes_display_name_to_channel_info(self):
+        """When display_name is provided, .channel_info should contain it."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace("abc-123-uuid", bot, display_name="My Project")
+                # Check parent .channel_info (channels/{id}/)
+                parent_info = os.path.join(os.path.dirname(root), ".channel_info")
+                assert os.path.isfile(parent_info)
+                content = open(parent_info).read()
+                assert "display_name: My Project" in content
+                assert "channel_id: abc-123-uuid" in content
+
+                # Check workspace .channel_info
+                ws_info = os.path.join(root, ".channel_info")
+                assert os.path.isfile(ws_info)
+                assert "display_name: My Project" in open(ws_info).read()
+
+    def test_ensure_falls_back_to_channel_id_when_no_display_name(self):
+        """Without display_name and no existing .channel_info, falls back to channel_id."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace("abc-123-uuid", bot)
+                parent_info = os.path.join(os.path.dirname(root), ".channel_info")
+                content = open(parent_info).read()
+                assert "display_name: abc-123-uuid" in content
+
+    def test_ensure_preserves_existing_display_name(self):
+        """When called without display_name, preserve existing non-UUID display_name."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                # First call sets a good display name
+                ensure_channel_workspace("abc-123-uuid", bot, display_name="My Project")
+                # Second call without display_name should preserve "My Project"
+                root = ensure_channel_workspace("abc-123-uuid", bot)
+                parent_info = os.path.join(os.path.dirname(root), ".channel_info")
+                content = open(parent_info).read()
+                assert "display_name: My Project" in content
+
+    def test_ensure_updates_display_name_when_explicitly_provided(self):
+        """Explicit display_name should override existing one."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                ensure_channel_workspace("abc-123-uuid", bot, display_name="Old Name")
+                ensure_channel_workspace("abc-123-uuid", bot, display_name="New Name")
+                root = os.path.join(tmp, "channels", "abc-123-uuid", "workspace")
+                parent_info = os.path.join(os.path.dirname(root), ".channel_info")
+                content = open(parent_info).read()
+                assert "display_name: New Name" in content
+
+
+class TestChannelWorkspaceMigration:
+    """Tests for migrating old broken directory layouts."""
+
+    def test_migrate_double_nested_guid(self):
+        """channels/{id}/{id}/{archive,data} → channels/{id}/workspace/{archive,data}."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        ch_id = "1329e3ab-c870-50ad-8f14"
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create the old broken double-nested structure
+            old_dir = os.path.join(tmp, "channels", ch_id, ch_id)
+            os.makedirs(os.path.join(old_dir, "archive"))
+            os.makedirs(os.path.join(old_dir, "data"))
+            with open(os.path.join(old_dir, "data", "heartbeat.md"), "w") as f:
+                f.write("old heartbeat")
+            with open(os.path.join(old_dir, ".channel_info"), "w") as f:
+                f.write("channel_id: old\n")
+
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace(ch_id, bot, display_name="Test Channel")
+
+            # Old double-nested dir should be gone
+            assert not os.path.isdir(old_dir)
+            # Files should be in the correct workspace location
+            assert os.path.isdir(os.path.join(root, "archive"))
+            assert os.path.isdir(os.path.join(root, "data"))
+            assert os.path.isfile(os.path.join(root, "data", "heartbeat.md"))
+            assert open(os.path.join(root, "data", "heartbeat.md")).read() == "old heartbeat"
+            # .channel_info should have the new display name (not the old one)
+            parent_info = os.path.join(os.path.dirname(root), ".channel_info")
+            assert "display_name: Test Channel" in open(parent_info).read()
+
+    def test_migrate_misplaced_archive_and_data(self):
+        """channels/{id}/archive → channels/{id}/workspace/archive."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        ch_id = "ae8704e4-5d08-5120-b9b0"
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create old structure: archive/ and data/ at channel level (no workspace/)
+            ch_dir = os.path.join(tmp, "channels", ch_id)
+            os.makedirs(os.path.join(ch_dir, "archive"))
+            os.makedirs(os.path.join(ch_dir, "data"))
+            with open(os.path.join(ch_dir, "archive", "section_001.md"), "w") as f:
+                f.write("archived content")
+            with open(os.path.join(ch_dir, "data", "notes.md"), "w") as f:
+                f.write("data content")
+
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace(ch_id, bot)
+
+            # Old dirs at channel level should be gone (rmdir only if empty)
+            # Files should be in workspace/archive and workspace/data
+            assert os.path.isfile(os.path.join(root, "archive", "section_001.md"))
+            assert open(os.path.join(root, "archive", "section_001.md")).read() == "archived content"
+            assert os.path.isfile(os.path.join(root, "data", "notes.md"))
+            assert open(os.path.join(root, "data", "notes.md")).read() == "data content"
+
+    def test_migrate_does_not_overwrite_existing_workspace_files(self):
+        """Migration should not overwrite files already in workspace/."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        ch_id = "test-merge"
+        with tempfile.TemporaryDirectory() as tmp:
+            ch_dir = os.path.join(tmp, "channels", ch_id)
+            ws_dir = os.path.join(ch_dir, "workspace")
+
+            # Create correct workspace with a file
+            os.makedirs(os.path.join(ws_dir, "archive"))
+            with open(os.path.join(ws_dir, "archive", "existing.md"), "w") as f:
+                f.write("keep this")
+
+            # Also create old misplaced archive with same filename
+            os.makedirs(os.path.join(ch_dir, "archive"))
+            with open(os.path.join(ch_dir, "archive", "existing.md"), "w") as f:
+                f.write("old version")
+            with open(os.path.join(ch_dir, "archive", "new_file.md"), "w") as f:
+                f.write("migrate this")
+
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace(ch_id, bot)
+
+            # Existing file should not be overwritten
+            assert open(os.path.join(root, "archive", "existing.md")).read() == "keep this"
+            # New file should be migrated
+            assert open(os.path.join(root, "archive", "new_file.md")).read() == "migrate this"
+
+    def test_correct_structure_not_affected_by_migration(self):
+        """Channels with correct structure should not be modified."""
+        from app.services.channel_workspace import ensure_channel_workspace
+        bot = _make_bot()
+        ch_id = "dabd250b-a883-50b8-878f"
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create correct structure
+            ws_dir = os.path.join(tmp, "channels", ch_id, "workspace")
+            os.makedirs(os.path.join(ws_dir, "archive"))
+            os.makedirs(os.path.join(ws_dir, "data"))
+            with open(os.path.join(ws_dir, "context.md"), "w") as f:
+                f.write("existing workspace file")
+
+            with patch("app.services.channel_workspace._get_ws_root", return_value=tmp):
+                root = ensure_channel_workspace(ch_id, bot, display_name="Correct Channel")
+
+            assert root == ws_dir
+            assert open(os.path.join(root, "context.md")).read() == "existing workspace file"
+
 
 # ---------------------------------------------------------------------------
 # Indexing: sentinel bot_id

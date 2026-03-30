@@ -1,12 +1,12 @@
 SETUP = {
     "env_vars": [
         {"key": "FRIGATE_URL", "required": True, "description": "Frigate NVR base URL (e.g. http://frigate:5000)"},
-        {"key": "FRIGATE_API_KEY", "required": False, "description": "Bearer token for Frigate API auth"},
+        {"key": "FRIGATE_API_KEY", "required": False, "description": "Bearer token for Frigate API auth", "secret": True},
         {"key": "FRIGATE_MAX_CLIP_BYTES", "required": False, "description": "Max clip download size (default 50MB)"},
         {"key": "FRIGATE_MQTT_BROKER", "required": False, "description": "MQTT broker hostname for push events"},
         {"key": "FRIGATE_MQTT_PORT", "required": False, "description": "MQTT broker port (default 1883)"},
         {"key": "FRIGATE_MQTT_USERNAME", "required": False, "description": "MQTT auth username"},
-        {"key": "FRIGATE_MQTT_PASSWORD", "required": False, "description": "MQTT auth password"},
+        {"key": "FRIGATE_MQTT_PASSWORD", "required": False, "description": "MQTT auth password", "secret": True},
         {"key": "FRIGATE_MQTT_TOPIC_PREFIX", "required": False, "description": "MQTT topic prefix (default: frigate)"},
         {"key": "FRIGATE_BOT_ID", "required": False, "description": "Bot ID to handle Frigate events"},
         {"key": "FRIGATE_CLIENT_ID", "required": False, "description": "Client ID for Frigate event channel (default: frigate:events)"},
