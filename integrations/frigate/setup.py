@@ -1,3 +1,5 @@
+"""Frigate integration setup manifest."""
+
 SETUP = {
     "env_vars": [
         {"key": "FRIGATE_URL", "required": True, "description": "Frigate NVR base URL (e.g. http://frigate:5000)"},
@@ -8,19 +10,25 @@ SETUP = {
         {"key": "FRIGATE_MQTT_USERNAME", "required": False, "description": "MQTT auth username"},
         {"key": "FRIGATE_MQTT_PASSWORD", "required": False, "description": "MQTT auth password", "secret": True},
         {"key": "FRIGATE_MQTT_TOPIC_PREFIX", "required": False, "description": "MQTT topic prefix (default: frigate)"},
-        {"key": "FRIGATE_BOT_ID", "required": False, "description": "Bot ID to handle Frigate events"},
-        {"key": "FRIGATE_CLIENT_ID", "required": False, "description": "Client ID for Frigate event channel (default: frigate:events)"},
-        {"key": "FRIGATE_MQTT_CAMERAS", "required": False, "description": "Comma-separated camera filter (empty = all)"},
-        {"key": "FRIGATE_MQTT_LABELS", "required": False, "description": "Comma-separated label filter (e.g. person,car)"},
-        {"key": "FRIGATE_MQTT_MIN_SCORE", "required": False, "description": "Minimum detection score (default 0.6)"},
+        {"key": "FRIGATE_MQTT_CAMERAS", "required": False, "description": "Global camera filter for MQTT listener (empty = all)"},
+        {"key": "FRIGATE_MQTT_LABELS", "required": False, "description": "Global label filter for MQTT listener (e.g. person,car)"},
+        {"key": "FRIGATE_MQTT_MIN_SCORE", "required": False, "description": "Global minimum detection score for MQTT listener (default 0.6)"},
         {"key": "FRIGATE_MQTT_COOLDOWN", "required": False, "description": "Seconds between alerts for same camera+label (default 300)"},
     ],
-    "webhook": None,
+    "webhook": {
+        "path": "/integrations/frigate/webhook",
+        "description": "Frigate event receiver (MQTT listener posts here for channel fan-out)",
+    },
     "instructions_url": None,
     "binding": {
         "client_id_prefix": "frigate:",
         "client_id_placeholder": "frigate:events",
-        "client_id_description": "Frigate event channel (default: frigate:events)",
+        "client_id_description": "Frigate event stream (typically frigate:events)",
         "display_name_placeholder": "Frigate Events",
+        "filter_schema": {
+            "cameras": {"type": "string", "description": "Comma-separated camera filter (e.g. front_door,driveway)"},
+            "labels": {"type": "string", "description": "Comma-separated label filter (e.g. person,car)"},
+            "min_score": {"type": "number", "description": "Minimum detection score (0-1)"},
+        },
     },
 }

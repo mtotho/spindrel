@@ -41,8 +41,8 @@ async def _ensure_marp() -> str | None:
     "function": {
         "name": "create_slides",
         "description": (
-            "Create a slide deck from Marp-flavored Markdown and send it to the chat. "
-            "Slides are separated by '---'. The file is saved as an attachment and "
+            "Create a slide deck using Marp (https://marp.app) — an open-source Markdown presentation ecosystem "
+            "by @marp-team. Slides are separated by '---'. The file is saved as an attachment and "
             "delivered to the channel (Slack, web UI, etc.) without entering the conversation context. "
             "Supports HTML (self-contained), PDF, and PPTX output. "
             "Use Marp directives in YAML frontmatter for theming (theme, class, paginate, etc.)."

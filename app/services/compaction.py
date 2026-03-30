@@ -241,7 +241,7 @@ async def _run_memory_flush(
     session_id: uuid.UUID,
     messages: list[dict],
     correlation_id: uuid.UUID | None = None,
-) -> None:
+) -> str | None:
     """Run a dedicated memory flush — gives the bot a chance to save memories,
     knowledge, and persona before compaction archives older messages.
 
@@ -297,7 +297,7 @@ async def _run_memory_flush(
     logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
 
     try:
-        await run(
+        result = await run(
             messages=messages,
             bot=bot,
             user_message=full_prompt,
@@ -309,8 +309,10 @@ async def _run_memory_flush(
             provider_id_override=provider_id,
         )
         logger.info("Memory flush complete for channel %s", channel.id)
+        return result.response
     except Exception:
         logger.warning("Memory flush failed for channel %s", channel.id, exc_info=True)
+        return None
 
 
 def _stringify_message_content(content: Any) -> str:
@@ -733,6 +735,8 @@ async def _record_compaction_log(
     duration_ms: int | None = None,
     section_id: uuid.UUID | None = None,
     error: str | None = None,
+    correlation_id: uuid.UUID | None = None,
+    flush_result: str | None = None,
 ) -> None:
     """Persist a compaction log row. Fire-and-forget safe."""
     try:
@@ -752,6 +756,8 @@ async def _record_compaction_log(
                 duration_ms=duration_ms,
                 section_id=section_id,
                 error=error,
+                correlation_id=correlation_id,
+                flush_result=flush_result,
             ))
             await db.commit()
     except Exception:
@@ -850,9 +856,10 @@ async def run_compaction_stream(
     # Run dedicated memory flush before compaction so the bot can save
     # memories/knowledge/persona while it still sees the full recent window.
     memory_flush_ran = False
+    flush_result: str | None = None
     if channel and _resolve_memory_flush_enabled(bot, channel):
         try:
-            await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+            flush_result = await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
             memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
@@ -1077,6 +1084,8 @@ async def run_compaction_stream(
             completion_tokens=_usage.get("completion_tokens"),
             duration_ms=_duration_ms,
             section_id=_section_id,
+            correlation_id=correlation_id,
+            flush_result=flush_result,
         ))
         yield {"type": "compaction_done", "title": title}
     except Exception:
@@ -1174,9 +1183,10 @@ async def run_compaction_forced(
 
     # Run dedicated memory flush before compaction
     memory_flush_ran = False
+    flush_result: str | None = None
     if channel and _resolve_memory_flush_enabled(bot, channel):
         try:
-            await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
+            flush_result = await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
             memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
@@ -1358,6 +1368,8 @@ async def run_compaction_forced(
         completion_tokens=sec_usage.get("completion_tokens"),
         duration_ms=_duration_ms,
         section_id=_section_id,
+        correlation_id=correlation_id,
+        flush_result=flush_result,
     ))
     return (title, summary)
 

@@ -43,13 +43,35 @@ async def resolve_channel_by_client_id(
     db: AsyncSession,
     client_id: str,
 ) -> Channel | None:
-    """Find a channel via channel_integrations binding by client_id."""
+    """Find a channel via channel_integrations binding by client_id.
+
+    Returns the first match. For multi-channel fan-out use
+    ``resolve_all_channels_by_client_id`` instead.
+    """
     result = await db.execute(
         select(Channel)
         .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
         .where(ChannelIntegration.client_id == client_id)
+        .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def resolve_all_channels_by_client_id(
+    db: AsyncSession,
+    client_id: str,
+) -> list[tuple[Channel, ChannelIntegration]]:
+    """Return all (Channel, ChannelIntegration) pairs bound to *client_id*.
+
+    Used for multi-channel fan-out: the same GitHub repo (or other source)
+    can be bound to multiple channels with different event filters.
+    """
+    result = await db.execute(
+        select(Channel, ChannelIntegration)
+        .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+        .where(ChannelIntegration.client_id == client_id)
+    )
+    return list(result.tuples().all())
 
 
 async def get_or_create_channel(

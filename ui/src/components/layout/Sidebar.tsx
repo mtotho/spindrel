@@ -26,6 +26,8 @@ import {
   Plug,
   Sun,
   Moon,
+  Clock,
+  Heart,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -34,6 +36,7 @@ import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useWorkspaces } from "../../api/hooks/useWorkspaces";
 import { useChannelReadStore } from "../../stores/channelRead";
+import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useThemeTokens } from "../../theme/tokens";
 
 interface NavItem {
@@ -205,6 +208,32 @@ function ThemeToggleRow() {
   );
 }
 
+/** Format a future ISO timestamp as relative — "in 5m", "in 2h", "in 1d" */
+function relativeTime(iso: string): string {
+  const diff = new Date(iso).getTime() - Date.now();
+  if (diff < 0) return "now";
+  const mins = Math.round(diff / 60_000);
+  if (mins < 1) return "< 1m";
+  if (mins < 60) return `in ${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `in ${hrs}h`;
+  const days = Math.round(hrs / 24);
+  return `in ${days}d`;
+}
+
+const BOT_DOT_COLORS = [
+  "#3b82f6", "#a855f7", "#ec4899", "#ef4444", "#f97316", "#eab308",
+  "#22c55e", "#14b8a6", "#06b6d4", "#6366f1", "#f43f5e", "#84cc16",
+];
+
+function botDotColor(botId: string): string {
+  let hash = 0;
+  for (let i = 0; i < botId.length; i++) {
+    hash = ((hash << 5) - hash + botId.charCodeAt(i)) | 0;
+  }
+  return BOT_DOT_COLORS[Math.abs(hash) % BOT_DOT_COLORS.length];
+}
+
 export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -214,6 +243,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { data: channels, isLoading: channelsLoading } = useChannels();
   const { data: bots } = useBots();
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
+  const { data: upcomingItems, isLoading: upcomingLoading } = useUpcomingActivity(3);
   const t = useThemeTokens();
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
@@ -276,6 +306,20 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               accessibilityLabel="Workspaces"
             >
               <Container size={18} color={pathname.startsWith("/admin/workspaces") ? t.accent : t.textDim} />
+            </Pressable>
+          </Link>
+
+          {/* Upcoming icon */}
+          <Link href={"/admin/upcoming" as any} asChild>
+            <Pressable
+              onPress={closeMobile}
+              className={`items-center justify-center rounded-lg ${
+                pathname.startsWith("/admin/upcoming") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+              }`}
+              style={{ width: 44, height: 44 }}
+              accessibilityLabel="Upcoming Activity"
+            >
+              <Clock size={18} color={pathname.startsWith("/admin/upcoming") ? t.accent : t.textDim} />
             </Pressable>
           </Link>
 
@@ -487,6 +531,77 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                         </Text>
                       </View>
                     </View>
+                  </Pressable>
+                </Link>
+              );
+            })
+          )}
+        </View>
+
+        {/* Upcoming activity */}
+        <View className="px-2 py-1.5">
+          <Link href={"/admin/upcoming" as any} asChild>
+            <Pressable
+              onPress={closeMobile}
+              className="flex-row items-center justify-between px-3 mb-1 rounded hover:bg-surface-overlay active:bg-surface-overlay"
+            >
+              <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
+                UPCOMING
+              </Text>
+              <Clock size={12} color={t.textDim} />
+            </Pressable>
+          </Link>
+
+          {upcomingLoading ? (
+            <View className="gap-1">
+              {[1, 2].map((i) => (
+                <View key={i} className="flex-row items-center gap-2.5 px-3 py-1.5">
+                  <View
+                    className="rounded animate-pulse"
+                    style={{ width: 14, height: 14, backgroundColor: t.skeletonBg }}
+                  />
+                  <View className="flex-1 gap-1">
+                    <View
+                      className="rounded animate-pulse"
+                      style={{ height: 12, width: `${50 + i * 15}%`, backgroundColor: t.skeletonBg }}
+                    />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : !upcomingItems?.length ? (
+            <Text className="text-text-dim text-xs px-3 py-1">No upcoming activity</Text>
+          ) : (
+            upcomingItems.map((item, idx) => {
+              const href = item.type === "heartbeat" && item.channel_id
+                ? `/channels/${item.channel_id}`
+                : "/admin/tasks";
+              return (
+                <Link key={`${item.type}-${idx}`} href={href as any} asChild>
+                  <Pressable
+                    onPress={closeMobile}
+                    className="flex-row items-center gap-2 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+                  >
+                    {item.type === "heartbeat" ? (
+                      <Heart size={13} color={item.in_quiet_hours ? t.textDim : t.warning} style={item.in_quiet_hours ? { opacity: 0.4 } : undefined} />
+                    ) : (
+                      <ClipboardList size={13} color={t.accent} />
+                    )}
+                    <View
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor: botDotColor(item.bot_id),
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Text className="text-text-muted text-xs flex-1" numberOfLines={1}>
+                      {item.type === "heartbeat" && item.channel_name ? `#${item.channel_name}` : item.title}
+                    </Text>
+                    <Text className="text-text-dim text-[10px]" style={{ flexShrink: 0 }}>
+                      {item.scheduled_at ? relativeTime(item.scheduled_at) : ""}
+                    </Text>
                   </Pressable>
                 </Link>
               );

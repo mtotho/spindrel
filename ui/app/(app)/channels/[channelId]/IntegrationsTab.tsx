@@ -14,6 +14,61 @@ import {
 } from "@/src/components/shared/FormControls";
 
 // ---------------------------------------------------------------------------
+// Event filter multi-select
+// ---------------------------------------------------------------------------
+
+function EventFilterPicker({
+  eventTypes,
+  selected,
+  onChange,
+}: {
+  eventTypes: { value: string; label: string }[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const t = useThemeTokens();
+
+  const toggle = (value: string) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
+  };
+
+  return (
+    <View className="gap-1.5">
+      {eventTypes.map((et) => {
+        const isChecked = selected.includes(et.value);
+        return (
+          <Pressable
+            key={et.value}
+            onPress={() => toggle(et.value)}
+            className="flex-row items-center gap-2"
+          >
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 3,
+                borderWidth: 1.5,
+                borderColor: isChecked ? t.accent : t.surfaceBorder,
+                backgroundColor: isChecked ? t.accent : "transparent",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {isChecked && <Check size={11} color="#fff" strokeWidth={3} />}
+            </View>
+            <Text className="text-text text-sm">{et.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Binding form (shared between Add and Edit)
 // ---------------------------------------------------------------------------
 
@@ -22,6 +77,7 @@ function BindingForm({
   initialType,
   initialClientId,
   initialDisplayName,
+  initialEventFilter,
   onSubmit,
   onCancel,
   isPending,
@@ -34,7 +90,8 @@ function BindingForm({
   initialType: string;
   initialClientId: string;
   initialDisplayName: string;
-  onSubmit: (type: string, clientId: string, displayName: string) => void;
+  initialEventFilter?: string[];
+  onSubmit: (type: string, clientId: string, displayName: string, eventFilter: string[]) => void;
   onCancel: () => void;
   isPending: boolean;
   isError: boolean;
@@ -46,12 +103,15 @@ function BindingForm({
   const [type, setType] = useState(initialType);
   const [clientId, setClientId] = useState(initialClientId);
   const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [eventFilter, setEventFilter] = useState<string[]>(initialEventFilter ?? []);
 
   const selected = availableIntegrations.find((i) => i.type === type);
   const binding = selected?.binding;
+  const eventTypes = binding?.event_types;
 
   const handleTypeChange = (newType: string) => {
     setType(newType);
+    setEventFilter([]);
     // Auto-set prefix when switching types
     const newBinding = availableIntegrations.find((i) => i.type === newType)?.binding;
     if (newBinding?.client_id_prefix && !clientId) {
@@ -89,9 +149,21 @@ function BindingForm({
           placeholder={binding?.display_name_placeholder ?? ""}
         />
       </FormRow>
+      {eventTypes && eventTypes.length > 0 && (
+        <FormRow
+          label="Event Filter"
+          description="Select which events this binding receives. Empty = all events."
+        >
+          <EventFilterPicker
+            eventTypes={eventTypes}
+            selected={eventFilter}
+            onChange={setEventFilter}
+          />
+        </FormRow>
+      )}
       <View className="flex-row gap-2">
         <Pressable
-          onPress={() => onSubmit(type, clientId.trim(), displayName.trim())}
+          onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), eventFilter)}
           disabled={!type || !clientId.trim() || isPending}
           style={{
             backgroundColor: type && clientId.trim() ? t.accent : t.surfaceBorder,
@@ -135,22 +207,32 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
 
   const available = availableIntegrations ?? [];
 
-  const handleAdd = async (type: string, clientId: string, displayName: string) => {
+  const handleAdd = async (type: string, clientId: string, displayName: string, eventFilter: string[]) => {
+    const dispatchConfig: Record<string, any> = {};
+    if (eventFilter.length > 0) {
+      dispatchConfig.event_filter = eventFilter;
+    }
     await bindMutation.mutateAsync({
       integration_type: type,
       client_id: clientId,
       display_name: displayName || undefined,
+      dispatch_config: Object.keys(dispatchConfig).length > 0 ? dispatchConfig : undefined,
     });
     setShowAdd(false);
   };
 
-  const handleEdit = async (bindingId: string, type: string, clientId: string, displayName: string) => {
+  const handleEdit = async (bindingId: string, type: string, clientId: string, displayName: string, eventFilter: string[]) => {
+    const dispatchConfig: Record<string, any> = {};
+    if (eventFilter.length > 0) {
+      dispatchConfig.event_filter = eventFilter;
+    }
     // Unbind old, bind new
     await unbindMutation.mutateAsync(bindingId);
     await bindMutation.mutateAsync({
       integration_type: type,
       client_id: clientId,
       display_name: displayName || undefined,
+      dispatch_config: Object.keys(dispatchConfig).length > 0 ? dispatchConfig : undefined,
     });
     setEditingId(null);
   };
@@ -164,8 +246,9 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
           <EmptyState message="No integrations bound to this channel" />
         ) : (
           <View className="gap-2">
-            {bindings.map((b) =>
-              editingId === b.id ? (
+            {bindings.map((b) => {
+              const eventFilter: string[] = b.dispatch_config?.event_filter ?? [];
+              return editingId === b.id ? (
                 <View
                   key={b.id}
                   className="bg-surface-raised border border-surface-border rounded-lg p-3"
@@ -175,8 +258,9 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
                     initialType={b.integration_type}
                     initialClientId={b.client_id}
                     initialDisplayName={b.display_name ?? ""}
-                    onSubmit={(type, clientId, displayName) =>
-                      handleEdit(b.id, type, clientId, displayName)
+                    initialEventFilter={eventFilter}
+                    onSubmit={(type, clientId, displayName, ef) =>
+                      handleEdit(b.id, type, clientId, displayName, ef)
                     }
                     onCancel={() => setEditingId(null)}
                     isPending={bindMutation.isPending || unbindMutation.isPending}
@@ -196,6 +280,11 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
                     {b.display_name && (
                       <Text className="text-text-muted text-xs" numberOfLines={1}>{b.display_name}</Text>
                     )}
+                    {eventFilter.length > 0 && (
+                      <Text className="text-text-dim text-xs" numberOfLines={1}>
+                        Events: {eventFilter.join(", ")}
+                      </Text>
+                    )}
                   </View>
                   <Pressable
                     onPress={() => setEditingId(b.id)}
@@ -210,8 +299,8 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
                     <X size={14} color={t.danger} />
                   </Pressable>
                 </View>
-              )
-            )}
+              );
+            })}
           </View>
         )}
       </Section>

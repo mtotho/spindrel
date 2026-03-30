@@ -6,7 +6,9 @@ Connects your agent server to [Frigate NVR](https://frigate.video/) for camera m
 
 - **Polling tools**: List cameras, query events, download snapshots/clips
 - **Push events**: MQTT listener receives Frigate detections in real-time and forwards them to the agent server
-- **Filtering**: Camera allowlist, label allowlist, minimum confidence score, per-camera+label cooldown
+- **Multi-channel fan-out**: Route events to multiple channels with per-channel filters
+- **Per-binding filters**: Each channel binding can filter by camera, label, and minimum score
+- **Global filters**: MQTT listener applies global camera/label/score/cooldown filters before forwarding
 
 ## Setup
 
@@ -34,34 +36,23 @@ FRIGATE_MQTT_USERNAME=
 FRIGATE_MQTT_PASSWORD=
 FRIGATE_MQTT_TOPIC_PREFIX=frigate
 
-# Required for MQTT — which bot handles Frigate events
-FRIGATE_BOT_ID=your-frigate-bot-id
-FRIGATE_CLIENT_ID=frigate:events
-
-# Optional — event filtering
+# Optional — global event filtering (applied by MQTT listener before webhook)
 FRIGATE_MQTT_CAMERAS=             # comma-separated, empty = all
 FRIGATE_MQTT_LABELS=person,car    # comma-separated, empty = all
 FRIGATE_MQTT_MIN_SCORE=0.6        # minimum detection confidence (0-1)
 FRIGATE_MQTT_COOLDOWN=300         # seconds between alerts per camera+label
 ```
 
-### 3. Bot configuration
+### 3. Create a channel and bind it
 
-Create a bot YAML that has the Frigate tools available. The MQTT listener posts events to this bot. Example `bots/security.yaml`:
-
-```yaml
-id: security
-name: Security Monitor
-model: gemini/gemini-2.5-flash
-system_prompt: |
-  You are a security monitoring assistant. When you receive Frigate detection
-  events, fetch the snapshot with frigate_event_snapshot, analyze the image,
-  and report significant detections.
-```
+1. Create a channel in the admin UI
+2. Set the bot on the channel (e.g. your security monitoring bot)
+3. Bind the channel to `frigate:events` via the integrations tab
+4. Optionally set per-binding filters in the binding's dispatch config
 
 ### 4. Running
 
-If using `dev-server.sh`, the MQTT listener auto-starts when `FRIGATE_MQTT_BROKER` and `FRIGATE_BOT_ID` are set.
+If using `dev-server.sh`, the MQTT listener auto-starts when `FRIGATE_MQTT_BROKER` is set.
 
 To run manually:
 
@@ -73,15 +64,35 @@ python integrations/frigate/mqtt_listener.py
 
 ```
 Frigate NVR → MQTT broker → mqtt_listener.py (background process)
+                                    ↓ (global filters + cooldown)
+                            POST /integrations/frigate/webhook
                                     ↓
-                            POST /chat (agent server API)
+                            Router resolves bound channels
+                                    ↓ (per-binding filters)
+                            Inject message into each matching channel
                                     ↓
                             Bot processes event (has Frigate tools)
-                                    ↓
-                            Response dispatched to channel
 ```
 
-The MQTT listener is just another client — like the Slack bot. It receives Frigate events, formats them as messages, and POSTs to the agent server.
+The MQTT listener connects to the Frigate MQTT broker, applies global filters and cooldown, then POSTs raw event payloads to the webhook endpoint. The router resolves all channels bound to `frigate:events`, applies per-binding filters, and injects messages into matching channels.
+
+## Multi-Channel Routing
+
+You can route different camera/label combinations to different channels:
+
+**Channel "Front Door Alerts"** — bound to `frigate:events` with filter:
+```json
+{"cameras": "front_door", "labels": "person", "min_score": 0.7}
+```
+
+**Channel "All Vehicle Activity"** — bound to `frigate:events` with filter:
+```json
+{"cameras": "driveway,garage", "labels": "car"}
+```
+
+**Channel "Everything"** — bound to `frigate:events` with no filter (receives all events).
+
+Each channel has its own bot, conversation history, and dispatch settings.
 
 ## Available Tools
 
@@ -98,10 +109,22 @@ The MQTT listener is just another client — like the Slack bot. It receives Fri
 
 ## Event Filtering Pipeline
 
-MQTT events pass through these filters in order:
+Events pass through two filter stages:
+
+### Stage 1: MQTT Listener (global filters)
+Applied before the event reaches the server. Configured via env vars.
 
 1. **Event type**: Only `type: "new"` (skip update/end)
 2. **Camera allowlist**: `FRIGATE_MQTT_CAMERAS` (empty = all)
 3. **Label allowlist**: `FRIGATE_MQTT_LABELS` (empty = all)
 4. **Minimum score**: `FRIGATE_MQTT_MIN_SCORE` (default 0.6)
 5. **Cooldown**: `FRIGATE_MQTT_COOLDOWN` per camera+label (default 300s)
+
+### Stage 2: Webhook Router (per-binding filters)
+Applied per-channel based on the binding's `dispatch_config`.
+
+1. **Camera filter**: `cameras` field (comma-separated or list)
+2. **Label filter**: `labels` field (comma-separated or list)
+3. **Minimum score**: `min_score` field (0-1)
+
+Empty/missing filter fields = accept all events.

@@ -1469,11 +1469,37 @@ async def admin_channel_compaction_logs(
     )
     rows = result.scalars().all()
 
+    # Enrich logs that have a correlation_id with tool calls + token stats
+    correlation_ids = [r.correlation_id for r in rows if r.correlation_id]
+    tc_by_corr: dict[uuid.UUID, list] = {}
+    stats_by_corr: dict[uuid.UUID, dict] = {}
+    if correlation_ids:
+        tc_rows = (await db.execute(
+            select(ToolCall)
+            .where(ToolCall.correlation_id.in_(correlation_ids))
+            .order_by(ToolCall.created_at)
+        )).scalars().all()
+        for tc in tc_rows:
+            tc_by_corr.setdefault(tc.correlation_id, []).append(tc)
+
+        te_rows = (await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.correlation_id.in_(correlation_ids),
+                TraceEvent.event_type == "token_usage",
+            )
+        )).scalars().all()
+        for te in te_rows:
+            s = stats_by_corr.setdefault(te.correlation_id, {"tokens": 0, "iterations": 0})
+            if te.data:
+                s["tokens"] += te.data.get("total_tokens", 0)
+                s["iterations"] = max(s["iterations"], te.data.get("iteration", 0))
+
     logs = []
     for r in rows:
         prompt = r.prompt_tokens or 0
         completion = r.completion_tokens or 0
-        logs.append({
+        entry: dict = {
             "id": str(r.id),
             "model": r.model,
             "history_mode": r.history_mode,
@@ -1488,7 +1514,19 @@ async def admin_channel_compaction_logs(
             "section_id": str(r.section_id) if r.section_id else None,
             "error": r.error,
             "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
+        }
+        if r.flush_result:
+            entry["flush_result"] = r.flush_result
+        if r.correlation_id:
+            entry["correlation_id"] = str(r.correlation_id)
+            tcs = tc_by_corr.get(r.correlation_id, [])
+            if tcs:
+                entry["tool_calls"] = build_tool_call_previews(tcs)
+            stats = stats_by_corr.get(r.correlation_id)
+            if stats:
+                entry["flush_tokens"] = stats["tokens"]
+                entry["flush_iterations"] = stats["iterations"]
+        logs.append(entry)
 
     return {"logs": logs, "total": total}
 

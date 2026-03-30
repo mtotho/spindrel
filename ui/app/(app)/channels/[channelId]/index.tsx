@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
@@ -56,6 +56,50 @@ function isDifferentDay(a: string, b: string): boolean {
   const da = new Date(a);
   const db = new Date(b);
   return da.getFullYear() !== db.getFullYear() || da.getMonth() !== db.getMonth() || da.getDate() !== db.getDate();
+}
+
+/**
+ * Merge consecutive assistant messages from the same sender into a single
+ * display message so they render as one continuous block (easier to copy/select).
+ */
+function mergeConsecutiveAssistant(messages: Message[]): Message[] {
+  if (messages.length === 0) return messages;
+  const result: Message[] = [];
+  for (const msg of messages) {
+    const prev = result[result.length - 1];
+    if (
+      prev &&
+      msg.role === "assistant" &&
+      prev.role === "assistant" &&
+      shouldGroup(msg, prev)
+    ) {
+      const prevText = extractDisplayText(prev.content);
+      const curText = extractDisplayText(msg.content);
+      const mergedContent = [prevText, curText].filter(Boolean).join("\n\n");
+      const prevMeta = prev.metadata || {};
+      const curMeta = msg.metadata || {};
+      result[result.length - 1] = {
+        ...prev,
+        content: mergedContent,
+        tool_calls: [...(prev.tool_calls || []), ...(msg.tool_calls || [])],
+        attachments: [...(prev.attachments || []), ...(msg.attachments || [])],
+        metadata: {
+          ...prevMeta,
+          tools_used: [
+            ...((prevMeta.tools_used as string[]) || []),
+            ...((curMeta.tools_used as string[]) || []),
+          ],
+          delegations: [
+            ...((prevMeta.delegations as any[]) || []),
+            ...((curMeta.delegations as any[]) || []),
+          ],
+        },
+      };
+    } else {
+      result.push({ ...msg });
+    }
+  }
+  return result;
 }
 
 function DateSeparator({ label }: { label: string }) {
@@ -252,8 +296,12 @@ export default function ChatScreen() {
     [channelId, channel, turnModelOverride]
   );
 
-  // Reverse for inverted FlatList (newest-first)
-  const invertedData = [...chatState.messages].reverse();
+  // Merge consecutive assistant messages then reverse for inverted FlatList
+  const mergedMessages = useMemo(
+    () => mergeConsecutiveAssistant(chatState.messages),
+    [chatState.messages],
+  );
+  const invertedData = [...mergedMessages].reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {

@@ -114,6 +114,7 @@ async def inject_message(
     *,
     run_agent: bool = False,
     notify: bool = True,
+    dispatch_config: dict | None = None,
     db: AsyncSession,
 ) -> dict[str, Any]:
     """
@@ -121,6 +122,8 @@ async def inject_message(
 
     - notify=True: fans out to the session's dispatch_config (Slack, etc.)
     - run_agent=True: creates an async Task to run the agent on this message
+    - dispatch_config: if provided, used on the Task instead of session.dispatch_config
+      (allows per-event data like comment_target to be passed through)
 
     Returns {"message_id": ..., "session_id": ..., "task_id": ... or None}
     """
@@ -146,6 +149,7 @@ async def inject_message(
 
     task_id: uuid.UUID | None = None
     if run_agent:
+        effective_dispatch = dispatch_config or session.dispatch_config or {}
         task = Task(
             bot_id=session.bot_id,
             client_id=session.client_id,
@@ -153,8 +157,8 @@ async def inject_message(
             prompt=content,
             status="pending",
             task_type="api",
-            dispatch_type=(session.dispatch_config or {}).get("type") or "none",
-            dispatch_config=session.dispatch_config or {},
+            dispatch_type=effective_dispatch.get("type") or "none",
+            dispatch_config=effective_dispatch,
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

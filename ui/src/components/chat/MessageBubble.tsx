@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Wrench, ChevronRight, ChevronDown } from "lucide-react";
+import { Wrench, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
@@ -121,6 +121,45 @@ function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
         {letter}
       </Text>
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Copy button — appears on hover (web only)
+// ---------------------------------------------------------------------------
+
+function CopyButton({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="msg-actions" style={{ userSelect: "none" }}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          });
+        }}
+        title="Copy message"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          backgroundColor: t.surfaceRaised,
+          color: copied ? "#10b981" : t.textMuted,
+          cursor: "pointer",
+          padding: 0,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
+        }}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
   );
 }
 
@@ -705,6 +744,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
           }}
         >
           {messageContent}
+          {displayContent.length > 0 && <CopyButton text={displayContent} t={t} />}
         </div>
       );
     }
@@ -805,6 +845,7 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
         }}
       >
         {inner}
+        {displayContent.length > 0 && <CopyButton text={displayContent} t={t} />}
       </div>
     );
   }

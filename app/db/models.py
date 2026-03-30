@@ -3,7 +3,7 @@ from datetime import datetime, time, timezone
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
@@ -179,6 +179,8 @@ class CompactionLog(Base):
         UUID(as_uuid=True), ForeignKey("conversation_sections.id", ondelete="SET NULL"), nullable=True,
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    flush_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
@@ -194,7 +196,7 @@ class ChannelIntegration(Base):
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
     )
     integration_type: Mapped[str] = mapped_column(Text, nullable=False)
-    client_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    client_id: Mapped[str] = mapped_column(Text, nullable=False)
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
@@ -202,6 +204,10 @@ class ChannelIntegration(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     channel: Mapped["Channel"] = relationship(back_populates="integrations")
+
+    __table_args__ = (
+        UniqueConstraint("channel_id", "client_id", name="uq_channel_integrations_channel_client"),
+    )
 
 
 class Session(Base):

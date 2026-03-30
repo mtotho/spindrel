@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator } from "react-native";
-import { AlertTriangle, Play, RotateCw } from "lucide-react";
+import { AlertTriangle, ExternalLink, Play, RotateCw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
@@ -9,6 +9,7 @@ import {
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
+import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChannelSettings } from "@/src/types/api";
@@ -964,6 +965,16 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 // Compaction Activity log viewer
 // ---------------------------------------------------------------------------
 
+interface CompactionToolCall {
+  tool_name: string;
+  tool_type: string;
+  iteration?: number | null;
+  duration_ms?: number | null;
+  error?: string | null;
+  arguments_preview?: string | null;
+  result_preview?: string | null;
+}
+
 interface CompactionLogEntry {
   id: string;
   model: string;
@@ -979,6 +990,11 @@ interface CompactionLogEntry {
   section_id: string | null;
   error: string | null;
   created_at: string | null;
+  correlation_id?: string | null;
+  flush_result?: string | null;
+  tool_calls?: CompactionToolCall[];
+  flush_tokens?: number | null;
+  flush_iterations?: number | null;
 }
 
 const TIER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -1106,8 +1122,38 @@ function CompactionActivity({ channelId }: { channelId: string }) {
                 {_detailRow("Messages archived", log.messages_archived, t)}
                 {_detailRow("Memory flush", log.memory_flush ? "yes" : "no", t)}
                 {_detailRow("Forced", log.forced ? "yes" : "no", t)}
+                {log.flush_tokens != null && _detailRow("Flush tokens", log.flush_tokens.toLocaleString(), t)}
+                {log.flush_iterations != null && _detailRow("Flush iterations", String(log.flush_iterations), t)}
                 {_detailRow("Section ID", log.section_id, t)}
                 {_detailRow("Timestamp", log.created_at ? new Date(log.created_at).toLocaleString() : null, t)}
+                {log.correlation_id && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                    <a
+                      href={`/admin/logs/${log.correlation_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: 10, color: t.accent, display: "flex", alignItems: "center", gap: 3, textDecoration: "none" }}
+                    >
+                      <ExternalLink size={10} /> View trace
+                    </a>
+                  </div>
+                )}
+                {log.flush_result && (
+                  <div style={{
+                    marginTop: 4, padding: "6px 8px", background: t.codeBg,
+                    borderRadius: 4, border: `1px solid ${t.surfaceBorder}`,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: t.purple, marginBottom: 2 }}>Flush result</div>
+                    <div style={{
+                      fontSize: 11, color: t.text, lineHeight: 1.5,
+                      maxHeight: 200, overflowY: "auto",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}>{log.flush_result}</div>
+                  </div>
+                )}
+                {log.tool_calls && log.tool_calls.length > 0 && (
+                  <ToolCallsList toolCalls={log.tool_calls} isWide />
+                )}
                 {log.error && (
                   <div style={{ marginTop: 4, padding: "6px 8px", background: "rgba(239,68,68,0.08)", borderRadius: 4, border: "1px solid rgba(239,68,68,0.2)" }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 2 }}>Error</div>
