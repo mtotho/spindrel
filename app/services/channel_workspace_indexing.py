@@ -31,7 +31,7 @@ async def index_channel_workspace(
 
     Uses bot_id = "channel:{channel_id}" as sentinel for channel-scoped indexing.
     Root = shared workspace root (or bot workspace root).
-    Patterns = channels/{channel_id}/workspace/**/*.md
+    Patterns = channels/{channel_id}/**/*.md
 
     When channel_segments is provided, constructs segment objects for index_directory
     so that additional directories (e.g. data/repo/) are indexed alongside the base
@@ -44,7 +44,7 @@ async def index_channel_workspace(
     ws_root = _get_ws_root(bot)
     root = str(Path(ws_root).resolve())
     sentinel_bot_id = _get_channel_index_bot_id(channel_id)
-    base_prefix = f"channels/{channel_id}/workspace"
+    base_prefix = f"channels/{channel_id}"
     patterns = [f"{base_prefix}/**/*.md"]
 
     # Resolve embedding model from bot's workspace config
@@ -58,7 +58,7 @@ async def index_channel_workspace(
     skip_stale = True
     if channel_segments:
         segments = [
-            # Base segment: .md files in workspace root
+            # Base segment: .md files in channel root
             {
                 "path_prefix": base_prefix,
                 "patterns": ["**/*.md"],

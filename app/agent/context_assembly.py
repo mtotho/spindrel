@@ -416,7 +416,7 @@ async def assemble_context(
                     if _data_entries:
                         _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
 
-                _cw_abs = f"/workspace/channels/{_cw_ch_id}/workspace"
+                _cw_abs = f"/workspace/channels/{_cw_ch_id}"
                 _cw_helper = (
                     f"Channel workspace — absolute path: {_cw_abs}\n"
                     f"IMPORTANT: Always use the exact path above for file operations. The channel ID is {_cw_ch_id} (a UUID, NOT the channel name).\n"
@@ -451,7 +451,7 @@ async def assemble_context(
                     _sentinel = f"channel:{_ch_row.id}"
                     _ws_res = _ri(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
                     _seg_dicts = [{
-                        "path_prefix": f"channels/{_cw_ch_id}/workspace/{seg['path_prefix'].strip('/')}",
+                        "path_prefix": f"channels/{_cw_ch_id}/{seg['path_prefix'].strip('/')}",
                         "embedding_model": seg.get("embedding_model") or _ws_res["embedding_model"],
                     } for seg in _cw_segments]
                     _seg_top_k = max((seg.get("top_k", 8) for seg in _cw_segments), default=8)

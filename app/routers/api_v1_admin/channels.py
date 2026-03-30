@@ -1032,7 +1032,7 @@ async def admin_channel_heartbeat_infer(
                 from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
                 ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
                 write_workspace_file(str(channel_id), bot, "data/heartbeat.md", prompt_text)
-                ws_file_path = f"channels/{channel_id}/workspace/data/heartbeat.md"
+                ws_file_path = f"channels/{channel_id}/data/heartbeat.md"
                 ws_id = bot.shared_workspace_id
             except Exception:
                 logger.warning("Failed to write heartbeat.md for channel %s", channel_id, exc_info=True)
