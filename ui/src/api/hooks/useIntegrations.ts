@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
 export interface IntegrationEnvVar {
@@ -29,6 +29,16 @@ export interface IntegrationItem {
   readme: string | null;
 }
 
+export interface IntegrationSettingItem {
+  key: string;
+  description: string;
+  required: boolean;
+  secret: boolean;
+  value: string;
+  source: "db" | "env" | "default";
+  is_set: boolean;
+}
+
 export function useIntegrations() {
   return useQuery({
     queryKey: ["admin-integrations"],
@@ -36,5 +46,45 @@ export function useIntegrations() {
       apiFetch<{ integrations: IntegrationItem[] }>(
         "/api/v1/admin/integrations"
       ),
+  });
+}
+
+export function useIntegrationSettings(id: string) {
+  return useQuery({
+    queryKey: ["admin-integration-settings", id],
+    queryFn: () =>
+      apiFetch<{ settings: IntegrationSettingItem[] }>(
+        `/api/v1/admin/integrations/${id}/settings`
+      ),
+    enabled: !!id,
+  });
+}
+
+export function useUpdateIntegrationSettings(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: Record<string, string>) =>
+      apiFetch(`/api/v1/admin/integrations/${id}/settings`, {
+        method: "PUT",
+        body: JSON.stringify({ settings }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integration-settings", id] });
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+}
+
+export function useDeleteIntegrationSetting(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      apiFetch(`/api/v1/admin/integrations/${id}/settings/${key}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integration-settings", id] });
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
   });
 }

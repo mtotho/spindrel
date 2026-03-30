@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,59 @@ if TYPE_CHECKING:
     from app.agent.bots import BotConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _migrate_old_layout(channel_dir: str, channel_id: str, ws_path: str) -> None:
+    """Fix old broken directory layouts, idempotent.
+
+    Known bad layouts:
+      1. channels/{id}/{id}/ — double-nested GUID (old bug)
+      2. channels/{id}/archive or /data — missing workspace level
+    """
+    try:
+        # Case 1: double-nested GUID — channels/{id}/{id}/{archive,data,...}
+        double_nested = os.path.join(channel_dir, channel_id)
+        if os.path.isdir(double_nested) and double_nested != ws_path:
+            logger.info("Migrating double-nested channel dir: %s → %s", double_nested, ws_path)
+            os.makedirs(ws_path, exist_ok=True)
+            for entry in os.scandir(double_nested):
+                dest = os.path.join(ws_path, entry.name)
+                if entry.name == ".channel_info":
+                    # Don't migrate .channel_info — will be rewritten
+                    continue
+                if os.path.exists(dest):
+                    # Merge directory contents
+                    if entry.is_dir() and os.path.isdir(dest):
+                        for sub in os.scandir(entry.path):
+                            sub_dest = os.path.join(dest, sub.name)
+                            if not os.path.exists(sub_dest):
+                                shutil.move(sub.path, sub_dest)
+                    # Skip if file already exists at dest
+                else:
+                    shutil.move(entry.path, dest)
+            # Remove the now-empty double-nested dir
+            try:
+                shutil.rmtree(double_nested)
+            except Exception:
+                pass
+
+        # Case 2: archive/ or data/ at channel_dir level instead of inside workspace/
+        for subdir in ("archive", "data"):
+            old_path = os.path.join(channel_dir, subdir)
+            new_path = os.path.join(ws_path, subdir)
+            if os.path.isdir(old_path) and old_path != new_path:
+                logger.info("Migrating misplaced %s: %s → %s", subdir, old_path, new_path)
+                os.makedirs(new_path, exist_ok=True)
+                for entry in os.scandir(old_path):
+                    dest = os.path.join(new_path, entry.name)
+                    if not os.path.exists(dest):
+                        shutil.move(entry.path, dest)
+                try:
+                    os.rmdir(old_path)  # Only removes if empty
+                except OSError:
+                    pass
+    except Exception:
+        logger.warning("Failed to migrate old channel workspace layout for %s", channel_id, exc_info=True)
 
 
 def _get_ws_root(bot: "BotConfig") -> str:
@@ -49,11 +103,35 @@ def ensure_channel_workspace(
 ) -> str:
     """Create workspace/ + archive/ + data/ dirs, idempotent. Returns workspace root."""
     ws_path = get_channel_workspace_root(channel_id, bot)
+    channel_dir = os.path.dirname(ws_path)  # channels/{id}/
+
+    # Migrate old broken directory structures:
+    # 1. channels/{id}/{id}/ (double-nested GUID) → move into channels/{id}/workspace/
+    # 2. channels/{id}/archive or channels/{id}/data (no workspace level) → move into workspace/
+    _migrate_old_layout(channel_dir, channel_id, ws_path)
+
     for subdir in ("archive", "data"):
         os.makedirs(os.path.join(ws_path, subdir), exist_ok=True)
 
-    # Write/update .channel_info so humans can identify UUID folders
-    label = display_name or channel_id
+    # Write/update .channel_info so humans can identify UUID folders.
+    # If no display_name provided, preserve existing display_name from .channel_info
+    # rather than overwriting with the bare channel_id UUID.
+    label = display_name
+    if not label:
+        # Try to read existing display_name from parent .channel_info
+        parent_info = os.path.join(os.path.dirname(ws_path), ".channel_info")
+        try:
+            if os.path.isfile(parent_info):
+                for line in Path(parent_info).read_text().splitlines():
+                    if line.startswith("display_name:"):
+                        existing_name = line.split(":", 1)[1].strip()
+                        if existing_name and existing_name != channel_id:
+                            label = existing_name
+                            break
+        except Exception:
+            pass
+    label = label or channel_id
+
     info_content = f"channel_id: {channel_id}\ndisplay_name: {label}\n"
     # Write at both levels: channels/{id}/ and channels/{id}/workspace/
     for info_dir in (os.path.dirname(ws_path), ws_path):

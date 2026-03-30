@@ -17,6 +17,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock        # sibling container management
       - ${WORKSPACE_HOST_DIR:-~/.agent-workspaces}:/workspace-data  # workspace files
       - fastembed-cache:/app/.fastembed-cache  # local embedding model cache
+      # Config state auto-export: uncomment after first run creates the file
+      # (bind-mounting a non-existent file makes Docker create a directory)
+      # - ./config-state.json:/app/config-state.json
     depends_on:
       postgres:
         condition: service_healthy

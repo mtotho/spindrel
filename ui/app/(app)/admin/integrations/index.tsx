@@ -6,10 +6,14 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useIntegrations,
+  useIntegrationSettings,
+  useUpdateIntegrationSettings,
+  useDeleteIntegrationSetting,
   type IntegrationItem,
   type IntegrationEnvVar,
 } from "@/src/api/hooks/useIntegrations";
-import { Check, X, Copy, ChevronDown, ChevronRight } from "lucide-react";
+import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
+import { Check, X, Copy, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 
 const STATUS_COLORS: Record<string, { dot: string; label: string; bg: string }> = {
   ready: { dot: "#22c55e", label: "Ready", bg: "rgba(34,197,94,0.12)" },
@@ -137,9 +141,193 @@ function WebhookRow({ webhook }: { webhook: IntegrationItem["webhook"] }) {
   );
 }
 
+function SourceBadge({ source }: { source: "db" | "env" | "default" }) {
+  const colors: Record<string, { bg: string; color: string }> = {
+    db: { bg: "rgba(59,130,246,0.12)", color: "#3b82f6" },
+    env: { bg: "rgba(168,85,247,0.12)", color: "#a855f7" },
+    default: { bg: "rgba(107,114,128,0.08)", color: "#6b7280" },
+  };
+  const c = colors[source] || colors.default;
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        padding: "1px 5px",
+        borderRadius: 3,
+        background: c.bg,
+        color: c.color,
+        textTransform: "uppercase",
+        letterSpacing: 0.3,
+      }}
+    >
+      {source}
+    </span>
+  );
+}
+
+function SettingsForm({ integrationId }: { integrationId: string }) {
+  const t = useThemeTokens();
+  const { data, isLoading } = useIntegrationSettings(integrationId);
+  const updateMut = useUpdateIntegrationSettings(integrationId);
+  const deleteMut = useDeleteIntegrationSetting(integrationId);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [initialized, setInitialized] = useState(false);
+
+  const settings = data?.settings ?? [];
+
+  // Initialize draft from loaded settings (once)
+  if (settings.length > 0 && !initialized) {
+    const initial: Record<string, string> = {};
+    for (const s of settings) {
+      // For secrets that are set, leave empty (placeholder will show)
+      initial[s.key] = s.secret && s.is_set ? "" : (s.value ?? "");
+    }
+    setDraft(initial);
+    setInitialized(true);
+  }
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: 12, fontSize: 12, color: t.textDim }}>
+        Loading settings...
+      </div>
+    );
+  }
+
+  if (settings.length === 0) {
+    return (
+      <div style={{ padding: 12, fontSize: 12, color: t.textDim }}>
+        No configurable settings for this integration.
+      </div>
+    );
+  }
+
+  const handleSave = () => {
+    // Only send fields that were actually changed
+    const updates: Record<string, string> = {};
+    for (const s of settings) {
+      const val = draft[s.key] ?? "";
+      // For secrets: empty string means "keep existing", so skip
+      if (s.secret && s.is_set && val === "") continue;
+      // For non-secrets: only send if different from current value
+      if (!s.secret && val === (s.value ?? "")) continue;
+      // If we got here, it's a real change
+      if (val !== "" || s.source === "db") {
+        updates[s.key] = val;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      updateMut.mutate(updates);
+    }
+  };
+
+  const handleReset = (key: string) => {
+    deleteMut.mutate(key);
+    setDraft((prev) => ({ ...prev, [key]: "" }));
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {settings.map((s) => (
+        <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: t.textMuted,
+                fontFamily: "monospace",
+              }}
+            >
+              {s.key}
+            </label>
+            <SourceBadge source={s.source} />
+            {!s.required && (
+              <span style={{ fontSize: 9, color: t.textDim }}>optional</span>
+            )}
+            {s.source === "db" && (
+              <button
+                onClick={() => handleReset(s.key)}
+                title="Reset to env/default"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <RotateCcw size={11} color={t.textDim} />
+              </button>
+            )}
+          </div>
+          <input
+            type={s.secret ? "password" : "text"}
+            value={draft[s.key] ?? ""}
+            onChange={(e) => setDraft((prev) => ({ ...prev, [s.key]: e.target.value }))}
+            placeholder={
+              s.secret && s.is_set
+                ? "\u2022\u2022\u2022\u2022\u2022 (unchanged)"
+                : s.description
+            }
+            style={{
+              background: t.inputBg,
+              border: `1px solid ${t.inputBorder}`,
+              borderRadius: 6,
+              padding: "6px 10px",
+              color: t.inputText,
+              fontSize: 13,
+              width: "100%",
+              outline: "none",
+            }}
+            onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+            onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+          />
+          {s.description && (
+            <div style={{ fontSize: 11, color: t.textDim }}>{s.description}</div>
+          )}
+        </div>
+      ))}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <button
+          onClick={handleSave}
+          disabled={updateMut.isPending}
+          style={{
+            padding: "6px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: t.accent,
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: updateMut.isPending ? "wait" : "pointer",
+            opacity: updateMut.isPending ? 0.6 : 1,
+          }}
+        >
+          {updateMut.isPending ? "Saving..." : "Save"}
+        </button>
+        {updateMut.isSuccess && (
+          <span style={{ fontSize: 12, color: "#22c55e", alignSelf: "center" }}>
+            Saved
+          </span>
+        )}
+        {updateMut.isError && (
+          <span style={{ fontSize: 12, color: "#ef4444", alignSelf: "center" }}>
+            Error saving
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
   const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(false);
+  const [readmeExpanded, setReadmeExpanded] = useState(false);
+  const [configExpanded, setConfigExpanded] = useState(false);
 
   return (
     <div
@@ -196,11 +384,11 @@ function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: bool
         <CapBadge label="skills" active={item.has_skills} />
       </div>
 
-      {/* README expand */}
-      {item.readme && (
+      {/* Configure section */}
+      {item.env_vars.length > 0 && (
         <div>
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => setConfigExpanded(!configExpanded)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -214,28 +402,59 @@ function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: bool
               color: t.accent,
             }}
           >
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            Setup Instructions
+            {configExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Configure
           </button>
-          {expanded && (
-            <pre
+          {configExpanded && (
+            <div
               style={{
                 marginTop: 8,
                 padding: 12,
                 background: t.surface,
                 borderRadius: 6,
                 border: `1px solid ${t.surfaceBorder}`,
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: t.textMuted,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
+              }}
+            >
+              <SettingsForm integrationId={item.id} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* README expand */}
+      {item.readme && (
+        <div>
+          <button
+            onClick={() => setReadmeExpanded(!readmeExpanded)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: t.accent,
+            }}
+          >
+            {readmeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Setup Instructions
+          </button>
+          {readmeExpanded && (
+            <div
+              style={{
+                marginTop: 8,
+                background: t.surface,
+                borderRadius: 6,
+                border: `1px solid ${t.surfaceBorder}`,
                 overflow: "auto",
                 maxHeight: 400,
               }}
             >
-              {item.readme}
-            </pre>
+              <MarkdownViewer content={item.readme} />
+            </div>
           )}
         </div>
       )}

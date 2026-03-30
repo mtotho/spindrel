@@ -90,7 +90,7 @@ async def write_workspace_file(
         ensure_channel_workspace,
         write_workspace_file as _write,
     )
-    ensure_channel_workspace(str(channel_id), bot)
+    ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
     try:
         result = _write(str(channel_id), bot, path, body.content)
     except ValueError as exc:
@@ -133,7 +133,7 @@ async def upload_workspace_file(
         ensure_channel_workspace,
         write_workspace_file as _write,
     )
-    ensure_channel_workspace(str(channel_id), bot)
+    ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
 
     filename = file.filename or "upload.md"
     file_path = f"{path}/{filename}" if path else filename
