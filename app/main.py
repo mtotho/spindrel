@@ -162,7 +162,11 @@ async def lifespan(app: FastAPI):
     from app.services.log_buffer import install as _install_log_buffer
     _install_log_buffer(capacity=10_000)
     logger.info("Running database migrations...")
-    await run_migrations()
+    try:
+        await run_migrations()
+    except Exception:
+        logger.critical("Database migration failed — refusing to start with stale schema", exc_info=True)
+        raise
     logger.info("Loading server settings from DB...")
     from app.services.server_settings import load_settings_from_db
     await load_settings_from_db()
@@ -398,12 +402,15 @@ app.include_router(_api_v1_router)
 # Auto-discover and register integrations from integrations/*/router.py
 from integrations import discover_integrations as _discover_integrations  # noqa: E402
 for _integration_id, _integration_router in _discover_integrations():
-    app.include_router(
-        _integration_router,
-        prefix=f"/integrations/{_integration_id}",
-        tags=[f"Integration: {_integration_id}"],
-    )
-    logger.info("Registered integration: %s", _integration_id)
+    try:
+        app.include_router(
+            _integration_router,
+            prefix=f"/integrations/{_integration_id}",
+            tags=[f"Integration: {_integration_id}"],
+        )
+        logger.info("Registered integration: %s", _integration_id)
+    except Exception:
+        logger.exception("Failed to register integration router: %s", _integration_id)
 
 
 @app.get("/health")

@@ -167,6 +167,19 @@ class IntegrationProcessManager:
             )
             return False
 
+        # Build env with scoped API key if available
+        env = None
+        try:
+            from app.db.engine import async_session as _async_session
+            from app.services.api_keys import get_integration_api_key_value
+            async with _async_session() as _db:
+                scoped_key = await get_integration_api_key_value(_db, integration_id)
+            if scoped_key:
+                env = {**os.environ, "AGENT_API_KEY": scoped_key}
+                logger.info("Injecting scoped API key for %s", integration_id)
+        except Exception:
+            logger.debug("Could not load scoped API key for %s, using inherited env", integration_id, exc_info=True)
+
         # Spawn the process
         try:
             logger.info("Starting integration process: %s (%s)", state.description, " ".join(state.cmd))
@@ -174,6 +187,7 @@ class IntegrationProcessManager:
                 *state.cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                env=env,
             )
             state.started_at = time.monotonic()
             state.exit_code = None

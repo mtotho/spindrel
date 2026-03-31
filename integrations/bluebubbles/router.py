@@ -9,8 +9,10 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.dependencies import verify_admin_auth
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ def _get_default_bot() -> str:
 
 
 @router.get("/config")
-async def get_config() -> ConfigResponse:
+async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     """Return current BB configuration (used by bb_client.py)."""
     return ConfigResponse(
         server_url=_get_server_url(),
@@ -56,21 +58,21 @@ async def get_config() -> ConfigResponse:
 
 
 @router.post("/config/chat-bot-map")
-async def set_chat_bot_mapping(mapping: ChatBotMapping) -> dict:
+async def set_chat_bot_mapping(mapping: ChatBotMapping, _auth=Depends(verify_admin_auth)) -> dict:
     """Set a per-chat bot mapping."""
     _chat_bot_map[mapping.chat_guid] = mapping.bot_id
     return {"ok": True, "chat_guid": mapping.chat_guid, "bot_id": mapping.bot_id}
 
 
 @router.delete("/config/chat-bot-map/{chat_guid:path}")
-async def delete_chat_bot_mapping(chat_guid: str) -> dict:
+async def delete_chat_bot_mapping(chat_guid: str, _auth=Depends(verify_admin_auth)) -> dict:
     """Remove a per-chat bot mapping (falls back to default)."""
     _chat_bot_map.pop(chat_guid, None)
     return {"ok": True}
 
 
 @router.get("/chats")
-async def list_chats(limit: int = 25, offset: int = 0) -> dict:
+async def list_chats(limit: int = 25, offset: int = 0, _auth=Depends(verify_admin_auth)) -> dict:
     """Proxy chat listing from the BB server (for admin UI)."""
     server_url = _get_server_url()
     password = _get_password()
@@ -90,7 +92,7 @@ async def list_chats(limit: int = 25, offset: int = 0) -> dict:
 
 
 @router.get("/status")
-async def get_status() -> dict:
+async def get_status(_auth=Depends(verify_admin_auth)) -> dict:
     """Check BB server connectivity."""
     server_url = _get_server_url()
     password = _get_password()

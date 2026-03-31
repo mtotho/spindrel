@@ -105,6 +105,15 @@ async def verify_auth_or_user(
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
+
+    # Eagerly resolve user's API key scopes (avoids extra DB round-trip in require_scopes)
+    if user.api_key_id:
+        from app.db.models import ApiKey
+        api_key = await db.get(ApiKey, user.api_key_id)
+        user._resolved_scopes = api_key.scopes if api_key and api_key.is_active else None
+    else:
+        user._resolved_scopes = None
+
     return user
 
 
@@ -157,6 +166,8 @@ async def verify_admin_auth(
     user = await get_user_by_id(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=403, detail="Admin access denied")
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access denied")
     return user
 
 
@@ -184,17 +195,29 @@ async def optional_user(
 
 
 def require_scopes(*scopes: str):
-    """Dependency factory that enforces scope requirements on API keys.
+    """Dependency factory that enforces scope requirements on API keys and users.
 
-    JWT users always pass through (full access).
     ApiKeyAuth (including static env key) is checked against required scopes.
-    The static env key and any key with 'admin' scope bypass all checks.
+    JWT users with a provisioned API key are checked against that key's scopes.
+    Legacy JWT users (no API key) get full access for backward compatibility.
+    The static env key and any key/user with 'admin' scope bypass all checks.
     """
     async def _check(
         auth=Depends(verify_auth_or_user),
     ):
         if not isinstance(auth, ApiKeyAuth):
-            # User object from JWT → full access
+            # User object from JWT — check resolved scopes if available
+            resolved = getattr(auth, "_resolved_scopes", None)
+            if resolved is None:
+                # Legacy user without API key — full access (backward compat)
+                return auth
+            from app.services.api_keys import has_scope
+            for scope in scopes:
+                if not has_scope(resolved, scope):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Missing required scope: {scope}",
+                    )
             return auth
         # API key → check scopes
         from app.services.api_keys import has_scope

@@ -113,22 +113,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if (text && Platform.OS === "web") requestAnimationFrame(autoResize);
   }, [channelId]);
 
-  // Global keyboard listener for recording mode (textarea is hidden, so onKeyDown won't fire)
-  useEffect(() => {
-    if (!recorder.isRecording || Platform.OS !== "web") return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        recorder.cancelRecording();
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleMicToggle();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [recorder.isRecording, recorder.cancelRecording, handleMicToggle]);
-
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
@@ -163,6 +147,22 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
       await recorder.startRecording();
     }
   }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, channelId, clearDraft]);
+
+  // Global keyboard listener for recording mode (textarea is hidden, so onKeyDown won't fire)
+  useEffect(() => {
+    if (!recorder.isRecording || Platform.OS !== "web") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        recorder.cancelRecording();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleMicToggle();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [recorder.isRecording, recorder.cancelRecording, handleMicToggle]);
 
   // --- File handling ---
   const handleFileSelect = useCallback(async (files: FileList | null) => {

@@ -82,6 +82,20 @@ async def update_integration_settings(
         raise HTTPException(status_code=422, detail=f"Unknown setting keys: {', '.join(sorted(bad_keys))}")
 
     applied = await update_settings(integration_id, body.settings, setup_vars, db)
+
+    # Auto-provision API key if integration declares api_permissions and doesn't have one yet
+    api_permissions = _get_api_permissions(integration_id)
+    if api_permissions:
+        from app.services.api_keys import get_integration_api_key as _get_key, provision_integration_api_key, resolve_scopes
+        existing = await _get_key(db, integration_id)
+        if not existing:
+            try:
+                scopes = resolve_scopes(api_permissions)
+                await provision_integration_api_key(db, integration_id, scopes)
+                logger.info("Auto-provisioned API key for integration %s", integration_id)
+            except Exception:
+                logger.warning("Failed to auto-provision API key for %s", integration_id, exc_info=True)
+
     return {"applied": applied}
 
 
@@ -199,3 +213,91 @@ async def install_deps(integration_id: str):
     except Exception as exc:
         logger.exception("Failed to install deps for %s", integration_id)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Integration API key endpoints
+# ---------------------------------------------------------------------------
+
+
+def _get_api_permissions(integration_id: str) -> str | list[str] | None:
+    """Load the api_permissions from an integration's setup.py."""
+    from integrations import _iter_integration_candidates, _import_module
+
+    for candidate, iid, is_external, source in _iter_integration_candidates():
+        if iid != integration_id:
+            continue
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            return None
+        module = _import_module(iid, "setup", setup_file, is_external, source)
+        setup = getattr(module, "SETUP", {})
+        return setup.get("api_permissions")
+    return None
+
+
+@router.get("/integrations/{integration_id}/api-key")
+async def get_integration_api_key(
+    integration_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get API key metadata for an integration."""
+    from app.services.api_keys import get_integration_api_key as _get_key
+
+    api_key = await _get_key(db, integration_id)
+    if not api_key:
+        return {"provisioned": False}
+    return {
+        "provisioned": True,
+        "key_prefix": api_key.key_prefix,
+        "scopes": api_key.scopes,
+        "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
+        "last_used_at": api_key.last_used_at.isoformat() if api_key.last_used_at else None,
+    }
+
+
+@router.post("/integrations/{integration_id}/api-key")
+async def provision_or_regenerate_integration_api_key(
+    integration_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Provision a new API key or regenerate an existing one for an integration."""
+    from app.services.api_keys import (
+        provision_integration_api_key,
+        resolve_scopes,
+        revoke_integration_api_key,
+    )
+
+    api_permissions = _get_api_permissions(integration_id)
+    if not api_permissions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Integration {integration_id!r} does not declare api_permissions",
+        )
+
+    scopes = resolve_scopes(api_permissions)
+
+    # If regenerating, revoke the old key first
+    await revoke_integration_api_key(db, integration_id)
+
+    key, full_value = await provision_integration_api_key(db, integration_id, scopes)
+    return {
+        "key_prefix": key.key_prefix,
+        "key_value": full_value,
+        "scopes": key.scopes,
+        "created_at": key.created_at.isoformat() if key.created_at else None,
+    }
+
+
+@router.delete("/integrations/{integration_id}/api-key")
+async def revoke_integration_api_key_endpoint(
+    integration_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke an integration's API key."""
+    from app.services.api_keys import revoke_integration_api_key
+
+    revoked = await revoke_integration_api_key(db, integration_id)
+    if not revoked:
+        raise HTTPException(status_code=404, detail="No API key found for this integration")
+    return {"revoked": True}

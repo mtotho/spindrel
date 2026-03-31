@@ -8,6 +8,7 @@ SETUP = {
         {"key": "AGENT_BASE_URL", "required": False, "description": "Agent server URL (default: http://localhost:8000)"},
         {"key": "BB_DEFAULT_BOT", "required": False, "description": "Default bot ID (default: default)"},
     ],
+    "api_permissions": "slack_integration",
     "webhook": None,
     "instructions_url": None,
     "python_dependencies": [

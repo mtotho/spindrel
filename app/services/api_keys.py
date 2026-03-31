@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ApiKey, Bot as BotRow
+from app.db.models import ApiKey, Bot as BotRow, IntegrationSetting, User
 
 # ---------------------------------------------------------------------------
 # Scope definitions
@@ -284,6 +284,25 @@ SCOPE_PRESETS: dict[str, dict] = {
             "Used by the Mission Control dashboard container. Auto-provisioned on first start.\n\n"
             "Set as `AGENT_SERVER_API_KEY` in the Mission Control container environment."
         ),
+    },
+    "admin_user": {
+        "name": "Admin User",
+        "description": "Full admin access for admin users — bypasses all scope checks",
+        "scopes": ["admin"],
+        "instructions": "Auto-provisioned for admin users.",
+    },
+    "member_user": {
+        "name": "Member User",
+        "description": "Standard member access — chat, read bots/channels, manage own todos and attachments",
+        "scopes": [
+            "chat", "bots:read",
+            "channels:read", "channels:write",
+            "sessions:read",
+            "attachments:read", "attachments:write",
+            "todos:read", "todos:write",
+            "mission_control:read", "mission_control:write",
+        ],
+        "instructions": "Auto-provisioned for non-admin users.",
     },
 }
 
@@ -1045,3 +1064,155 @@ async def get_bot_api_key_value(db: AsyncSession, bot_id: str) -> str | None:
     if not api_key or not api_key.is_active:
         return None
     return api_key.key_value
+
+
+def resolve_scopes(preset_or_list: str | list[str]) -> list[str]:
+    """Resolve a preset name or explicit scope list to a list of scopes."""
+    if isinstance(preset_or_list, list):
+        return preset_or_list
+    preset = SCOPE_PRESETS.get(preset_or_list)
+    if not preset:
+        raise ValueError(f"Unknown scope preset: {preset_or_list!r}")
+    return preset["scopes"]
+
+
+async def ensure_entity_api_key(
+    db: AsyncSession,
+    *,
+    name: str,
+    scopes: list[str],
+    existing_key_id: uuid.UUID | None = None,
+) -> tuple[ApiKey, str | None]:
+    """Ensure an API key exists for an entity (user, integration, etc.).
+
+    If existing_key_id is set, updates scopes on the existing key and returns
+    (key, None) — no new key value to reveal.
+
+    If no key exists, creates a new one with store_key_value=True and returns
+    (key, full_key_value) — caller should store/reveal the value.
+    """
+    if existing_key_id:
+        api_key = await db.get(ApiKey, existing_key_id)
+        if api_key and api_key.is_active:
+            api_key.scopes = scopes
+            api_key.updated_at = datetime.now(timezone.utc)
+            await db.flush()
+            return api_key, None
+
+    # Create new key
+    key, full_value = await create_api_key(
+        db, name=name, scopes=scopes, store_key_value=True,
+    )
+    return key, full_value
+
+
+async def get_integration_api_key_value(db: AsyncSession, integration_id: str) -> str | None:
+    """Get the full API key value for an integration.
+
+    Reads the _api_key_id from IntegrationSetting, then returns the stored
+    key_value from ApiKey. Returns None if not provisioned.
+    """
+    result = await db.execute(
+        select(IntegrationSetting.value).where(
+            IntegrationSetting.integration_id == integration_id,
+            IntegrationSetting.key == "_api_key_id",
+        )
+    )
+    key_id_str = result.scalar_one_or_none()
+    if not key_id_str:
+        return None
+    try:
+        key_id = uuid.UUID(key_id_str)
+    except ValueError:
+        return None
+    api_key = await db.get(ApiKey, key_id)
+    if not api_key or not api_key.is_active:
+        return None
+    return api_key.key_value
+
+
+async def get_integration_api_key(db: AsyncSession, integration_id: str) -> ApiKey | None:
+    """Get the ApiKey row for an integration (metadata only, not the value)."""
+    result = await db.execute(
+        select(IntegrationSetting.value).where(
+            IntegrationSetting.integration_id == integration_id,
+            IntegrationSetting.key == "_api_key_id",
+        )
+    )
+    key_id_str = result.scalar_one_or_none()
+    if not key_id_str:
+        return None
+    try:
+        key_id = uuid.UUID(key_id_str)
+    except ValueError:
+        return None
+    return await db.get(ApiKey, key_id)
+
+
+async def provision_integration_api_key(
+    db: AsyncSession,
+    integration_id: str,
+    scopes: list[str],
+) -> tuple[ApiKey, str | None]:
+    """Provision or update an integration's scoped API key.
+
+    Stores the key ID in IntegrationSetting("_api_key_id").
+    Returns (key, full_key_value) — full_key_value is None if key already existed.
+    """
+    # Check existing
+    existing = await get_integration_api_key(db, integration_id)
+    existing_id = existing.id if existing else None
+
+    key, full_value = await ensure_entity_api_key(
+        db,
+        name=f"integration:{integration_id}",
+        scopes=scopes,
+        existing_key_id=existing_id,
+    )
+
+    # Upsert key ID in IntegrationSetting
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(IntegrationSetting).where(
+            IntegrationSetting.integration_id == integration_id,
+            IntegrationSetting.key == "_api_key_id",
+        )
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        setting.value = str(key.id)
+        setting.updated_at = now
+    else:
+        db.add(IntegrationSetting(
+            integration_id=integration_id,
+            key="_api_key_id",
+            value=str(key.id),
+            is_secret=False,
+            updated_at=now,
+        ))
+    await db.commit()
+    await db.refresh(key)
+    return key, full_value
+
+
+async def revoke_integration_api_key(db: AsyncSession, integration_id: str) -> bool:
+    """Revoke an integration's API key. Returns True if key was found and revoked."""
+    api_key = await get_integration_api_key(db, integration_id)
+    if not api_key:
+        return False
+    api_key.is_active = False
+    api_key.updated_at = datetime.now(timezone.utc)
+
+    # Remove the setting
+    result = await db.execute(
+        select(IntegrationSetting).where(
+            IntegrationSetting.integration_id == integration_id,
+            IntegrationSetting.key == "_api_key_id",
+        )
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        await db.delete(setting)
+
+    await db.commit()
+    return True

@@ -15,11 +15,14 @@ import {
   useAutoStart,
   useSetAutoStart,
   useInstallDeps,
+  useIntegrationApiKey,
+  useProvisionIntegrationApiKey,
+  useRevokeIntegrationApiKey,
   type IntegrationItem,
   type IntegrationEnvVar,
 } from "@/src/api/hooks/useIntegrations";
 import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
-import { Check, X, Copy, ChevronDown, ChevronRight, RotateCcw, Play, Square, RefreshCw, Download } from "lucide-react";
+import { Check, X, Copy, ChevronDown, ChevronRight, RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, { dot: string; label: string; bg: string }> = {
   ready: { dot: "#22c55e", label: "Ready", bg: "rgba(34,197,94,0.12)" },
@@ -608,6 +611,225 @@ function DependencySection({ item }: { item: IntegrationItem }) {
   );
 }
 
+function ApiKeySection({ integrationId }: { integrationId: string }) {
+  const t = useThemeTokens();
+  const { data, isLoading } = useIntegrationApiKey(integrationId, true);
+  const provisionMut = useProvisionIntegrationApiKey(integrationId);
+  const revokeMut = useRevokeIntegrationApiKey(integrationId);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Show the newly generated key
+  const newKey = provisionMut.data?.key_value ?? null;
+  const displayKey = revealedKey ?? newKey;
+
+  const handleCopyKey = () => {
+    if (displayKey && Platform.OS === "web" && navigator?.clipboard) {
+      navigator.clipboard.writeText(displayKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleProvision = () => {
+    setRevealedKey(null);
+    provisionMut.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.key_value) {
+          setRevealedKey(result.key_value);
+        }
+      },
+    });
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: 10,
+        background: t.surface,
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: t.textDim,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        Scoped API Key
+      </div>
+
+      {isLoading ? (
+        <span style={{ fontSize: 12, color: t.textDim }}>Loading...</span>
+      ) : data?.provisioned ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: 11,
+                fontWeight: 500,
+                background: "rgba(34,197,94,0.1)",
+                color: "#22c55e",
+                fontFamily: "monospace",
+              }}
+            >
+              <Key size={10} />
+              {data.key_prefix}...
+            </span>
+            {data.scopes && (
+              <span style={{ fontSize: 10, color: t.textDim }}>
+                {data.scopes.length} scope{data.scopes.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+              <button
+                onClick={handleProvision}
+                disabled={provisionMut.isPending}
+                title="Regenerate key"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "rgba(59,130,246,0.15)",
+                  color: "#3b82f6",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: provisionMut.isPending ? "wait" : "pointer",
+                  opacity: provisionMut.isPending ? 0.5 : 1,
+                }}
+              >
+                <RefreshCw size={10} /> Regenerate
+              </button>
+              <button
+                onClick={() => revokeMut.mutate()}
+                disabled={revokeMut.isPending}
+                title="Revoke key"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "rgba(239,68,68,0.15)",
+                  color: "#ef4444",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: revokeMut.isPending ? "wait" : "pointer",
+                  opacity: revokeMut.isPending ? 0.5 : 1,
+                }}
+              >
+                <Trash2 size={10} /> Revoke
+              </button>
+            </div>
+          </div>
+          {data.scopes && data.scopes.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {data.scopes.map((s) => (
+                <span
+                  key={s}
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: "rgba(107,114,128,0.08)",
+                    color: t.textMuted,
+                  }}
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: t.textDim }}>No key provisioned</span>
+          <button
+            onClick={handleProvision}
+            disabled={provisionMut.isPending}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 12px",
+              borderRadius: 5,
+              border: "none",
+              background: t.accent,
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: provisionMut.isPending ? "wait" : "pointer",
+              opacity: provisionMut.isPending ? 0.6 : 1,
+            }}
+          >
+            <Key size={11} />
+            {provisionMut.isPending ? "Generating..." : "Generate Key"}
+          </button>
+        </div>
+      )}
+
+      {/* One-time key reveal */}
+      {displayKey && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 10px",
+            background: "rgba(234,179,8,0.08)",
+            borderRadius: 6,
+            border: "1px solid rgba(234,179,8,0.2)",
+          }}
+        >
+          <code
+            style={{
+              flex: 1,
+              fontSize: 11,
+              fontFamily: "monospace",
+              color: t.text,
+              wordBreak: "break-all",
+            }}
+          >
+            {displayKey}
+          </code>
+          <button
+            onClick={handleCopyKey}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 2,
+              display: "flex",
+              alignItems: "center",
+              flexShrink: 0,
+            }}
+            title="Copy key"
+          >
+            {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color={t.textDim} />}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
   const t = useThemeTokens();
   const [readmeExpanded, setReadmeExpanded] = useState(false);
@@ -675,6 +897,9 @@ function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: bool
 
       {/* Process controls */}
       {item.has_process && <ProcessControls integrationId={item.id} />}
+
+      {/* API Key section */}
+      {item.api_permissions && <ApiKeySection integrationId={item.id} />}
 
       {/* Configure section */}
       {item.env_vars.length > 0 && (

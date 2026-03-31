@@ -87,7 +87,8 @@ class SharedWorkspaceService:
         env = dict(ws.env or {})
         # Auto-inject server API access so bots inside can call back
         env.setdefault("AGENT_SERVER_URL", settings.SERVER_PUBLIC_URL)
-        env.setdefault("AGENT_SERVER_API_KEY", settings.API_KEY)
+        # NOTE: Per-bot scoped API keys are injected at exec time (see exec_bot / exec_bot_local).
+        # We intentionally do NOT inject the master API_KEY into the container environment.
         return env
 
     # ── Container lifecycle ──────────────────────────────────────

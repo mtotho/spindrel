@@ -134,11 +134,11 @@ class TestBuildEnv:
         ws.env = {"CUSTOM": "value"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
             mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
-            mock_settings.API_KEY = "test-api-key"
             env = svc._build_env(ws)
         assert env["CUSTOM"] == "value"
         assert env["AGENT_SERVER_URL"] == "http://localhost:8000"
-        assert env["AGENT_SERVER_API_KEY"] == "test-api-key"
+        # Master API_KEY must NOT be injected (per-bot scoped keys are used at exec time)
+        assert "AGENT_SERVER_API_KEY" not in env
 
     def test_user_env_can_override_auto(self):
         """setdefault means user-provided env wins if already set."""
@@ -147,7 +147,6 @@ class TestBuildEnv:
         ws.env = {"AGENT_SERVER_URL": "http://custom.com"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
             mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
-            mock_settings.API_KEY = "key"
             env = svc._build_env(ws)
         # User-provided wins with setdefault
         assert env["AGENT_SERVER_URL"] == "http://custom.com"
