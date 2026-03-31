@@ -20,7 +20,6 @@ interface UIState {
   closeDetail: () => void;
   setActiveWorkspace: (id: string | null) => void;
   toggleSidebarSection: (sectionId: string) => void;
-  isSidebarSectionHidden: (sectionId: string) => boolean;
 }
 
 export const useUIStore = create<UIState>()(
@@ -49,7 +48,6 @@ export const useUIStore = create<UIState>()(
             ? s.hiddenSidebarSections.filter((id) => id !== sectionId)
             : [...s.hiddenSidebarSections, sectionId],
         })),
-      isSidebarSectionHidden: (sectionId) => false, // selector helper, use the selector pattern below
     }),
     {
       name: "spindrel-ui",

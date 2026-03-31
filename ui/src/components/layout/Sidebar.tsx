@@ -37,6 +37,7 @@ import {
   Layers,
   HelpCircle,
   Zap,
+  Filter,
 } from "lucide-react";
 import { useMCModules } from "../../api/hooks/useMissionControl";
 import { useSidebarSections, type SidebarSection } from "../../api/hooks/useIntegrations";
@@ -61,7 +62,7 @@ interface NavItem {
 
 /** Resolve a lucide icon name string to a component. Falls back to Plug. */
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
-  LayoutDashboard, Columns, BookOpen, Brain, HelpCircle, Settings, Zap, Plug,
+  LayoutDashboard, Columns, BookOpen, Brain, HelpCircle, Settings, Zap, Plug, Filter,
   Bot, Layers, FileText, Paperclip, ClipboardList, Key, Shield, ShieldCheck,
   Activity, Server, Wrench, BarChart3, Users, HardDrive, Code2, Hash, Home,
   MessageSquare, Container, Clock, Heart, Lock, Sun, Moon,
@@ -284,12 +285,15 @@ function IntegrationSidebarSection({
     icon: resolveIcon(item.icon),
   }));
 
-  // Append MC dashboard modules if this is the mission-control section
-  const modules = section.integration_id === "mission_control" ? (modulesData?.modules || []) : [];
+  // Append dashboard modules belonging to this section's integration
+  const modules = (modulesData?.modules || []).filter(
+    (m) => m.integration_id === section.integration_id,
+  );
 
-  // Determine the "home" href for this section (first item)
+  // Determine the section's URL prefix from first item (segment-based matching)
   const sectionHome = items[0]?.href || "/";
-  const isInSection = pathname.startsWith(sectionHome.replace(/\/$/, "").split("/").slice(0, 2).join("/") || "/");
+  const sectionPrefix = "/" + (sectionHome.replace(/^\//, "").split("/")[0] || "");
+  const isInSection = sectionPrefix !== "/" && (pathname === sectionPrefix || pathname.startsWith(sectionPrefix + "/"));
 
   return (
     <View className="px-2 py-1.5">
@@ -340,8 +344,8 @@ function IntegrationRailIcons({
         .map((section) => {
           const Icon = resolveIcon(section.icon);
           const homeHref = section.items[0]?.href || "/";
-          const prefix = homeHref.replace(/\/$/, "").split("/").slice(0, 2).join("/") || "/";
-          const active = pathname.startsWith(prefix);
+          const seg = "/" + (homeHref.replace(/^\//, "").split("/")[0] || "");
+          const active = seg !== "/" && (pathname === seg || pathname.startsWith(seg + "/"));
           return (
             <Link key={section.id} href={homeHref as any} asChild>
               <Pressable
@@ -390,6 +394,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   }, [activeWorkspaceId, workspaces, workspacesLoading, setActiveWorkspace]);
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+  const wsMap = new Map(workspaces?.map((w) => [w.id, w]) ?? []);
   const isUnread = useChannelReadStore((s) => s.isUnread);
 
   // Orchestrator channel — always included by server regardless of workspace filter
@@ -668,6 +673,18 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                             {channel.channel_workspace_enabled && (
                               <Container size={11} color={t.textDim} style={{ opacity: 0.5 }} />
                             )}
+                            {!activeWorkspaceId && channel.resolved_workspace_id && (() => {
+                              const ws = wsMap.get(channel.resolved_workspace_id!);
+                              return ws ? (
+                                <Text
+                                  className="text-[9px] text-text-dim"
+                                  style={{ opacity: 0.5 }}
+                                  numberOfLines={1}
+                                >
+                                  · {ws.name}
+                                </Text>
+                              ) : null;
+                            })()}
                           </View>
                         )}
                         {channel.tags && channel.tags.length > 0 && (
@@ -732,31 +749,42 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             </View>
             {workspaces.map((ws) => {
               const isFiltering = activeWorkspaceId === ws.id;
+              const wsActive = pathname === `/admin/workspaces/${ws.id}` || pathname.startsWith(`/admin/workspaces/${ws.id}/`);
               return (
-                <Pressable
-                  key={ws.id}
-                  onPress={() => setActiveWorkspace(isFiltering ? null : ws.id)}
-                  className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
-                    isFiltering ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                  }`}
-                >
-                  <View style={{
-                    width: 7, height: 7, borderRadius: 4,
-                    backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
-                  }} />
-                  <Text
-                    style={mobile ? { fontSize: 15 } : undefined}
-                    className={`flex-1 ${mobile ? "" : "text-sm"} ${
-                      isFiltering ? "text-accent font-medium" : "text-text-muted"
+                <View key={ws.id} className="flex-row items-center">
+                  <Link href={`/admin/workspaces/${ws.id}` as any} asChild>
+                    <Pressable
+                      onPress={closeMobile}
+                      className={`flex-1 flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
+                        wsActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                      }`}
+                    >
+                      <View style={{
+                        width: 7, height: 7, borderRadius: 4,
+                        backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
+                      }} />
+                      <Text
+                        style={mobile ? { fontSize: 15 } : undefined}
+                        className={`flex-1 ${mobile ? "" : "text-sm"} ${
+                          wsActive ? "text-accent font-medium" : isFiltering ? "text-accent font-medium" : "text-text-muted"
+                        }`}
+                        numberOfLines={1}
+                      >
+                        {ws.name}
+                      </Text>
+                    </Pressable>
+                  </Link>
+                  <Pressable
+                    onPress={() => setActiveWorkspace(isFiltering ? null : ws.id)}
+                    className={`items-center justify-center rounded ${
+                      isFiltering ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
                     }`}
-                    numberOfLines={1}
+                    style={{ width: 28, height: 28, flexShrink: 0 }}
+                    accessibilityLabel={isFiltering ? "Clear workspace filter" : `Filter channels to ${ws.name}`}
                   >
-                    {ws.name}
-                  </Text>
-                  {isFiltering && (
-                    <Text className="text-[10px] text-accent" style={{ opacity: 0.7 }}>filtered</Text>
-                  )}
-                </Pressable>
+                    <Filter size={12} color={isFiltering ? t.accent : t.textDim} />
+                  </Pressable>
+                </View>
               );
             })}
           </View>

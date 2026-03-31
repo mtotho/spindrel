@@ -4,6 +4,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { MCKanbanCard, MCKanbanColumn } from "@/src/api/hooks/useMissionControl";
+import { KanbanCardModal } from "./KanbanCardModal";
 
 // ---------------------------------------------------------------------------
 // Priority colors
@@ -32,75 +33,71 @@ function KanbanCardView({
   moveDisabled?: boolean;
 }) {
   const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const priority = card.meta.priority || "medium";
   const pc = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
   const cc = channelColor(card.channel_id);
 
   return (
-    <Pressable
-      onPress={() => setExpanded(!expanded)}
-      className="rounded-lg border border-surface-border p-3 bg-surface hover:bg-surface-overlay"
-      style={{ marginBottom: 8 }}
-    >
-      <Text className="text-text font-medium text-sm" numberOfLines={expanded ? undefined : 2}>
-        {card.title}
-      </Text>
+    <>
+      <Pressable
+        onPress={() => setShowModal(true)}
+        className="rounded-lg border border-surface-border p-3 bg-surface hover:bg-surface-overlay active:bg-surface-overlay"
+        style={{ marginBottom: 8, cursor: "pointer" } as any}
+      >
+        <Text className="text-text font-medium text-sm" numberOfLines={2}>
+          {card.title}
+        </Text>
 
-      <View className="flex-row items-center gap-2 mt-2 flex-wrap">
-        {/* Priority badge */}
-        <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: pc.bg }}>
-          <Text style={{ fontSize: 10, color: pc.fg, fontWeight: "600" }}>
-            {priority}
-          </Text>
-        </View>
-
-        {/* Channel tag */}
-        <View
-          className="rounded-full px-2 py-0.5"
-          style={{ backgroundColor: `${cc}20` }}
-        >
-          <Text style={{ fontSize: 10, color: cc, fontWeight: "600" }} numberOfLines={1}>
-            {card.channel_name}
-          </Text>
-        </View>
-
-        {card.meta.assigned && (
-          <Text className="text-text-dim text-[10px]">{card.meta.assigned}</Text>
-        )}
-
-        {card.meta.due && (
-          <Text className="text-text-dim text-[10px]">{card.meta.due}</Text>
-        )}
-      </View>
-
-      {expanded && (
-        <View className="mt-3 pt-3 border-t border-surface-border">
-          {card.description ? (
-            <Text className="text-text-muted text-xs mb-3">{card.description}</Text>
-          ) : null}
-
-          {/* Move actions */}
-          <View className="flex-row flex-wrap gap-2">
-            {columns
-              .filter((col) => col.name !== currentColumn)
-              .map((col) => (
-              <Pressable
-                key={col.name}
-                onPress={() => onMove(card.meta.id, card.channel_id, currentColumn, col.name)}
-                className="rounded px-2 py-1 border border-surface-border hover:bg-surface-overlay"
-                disabled={moveDisabled}
-                style={moveDisabled ? { opacity: 0.5 } : undefined}
-              >
-                <Text className="text-text-muted text-[10px]">
-                  {moveDisabled ? "Moving..." : `Move to ${col.name}`}
-                </Text>
-              </Pressable>
-            ))}
+        <View className="flex-row items-center gap-2 mt-2 flex-wrap">
+          {/* Priority badge */}
+          <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: pc.bg }}>
+            <Text style={{ fontSize: 10, color: pc.fg, fontWeight: "600" }}>
+              {priority}
+            </Text>
           </View>
+
+          {/* Channel tag */}
+          <View
+            className="rounded-full px-2 py-0.5"
+            style={{ backgroundColor: `${cc}20` }}
+          >
+            <Text style={{ fontSize: 10, color: cc, fontWeight: "600" }} numberOfLines={1}>
+              {card.channel_name}
+            </Text>
+          </View>
+
+          {card.meta.assigned && (
+            <Text className="text-text-dim text-[10px]">{card.meta.assigned}</Text>
+          )}
+
+          {card.meta.due && (
+            <Text className="text-text-dim text-[10px]">{card.meta.due}</Text>
+          )}
         </View>
+
+        {card.description ? (
+          <Text
+            className="text-text-muted mt-2"
+            numberOfLines={2}
+            style={{ fontSize: 11, lineHeight: 16 }}
+          >
+            {card.description}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      {showModal && (
+        <KanbanCardModal
+          card={card}
+          currentColumn={currentColumn}
+          columns={columns}
+          onMove={onMove}
+          onClose={() => setShowModal(false)}
+          moveDisabled={moveDisabled}
+        />
       )}
-    </Pressable>
+    </>
   );
 }
 

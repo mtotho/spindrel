@@ -42,6 +42,8 @@ SETUP = {
         "items": [
             {"label": "Dashboard", "href": "/mission-control", "icon": "LayoutDashboard"},
             {"label": "Kanban", "href": "/mission-control/kanban", "icon": "Columns"},
+            {"label": "Timeline", "href": "/mission-control/timeline", "icon": "Clock"},
+            {"label": "Plans", "href": "/mission-control/plans", "icon": "ClipboardCheck"},
             {"label": "Journal", "href": "/mission-control/journal", "icon": "BookOpen"},
             {"label": "Memory", "href": "/mission-control/memory", "icon": "Brain"},
             {"label": "Setup", "href": "/mission-control/setup", "icon": "HelpCircle"},

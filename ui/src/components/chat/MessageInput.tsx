@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { Send, Square, Paperclip, X, Cpu } from "lucide-react";
+import { Send, Square, Paperclip, X, Cpu, Mic } from "lucide-react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
+import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
+import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import type { CompletionItem } from "../../types/api";
@@ -17,6 +19,7 @@ export interface PendingFile {
 
 interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
+  onSendAudio?: (audioBase64: string, audioFormat: string, message?: string) => void;
   disabled?: boolean;
   isStreaming?: boolean;
   onCancel?: () => void;
@@ -41,11 +44,12 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
   const t = useThemeTokens();
+  const recorder = useAudioRecorder();
 
   // Persisted draft state (per-channel)
   const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);
@@ -109,6 +113,22 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
     if (text && Platform.OS === "web") requestAnimationFrame(autoResize);
   }, [channelId]);
 
+  // Global keyboard listener for recording mode (textarea is hidden, so onKeyDown won't fire)
+  useEffect(() => {
+    if (!recorder.isRecording || Platform.OS !== "web") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        recorder.cancelRecording();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleMicToggle();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [recorder.isRecording, recorder.cancelRecording, handleMicToggle]);
+
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
@@ -125,6 +145,24 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
       inputRef.current?.focus();
     }
   }, [text, pendingFiles, disabled, onSend, channelId, clearDraft]);
+
+  // --- Audio recording ---
+  const handleMicToggle = useCallback(async () => {
+    if (recorder.isRecording) {
+      const result = await recorder.stopRecording();
+      if (result && onSendAudio) {
+        onSendAudio(result.base64, result.format, text.trim() || undefined);
+        if (channelId) clearDraft(channelId);
+        else { setLocalText(""); setLocalFiles([]); }
+        if (Platform.OS === "web") {
+          const ta = textareaRef.current;
+          if (ta) { ta.style.height = "auto"; ta.focus(); }
+        }
+      }
+    } else {
+      await recorder.startRecording();
+    }
+  }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, channelId, clearDraft]);
 
   // --- File handling ---
   const handleFileSelect = useCallback(async (files: FileList | null) => {
@@ -283,11 +321,19 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
   const canSend = hasContent && !disabled;
   // Show stop button when streaming and user hasn't typed anything
   const showStop = !!isStreaming && !hasContent;
+  // Show mic icon when input is empty and onSendAudio is available
+  const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
 
   // Web: use raw textarea for selectionStart access
   if (Platform.OS === "web") {
     return (
       <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
+        {/* Audio recorder error */}
+        {recorder.error && (
+          <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
+            <Text style={{ color: "#ef4444", fontSize: 12 }}>{recorder.error}</Text>
+          </div>
+        )}
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
@@ -367,9 +413,9 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}
-            disabled={disabled}
+            disabled={disabled || recorder.isRecording}
             className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0 }}
+            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0, opacity: recorder.isRecording ? 0.3 : 1 }}
           >
             <Paperclip size={isMobile ? 18 : 20} color={t.textDim} />
           </Pressable>
@@ -386,39 +432,47 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
           />
 
           <div ref={containerRef} style={{ flex: 1, minWidth: 0, display: "flex" }}>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => handleWebInput(e.target.value)}
-              onKeyDown={handleWebKeyDown}
-              onPaste={handlePaste}
-              onBlur={() => setTimeout(() => setShowMenu(false), 200)}
-              placeholder="Type a message..."
-              autoFocus={!isMobile}
-              rows={1}
-              style={{
-                flex: 1,
-                fontFamily: "inherit",
-                fontSize: 15,
-                lineHeight: "1.5",
-                padding: isMobile ? "8px 12px" : "10px 16px",
-                borderRadius: 10,
-                border: `1px solid ${t.overlayLight}`,
-                background: t.surfaceRaised,
-                color: t.text,
-                resize: "none",
-                outline: "none",
-                minHeight: isMobile ? 36 : 44,
-                maxHeight: 140,
-                overflow: "auto",
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = t.overlayBorder;
-              }}
-              onBlurCapture={(e) => {
-                e.target.style.borderColor = t.overlayLight;
-              }}
-            />
+            {recorder.isRecording ? (
+              <RecordingOverlay
+                durationMs={recorder.durationMs}
+                onCancel={recorder.cancelRecording}
+                isMobile={isMobile}
+              />
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => handleWebInput(e.target.value)}
+                onKeyDown={handleWebKeyDown}
+                onPaste={handlePaste}
+                onBlur={() => setTimeout(() => setShowMenu(false), 200)}
+                placeholder="Type a message..."
+                autoFocus={!isMobile}
+                rows={1}
+                style={{
+                  flex: 1,
+                  fontFamily: "inherit",
+                  fontSize: 15,
+                  lineHeight: "1.5",
+                  padding: isMobile ? "8px 12px" : "10px 16px",
+                  borderRadius: 10,
+                  border: `1px solid ${t.overlayLight}`,
+                  background: t.surfaceRaised,
+                  color: t.text,
+                  resize: "none",
+                  outline: "none",
+                  minHeight: isMobile ? 36 : 44,
+                  maxHeight: 140,
+                  overflow: "auto",
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = t.overlayBorder;
+                }}
+                onBlurCapture={(e) => {
+                  e.target.style.borderColor = t.overlayLight;
+                }}
+              />
+            )}
           </div>
           {/* Per-turn model picker — hidden on mobile to save space */}
           {Platform.OS === "web" && onModelOverrideChange && !isMobile && (
@@ -493,19 +547,32 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
             </div>
           )}
           <Pressable
-            onPress={showStop ? onCancel : handleSend}
-            disabled={!canSend && !showStop}
+            onPress={
+              showStop ? onCancel
+              : recorder.isRecording ? handleMicToggle
+              : showMic ? handleMicToggle
+              : handleSend
+            }
+            disabled={!canSend && !showStop && !showMic && !recorder.isRecording}
             className="items-center justify-center rounded-lg"
             style={{
               width: isMobile ? 36 : 44,
               height: isMobile ? 36 : 44,
               flexShrink: 0,
-              backgroundColor: showStop ? "#ef4444" : canSend ? t.accent : "transparent",
-              opacity: canSend || showStop ? 1 : 0.4,
+              backgroundColor: showStop ? "#ef4444"
+                : recorder.isRecording ? "#ef4444"
+                : canSend ? t.accent
+                : showMic ? "transparent"
+                : "transparent",
+              opacity: canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4,
             }}
           >
             {showStop ? (
               <Square size={16} color="white" fill="white" />
+            ) : recorder.isRecording ? (
+              <Send size={isMobile ? 16 : 18} color="white" />
+            ) : showMic ? (
+              <Mic size={isMobile ? 16 : 18} color={t.textDim} />
             ) : (
               <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
             )}

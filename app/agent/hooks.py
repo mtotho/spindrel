@@ -6,13 +6,18 @@ Two registries following the existing dispatcher pattern (app/agent/dispatchers.
   - client_id_prefix, user_attribution, resolve_display_names
 
 **Lifecycle hooks** (broadcast, fire-and-forget, errors swallowed):
-  - after_tool_call, after_response, before_context_assembly
+  - before_context_assembly, before_llm_call, after_llm_call,
+    before_tool_execution, after_tool_call, after_response
+
+**Override-capable hooks** (short-circuit on first non-None return):
+  - before_transcription
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -112,14 +117,84 @@ def register_hook(event: str, callback: Callable) -> None:
 
 
 async def fire_hook(event: str, ctx: HookContext, **kwargs) -> None:
-    """Fire all registered callbacks for the given event. Errors are swallowed."""
+    """Fire all registered callbacks for the given event. Errors are swallowed.
+
+    Also emits webhook POSTs to HOOK_WEBHOOK_URLS (fire-and-forget).
+    """
     callbacks = _lifecycle_hooks.get(event)
-    if not callbacks:
+    if callbacks:
+        for cb in callbacks:
+            try:
+                ret = cb(ctx, **kwargs)
+                if asyncio.iscoroutine(ret):
+                    await ret
+            except Exception:
+                logger.warning("Lifecycle hook %s error in %s", event, getattr(cb, "__qualname__", cb), exc_info=True)
+
+    # Webhook emission
+    _emit_webhook(event, ctx)
+
+
+async def fire_hook_with_override(event: str, ctx: HookContext, **kwargs) -> Any:
+    """Fire callbacks for *event*; return the first non-None result (short-circuit).
+
+    Used for hooks where an integration can *replace* default behavior
+    (e.g. ``before_transcription`` providing custom STT).
+
+    Also emits webhook POSTs (fire-and-forget, same as ``fire_hook``).
+    """
+    callbacks = _lifecycle_hooks.get(event)
+    if callbacks:
+        for cb in callbacks:
+            try:
+                ret = cb(ctx, **kwargs)
+                if asyncio.iscoroutine(ret):
+                    ret = await ret
+                if ret is not None:
+                    _emit_webhook(event, ctx)
+                    return ret
+            except Exception:
+                logger.warning("Lifecycle hook %s error in %s", event, getattr(cb, "__qualname__", cb), exc_info=True)
+
+    _emit_webhook(event, ctx)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Webhook emission helpers
+# ---------------------------------------------------------------------------
+
+def _emit_webhook(event: str, ctx: HookContext) -> None:
+    """Schedule fire-and-forget webhook POSTs if HOOK_WEBHOOK_URLS is configured."""
+    from app.config import settings as _settings
+    urls_str = _settings.HOOK_WEBHOOK_URLS
+    if not urls_str:
         return
-    for cb in callbacks:
-        try:
-            ret = cb(ctx, **kwargs)
-            if asyncio.iscoroutine(ret):
-                await ret
-        except Exception:
-            logger.warning("Lifecycle hook %s error in %s", event, getattr(cb, "__qualname__", cb), exc_info=True)
+    urls = [u.strip() for u in urls_str.split(",") if u.strip()]
+    if not urls:
+        return
+
+    payload = {
+        "event": event,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "context": {
+            "bot_id": ctx.bot_id,
+            "session_id": str(ctx.session_id) if ctx.session_id else None,
+            "channel_id": str(ctx.channel_id) if ctx.channel_id else None,
+            "client_id": ctx.client_id,
+            "correlation_id": str(ctx.correlation_id) if ctx.correlation_id else None,
+        },
+        "data": ctx.extra,
+    }
+    for url in urls:
+        asyncio.create_task(_post_webhook(url, payload))
+
+
+async def _post_webhook(url: str, payload: dict) -> None:
+    """POST a JSON payload to a webhook URL. Errors are swallowed."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, json=payload)
+    except Exception:
+        logger.debug("Webhook POST to %s failed", url, exc_info=True)

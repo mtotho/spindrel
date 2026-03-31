@@ -126,6 +126,14 @@ async def delegate_to_agent(
             logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
             bot_id = resolved.id
 
+        # Self-delegation guard: child gets a fresh session with none of the
+        # parent's context, so delegating to yourself is always wrong.
+        if resolved.id == parent_bot_id:
+            return json.dumps({
+                "error": "Cannot delegate to yourself — the child gets a fresh session "
+                "with none of your current context. Execute directly or use exec_command."
+            })
+
         # Permission check: delegate_bots must be configured for bot delegation
         if not parent_bot.delegate_bots:
             return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})

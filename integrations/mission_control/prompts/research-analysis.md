@@ -37,6 +37,12 @@ Organize channel workspace files as follows:
 
 - **status.md** — Research progress and health (Mission Control compatible)
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures significant research events: sources added, findings confirmed, hypotheses revised, task moves
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **notes.md** — Reading notes, raw observations, scratch work
   - Date-stamp entries: `## YYYY-MM-DD Topic`
   - Capture quotes and page references for later citation
@@ -108,3 +114,28 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (on track), `yellow` (at risk), `red` (blocked/behind).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing significant research activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 15:30 — Finding confirmed: "distributed caching reduces p99 latency by 40%" (confidence: high)
+- 13:00 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Analyze survey dataset"
+- 10:45 — New source added: "Scaling Distributed Systems" (Chen et al., 2025)
+- 09:15 — Hypothesis H2 revised: narrowed scope to read-heavy workloads only
+
+## 2026-03-27
+
+- 16:00 — Card mc-j0k1l2 moved to **Done** (was: Review) — "Define research questions"
+- 11:30 — Status health changed: yellow → green — IRB approval received
+- 09:00 — Literature review: 12 new papers screened, 4 included
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (source discoveries, hypothesis changes, findings confirmed). Heartbeats can auto-append periodic entries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

@@ -585,6 +585,27 @@ async def assemble_context(
         except Exception:
             logger.warning("Failed to inject channel workspace files for channel %s", _ch_row.id, exc_info=True)
 
+        # --- plan stall detection: annotate if plans.md has an executing plan with stale mtime ---
+        try:
+            import time as _time_mod
+            _plans_path = _cw_os.path.join(_cw_root, "plans.md")
+            if _cw_os.path.isfile(_plans_path):
+                _plans_mtime = _cw_os.path.getmtime(_plans_path)
+                _plans_age = _time_mod.time() - _plans_mtime
+                if _plans_age > 600:  # 10 minutes
+                    _plans_content = Path(_plans_path).read_text()
+                    if "[executing]" in _plans_content:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "Note: plans.md contains an executing plan that may be stalled "
+                                "(last modified >10 minutes ago). Check the plan and resume "
+                                "the next pending step."
+                            ),
+                        })
+        except Exception:
+            pass
+
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(
         message=user_message,

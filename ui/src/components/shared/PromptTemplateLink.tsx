@@ -55,6 +55,23 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
           >
             <Pencil size={11} />
             {linked.name}
+            {(linked.source_type === "integration" || linked.source_type === "file") && (
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: `${t.accent}22`,
+                  color: t.accent,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Built-in
+              </span>
+            )}
           </div>
           <button
             onClick={onUnlink}
@@ -189,6 +206,23 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                             <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                               {tpl.name}
                             </span>
+                            {(tpl.source_type === "integration" || tpl.source_type === "file") && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  textTransform: "uppercase",
+                                  letterSpacing: 0.5,
+                                  padding: "1px 5px",
+                                  borderRadius: 3,
+                                  background: t.surfaceOverlay,
+                                  color: t.textDim,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Built-in
+                              </span>
+                            )}
                           </div>
                           {tpl.description && (
                             <span

@@ -1,4 +1,4 @@
-"""Claude Code integration configuration — env var based."""
+"""Claude Code integration configuration — env var / DB settings based."""
 from __future__ import annotations
 
 import os

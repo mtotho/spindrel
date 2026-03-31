@@ -461,6 +461,9 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Config state auto-export (empty = disabled)
     CONFIG_STATE_FILE: str = "config-state.json"
 
+    # Hook webhooks (comma-separated URLs that receive ALL hook events as POST)
+    HOOK_WEBHOOK_URLS: str = ""
+
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""
 

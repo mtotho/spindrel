@@ -26,6 +26,12 @@ This channel uses the Mission Control protocol for structured task tracking.
   - Record alternatives considered
   - Link to related task cards when applicable
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures significant events: task moves, status changes, decisions, milestones
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **references.md** — Links and resources
   - Categorize by topic
   - Add brief annotations explaining relevance
@@ -107,3 +113,42 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (on track), `yellow` (at risk), `red` (blocked/behind).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing significant workspace activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 16:45 — Card mc-j0k1l2 moved to **Done** (was: Review) — "Set up monitoring dashboards"
+- 14:20 — Status health changed: yellow → green
+- 13:00 — DEC-004 recorded: "Adopt OpenTelemetry for distributed tracing"
+- 11:30 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Implement search indexing"
+- 09:00 — New card created: mc-x5y6z7 "Write API documentation for v2 endpoints"
+
+## 2026-03-27
+
+- 17:30 — Sprint 4 retrospective completed — all 8 cards delivered
+- 15:00 — Card mc-g7h8i9 moved to **Review** (was: In Progress) — "Update deployment runbook"
+- 10:00 — Dependency resolved: mc-a1b2c3 unblocked by mc-j0k1l2 completion
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (deploys, incidents, decisions, meetings, milestones). Heartbeats can auto-append periodic entries for passive monitoring.
+
+**Auto-logged event types:**
+- Task card moves (column changes with card ID and title)
+- Status health changes (old → new value)
+- New card creation
+- Dependency resolution (blocked card unblocked)
+
+**Manually logged events** (via `append_timeline_event`):
+- Deployments and releases
+- Decisions recorded
+- Meetings and reviews
+- Incidents and resolutions
+- External milestones
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

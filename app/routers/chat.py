@@ -323,7 +323,22 @@ async def chat(
         else:
             logger.info("POST /chat  bot=%s  session=%s  transcribing audio",
                         req.bot_id, req.session_id)
-            message = _transcribe_audio_data(req.audio_data, req.audio_format)
+            # Fire before_transcription hook — integrations can override STT
+            from app.agent.hooks import fire_hook_with_override, HookContext
+            # Estimate byte size from base64 length (avoids decoding just for size)
+            _audio_size_est = len(req.audio_data) * 3 // 4
+            _override = await fire_hook_with_override("before_transcription", HookContext(
+                bot_id=req.bot_id,
+                extra={
+                    "audio_format": req.audio_format or "m4a",
+                    "audio_size_bytes": _audio_size_est,
+                    "source": "chat",
+                },
+            ))
+            if isinstance(_override, str) and _override.strip():
+                message = _override
+            else:
+                message = _transcribe_audio_data(req.audio_data, req.audio_format)
             if not message.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
 

@@ -40,6 +40,13 @@ Organize workspace files as follows:
   - Review criteria and quality gates
   - Standard operating procedures
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures cross-project events: project launches/closures, health changes, escalations, task moves
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+  - Heartbeats can auto-append portfolio-level events for passive monitoring
+
 - **retrospectives.md** — Lessons learned from completed projects
   - Format: `### Project Name — YYYY-MM-DD`
   - What went well, what didn't, what to change
@@ -117,3 +124,28 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (all projects on track), `yellow` (some at risk), `red` (critical blockers across portfolio).
+
+### timeline.md — Portfolio Activity Log
+
+Reverse-chronological event stream capturing cross-project activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 16:30 — [Brand Refresh] Status health changed: yellow → green — designer hired
+- 14:00 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Resolve Auth Service dependency"
+- 11:00 — [Henderson Remodel] Phase changed: Development → Review
+- 09:30 — Portfolio health changed: green → yellow — Auth Service impacts 2 projects
+
+## 2026-03-27
+
+- 17:00 — [Brand Refresh] Project launched — channel created, schema assigned
+- 15:00 — Card mc-j0k1l2 moved to **Done** (was: In Progress) — "Onboard new project channels"
+- 10:00 — Weekly portfolio review completed — 3 projects on track, 1 at risk
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (project launches, closures, escalations, health changes). Prefix cross-project entries with `[Project Name]` for filtering. Heartbeats can auto-append portfolio-level summaries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

@@ -34,6 +34,12 @@ Organize channel workspace files as follows:
 
 - **status.md** — Project health and phase tracking (Mission Control compatible)
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures significant creative events: concept iterations, feedback rounds, deliverable submissions, task moves
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **references.md** — Inspiration and style guides
   - Mood boards, color palettes, typography choices
   - Competitive examples and benchmarks
@@ -106,3 +112,28 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (on track), `yellow` (at risk), `red` (blocked/behind).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing significant creative activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 16:00 — Card mc-g7h8i9 moved to **Review** (was: In Progress) — "Logo concept v2"
+- 14:30 — Concept V3 added to concepts.md — minimalist direction
+- 11:00 — Feedback round 2 received — 3 mandatory changes, 2 suggestions
+- 09:15 — Status health changed: green → yellow — waiting on brand guidelines
+
+## 2026-03-27
+
+- 17:00 — Card mc-j0k1l2 moved to **Done** (was: Review) — "Finalize project brief"
+- 13:00 — Client approved concept V2 direction for hero section
+- 10:30 — New card created: mc-a1b2c3 "Create mood board for landing page"
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (concept iterations, client feedback, deliverable submissions). Heartbeats can auto-append periodic entries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

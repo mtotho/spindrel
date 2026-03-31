@@ -1,11 +1,9 @@
-"""run_claude_code — native Claude Code SDK tool (sync + deferred paths)."""
+"""run_claude_code — Claude Code CLI tool executed in Docker workspace (sync + deferred paths)."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import time
 
 from integrations import _register as reg
 
@@ -26,7 +24,7 @@ def _parse_bool(val, default: bool = False) -> bool:
     "function": {
         "name": "run_claude_code",
         "description": (
-            "Run Claude Code (AI coding agent) as a direct subprocess using the official SDK. "
+            "Run Claude Code (AI coding agent) inside the bot's Docker workspace container. "
             "Claude Code can read, write, and edit files, run shell commands, search code, "
             "and perform complex multi-step coding tasks autonomously. "
             "Use mode=sync (default) to wait for the result. "
@@ -131,117 +129,40 @@ async def run_claude_code(
         )
 
     # -----------------------------------------------------------------------
-    # Sync mode: run Claude Code and wait for result
+    # Sync mode: run Claude Code CLI in Docker container
     # -----------------------------------------------------------------------
-    try:
-        from claude_agent_sdk import query as sdk_query, ClaudeAgentOptions, ResultMessage
-    except ImportError:
-        return json.dumps({
-            "error": (
-                "claude-agent-sdk is not installed. "
-                "Install via: pip install -r integrations/claude_code/requirements.txt "
-                "or use the admin UI to install dependencies."
-            ),
-        })
-
-    from integrations.claude_code.config import settings as cc_settings
-
-    # Resolve workspace cwd
-    cwd = _resolve_cwd(working_directory)
-    if cwd is None:
-        return json.dumps({"error": "Could not resolve workspace directory for the current bot."})
-
-    effective_max_turns = max_turns if max_turns is not None else cc_settings.MAX_TURNS
-    effective_allowed = allowed_tools if allowed_tools is not None else cc_settings.ALLOWED_TOOLS
-    timeout = cc_settings.TIMEOUT
-
-    options = ClaudeAgentOptions(
-        cwd=cwd,
-        permission_mode=cc_settings.PERMISSION_MODE,
-        max_turns=effective_max_turns,
-        allowed_tools=effective_allowed,
-    )
-    if system_prompt:
-        options.system_prompt = system_prompt
-    if resume_session_id:
-        options.resume = resume_session_id
-    if cc_settings.MODEL:
-        options.model = cc_settings.MODEL
-
-    start_ms = time.monotonic_ns() // 1_000_000
-    session_id = None
-
-    try:
-        result_msg = None
-        async with asyncio.timeout(timeout):
-            async for message in sdk_query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result_msg = message
-                # Capture session_id from any message that has it
-                if hasattr(message, "session_id") and getattr(message, "session_id", None):
-                    session_id = message.session_id
-
-        elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-
-        if result_msg is None:
-            return json.dumps({
-                "error": "No result message received from Claude Code",
-                "session_id": session_id,
-                "duration_ms": elapsed_ms,
-            })
-
-        return json.dumps({
-            "result": result_msg.result or "",
-            "session_id": result_msg.session_id,
-            "is_error": result_msg.is_error,
-            "cost_usd": result_msg.total_cost_usd,
-            "num_turns": result_msg.num_turns,
-            "duration_ms": result_msg.duration_ms,
-            "duration_api_ms": result_msg.duration_api_ms,
-        })
-
-    except TimeoutError:
-        elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-        return json.dumps({
-            "error": f"Timed out after {timeout}s",
-            "session_id": session_id,
-            "duration_ms": elapsed_ms,
-        })
-    except Exception as exc:
-        elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-        err_type = type(exc).__name__
-        return json.dumps({
-            "error": f"{err_type}: {exc}",
-            "session_id": session_id,
-            "duration_ms": elapsed_ms,
-        })
-
-
-def _resolve_cwd(working_directory: str | None) -> str | None:
-    """Resolve the effective cwd from bot workspace + optional subdirectory."""
     from app.agent.context import current_bot_id
+    from integrations.claude_code.runner import run_in_container
 
     bot_id = current_bot_id.get()
     if not bot_id:
-        return None
+        return json.dumps({"error": "No bot context — cannot resolve workspace."})
 
-    from app.agent.bots import get_bot
-    from app.services.workspace import workspace_service
+    try:
+        result = await run_in_container(
+            bot_id=bot_id,
+            prompt=prompt,
+            working_directory=working_directory,
+            max_turns=max_turns,
+            system_prompt=system_prompt,
+            resume_session_id=resume_session_id,
+            allowed_tools=allowed_tools,
+        )
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+    except Exception as exc:
+        err_type = type(exc).__name__
+        return json.dumps({"error": f"{err_type}: {exc}"})
 
-    bot = get_bot(bot_id)
-    ws_root = workspace_service.get_workspace_root(bot_id, bot)
-    if not ws_root:
-        return None
-
-    if working_directory:
-        cwd = os.path.normpath(os.path.join(ws_root, working_directory))
-        # Ensure the resolved path is still within workspace (trailing sep prevents prefix collision)
-        ws_prefix = ws_root.rstrip(os.sep) + os.sep
-        if cwd != ws_root and not cwd.startswith(ws_prefix):
-            return None
-        return cwd
-
-    return ws_root
+    return json.dumps({
+        "result": result.result,
+        "session_id": result.session_id,
+        "is_error": result.is_error,
+        "cost_usd": result.cost_usd,
+        "num_turns": result.num_turns,
+        "duration_ms": result.duration_ms,
+        "duration_api_ms": result.duration_api_ms,
+    })
 
 
 async def _create_deferred_task(

@@ -130,6 +130,7 @@ class TestMCReadiness:
 
         with (
             patch("app.routers.api_v1_mission_control._has_tasks_file", return_value=True),
+            patch("app.routers.api_v1_mission_control._has_timeline_file", return_value=True),
             patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
@@ -141,7 +142,7 @@ class TestMCReadiness:
             )
 
         body = resp.json()
-        for feature in ["dashboard", "kanban", "journal", "memory"]:
+        for feature in ["dashboard", "kanban", "journal", "memory", "timeline"]:
             assert body[feature]["ready"] is True, f"{feature} should be ready"
             assert body[feature]["issues"] == [], f"{feature} should have no issues"
 

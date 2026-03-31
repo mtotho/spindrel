@@ -9,6 +9,8 @@ Use this tool for autonomous coding tasks that benefit from Claude Code's abilit
 - **Refactoring**: Point at a module/pattern to refactor; Claude Code reads context and makes changes
 - **Code review/analysis**: Ask Claude Code to analyze a codebase, find issues, or explain architecture
 
+Claude Code runs inside the bot's Docker workspace container, so it has access to the project's full toolchain and environment.
+
 ## Sync vs Deferred Mode
 
 - **sync** (default): Wait for the result. Good for quick tasks (< 5 min). You get the full result back.

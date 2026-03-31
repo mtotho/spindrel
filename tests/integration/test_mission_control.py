@@ -245,6 +245,53 @@ class TestMCKanban:
         assert resp.status_code == 409
 
 
+class TestMCTimeline:
+    async def test_timeline_empty(self, client, db_session):
+        resp = await client.get("/api/v1/mission-control/timeline?days=7", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["events"] == []
+
+    async def test_timeline_with_events(self, client, db_session):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="timeline-test",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        from datetime import date
+        today = date.today().isoformat()
+        timeline_content = (
+            f"## {today}\n\n"
+            "- 14:30 — Card mc-abc123 moved to **Done** (was: Review)\n"
+            "- 10:00 — Sprint 5 kicked off\n"
+        )
+
+        with patch(
+            "app.services.channel_workspace.read_workspace_file",
+            return_value=timeline_content,
+        ):
+            resp = await client.get(
+                "/api/v1/mission-control/timeline?days=7",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["events"]) == 2
+        assert body["events"][0]["time"] == "14:30"
+        assert "mc-abc123" in body["events"][0]["event"]
+        assert body["events"][0]["channel_name"] == "timeline-test"
+        assert body["events"][1]["time"] == "10:00"
+
+
 class TestMCJournal:
     async def test_journal_empty(self, client, db_session):
         resp = await client.get("/api/v1/mission-control/journal?days=7", headers=AUTH_HEADERS)

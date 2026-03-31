@@ -7,7 +7,13 @@ description: >
 skills:
   - id: integrations/mission_control/mission_control
     mode: on_demand
+  - id: integrations/mission_control/planning
+    mode: on_demand
 
 local_tools:
   - create_task_card
   - move_task_card
+  - append_timeline_event
+  - draft_plan
+  - update_plan_step
+  - update_plan_status

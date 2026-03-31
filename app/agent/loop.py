@@ -268,6 +268,20 @@ async def run_agent_tool_loop(
             import time as _time
             _llm_t0 = _time.monotonic()
 
+            # Fire before_llm_call lifecycle hook
+            from app.agent.hooks import fire_hook, HookContext
+            asyncio.create_task(fire_hook("before_llm_call", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra={
+                    "model": effective_model,
+                    "message_count": len(messages),
+                    "tools_count": len(tools_param) if tools_param else 0,
+                    "provider_id": provider_id,
+                    "iteration": iteration + 1,
+                },
+            )))
+
             # --- Streaming LLM call ---
             accumulated_msg: AccumulatedMessage | None = None
             _llm_cancelled = False
@@ -291,6 +305,26 @@ async def run_agent_tool_loop(
 
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
             assert accumulated_msg is not None
+
+            # Fire after_llm_call lifecycle hook
+            _fb_info_for_hook = last_fallback_info.get()
+            _after_llm_extra: dict[str, Any] = {
+                "model": effective_model,
+                "duration_ms": _llm_latency_ms,
+                "prompt_tokens": accumulated_msg.usage.prompt_tokens if accumulated_msg.usage else None,
+                "completion_tokens": accumulated_msg.usage.completion_tokens if accumulated_msg.usage else None,
+                "total_tokens": accumulated_msg.usage.total_tokens if accumulated_msg.usage else None,
+                "tool_calls_count": len(accumulated_msg.tool_calls) if accumulated_msg.tool_calls else 0,
+                "fallback_used": _fb_info_for_hook is not None,
+                "fallback_model": _fb_info_for_hook.fallback_model if _fb_info_for_hook else None,
+                "iteration": iteration + 1,
+                "provider_id": provider_id,
+            }
+            asyncio.create_task(fire_hook("after_llm_call", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra=_after_llm_extra,
+            )))
 
             # Check if a fallback was used and emit trace event
             _fb_info = last_fallback_info.get()

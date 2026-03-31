@@ -25,6 +25,7 @@ from app.services.task_board import (
     parse_tasks_md,
     serialize_tasks_md,
 )
+from app.services.plan_board import parse_plans_md, serialize_plans_md
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,59 @@ def _has_tasks_file(channel: Channel) -> bool:
         return False
 
 
+def _has_timeline_file(channel: Channel) -> bool:
+    """Quick check whether a channel has a timeline.md on disk."""
+    from app.services.channel_workspace import get_channel_workspace_root
+    try:
+        bot = _get_bot(channel.bot_id)
+        ws_root = get_channel_workspace_root(str(channel.id), bot)
+        return os.path.isfile(os.path.join(ws_root, "timeline.md"))
+    except Exception:
+        return False
+
+
+def _has_plans_file(channel: Channel) -> bool:
+    """Quick check whether a channel has a plans.md on disk."""
+    from app.services.channel_workspace import get_channel_workspace_root
+    try:
+        bot = _get_bot(channel.bot_id)
+        ws_root = get_channel_workspace_root(str(channel.id), bot)
+        return os.path.isfile(os.path.join(ws_root, "plans.md"))
+    except Exception:
+        return False
+
+
+async def _read_plans_for_channel(channel: Channel) -> list[dict]:
+    """Read and parse plans.md for a channel. Returns plan dicts."""
+    from app.services.channel_workspace import read_workspace_file
+    try:
+        bot = _get_bot(channel.bot_id)
+        content = await asyncio.to_thread(
+            read_workspace_file, str(channel.id), bot, "plans.md",
+        )
+        if content:
+            return parse_plans_md(content)
+    except Exception:
+        logger.debug("Could not read plans.md for channel %s", channel.id, exc_info=True)
+    return []
+
+
+async def _read_timeline_for_channel(channel: Channel) -> list[dict]:
+    """Read and parse timeline.md for a channel. Returns event dicts."""
+    from app.services.channel_workspace import read_workspace_file
+    try:
+        bot = _get_bot(channel.bot_id)
+        content = await asyncio.to_thread(
+            read_workspace_file, str(channel.id), bot, "timeline.md",
+        )
+        if content:
+            from integrations.mission_control.tools.mission_control import parse_timeline_md
+            return parse_timeline_md(content)
+    except Exception:
+        logger.debug("Could not read timeline.md for channel %s", channel.id, exc_info=True)
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -200,6 +254,39 @@ class MemoryResponse(BaseModel):
     sections: list[MemoryBotSection]
 
 
+class TimelineEvent(BaseModel):
+    date: str
+    time: str
+    event: str
+    channel_id: str
+    channel_name: str
+
+
+class TimelineResponse(BaseModel):
+    events: list[TimelineEvent]
+
+
+class MCPlanStep(BaseModel):
+    position: int
+    status: str
+    content: str
+
+
+class MCPlan(BaseModel):
+    id: str
+    title: str
+    status: str
+    meta: dict[str, str]
+    steps: list[MCPlanStep]
+    notes: str
+    channel_id: str
+    channel_name: str
+
+
+class MCPlansResponse(BaseModel):
+    plans: list[MCPlan]
+
+
 class FeatureReadiness(BaseModel):
     ready: bool
     detail: str
@@ -213,6 +300,8 @@ class ReadinessResponse(BaseModel):
     kanban: FeatureReadiness
     journal: FeatureReadiness
     memory: FeatureReadiness
+    timeline: FeatureReadiness
+    plans: FeatureReadiness
 
 
 # ---------------------------------------------------------------------------
@@ -246,11 +335,11 @@ async def readiness(
         issues=dashboard_issues,
     )
 
-    # Kanban: channels with tasks.md
-    tasks_count = 0
-    for ch in channels:
-        if await asyncio.to_thread(_has_tasks_file, ch):
-            tasks_count += 1
+    # Kanban: channels with tasks.md (batch check in single thread call)
+    def _count_tasks_files():
+        return sum(1 for ch in channels if _has_tasks_file(ch))
+
+    tasks_count = await asyncio.to_thread(_count_tasks_files) if channels else 0
     kanban_issues: list[str] = []
     if channels and tasks_count == 0:
         kanban_issues.append(
@@ -328,11 +417,57 @@ async def readiness(
         issues=memory_issues,
     )
 
+    # Timeline: channels with timeline.md (batch check in single thread call)
+    def _count_timeline_files():
+        return sum(1 for ch in channels if _has_timeline_file(ch))
+
+    timeline_count = await asyncio.to_thread(_count_timeline_files) if channels else 0
+    timeline_issues: list[str] = []
+    if channels and timeline_count == 0:
+        timeline_issues.append(
+            "No channels have timeline.md yet. Events are auto-logged when tasks are created or moved."
+        )
+    elif not channels:
+        timeline_issues.append(
+            "No workspace-enabled channels. Enable workspace in channel settings first."
+        )
+    timeline = FeatureReadiness(
+        ready=timeline_count > 0,
+        detail=f"{timeline_count} of {len(channels)} channels have timeline.md",
+        count=timeline_count,
+        total=len(channels),
+        issues=timeline_issues,
+    )
+
+    # Plans: channels with plans.md (batch check in single thread call)
+    def _count_plans_files():
+        return sum(1 for ch in channels if _has_plans_file(ch))
+
+    plans_count = await asyncio.to_thread(_count_plans_files) if channels else 0
+    plans_issues: list[str] = []
+    if channels and plans_count == 0:
+        plans_issues.append(
+            "No channels have plans.md yet. Plans are created when bots draft structured proposals."
+        )
+    elif not channels:
+        plans_issues.append(
+            "No workspace-enabled channels. Enable workspace in channel settings first."
+        )
+    plans_feat = FeatureReadiness(
+        ready=plans_count > 0,
+        detail=f"{plans_count} of {len(channels)} channels have plans.md",
+        count=plans_count,
+        total=len(channels),
+        issues=plans_issues,
+    )
+
     return ReadinessResponse(
         dashboard=dashboard,
         kanban=kanban,
         journal=journal,
         memory=memory_feat,
+        timeline=timeline,
+        plans=plans_feat,
     )
 
 
@@ -378,11 +513,14 @@ async def overview(
         )).scalars().all()
         _template_names = {str(t.id): t.name for t in _tpl_rows}
 
-    # Task counts per channel
+    # Task counts per channel (parallel reads)
+    task_results = await asyncio.gather(
+        *(_read_tasks_for_channel(ch) for ch in channels)
+    )
+
     total_tasks = 0
     channel_overviews = []
-    for ch in channels:
-        columns = await _read_tasks_for_channel(ch)
+    for ch, columns in zip(channels, task_results):
         task_count = sum(len(col.get("cards", [])) for col in columns)
         total_tasks += task_count
         bot = bot_map.get(ch.bot_id)
@@ -435,12 +573,14 @@ async def kanban(
     prefs = await _get_mc_prefs(db, user)
     channels = await _tracked_channels(db, user, prefs, scope=scope)
 
-    # Merge columns by name across all channels
+    # Merge columns by name across all channels (parallel reads)
     merged: dict[str, list[KanbanCard]] = {}
     column_order: list[str] = []
 
-    for ch in channels:
-        columns = await _read_tasks_for_channel(ch)
+    all_columns = await asyncio.gather(
+        *(_read_tasks_for_channel(ch) for ch in channels)
+    )
+    for ch, columns in zip(channels, all_columns):
         for col in columns:
             col_name = col["name"]
             if col_name not in merged:
@@ -529,6 +669,16 @@ async def kanban_move(
     target_col["cards"].append(found_card)
     await asyncio.to_thread(write_workspace_file, str(channel.id), bot, "tasks.md", serialize_tasks_md(columns))
 
+    # Auto-log to timeline
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        await _append_timeline(
+            str(channel.id),
+            f"Card {body.card_id} moved to **{target_col['name']}** (was: {body.from_column}) — \"{found_card['title']}\"",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline event for kanban_move", exc_info=True)
+
     return {"ok": True, "card": found_card}
 
 
@@ -593,7 +743,53 @@ async def kanban_create(
 
     await asyncio.to_thread(write_workspace_file, str(channel.id), bot, "tasks.md", serialize_tasks_md(columns))
 
+    # Auto-log to timeline
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        await _append_timeline(
+            str(channel.id),
+            f"New card created: {card_id} \"{body.title}\" in **{target_col['name']}**",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline event for kanban_create", exc_info=True)
+
     return {"ok": True, "card": card, "column": target_col["name"]}
+
+
+@router.get("/timeline", response_model=TimelineResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
+async def timeline(
+    days: int = Query(7, ge=1, le=90),
+    scope: Literal["fleet", "personal"] = "fleet",
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Aggregated timeline: reads timeline.md from all tracked channels, merges events."""
+    user = _get_user(auth)
+    prefs = await _get_mc_prefs(db, user)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    all_events: list[TimelineEvent] = []
+
+    # Parallel reads across channels
+    all_raw = await asyncio.gather(
+        *(_read_timeline_for_channel(ch) for ch in channels)
+    )
+    for ch, raw_events in zip(channels, all_raw):
+        for ev in raw_events:
+            if ev["date"] < cutoff:
+                break  # timeline.md is newest-first, so we can stop early
+            all_events.append(TimelineEvent(
+                date=ev["date"],
+                time=ev["time"],
+                event=ev["event"],
+                channel_id=str(ch.id),
+                channel_name=ch.name,
+            ))
+
+    # Sort by date desc, then time desc
+    all_events.sort(key=lambda e: (e.date, e.time), reverse=True)
+    return {"events": all_events}
 
 
 @router.get("/journal", response_model=JournalResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
@@ -1010,3 +1206,295 @@ async def list_modules():
     from integrations import discover_dashboard_modules
 
     return {"modules": discover_dashboard_modules()}
+
+
+# ---------------------------------------------------------------------------
+# Plans
+# ---------------------------------------------------------------------------
+
+@router.get("/plans", response_model=MCPlansResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
+async def plans(
+    scope: Literal["fleet", "personal"] = "fleet",
+    status: str | None = Query(None, description="Comma-separated statuses to filter (e.g. draft,executing)"),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Aggregated plans: reads plans.md from all tracked channels."""
+    user = _get_user(auth)
+    prefs = await _get_mc_prefs(db, user)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
+
+    status_filter = {s.strip() for s in status.split(",")} if status else None
+
+    all_raw = await asyncio.gather(
+        *(_read_plans_for_channel(ch) for ch in channels)
+    )
+
+    all_plans: list[MCPlan] = []
+    for ch, raw_plans in zip(channels, all_raw):
+        for p in raw_plans:
+            if status_filter and p["status"] not in status_filter:
+                continue
+            all_plans.append(MCPlan(
+                id=p["meta"].get("id", ""),
+                title=p["title"],
+                status=p["status"],
+                meta=p.get("meta", {}),
+                steps=[MCPlanStep(**s) for s in p.get("steps", [])],
+                notes=p.get("notes", ""),
+                channel_id=str(ch.id),
+                channel_name=ch.name,
+            ))
+
+    return {"plans": all_plans}
+
+
+@router.post(
+    "/channels/{channel_id}/plans/{plan_id}/approve",
+    dependencies=[Depends(require_scopes("mission_control:write"))],
+)
+async def approve_plan(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Approve a draft plan — transitions to approved and triggers bot execution."""
+    user = _get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    _require_channel_access(channel, user)
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(400, "Channel workspace not enabled")
+
+    from app.services.channel_workspace import read_workspace_file, write_workspace_file
+
+    try:
+        bot = _get_bot(channel.bot_id)
+    except Exception:
+        raise HTTPException(404, f"Bot '{channel.bot_id}' not found")
+
+    content = await asyncio.to_thread(
+        read_workspace_file, str(channel.id), bot, "plans.md",
+    )
+    if not content:
+        raise HTTPException(404, "plans.md not found")
+
+    plans_list = parse_plans_md(content)
+
+    plan = None
+    for p in plans_list:
+        if p["meta"].get("id") == plan_id:
+            plan = p
+            break
+
+    if not plan:
+        raise HTTPException(404, f"Plan '{plan_id}' not found")
+    if plan["status"] != "draft":
+        raise HTTPException(409, f"Plan is [{plan['status']}], expected [draft]")
+
+    plan["status"] = "approved"
+    plan["meta"]["approved"] = date.today().isoformat()
+
+    await asyncio.to_thread(
+        write_workspace_file, str(channel.id), bot, "plans.md",
+        serialize_plans_md(plans_list),
+    )
+
+    # Log to timeline
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        await _append_timeline(str(channel.id), f"Plan approved: **{plan['title']}** ({plan_id})")
+    except Exception:
+        logger.debug("Failed to log timeline for plan approval", exc_info=True)
+
+    # Send message to channel to trigger bot execution
+    task_created = False
+    try:
+        from app.db.models import Task as TaskModel
+        from app.services.channels import ensure_active_session
+        from app.services.sessions import store_passive_message
+
+        session_id = await ensure_active_session(db, channel)
+        await db.commit()
+
+        prompt = f"Plan '{plan['title']}' has been approved. Begin executing the plan steps in order."
+        await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
+        await db.commit()
+
+        task = TaskModel(
+            bot_id=channel.bot_id,
+            client_id=channel.client_id,
+            session_id=session_id,
+            channel_id=channel.id,
+            prompt=prompt,
+            status="pending",
+            task_type="api",
+            dispatch_type=channel.integration or "none",
+            dispatch_config=channel.dispatch_config or {},
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(task)
+        await db.commit()
+        task_created = True
+    except Exception:
+        logger.warning("Failed to send approval message to channel %s", channel.id, exc_info=True)
+
+    return {
+        "ok": True,
+        "plan_id": plan_id,
+        "status": "approved",
+        "task_created": task_created,
+    }
+
+
+@router.post(
+    "/channels/{channel_id}/plans/{plan_id}/reject",
+    dependencies=[Depends(require_scopes("mission_control:write"))],
+)
+async def reject_plan(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Reject a draft plan — transitions to abandoned."""
+    user = _get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    _require_channel_access(channel, user)
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(400, "Channel workspace not enabled")
+
+    from app.services.channel_workspace import read_workspace_file, write_workspace_file
+
+    try:
+        bot = _get_bot(channel.bot_id)
+    except Exception:
+        raise HTTPException(404, f"Bot '{channel.bot_id}' not found")
+
+    content = await asyncio.to_thread(
+        read_workspace_file, str(channel.id), bot, "plans.md",
+    )
+    if not content:
+        raise HTTPException(404, "plans.md not found")
+
+    plans_list = parse_plans_md(content)
+
+    plan = None
+    for p in plans_list:
+        if p["meta"].get("id") == plan_id:
+            plan = p
+            break
+
+    if not plan:
+        raise HTTPException(404, f"Plan '{plan_id}' not found")
+    if plan["status"] not in ("draft", "approved"):
+        raise HTTPException(409, f"Plan is [{plan['status']}], expected [draft] or [approved]")
+
+    plan["status"] = "abandoned"
+
+    await asyncio.to_thread(
+        write_workspace_file, str(channel.id), bot, "plans.md",
+        serialize_plans_md(plans_list),
+    )
+
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        await _append_timeline(str(channel.id), f"Plan rejected: **{plan['title']}** ({plan_id})")
+    except Exception:
+        logger.debug("Failed to log timeline for plan rejection", exc_info=True)
+
+    return {"ok": True, "plan_id": plan_id, "status": "abandoned"}
+
+
+@router.post(
+    "/channels/{channel_id}/plans/{plan_id}/resume",
+    dependencies=[Depends(require_scopes("mission_control:write"))],
+)
+async def resume_plan(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Resume a stalled executing plan — sends a continue message to the channel."""
+    user = _get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    _require_channel_access(channel, user)
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(400, "Channel workspace not enabled")
+
+    from app.services.channel_workspace import read_workspace_file
+
+    try:
+        bot = _get_bot(channel.bot_id)
+    except Exception:
+        raise HTTPException(404, f"Bot '{channel.bot_id}' not found")
+
+    content = await asyncio.to_thread(
+        read_workspace_file, str(channel.id), bot, "plans.md",
+    )
+    if not content:
+        raise HTTPException(404, "plans.md not found")
+
+    plans_list = parse_plans_md(content)
+
+    plan = None
+    for p in plans_list:
+        if p["meta"].get("id") == plan_id:
+            plan = p
+            break
+
+    if not plan:
+        raise HTTPException(404, f"Plan '{plan_id}' not found")
+    if plan["status"] != "executing":
+        raise HTTPException(409, f"Plan is [{plan['status']}], expected [executing]")
+
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        await _append_timeline(str(channel.id), f"Plan resumed: **{plan['title']}** ({plan_id})")
+    except Exception:
+        logger.debug("Failed to log timeline for plan resume", exc_info=True)
+
+    task_created = False
+    try:
+        from app.db.models import Task as TaskModel
+        from app.services.channels import ensure_active_session
+        from app.services.sessions import store_passive_message
+
+        session_id = await ensure_active_session(db, channel)
+        await db.commit()
+
+        prompt = f"Continue executing plan '{plan['title']}'. Pick up from the next pending step."
+        await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
+        await db.commit()
+
+        task = TaskModel(
+            bot_id=channel.bot_id,
+            client_id=channel.client_id,
+            session_id=session_id,
+            channel_id=channel.id,
+            prompt=prompt,
+            status="pending",
+            task_type="api",
+            dispatch_type=channel.integration or "none",
+            dispatch_config=channel.dispatch_config or {},
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(task)
+        await db.commit()
+        task_created = True
+    except Exception:
+        logger.warning("Failed to send resume message to channel %s", channel.id, exc_info=True)
+
+    return {
+        "ok": True,
+        "plan_id": plan_id,
+        "status": "executing",
+        "task_created": task_created,
+    }

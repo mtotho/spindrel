@@ -451,6 +451,95 @@ class TestRunDeferredChannelId:
 # delegate_to_harness — model override propagation to callback_config
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Self-delegation guard (orchestrator → orchestrator is always wrong)
+# ---------------------------------------------------------------------------
+
+class TestSelfDelegation:
+    """Delegating to yourself is always a mistake — the child gets a fresh session
+    with none of the parent's context. The tool should block it with an error."""
+
+    @pytest.mark.asyncio
+    async def test_self_delegation_returns_error(self):
+        """delegate_to_agent(bot_id=<self>) should return an error, not create a task."""
+        import json
+        from app.tools.local.delegation import delegate_to_agent
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_channel_id,
+            current_dispatch_type,
+            current_dispatch_config,
+        )
+
+        session_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        current_bot_id.set("orchestrator")
+        current_session_id.set(session_id)
+        current_client_id.set("test:client")
+        current_channel_id.set(channel_id)
+        current_dispatch_type.set("none")
+        current_dispatch_config.set({})
+
+        parent_bot = _make_parent_bot(id="orchestrator", delegate_bots=["orchestrator", "child-bot"])
+
+        # resolve_bot_id returns a bot with the same ID as the parent
+        resolved_bot = MagicMock()
+        resolved_bot.id = "orchestrator"
+
+        mock_deferred = AsyncMock()
+
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+             patch("app.agent.bots.get_bot", return_value=parent_bot), \
+             patch("app.services.delegation.delegation_service") as mock_svc:
+            mock_svc.run_deferred = mock_deferred
+
+            result = await delegate_to_agent(bot_id="orchestrator", prompt="do something")
+
+        data = json.loads(result)
+        assert "error" in data
+        assert "Cannot delegate to yourself" in data["error"]
+        mock_deferred.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_self_delegation_after_alias_resolution(self):
+        """Even if the bot_id is an alias that resolves to self, it should be blocked."""
+        import json
+        from app.tools.local.delegation import delegate_to_agent
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_channel_id,
+            current_dispatch_type,
+            current_dispatch_config,
+        )
+
+        current_bot_id.set("orchestrator")
+        current_session_id.set(uuid.uuid4())
+        current_client_id.set("test:client")
+        current_channel_id.set(uuid.uuid4())
+        current_dispatch_type.set("none")
+        current_dispatch_config.set({})
+
+        parent_bot = _make_parent_bot(id="orchestrator", delegate_bots=["orch-alias"])
+
+        # Alias "orch-alias" resolves to "orchestrator"
+        resolved_bot = MagicMock()
+        resolved_bot.id = "orchestrator"
+
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+             patch("app.agent.bots.get_bot", return_value=parent_bot), \
+             patch("app.services.delegation.delegation_service") as mock_svc:
+            mock_svc.run_deferred = AsyncMock()
+
+            result = await delegate_to_agent(bot_id="orch-alias", prompt="test")
+
+        data = json.loads(result)
+        assert "Cannot delegate to yourself" in data["error"]
+
+
 class TestDelegateToHarnessModelOverride:
     """Verify that delegate_to_harness (deferred mode) captures the parent's
     effective model override into callback_config so the callback task can

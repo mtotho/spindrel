@@ -76,16 +76,28 @@ async def transcribe(
 
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
 
-    try:
-        if content_type in RAW_FLOAT32_TYPES:
-            text = _transcribe_raw_float32(body)
-        else:
-            text = _transcribe_audio_file(body, content_type)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Transcription failed")
-        raise HTTPException(status_code=500, detail=f"Transcription error: {e}")
+    # Fire before_transcription hook — integrations can override STT
+    from app.agent.hooks import fire_hook_with_override, HookContext
+    _override = await fire_hook_with_override("before_transcription", HookContext(
+        extra={
+            "audio_format": content_type or "application/octet-stream",
+            "audio_size_bytes": len(body),
+            "source": "api",
+        },
+    ))
+    if isinstance(_override, str) and _override.strip():
+        text = _override
+    else:
+        try:
+            if content_type in RAW_FLOAT32_TYPES:
+                text = _transcribe_raw_float32(body)
+            else:
+                text = _transcribe_audio_file(body, content_type)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Transcription failed")
+            raise HTTPException(status_code=500, detail=f"Transcription error: {e}")
 
     logger.info("Transcribed: %r", text[:100] if text else "(empty)")
     return {"text": text}

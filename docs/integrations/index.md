@@ -74,6 +74,7 @@ integrations/
 | `process.py` | Via `dev-server.sh` | Declare a background process (e.g. a Bolt app) |
 | `__init__.py` | Yes (as package) | Optional metadata: `id`, `name`, `version` |
 | `config.py` | No (imported by your tools) | Integration-specific env var settings |
+| `setup.py` | Yes — scanned by admin API | Declare env vars, webhooks, sidebar sections, dashboard modules |
 | `tools/*.py` | Yes — auto-discovered | Agent tools (underscore-prefixed files skipped) |
 | `skills/*.md` | Yes — synced at startup | Skill documents ingested into the skill system |
 
@@ -297,15 +298,65 @@ register_hook("after_tool_call", _on_after_tool_call)
 
 Available lifecycle events:
 
-| Event | Fired when | `ctx.extra` keys |
-|-------|-----------|-----------------|
-| `after_tool_call` | After each tool execution | `tool_name`, `tool_args`, `duration_ms` |
-| `after_response` | After agent returns final response | `response_length`, `tool_calls_made` |
-| `before_context_assembly` | Before context is built for an LLM call | `user_message` |
+| Event | Mode | Fired when | `ctx.extra` keys |
+|-------|------|-----------|-----------------|
+| `before_context_assembly` | fire-and-forget | Before context is built for an LLM call | `user_message` |
+| `before_llm_call` | fire-and-forget | Before each LLM API call | `model`, `message_count`, `tools_count`, `provider_id`, `iteration` |
+| `after_llm_call` | fire-and-forget | After LLM API call completes | `model`, `duration_ms`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `tool_calls_count`, `fallback_used`, `fallback_model`, `iteration`, `provider_id` |
+| `before_tool_execution` | fire-and-forget | After auth/policy checks pass, before tool runs | `tool_name`, `tool_type`, `args`, `iteration` |
+| `after_tool_call` | fire-and-forget | After each tool execution | `tool_name`, `tool_args`, `duration_ms` |
+| `after_response` | fire-and-forget | After agent returns final response | `response_length`, `tool_calls_made` |
+| `before_transcription` | **override-capable** | Before audio is transcribed (STT) | `audio_format`, `audio_size_bytes`, `source` |
 
-All lifecycle hooks are fire-and-forget — errors are logged but never propagate.
+All fire-and-forget hooks are broadcast — errors are logged but never propagate.
 Both sync and async callbacks are supported. Hooks receive a `HookContext` with
 `bot_id`, `session_id`, `channel_id`, `client_id`, `correlation_id`, and `extra`.
+
+**Override-capable hooks** use `fire_hook_with_override()` — the first callback that
+returns a non-`None` value short-circuits the chain. This lets integrations replace
+default behavior (e.g. providing custom STT for `before_transcription`):
+
+```python
+from app.agent.hooks import register_hook
+
+async def _custom_stt(ctx, **kwargs):
+    audio_format = ctx.extra.get("audio_format")
+    audio_bytes = ctx.extra.get("audio_size_bytes")
+    # Call your custom STT service...
+    return "transcribed text"  # or None to fall through to default
+
+register_hook("before_transcription", _custom_stt)
+```
+
+**Webhook emission** — all hook events can be forwarded to external HTTP endpoints.
+Set `HOOK_WEBHOOK_URLS` (comma-separated) in `.env` and every hook event is POSTed
+as JSON (fire-and-forget, 10s timeout, errors swallowed):
+
+```bash
+# .env
+HOOK_WEBHOOK_URLS=https://your-service.example.com/hooks,https://backup.example.com/hooks
+```
+
+Webhook payload format:
+
+```json
+{
+  "event": "after_tool_call",
+  "timestamp": "2026-03-31T14:30:00+00:00",
+  "context": {
+    "bot_id": "my-bot",
+    "session_id": "...",
+    "channel_id": "...",
+    "client_id": "web:123",
+    "correlation_id": "..."
+  },
+  "data": {
+    "tool_name": "web_search",
+    "tool_args": {"query": "hello"},
+    "duration_ms": 450
+  }
+}
+```
 
 See `integrations/slack/hooks.py` for a real example: Slack uses `after_tool_call`
 to add emoji reactions as tool indicators and log tool calls to an audit channel.
@@ -530,6 +581,149 @@ return event-specific preambles, skills, and tools:
 | Event | Preamble | Tools | Skill |
 |-------|----------|-------|-------|
 | Detection (new) | Camera/label/score context, view snapshot | `frigate_event_snapshot` | `integrations/frigate/frigate` |
+
+---
+
+## Setup Manifest (`setup.py`)
+
+Each integration can provide a `setup.py` file with a `SETUP` dict that declares
+configuration, UI components, and capabilities. The admin UI reads this to render
+integration settings, sidebar navigation, and dashboard modules.
+
+### Basic structure
+
+```python
+# integrations/myintegration/setup.py
+
+SETUP = {
+    "env_vars": [...],
+    "webhook": {...},
+    "sidebar_section": {...},
+    "dashboard_modules": [...],
+}
+```
+
+All fields are optional. The admin integration page auto-discovers `setup.py` and
+uses it to render the configuration UI.
+
+### `env_vars` — Environment variables
+
+Declare the env vars your integration needs. The admin UI renders a settings form
+with set/unset status indicators.
+
+```python
+"env_vars": [
+    {
+        "key": "MY_API_TOKEN",
+        "required": True,
+        "secret": True,
+        "description": "API token for the external service",
+    },
+    {
+        "key": "MY_PORT",
+        "required": False,
+        "description": "Port for the listener",
+        "default": "8080",
+    },
+],
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | `str` | Environment variable name |
+| `required` | `bool` | Whether the integration needs this to function |
+| `secret` | `bool` | If true, value is masked in the UI (optional, default false) |
+| `description` | `str` | Human-readable explanation |
+| `default` | `str` | Default value if not set (optional) |
+
+Values are resolved in order: DB setting → environment variable → default.
+
+### `webhook` — Webhook endpoint
+
+If your integration receives webhooks, declare the endpoint so the admin UI can
+display the full URL for users to configure in external services.
+
+```python
+"webhook": {
+    "path": "/integrations/myintegration/webhook",
+    "description": "Receives events from the external service",
+},
+```
+
+### `sidebar_section` — Sidebar navigation
+
+Integrations can add a navigation section to the main sidebar. The UI fetches
+declared sections from `GET /api/v1/admin/integrations/sidebar-sections` and
+renders them dynamically.
+
+```python
+"sidebar_section": {
+    "id": "my-dashboard",                  # unique section ID
+    "title": "MY DASHBOARD",               # sidebar header text
+    "icon": "LayoutDashboard",             # lucide-react icon name
+    "items": [
+        {"label": "Overview",  "href": "/my-dashboard",          "icon": "LayoutDashboard"},
+        {"label": "Reports",   "href": "/my-dashboard/reports",  "icon": "BarChart3"},
+        {"label": "Settings",  "href": "/my-dashboard/settings", "icon": "Settings"},
+    ],
+    "readiness_endpoint": "/api/v1/my-dashboard/readiness",  # optional
+    "readiness_field": "overview",                            # optional
+},
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | **Required.** Unique section identifier. Used for hide/show toggle. |
+| `title` | `str` | Header text shown above the nav items. Defaults to `id.upper()`. |
+| `icon` | `str` | [Lucide icon](https://lucide.dev) name for the collapsed sidebar rail. Defaults to `"Plug"`. |
+| `items` | `list[dict]` | **Required.** Navigation items with `label`, `href`, and `icon` fields. |
+| `readiness_endpoint` | `str` | Optional API path to check feature health status. |
+| `readiness_field` | `str` | Optional field name in the readiness response to read. |
+
+Each item in `items`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `str` | **Required.** Display text in the sidebar. |
+| `href` | `str` | **Required.** Route path (e.g. `/my-dashboard/reports`). |
+| `icon` | `str` | Lucide icon name. Defaults to `"Plug"`. |
+
+Users can hide sidebar sections via the Zustand-persisted UI store (toggle in the
+integration's settings page).
+
+!!! note "Available icons"
+    The frontend resolves icon names from a built-in map. Supported names include:
+    `LayoutDashboard`, `Columns`, `BookOpen`, `Brain`, `HelpCircle`, `Settings`,
+    `Zap`, `Plug`, `Bot`, `Layers`, `FileText`, `Paperclip`, `ClipboardList`,
+    `Key`, `Shield`, `ShieldCheck`, `Activity`, `Server`, `Wrench`, `BarChart3`,
+    `Users`, `HardDrive`, `Code2`, `Hash`, `Home`, `MessageSquare`, `Container`,
+    `Clock`, `Heart`, `Lock`, `Sun`, `Moon`. Unrecognized names fall back to `Plug`.
+
+### `dashboard_modules` — Pluggable dashboard panels
+
+Integrations can register custom modules that appear on the Mission Control
+dashboard (or any integration-owned dashboard).
+
+```python
+"dashboard_modules": [
+    {
+        "id": "analytics",
+        "label": "Analytics",
+        "icon": "BarChart3",
+        "description": "Usage analytics and trends",
+    },
+],
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Unique module identifier |
+| `label` | `str` | Display name |
+| `icon` | `str` | Lucide icon name |
+| `description` | `str` | Short description shown on the dashboard card |
+
+Modules are data-driven — integrations serve structured JSON from their router
+endpoints, and the frontend renders it generically.
 
 ---
 

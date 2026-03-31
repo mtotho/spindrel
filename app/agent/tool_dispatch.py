@@ -134,6 +134,27 @@ async def dispatch_tool_call(
         except Exception:
             logger.exception("Policy check failed for %s — allowing by default", name)
 
+    # Determine tool type for hook data
+    if is_client_tool(name):
+        _pre_hook_type = "client"
+    elif is_mcp_tool(name):
+        _pre_hook_type = "mcp"
+    else:
+        _pre_hook_type = "local"
+
+    # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
+    from app.agent.hooks import fire_hook, HookContext
+    asyncio.create_task(fire_hook("before_tool_execution", HookContext(
+        bot_id=bot_id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={
+            "tool_name": name,
+            "tool_type": _pre_hook_type,
+            "args": args,
+            "iteration": iteration + 1,
+        },
+    )))
+
     t0 = time.monotonic()
     _tc_type = "local"
     _tc_server: str | None = None

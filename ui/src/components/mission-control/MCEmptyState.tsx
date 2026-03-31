@@ -13,7 +13,7 @@ import {
   type MCFeatureReadiness,
 } from "@/src/api/hooks/useMissionControl";
 
-type FeatureKey = "dashboard" | "kanban" | "journal" | "memory";
+type FeatureKey = "dashboard" | "kanban" | "journal" | "memory" | "timeline" | "plans";
 
 const FIX_LINKS: Record<string, { href: string; label: string }> = {
   "channel settings": { href: "/admin/channels", label: "Go to Channels" },
