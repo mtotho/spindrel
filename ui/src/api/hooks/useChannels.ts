@@ -52,6 +52,20 @@ export function useDeleteChannel() {
   });
 }
 
+export function useEnsureOrchestrator() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ id: string; name: string; client_id: string }>(
+        "/api/v1/admin/channels/ensure-orchestrator",
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
 export function useChannelSettings(channelId: string | undefined) {
   return useQuery({
     queryKey: ["channel-settings", channelId],

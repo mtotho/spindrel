@@ -74,6 +74,7 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
         is_secret = var.get("secret", False)
 
         # Determine value and source
+        default_value = var.get("default", "")
         if cache_key in _cache:
             raw_value = _cache[cache_key]
             source = "db"
@@ -81,7 +82,7 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
             raw_value = os.environ[key]
             source = "env"
         else:
-            raw_value = ""
+            raw_value = default_value
             source = "default"
 
         is_set = bool(raw_value)
@@ -95,6 +96,7 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
             "value": display_value,
             "source": source,
             "is_set": is_set,
+            "default": default_value or None,
         })
     return results
 

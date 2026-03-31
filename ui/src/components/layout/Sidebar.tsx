@@ -442,6 +442,49 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           </Pressable>
         </View>
 
+        {/* Home (orchestrator) */}
+        {!channelsLoading && channels?.some((ch) => ch.client_id === "orchestrator:home") && (
+          <View className="px-2 pt-1.5 pb-0.5">
+            {channels.filter((ch) => ch.client_id === "orchestrator:home").map((channel) => {
+              const isActive = pathname.includes(channel.id);
+              const unread = !isActive && isUnread(channel.id, channel.updated_at);
+              return (
+                <Link key={channel.id} href={`/channels/${channel.id}` as any} asChild>
+                  <Pressable
+                    onPress={closeMobile}
+                    className={`flex-row items-center gap-2.5 rounded-lg px-3 ${channelPy} ${
+                      isActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                    }`}
+                    style={!isActive ? { backgroundColor: t.accent + "08" } : undefined}
+                  >
+                    <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.text} />
+                    <Text
+                      style={mobile ? { fontSize: 15 } : undefined}
+                      className={`flex-1 ${mobile ? "" : "text-sm"} ${
+                        isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text font-medium"
+                      }`}
+                      numberOfLines={1}
+                    >
+                      Home
+                    </Text>
+                    {unread && (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: t.accent,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                  </Pressable>
+                </Link>
+              );
+            })}
+          </View>
+        )}
+
         {/* Channels */}
         <View className="px-2 py-1.5">
           <View className="flex-row items-center justify-between px-3 mb-1">
@@ -463,43 +506,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             <ChannelSkeletons />
           ) : (
             <>
-              {/* Orchestrator channel pinned at top */}
-              {channels?.filter((ch) => ch.client_id === "orchestrator:home").map((channel) => {
-                const isActive = pathname.includes(channel.id);
-                const unread = !isActive && isUnread(channel.id, channel.updated_at);
-                return (
-                  <Link key={channel.id} href={`/channels/${channel.id}` as any} asChild>
-                    <Pressable
-                      onPress={closeMobile}
-                      className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
-                        isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                      }`}
-                    >
-                      <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
-                      <Text
-                        style={mobile ? { fontSize: 15 } : undefined}
-                        className={`flex-1 ${mobile ? "" : "text-sm"} ${
-                          isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text-muted"
-                        }`}
-                        numberOfLines={1}
-                      >
-                        Home
-                      </Text>
-                      {unread && (
-                        <View
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: 4,
-                            backgroundColor: t.accent,
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                    </Pressable>
-                  </Link>
-                );
-              })}
               {/* Regular channels */}
               {channels?.filter((ch) => ch.client_id !== "orchestrator:home").map((channel) => {
                 const bot = botMap.get(channel.bot_id);

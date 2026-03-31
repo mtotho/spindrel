@@ -88,13 +88,24 @@ def main():
         else:
             sys.exit(proc.returncode)
 
-    # Check if image exists
+    # Check if image exists — auto-build if missing
     image = cfg.MISSION_CONTROL_IMAGE
     img_check = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
     if img_check.returncode != 0:
-        print(f"[mission-control] ERROR: Docker image '{image}' not found.")
-        print(f"[mission-control] Build it with: cd integrations/mission_control/dashboard && docker build -t {image} .")
-        sys.exit(1)
+        dockerfile_dir = os.path.join(os.path.dirname(__file__), "dashboard")
+        dockerfile_path = os.path.join(dockerfile_dir, "Dockerfile")
+        if not os.path.isfile(dockerfile_path):
+            print(f"[mission-control] ERROR: Docker image '{image}' not found and no Dockerfile at {dockerfile_path}")
+            sys.exit(1)
+        print(f"[mission-control] Image '{image}' not found — building from {dockerfile_dir}...")
+        build_result = subprocess.run(
+            ["docker", "build", "-t", image, "."],
+            cwd=dockerfile_dir,
+        )
+        if build_result.returncode != 0:
+            print(f"[mission-control] ERROR: Docker build failed (exit {build_result.returncode})")
+            sys.exit(1)
+        print(f"[mission-control] Image '{image}' built successfully.")
 
     # Build the docker run command
     cmd = [

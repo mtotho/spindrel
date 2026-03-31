@@ -59,9 +59,20 @@ function StatusBadge({ status }: { status: string }) {
 
 function EnvVarPill({ v }: { v: IntegrationEnvVar }) {
   const t = useThemeTokens();
+  // Three states: green (explicitly set or has default), red (required + not set), gray (optional + not set + no default)
+  const isGreen = v.is_set;
+  const isRed = !v.is_set && v.required;
+  // neutral gray: optional, not set, no default
+  const bg = isGreen
+    ? "rgba(34,197,94,0.1)"
+    : isRed
+      ? "rgba(239,68,68,0.1)"
+      : "rgba(107,114,128,0.08)";
+  const fg = isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280";
+
   return (
     <span
-      title={v.description}
+      title={v.description + (v.default ? ` (default: ${v.default})` : "")}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -70,14 +81,19 @@ function EnvVarPill({ v }: { v: IntegrationEnvVar }) {
         borderRadius: 4,
         fontSize: 11,
         fontWeight: 500,
-        background: v.is_set ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-        color: v.is_set ? "#22c55e" : "#ef4444",
+        background: bg,
+        color: fg,
         fontFamily: "monospace",
       }}
     >
-      {v.is_set ? <Check size={10} /> : <X size={10} />}
+      {isGreen ? <Check size={10} /> : isRed ? <X size={10} /> : null}
       {v.key}
-      {!v.required && (
+      {v.default && !isRed && (
+        <span style={{ fontSize: 9, color: t.textDim, fontFamily: "sans-serif" }}>
+          {v.default}
+        </span>
+      )}
+      {!v.required && !v.default && (
         <span style={{ fontSize: 9, color: t.textDim, fontFamily: "sans-serif" }}>
           opt
         </span>

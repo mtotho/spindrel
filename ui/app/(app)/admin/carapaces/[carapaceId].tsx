@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator, TextInput, ScrollView, Alert, Platform } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, Alert, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   useCarapace,
@@ -9,12 +9,21 @@ import {
   useResolveCarapace,
 } from "@/src/api/hooks/useCarapaces";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { Save, Trash2, ArrowLeft, ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
+import {
+  Save, Trash2, ArrowLeft, ChevronDown, ChevronRight,
+  Layers, HelpCircle, Info,
+} from "lucide-react";
+import { CarapaceHelpModal } from "./CarapaceHelpModal";
+import { Section, FormRow } from "@/src/components/shared/FormControls";
 import type { Carapace, SkillConfig } from "@/src/types/api";
 
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default function CarapaceDetailPage() {
-  const tokens = useThemeTokens();
+  const t = useThemeTokens();
   const router = useRouter();
   const { carapaceId } = useLocalSearchParams<{ carapaceId: string }>();
   const isNew = carapaceId === "new";
@@ -39,6 +48,7 @@ export default function CarapaceDetailPage() {
   });
   const [dirty, setDirty] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     if (existing && !isNew) {
@@ -103,7 +113,7 @@ export default function CarapaceDetailPage() {
         await deleteMut.mutateAsync(carapaceId!);
         router.back();
       } catch {
-        // error shown via mutation state below
+        // error shown via mutation state
       }
     };
     if (Platform.OS === "web") {
@@ -116,29 +126,69 @@ export default function CarapaceDetailPage() {
     }
   };
 
-  const isFileBased = existing?.source_type === "file" || existing?.source_type === "integration";
+  const isFileBased =
+    existing?.source_type === "file" || existing?.source_type === "integration";
 
   if (!isNew && isLoading) {
     return <ActivityIndicator style={{ marginTop: 60 }} />;
   }
 
   const hasIncludes = (draft.includes || []).length > 0;
+  const inputStyle = makeInputStyle(t, isFileBased);
+  const textareaStyle = makeTextareaStyle(t, isFileBased);
 
   return (
-    <ScrollView style={{ flex: 1 }}>
+    <div style={{ overflow: "auto", flex: 1 }}>
       <MobileHeader title={isNew ? "New Carapace" : draft.name || "Carapace"} />
-      <View style={{ padding: 16, maxWidth: 720 }}>
+      <div style={{ padding: 16, maxWidth: 720 }}>
         {/* Top actions */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <Pressable onPress={() => router.back()} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <ArrowLeft size={16} color={tokens.textMuted} />
-            <Text style={{ color: tokens.textMuted, fontSize: 13 }}>Back</Text>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 16,
+          }}
+        >
+          <Pressable
+            onPress={() => router.back()}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <ArrowLeft size={16} color={t.textMuted} />
+            <Text style={{ color: t.textMuted, fontSize: 13 }}>Back</Text>
           </Pressable>
-          <View style={{ flexDirection: "row", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={() => setShowHelp(true)}
+              title="Help — what are carapaces?"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <HelpCircle size={16} color={t.textDim} />
+            </button>
             {!isNew && !isFileBased && (
-              <Pressable onPress={handleDelete} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "rgba(239,68,68,0.1)" }}>
-                <Trash2 size={14} color="#ef4444" />
-                <Text style={{ color: "#ef4444", fontSize: 12 }}>Delete</Text>
+              <Pressable
+                onPress={handleDelete}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  backgroundColor: t.dangerSubtle,
+                  borderWidth: 1,
+                  borderColor: t.dangerBorder,
+                }}
+              >
+                <Trash2 size={14} color={t.danger} />
+                <Text style={{ color: t.danger, fontSize: 12 }}>Delete</Text>
               </Pressable>
             )}
             {!isFileBased && (
@@ -146,9 +196,13 @@ export default function CarapaceDetailPage() {
                 onPress={handleSave}
                 disabled={!dirty && !isNew}
                 style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: dirty || isNew ? tokens.accent : tokens.surfaceBorder,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
                   opacity: dirty || isNew ? 1 : 0.5,
                 }}
               >
@@ -158,329 +212,495 @@ export default function CarapaceDetailPage() {
                 </Text>
               </Pressable>
             )}
-          </View>
-        </View>
+          </div>
+        </div>
 
+        {/* Error banner */}
         {(createMut.isError || updateMut.isError || deleteMut.isError) && (
-          <View style={{ backgroundColor: "rgba(239,68,68,0.08)", padding: 10, borderRadius: 8, marginBottom: 12 }}>
-            <Text style={{ color: "#ef4444", fontSize: 12 }}>
-              {(createMut.error || updateMut.error || deleteMut.error)?.message || "Operation failed"}
-            </Text>
-          </View>
+          <div
+            style={{
+              background: t.dangerSubtle,
+              border: `1px solid ${t.dangerBorder}`,
+              padding: 10,
+              borderRadius: 8,
+              marginBottom: 12,
+              color: t.danger,
+              fontSize: 12,
+            }}
+          >
+            {(createMut.error || updateMut.error || deleteMut.error)?.message ||
+              "Operation failed"}
+          </div>
         )}
 
+        {/* File-managed banner */}
         {isFileBased && (
-          <View style={{ backgroundColor: "rgba(59,130,246,0.08)", padding: 10, borderRadius: 8, marginBottom: 16 }}>
-            <Text style={{ color: "#3b82f6", fontSize: 12 }}>
-              This carapace is managed by a file ({existing?.source_path}). Edit the file to make changes.
-            </Text>
-          </View>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              background: t.accentSubtle,
+              border: `1px solid ${t.accentBorder}`,
+              padding: 10,
+              borderRadius: 8,
+              marginBottom: 16,
+              color: t.accent,
+              fontSize: 12,
+            }}
+          >
+            <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 } as any} />
+            <span>
+              This carapace is managed by a {existing?.source_type} ({existing?.source_path}).
+              Edit the source to make changes.
+            </span>
+          </div>
         )}
 
-        {/* ID (only for new) */}
-        {isNew && (
-          <FieldRow label="ID" tokens={tokens}>
-            <TextInput
-              value={draft.id || ""}
-              onChangeText={(v) => update({ id: v.toLowerCase().replace(/\s+/g, "-") })}
-              placeholder="e.g. qa-expert"
-              placeholderTextColor={tokens.textMuted}
-              style={inputStyle(tokens)}
+        {/* ─── Identity ─────────────────────────────────── */}
+        <Section title="Identity" description="Name, description, and organizational tags">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {isNew && (
+              <FormRow label="ID" description="Unique slug identifier (lowercase, hyphens). Cannot be changed after creation.">
+                <input
+                  value={draft.id || ""}
+                  onChange={(e) =>
+                    update({ id: e.target.value.toLowerCase().replace(/\s+/g, "-") })
+                  }
+                  placeholder="e.g. qa-expert"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                  onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+                />
+              </FormRow>
+            )}
+
+            <FormRow label="Name" description="Display name shown in the UI and bot config.">
+              <input
+                value={draft.name || ""}
+                onChange={(e) => update({ name: e.target.value })}
+                placeholder="e.g. QA Expert"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+            </FormRow>
+
+            <FormRow label="Description" description="Brief summary of what this carapace provides.">
+              <input
+                value={draft.description || ""}
+                onChange={(e) => update({ description: e.target.value })}
+                placeholder="e.g. Full QA workflow — test planning, execution, and reporting"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+            </FormRow>
+
+            <FormRow label="Tags" description="Comma-separated labels for filtering and search.">
+              <input
+                value={(draft.tags || []).join(", ")}
+                onChange={(e) =>
+                  update({
+                    tags: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="e.g. testing, quality"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+              <TagPreview items={draft.tags || []} t={t} color="purple" />
+            </FormRow>
+          </div>
+        </Section>
+
+        {/* ─── Capabilities ─────────────────────────────── */}
+        <Section
+          title="Capabilities"
+          description="Tools and skills the bot gains when this carapace is active"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <FormRow
+              label="Skills"
+              description="Comma-separated skill IDs. Prefix with * for pinned mode (always injected). Default is on_demand (bot fetches when needed)."
+            >
+              <input
+                value={skillsToString(draft.skills || [])}
+                onChange={(e) => update({ skills: parseSkillsString(e.target.value) })}
+                placeholder="e.g. *workspace-orchestrator, channel-workspace"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+              <SkillPreview skills={draft.skills || []} t={t} />
+            </FormRow>
+
+            <FormRow
+              label="Local Tools"
+              description="Python tools added to the bot's toolbox — e.g. exec_command, file, web_search."
+            >
+              <input
+                value={(draft.local_tools || []).join(", ")}
+                onChange={(e) =>
+                  update({
+                    local_tools: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="e.g. exec_command, file, web_search"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+              <TagPreview items={draft.local_tools || []} t={t} color="success" />
+            </FormRow>
+
+            <FormRow
+              label="Pinned Tools"
+              description="Tools that bypass RAG retrieval — always available regardless of query relevance."
+            >
+              <input
+                value={(draft.pinned_tools || []).join(", ")}
+                onChange={(e) =>
+                  update({
+                    pinned_tools: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="e.g. exec_command"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+              <TagPreview items={draft.pinned_tools || []} t={t} color="warning" />
+            </FormRow>
+
+            <FormRow
+              label="MCP Servers"
+              description="External MCP server names — the bot gains access to all tools from these servers."
+            >
+              <input
+                value={(draft.mcp_tools || []).join(", ")}
+                onChange={(e) =>
+                  update({
+                    mcp_tools: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="e.g. homeassistant, github"
+                disabled={isFileBased}
+                style={inputStyle}
+                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+              />
+              <TagPreview items={draft.mcp_tools || []} t={t} color="accent" />
+            </FormRow>
+          </div>
+        </Section>
+
+        {/* ─── Behavior ─────────────────────────────────── */}
+        <Section
+          title="Behavior"
+          description="System prompt fragment — the 'soul' of this carapace"
+        >
+          <FormRow
+            label="System Prompt Fragment"
+            description="Markdown-formatted instructions injected into the system prompt. Define workflow steps, priorities, constraints, and decision-making guidelines."
+          >
+            <textarea
+              value={draft.system_prompt_fragment || ""}
+              onChange={(e) => update({ system_prompt_fragment: e.target.value })}
+              placeholder={"## Expert Mode\n\nWhen activated, follow this workflow:\n1. Assess the situation\n2. Plan your approach\n3. Execute with precision"}
+              disabled={isFileBased}
+              rows={8}
+              style={textareaStyle}
+              onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+              onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
             />
-          </FieldRow>
-        )}
+            {(draft.system_prompt_fragment || "").length > 0 && (
+              <div style={{ fontSize: 10, color: t.textDim, textAlign: "right" }}>
+                {draft.system_prompt_fragment!.length} chars
+              </div>
+            )}
+          </FormRow>
+        </Section>
 
-        <FieldRow label="Name" tokens={tokens}>
-          <TextInput
-            value={draft.name || ""}
-            onChangeText={(v) => update({ name: v })}
-            placeholder="Display name"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
+        {/* ─── Composition ──────────────────────────────── */}
+        <Section
+          title="Composition"
+          description="Include other carapaces to inherit their tools, skills, and fragments"
+        >
+          <FormRow
+            label="Includes"
+            description="Comma-separated carapace IDs. Resolved depth-first (max 5 levels, cycle-safe). All tools, skills, and prompt fragments merge in."
+          >
+            <input
+              value={(draft.includes || []).join(", ")}
+              onChange={(e) =>
+                update({
+                  includes: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="e.g. code-review, testing"
+              disabled={isFileBased}
+              style={inputStyle}
+              onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+              onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+            />
+            <TagPreview items={draft.includes || []} t={t} color="accent" />
+          </FormRow>
+        </Section>
 
-        <FieldRow label="Description" tokens={tokens}>
-          <TextInput
-            value={draft.description || ""}
-            onChangeText={(v) => update({ description: v })}
-            placeholder="Short description"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="Tags" tokens={tokens} hint="Comma-separated">
-          <TextInput
-            value={(draft.tags || []).join(", ")}
-            onChangeText={(v) => update({ tags: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="testing, quality"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="Skills" tokens={tokens} hint="Comma-separated skill IDs. Prefix with * for pinned mode (e.g. *workspace-orchestrator, channel-workspace)">
-          <TextInput
-            value={skillsToString(draft.skills || [])}
-            onChangeText={(v) => update({ skills: parseSkillsString(v) })}
-            placeholder="*pinned-skill, on-demand-skill"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-          {(draft.skills || []).length > 0 && (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-              {(draft.skills || []).map((s: SkillConfig) => (
-                <View
-                  key={s.id}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                    backgroundColor: s.mode === "pinned" ? "rgba(59,130,246,0.1)" : "rgba(168,85,247,0.08)",
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 4,
-                  }}
-                >
-                  <Text style={{ fontSize: 11, color: s.mode === "pinned" ? "#3b82f6" : "#9333ea" }}>
-                    {s.id}
-                  </Text>
-                  <Text style={{ fontSize: 9, color: tokens.textDim }}>{s.mode || "on_demand"}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </FieldRow>
-
-        <FieldRow label="Local Tools" tokens={tokens} hint="Comma-separated tool names">
-          <TextInput
-            value={(draft.local_tools || []).join(", ")}
-            onChangeText={(v) => update({ local_tools: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="exec_command, file, web_search"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="Pinned Tools" tokens={tokens} hint="Tools that bypass RAG">
-          <TextInput
-            value={(draft.pinned_tools || []).join(", ")}
-            onChangeText={(v) => update({ pinned_tools: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="exec_command"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="MCP Tools" tokens={tokens} hint="MCP server names">
-          <TextInput
-            value={(draft.mcp_tools || []).join(", ")}
-            onChangeText={(v) => update({ mcp_tools: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="homeassistant, github"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="Includes" tokens={tokens} hint="Other carapace IDs to compose with">
-          <TextInput
-            value={(draft.includes || []).join(", ")}
-            onChangeText={(v) => update({ includes: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="code-review, testing"
-            placeholderTextColor={tokens.textMuted}
-            style={inputStyle(tokens)}
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        <FieldRow label="System Prompt Fragment" tokens={tokens} hint="Behavioral instructions injected when active">
-          <TextInput
-            value={draft.system_prompt_fragment || ""}
-            onChangeText={(v) => update({ system_prompt_fragment: v })}
-            placeholder="## Expert Mode\n\nFollow this workflow..."
-            placeholderTextColor={tokens.textMuted}
-            style={[inputStyle(tokens), { height: 160, textAlignVertical: "top" }]}
-            multiline
-            editable={!isFileBased}
-          />
-        </FieldRow>
-
-        {/* Resolved Preview — only for existing carapaces with includes */}
+        {/* ─── Resolved Preview ─────────────────────────── */}
         {!isNew && resolved && (hasIncludes || resolved.local_tools.length > 0) && (
-          <View style={{ marginTop: 8 }}>
-            <Pressable
-              onPress={() => setShowResolved(!showResolved)}
+          <div style={{ marginTop: 16 }}>
+            <button
+              onClick={() => setShowResolved(!showResolved)}
               style={{
-                flexDirection: "row",
+                display: "flex",
                 alignItems: "center",
                 gap: 6,
-                paddingVertical: 8,
+                padding: "8px 0",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: t.text,
               }}
             >
               {showResolved ? (
-                <ChevronDown size={14} color={tokens.textMuted} />
+                <ChevronDown size={14} color={t.textMuted} />
               ) : (
-                <ChevronRight size={14} color={tokens.textMuted} />
+                <ChevronRight size={14} color={t.textMuted} />
               )}
-              <Layers size={14} color={tokens.accent} />
-              <Text style={{ color: tokens.text, fontSize: 13, fontWeight: "600" }}>
+              <Layers size={14} color={t.accent} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
                 Resolved Preview
-              </Text>
+              </span>
               {hasIncludes && (
-                <Text style={{ color: tokens.textDim, fontSize: 11 }}>
-                  ({resolved.resolved_ids.length} carapace{resolved.resolved_ids.length !== 1 ? "s" : ""})
-                </Text>
+                <span style={{ fontSize: 11, color: t.textDim }}>
+                  ({resolved.resolved_ids.length} carapace
+                  {resolved.resolved_ids.length !== 1 ? "s" : ""})
+                </span>
               )}
-            </Pressable>
+            </button>
 
             {showResolved && (
-              <View style={{
-                backgroundColor: tokens.surface,
-                borderWidth: 1,
-                borderColor: tokens.surfaceBorder,
-                borderRadius: 8,
-                padding: 12,
-                gap: 10,
-              }}>
+              <div
+                style={{
+                  background: t.surface,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 8,
+                  padding: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+              >
                 {resolved.resolved_ids.length > 1 && (
-                  <PreviewRow label="Includes chain" tokens={tokens}>
-                    <Text style={{ fontSize: 11, color: tokens.textMuted, fontFamily: "monospace" }}>
+                  <ResolvedRow label="Includes chain" t={t}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: t.textMuted,
+                        fontFamily: "monospace",
+                      }}
+                    >
                       {resolved.resolved_ids.join(" → ")}
-                    </Text>
-                  </PreviewRow>
+                    </span>
+                  </ResolvedRow>
                 )}
-                <PreviewRow label="Tools" tokens={tokens}>
-                  <TagList items={resolved.local_tools} color="#22c55e" tokens={tokens} />
-                </PreviewRow>
+                <ResolvedRow label="Tools" t={t}>
+                  <TagPreview items={resolved.local_tools} t={t} color="success" />
+                </ResolvedRow>
                 {resolved.mcp_tools.length > 0 && (
-                  <PreviewRow label="MCP" tokens={tokens}>
-                    <TagList items={resolved.mcp_tools} color="#06b6d4" tokens={tokens} />
-                  </PreviewRow>
+                  <ResolvedRow label="MCP" t={t}>
+                    <TagPreview items={resolved.mcp_tools} t={t} color="accent" />
+                  </ResolvedRow>
                 )}
-                <PreviewRow label="Pinned" tokens={tokens}>
-                  <TagList items={resolved.pinned_tools} color="#f97316" tokens={tokens} />
-                </PreviewRow>
-                <PreviewRow label="Skills" tokens={tokens}>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                    {resolved.skills.map((s) => (
-                      <View
-                        key={s.id}
-                        style={{
-                          flexDirection: "row",
-                          gap: 3,
-                          backgroundColor: s.mode === "pinned" ? "rgba(59,130,246,0.1)" : "rgba(168,85,247,0.08)",
-                          paddingHorizontal: 5,
-                          paddingVertical: 1,
-                          borderRadius: 3,
-                        }}
-                      >
-                        <Text style={{ fontSize: 10, color: s.mode === "pinned" ? "#3b82f6" : "#9333ea" }}>
-                          {s.id}
-                        </Text>
-                        <Text style={{ fontSize: 9, color: tokens.textDim }}>{s.mode}</Text>
-                      </View>
-                    ))}
-                    {resolved.skills.length === 0 && (
-                      <Text style={{ fontSize: 11, color: tokens.textDim }}>none</Text>
-                    )}
-                  </View>
-                </PreviewRow>
-                <PreviewRow label="Fragments" tokens={tokens}>
-                  <Text style={{ fontSize: 11, color: tokens.textMuted }}>
-                    {resolved.system_prompt_fragments.length} fragment{resolved.system_prompt_fragments.length !== 1 ? "s" : ""},{" "}
-                    {resolved.system_prompt_fragments.reduce((a, f) => a + f.length, 0)} chars
-                  </Text>
-                </PreviewRow>
-              </View>
+                <ResolvedRow label="Pinned" t={t}>
+                  <TagPreview items={resolved.pinned_tools} t={t} color="warning" />
+                </ResolvedRow>
+                <ResolvedRow label="Skills" t={t}>
+                  <SkillPreview skills={resolved.skills} t={t} />
+                </ResolvedRow>
+                <ResolvedRow label="Fragments" t={t}>
+                  <span style={{ fontSize: 11, color: t.textMuted }}>
+                    {resolved.system_prompt_fragments.length} fragment
+                    {resolved.system_prompt_fragments.length !== 1 ? "s" : ""},{" "}
+                    {resolved.system_prompt_fragments.reduce(
+                      (a, f) => a + f.length,
+                      0,
+                    )}{" "}
+                    chars
+                  </span>
+                </ResolvedRow>
+              </div>
             )}
-          </View>
+          </div>
         )}
-      </View>
-    </ScrollView>
+      </div>
+
+      {showHelp && <CarapaceHelpModal onClose={() => setShowHelp(false)} />}
+    </div>
   );
 }
 
-function FieldRow({
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function ResolvedRow({
   label,
-  hint,
-  tokens,
+  t,
   children,
 }: {
   label: string;
-  hint?: string;
-  tokens: ReturnType<typeof useThemeTokens>;
+  t: ThemeTokens;
   children: React.ReactNode;
 }) {
   return (
-    <View style={{ marginBottom: 14 }}>
-      <Text style={{ color: tokens.text, fontSize: 13, fontWeight: "600", marginBottom: 4 }}>{label}</Text>
-      {hint && <Text style={{ color: tokens.textMuted, fontSize: 11, marginBottom: 4 }}>{hint}</Text>}
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim }}>{label}</span>
       {children}
-    </View>
+    </div>
   );
 }
 
-function PreviewRow({
-  label,
-  tokens,
-  children,
+type TagColor = "purple" | "accent" | "success" | "warning";
+
+function TagPreview({
+  items,
+  t,
+  color,
 }: {
-  label: string;
-  tokens: ReturnType<typeof useThemeTokens>;
-  children: React.ReactNode;
+  items: string[];
+  t: ThemeTokens;
+  color: TagColor;
 }) {
+  if (items.length === 0) return null;
+  const colorMap: Record<TagColor, { bg: string; border: string; text: string }> = {
+    purple: { bg: t.purpleSubtle, border: t.purpleBorder, text: t.purple },
+    accent: { bg: t.accentSubtle, border: t.accentBorder, text: t.accent },
+    success: { bg: t.successSubtle, border: t.successBorder, text: t.success },
+    warning: { bg: t.warningSubtle, border: t.warningBorder, text: t.warning },
+  };
+  const c = colorMap[color];
   return (
-    <View style={{ gap: 3 }}>
-      <Text style={{ fontSize: 11, fontWeight: "600", color: tokens.textDim }}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
-function TagList({ items, color, tokens }: { items: string[]; color: string; tokens: ReturnType<typeof useThemeTokens> }) {
-  if (items.length === 0) {
-    return <Text style={{ fontSize: 11, color: tokens.textDim }}>none</Text>;
-  }
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
       {items.map((item) => (
-        <View key={item} style={{ backgroundColor: `${color}15`, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3 }}>
-          <Text style={{ fontSize: 10, color }}>{item}</Text>
-        </View>
+        <span
+          key={item}
+          style={{
+            fontSize: 11,
+            color: c.text,
+            background: c.bg,
+            border: `1px solid ${c.border}`,
+            borderRadius: 4,
+            padding: "1px 6px",
+          }}
+        >
+          {item}
+        </span>
       ))}
-    </View>
+    </div>
   );
 }
 
-function inputStyle(tokens: ReturnType<typeof useThemeTokens>) {
-  return {
-    backgroundColor: tokens.surface,
-    borderWidth: 1,
-    borderColor: tokens.surfaceBorder,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: tokens.text,
-    fontSize: 13,
-  } as const;
+function SkillPreview({ skills, t }: { skills: SkillConfig[]; t: ThemeTokens }) {
+  if (skills.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+      {skills.map((s) => {
+        const isPinned = s.mode === "pinned";
+        return (
+          <span
+            key={s.id}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              color: isPinned ? t.accent : t.purple,
+              background: isPinned ? t.accentSubtle : t.purpleSubtle,
+              border: `1px solid ${isPinned ? t.accentBorder : t.purpleBorder}`,
+              borderRadius: 4,
+              padding: "1px 6px",
+            }}
+          >
+            {s.id}
+            <span style={{ fontSize: 9, color: t.textDim }}>{s.mode || "on_demand"}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
-/** Convert skills array to editable string: *pinned-skill, on-demand-skill */
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+function makeInputStyle(
+  t: ThemeTokens,
+  disabled?: boolean,
+): React.CSSProperties {
+  return {
+    background: t.inputBg,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 8,
+    padding: "8px 12px",
+    color: t.inputText,
+    fontSize: 14,
+    width: "100%",
+    outline: "none",
+    transition: "border-color 0.15s",
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? "not-allowed" : undefined,
+  };
+}
+
+function makeTextareaStyle(
+  t: ThemeTokens,
+  disabled?: boolean,
+): React.CSSProperties {
+  return {
+    ...makeInputStyle(t, disabled),
+    resize: "vertical" as const,
+    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: 1.5,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Skill string parsing
+// ---------------------------------------------------------------------------
+
 function skillsToString(skills: SkillConfig[]): string {
   return skills
     .map((s) => (s.mode === "pinned" ? `*${s.id}` : s.id))
     .join(", ");
 }
 
-/** Parse skills string back to SkillConfig[]: *pinned-skill → {id, mode: "pinned"} */
 function parseSkillsString(input: string): SkillConfig[] {
   return input
     .split(",")
