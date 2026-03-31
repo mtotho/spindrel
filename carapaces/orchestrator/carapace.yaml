@@ -6,6 +6,17 @@ description: >-
   an orchestrator via channel carapaces_extra.
 tags: [admin, delegation, orchestration]
 
+delegates:
+  - id: qa
+    type: carapace
+    description: "Run QA and test planning. Includes code review."
+  - id: code-review
+    type: carapace
+    description: "Structured code review with severity ratings."
+  - id: bug-fix
+    type: carapace
+    description: "Systematic debugging and bug resolution."
+
 skills:
   - id: carapaces/orchestrator/workspace-orchestrator
     mode: pinned

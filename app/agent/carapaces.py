@@ -28,6 +28,15 @@ CARAPACES_DIR = Path("carapaces")
 
 
 @dataclass
+class DelegateEntry:
+    """A delegate sub-agent declared by a carapace."""
+    id: str
+    type: str  # "carapace" or "bot"
+    description: str = ""
+    source_carapace: str = ""  # which carapace declared this delegate
+
+
+@dataclass
 class ResolvedCarapace:
     """Flattened result of resolving one or more carapaces."""
     skills: list[SkillConfig] = field(default_factory=list)
@@ -35,6 +44,7 @@ class ResolvedCarapace:
     mcp_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
     system_prompt_fragments: list[str] = field(default_factory=list)
+    delegates: list[DelegateEntry] = field(default_factory=list)
 
 
 def _carapace_to_dict(row: CarapaceRow) -> dict:
@@ -48,6 +58,7 @@ def _carapace_to_dict(row: CarapaceRow) -> dict:
         "pinned_tools": row.pinned_tools or [],
         "system_prompt_fragment": row.system_prompt_fragment,
         "includes": row.includes or [],
+        "delegates": row.delegates or [],
         "tags": row.tags or [],
         "source_path": row.source_path,
         "source_type": row.source_type,
@@ -76,6 +87,7 @@ def resolve_carapaces(ids: list[str], *, max_depth: int = 5) -> ResolvedCarapace
     _seen_mcp: set[str] = set()
     _seen_pinned: set[str] = set()
     _seen_fragments: set[str] = set()  # track carapace IDs whose fragment was added
+    _seen_delegates: set[str] = set()  # track delegate IDs for deduplication
 
     def _resolve(cid: str, visited: set[str], depth: int) -> None:
         if cid in visited:
@@ -123,6 +135,18 @@ def resolve_carapaces(ids: list[str], *, max_depth: int = 5) -> ResolvedCarapace
         if frag and frag.strip() and cid not in _seen_fragments:
             _seen_fragments.add(cid)
             result.system_prompt_fragments.append(frag.strip())
+
+        # Collect delegates (deduplicate by id)
+        for d in c.get("delegates", []):
+            did = d.get("id", "") if isinstance(d, dict) else str(d)
+            if did and did not in _seen_delegates:
+                _seen_delegates.add(did)
+                result.delegates.append(DelegateEntry(
+                    id=did,
+                    type=d.get("type", "carapace") if isinstance(d, dict) else "carapace",
+                    description=d.get("description", "") if isinstance(d, dict) else "",
+                    source_carapace=cid,
+                ))
 
     for cid in ids:
         _resolve(cid, set(), 0)
@@ -260,6 +284,7 @@ async def seed_carapaces_from_yaml() -> None:
                     pinned_tools=data.get("pinned_tools", []),
                     system_prompt_fragment=data.get("system_prompt_fragment"),
                     includes=data.get("includes", []),
+                    delegates=data.get("delegates", []),
                     tags=data.get("tags", []),
                     source_path=str(path.resolve()),
                     source_type=source_type,
@@ -281,6 +306,7 @@ async def seed_carapaces_from_yaml() -> None:
                 existing.pinned_tools = data.get("pinned_tools", [])
                 existing.system_prompt_fragment = data.get("system_prompt_fragment")
                 existing.includes = data.get("includes", [])
+                existing.delegates = data.get("delegates", [])
                 existing.tags = data.get("tags", [])
                 existing.source_path = str(path.resolve())
                 existing.source_type = source_type

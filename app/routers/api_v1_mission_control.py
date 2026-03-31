@@ -221,6 +221,7 @@ class ReadinessResponse(BaseModel):
 
 @router.get("/readiness", dependencies=[Depends(require_scopes("mission_control:read"))])
 async def readiness(
+    scope: Literal["fleet", "personal"] = "fleet",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
@@ -229,7 +230,7 @@ async def readiness(
 
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
-    channels = await _tracked_channels(db, user, prefs)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     # Dashboard: channels with workspace enabled
     dashboard_issues: list[str] = []
@@ -274,16 +275,24 @@ async def readiness(
 
     journal_count = 0
     memory_count = 0
-    for bot in memory_bots:
-        from app.services.memory_scheme import get_memory_root
-        try:
-            mem_root = get_memory_root(bot)
-        except Exception:
-            continue
-        if os.path.isdir(os.path.join(mem_root, "logs")):
-            journal_count += 1
-        if os.path.isfile(os.path.join(mem_root, "MEMORY.md")):
-            memory_count += 1
+
+    def _check_memory_bots():
+        j_count = 0
+        m_count = 0
+        for bot in memory_bots:
+            from app.services.memory_scheme import get_memory_root
+            try:
+                mem_root = get_memory_root(bot)
+            except Exception:
+                continue
+            if os.path.isdir(os.path.join(mem_root, "logs")):
+                j_count += 1
+            if os.path.isfile(os.path.join(mem_root, "MEMORY.md")):
+                m_count += 1
+        return j_count, m_count
+
+    if memory_bots:
+        journal_count, memory_count = await asyncio.to_thread(_check_memory_bots)
 
     journal_issues: list[str] = []
     if not memory_bots:
@@ -342,13 +351,13 @@ async def overview(
 
     # Total channel count (regardless of workspace flag) for empty-state UX
     all_channels_q = select(func.count(Channel.id))
-    if user and not user.is_admin:
+    if user and (not user.is_admin or scope == "personal"):
         all_channels_q = all_channels_q.where(Channel.user_id == user.id)
     total_channels_all = (await db.execute(all_channels_q)).scalar() or 0
 
     # Build bot lookup
     bots_q = select(Bot).order_by(Bot.name)
-    if user and not user.is_admin:
+    if user and (not user.is_admin or scope == "personal"):
         bots_q = bots_q.where((Bot.user_id == user.id) | (Bot.user_id == None))  # noqa: E711
     bots_result = await db.execute(bots_q)
     bots = list(bots_result.scalars().all())
@@ -923,7 +932,10 @@ async def read_reference_file(
         with open(ref_path) as f:
             return f.read()
 
-    content = await asyncio.to_thread(_read)
+    try:
+        content = await asyncio.to_thread(_read)
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File is not a text file")
     return {"content": content}
 
 

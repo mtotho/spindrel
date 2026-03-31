@@ -24,10 +24,8 @@ import {
   Info,
   ChevronDown,
   ChevronRight,
-  BookOpen,
   Calendar,
   Brain,
-  Settings,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -246,8 +244,8 @@ function BotsSection({ bots }: { bots: MCBotOverview[] }) {
   const inactive = bots.filter((b) => b.channel_count === 0);
 
   return (
-    <View style={{ gap: 6 }}>
-      <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
+    <View style={{ gap: 8 }}>
+      <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
         BOTS
       </Text>
       {/* Active bots — compact inline rows */}
@@ -318,7 +316,7 @@ export default function MCDashboard() {
   const { data: prefs } = useMCPrefs();
   const updatePrefs = useUpdateMCPrefs();
   const scope = ((prefs?.layout_prefs as any)?.scope as "fleet" | "personal") || "fleet";
-  const { data, isLoading } = useMCOverview(scope);
+  const { data, isLoading, error } = useMCOverview(scope);
   const { refreshing, onRefresh } = usePageRefresh([["mc-overview"]]);
   const t = useThemeTokens();
   const { width } = useWindowDimensions();
@@ -345,10 +343,22 @@ export default function MCDashboard() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: isWide ? 20 : 14, gap: 14, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ padding: isWide ? 20 : 14, gap: 20, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading...</Text>
+        ) : error ? (
+          <View
+            className="rounded-lg p-4"
+            style={{ backgroundColor: "rgba(239,68,68,0.06)", borderWidth: 1, borderColor: "rgba(239,68,68,0.15)" }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: "#ef4444" }}>
+              Failed to load dashboard
+            </Text>
+            <Text style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+              {(error as any)?.message || "Check your connection and try again."}
+            </Text>
+          </View>
         ) : !data ? (
           <Text className="text-text-muted text-sm">No data</Text>
         ) : (
@@ -367,8 +377,8 @@ export default function MCDashboard() {
             <QuickNav />
 
             {/* Channels */}
-            <View style={{ gap: 6 }}>
-              <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
+            <View style={{ gap: 8 }}>
+              <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
                 CHANNELS
               </Text>
               {data.channels.length > 0 ? (

@@ -159,8 +159,8 @@ export default function MCModulePage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["mc-module-data", moduleId],
     queryFn: () =>
-      apiFetch<ModuleData>(`${mod!.api_base}/data`),
-    enabled: !!mod,
+      apiFetch<ModuleData>(`${mod?.api_base}/data`),
+    enabled: !!mod?.api_base,
   });
 
   const { refreshing, onRefresh } = usePageRefresh([

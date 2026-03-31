@@ -17,6 +17,7 @@ class CarapaceOut(BaseModel):
     pinned_tools: list[str] = []
     system_prompt_fragment: Optional[str] = None
     includes: list[str] = []
+    delegates: list = []
     tags: list[str] = []
     source_type: str = "manual"
     source_path: Optional[str] = None
@@ -36,6 +37,7 @@ class CarapaceCreateIn(BaseModel):
     pinned_tools: list[str] = []
     system_prompt_fragment: Optional[str] = None
     includes: list[str] = []
+    delegates: list = []
     tags: list[str] = []
 
 
@@ -48,6 +50,7 @@ class CarapaceUpdateIn(BaseModel):
     pinned_tools: Optional[list[str]] = None
     system_prompt_fragment: Optional[str] = None
     includes: Optional[list[str]] = None
+    delegates: Optional[list] = None
     tags: Optional[list[str]] = None
 
 

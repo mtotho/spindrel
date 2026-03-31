@@ -62,6 +62,14 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": "Behavioral instructions injected when this carapace is active.",
                 },
+                "delegates": {
+                    "type": "string",
+                    "description": (
+                        'JSON array of delegate configs, e.g. '
+                        '\'[{"id": "qa", "type": "carapace", "description": "Run QA"}]\'. '
+                        'Each entry has id, type (carapace or bot), and description.'
+                    ),
+                },
                 "tags": {
                     "type": "string",
                     "description": "Comma-separated tags for categorization.",
@@ -81,6 +89,7 @@ async def manage_carapace(
     pinned_tools: str | None = None,
     mcp_tools: str | None = None,
     includes: str | None = None,
+    delegates: str | None = None,
     system_prompt_fragment: str | None = None,
     tags: str | None = None,
 ) -> str:
@@ -99,6 +108,15 @@ async def manage_carapace(
         except json.JSONDecodeError:
             # Treat as comma-separated skill IDs
             return [{"id": x.strip(), "mode": "on_demand"} for x in s.split(",") if x.strip()]
+
+    def _parse_delegates(s: str) -> list:
+        if not s:
+            return []
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            # Treat as comma-separated carapace IDs
+            return [{"id": x.strip(), "type": "carapace"} for x in s.split(",") if x.strip()]
 
     if action == "list":
         from app.agent.carapaces import list_carapaces
@@ -148,6 +166,7 @@ async def manage_carapace(
                 pinned_tools=_csv(pinned_tools or ""),
                 system_prompt_fragment=system_prompt_fragment or None,
                 includes=_csv(includes or ""),
+                delegates=_parse_delegates(delegates or ""),
                 tags=_csv(tags or ""),
                 source_type="tool",
                 created_at=now,
@@ -187,6 +206,8 @@ async def manage_carapace(
                 row.system_prompt_fragment = system_prompt_fragment or None
             if includes is not None:
                 row.includes = _csv(includes)
+            if delegates is not None:
+                row.delegates = _parse_delegates(delegates)
             if tags is not None:
                 row.tags = _csv(tags)
             row.updated_at = datetime.now(timezone.utc)

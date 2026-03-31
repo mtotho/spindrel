@@ -113,9 +113,10 @@ export default function MCJournal() {
   }, [entries]);
 
   // Apply bot filter
-  const filtered = filterBot
-    ? entries.filter((e) => e.bot_id === filterBot)
-    : entries;
+  const filtered = useMemo(
+    () => (filterBot ? entries.filter((e) => e.bot_id === filterBot) : entries),
+    [entries, filterBot]
+  );
 
   // Group entries
   const grouped = useMemo(() => {
@@ -239,7 +240,7 @@ export default function MCJournal() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ padding: 16, gap: 20, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading journal...</Text>
@@ -255,9 +256,9 @@ export default function MCJournal() {
               <Text className="text-text-dim text-xs font-semibold tracking-wider mb-2">
                 {groupLabel(key)}
               </Text>
-              <View className="gap-3">
-                {groupEntries.map((entry, idx) => (
-                  <JournalEntryView key={`${entry.bot_id}-${idx}`} entry={entry} />
+              <View style={{ gap: 10 }}>
+                {groupEntries.map((entry) => (
+                  <JournalEntryView key={`${entry.bot_id}-${entry.date}`} entry={entry} />
                 ))}
               </View>
             </View>

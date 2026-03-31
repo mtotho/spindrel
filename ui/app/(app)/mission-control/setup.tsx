@@ -147,13 +147,13 @@ export default function MCSetup() {
         onRefresh={onRefresh}
         contentContainerStyle={{
           padding: 16,
-          gap: 16,
+          gap: 24,
           paddingBottom: 40,
           maxWidth: 960,
         }}
       >
         {/* Feature readiness checklist */}
-        <View style={{ gap: 6 }}>
+        <View style={{ gap: 10 }}>
           <Text
             className="text-text-dim"
             style={{
@@ -195,7 +195,7 @@ export default function MCSetup() {
         </View>
 
         {/* Setup guide documentation */}
-        <View style={{ gap: 6 }}>
+        <View style={{ gap: 10 }}>
           <View className="flex-row items-center gap-2">
             <BookOpen size={14} color={t.textDim} />
             <Text
