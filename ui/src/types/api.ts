@@ -70,6 +70,7 @@ export interface BotConfig {
   api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
   memory_scheme?: string | null;  // "workspace-files"|null
   carapaces?: string[];
+  workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
   created_at?: string;
@@ -182,6 +183,7 @@ export interface Channel {
   heartbeat_enabled?: boolean;
   heartbeat_in_quiet_hours?: boolean;
   channel_workspace_enabled?: boolean;
+  workspace_id?: string | null;
   resolved_workspace_id?: string | null;
   tags?: string[];
   created_at: string;
@@ -262,6 +264,7 @@ export interface ChannelSettings {
   // Carapace overrides
   carapaces_extra?: string[] | null;
   carapaces_disabled?: string[] | null;
+  workspace_id?: string | null;
   resolved_workspace_id?: string | null;
   tags?: string[];
 }

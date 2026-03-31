@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { createPortal } from "react-dom";
 import { Link } from "expo-router";
-import { DollarSign, Eye, EyeOff, Gauge } from "lucide-react";
+import { DollarSign, Eye, Gauge } from "lucide-react";
 import { useUsageForecast } from "../../api/hooks/useUsageForecast";
 import { useUsageHudStore } from "../../stores/usageHud";
 import { useThemeTokens } from "../../theme/tokens";
@@ -41,13 +41,11 @@ function statusColor(
 const VISIBILITY_LABELS = {
   always: "Always visible",
   threshold: "Show at 60%+",
-  never: "Hidden",
 } as const;
 
 const VISIBILITY_ICONS = {
   always: Eye,
   threshold: Gauge,
-  never: EyeOff,
 } as const;
 
 export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
@@ -95,7 +93,6 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   if (isLoading || !data) return null;
 
   // Threshold mode: hide when below thresholds
-  if (visibility === "never") return null;
   if (visibility === "threshold") {
     const { actual, projected } = worstLimitPct(data.limits);
     if (actual < 60 && projected < 80) return null;
@@ -201,7 +198,7 @@ const PopoverContent = forwardRef<
     color: string;
     worstLimit: LimitForecast | null;
     cycleVisibility: () => void;
-    visibility: "always" | "threshold" | "never";
+    visibility: "always" | "threshold";
     onClose: () => void;
     pos: { left: number; bottom: number };
   }

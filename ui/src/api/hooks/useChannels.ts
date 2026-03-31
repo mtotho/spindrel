@@ -9,11 +9,16 @@ interface ChannelListResponse {
   page_size: number;
 }
 
-export function useChannels() {
+export function useChannels(opts?: { workspaceId?: string | null }) {
+  const workspaceId = opts?.workspaceId;
   return useQuery({
-    queryKey: ["channels"],
+    queryKey: ["channels", { workspaceId: workspaceId ?? null }],
     queryFn: async () => {
-      const res = await apiFetch<ChannelListResponse>("/api/v1/admin/channels-enriched?page_size=100");
+      const params = new URLSearchParams({ page_size: "100" });
+      if (workspaceId) {
+        params.set("workspace_id", workspaceId);
+      }
+      const res = await apiFetch<ChannelListResponse>(`/api/v1/admin/channels-enriched?${params}`);
       return res.channels;
     },
   });

@@ -18,7 +18,18 @@ You are the coordinator, not the worker. Your job is to decompose objectives int
 - **Shared area**: `/workspace/common/` — place specs, datasets, configs, and skills here for members
 - **Member dirs**: `/workspace/bots/{member_bot_id}/` — readable; write access depends on `write_protected_paths`
 - **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
+- **Container image**: Built from `Dockerfile.workspace` — includes httpx, requests, pyyaml, pandas, beautifulsoup4, etc.
 - **Env vars**: `AGENT_SERVER_URL`, `AGENT_SERVER_API_KEY` (auto-injected, scoped to your permissions)
+
+### Startup Script (`/workspace/startup.sh`)
+
+Each workspace has a configurable `startup_script` (default: `/workspace/startup.sh`). If the file exists when the container starts (or restarts), it runs automatically. Use it for:
+- Installing extra packages (`pip install`, `npm install -g`)
+- Cloning repos into `/workspace/common/`
+- Setting up project-specific tooling or config files
+- Any initialization that should survive container recreates (persist the script in the workspace volume)
+
+The script is optional — if it doesn't exist, startup proceeds silently. If it fails (non-zero exit), the container still starts but the failure is logged. The path is configurable per-workspace via the admin API (`startup_script` field).
 
 ### Workspace Filesystem Layout
 
@@ -193,6 +204,30 @@ agent api PATCH /api/v1/channels/{id}/config \
 ```
 
 Channels are the primary unit of project context. When users mention "projects" or "conversations", they typically mean channels.
+
+### Channel Workspace Scoping
+
+Channels have a `workspace_id` field that ties them to a shared workspace. This is set automatically when a channel is created for a bot that belongs to a workspace, and cascades when bots are added/removed from workspaces.
+
+When managing multiple workspaces:
+
+- **workspace_id**: Each channel tracks which workspace it belongs to. The UI uses this to filter the channel list by workspace.
+- **workspace_only bots**: Bots with `workspace_only: true` are hidden from the global channel view — they only appear when their workspace is selected. Use this for bots that are internal to a specific workspace and shouldn't clutter the main view.
+- **Orchestrator is global**: The orchestrator channel (`orchestrator:home`) always appears regardless of workspace filter. It's the entry point for all system management.
+
+To assign a channel to a workspace:
+
+```
+manage_channel(action="configure", channel_id="...", config={"workspace_id": "<workspace-uuid>"})
+```
+
+To mark a bot as workspace-only:
+
+```
+manage_bot(action="update", bot_id="my-bot", config={"workspace_only": true})
+```
+
+When a user switches workspace context in the UI, they only see channels belonging to that workspace plus the orchestrator. Unassigned channels appear under "All Workspaces."
 
 ---
 

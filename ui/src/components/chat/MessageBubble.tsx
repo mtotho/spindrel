@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { View, Text, Platform } from "react-native";
 import { Wrench, ChevronRight, ChevronDown, Copy, Check, Activity } from "lucide-react";
 import { useRouter } from "expo-router";
@@ -258,9 +258,9 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ReturnType<typeo
                 href={n.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: t.linkColor, textDecoration: "none" }}
-                onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecoration = "underline"; }}
-                onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecoration = "none"; }}
+                style={{ color: t.linkColor, textDecoration: "underline", textDecorationColor: `${t.linkColor}50`, textUnderlineOffset: 2 }}
+                onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecorationColor = t.linkColor; }}
+                onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecorationColor = `${t.linkColor}50`; }}
               >
                 {n.content}
               </a>
@@ -641,7 +641,7 @@ function ToolBadges({
 // MessageBubble — Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, botName, isGrouped }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped }: Props) {
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
@@ -887,4 +887,4 @@ export function MessageBubble({ message, botName, isGrouped }: Props) {
       {inner}
     </View>
   );
-}
+});

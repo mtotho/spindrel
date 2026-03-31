@@ -399,6 +399,7 @@ class BotUpdateIn(BaseModel):
     api_permissions: Optional[list[str]] = None
     api_docs_mode: Optional[str] = None  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Optional[str] = None  # "workspace-files"|null
+    workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
 

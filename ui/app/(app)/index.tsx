@@ -8,6 +8,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useAuthStore } from "@/src/stores/auth";
+import { useUIStore } from "@/src/stores/ui";
 import {
   Hash,
   Bot,
@@ -84,7 +85,10 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
 }
 
 export default function HomeScreen() {
-  const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
+  const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
+  const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels(
+    activeWorkspaceId ? { workspaceId: activeWorkspaceId } : undefined,
+  );
   const { data: bots } = useBots();
   const columns = useResponsiveColumns();
   const { refreshing, onRefresh } = usePageRefresh();
@@ -213,8 +217,12 @@ export default function HomeScreen() {
         ) : !hasChannels ? (
           <View className="items-center py-16 gap-3">
             <Hash size={36} color={t.textDim} />
-            <Text className="text-text-muted text-base">No channels yet</Text>
-            <Text className="text-text-dim text-sm">Create a channel to get started</Text>
+            <Text className="text-text-muted text-base">
+              {activeWorkspaceId ? "No channels in this workspace" : "No channels yet"}
+            </Text>
+            <Text className="text-text-dim text-sm">
+              {activeWorkspaceId ? "Switch workspaces or create a new channel" : "Create a channel to get started"}
+            </Text>
           </View>
         ) : otherChannels.length > 0 ? (
           <View className="gap-1">

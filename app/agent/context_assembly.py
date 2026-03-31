@@ -1042,9 +1042,13 @@ async def assemble_context(
                     for _sr in _sec_rows:
                         if _sr.transcript_path:
                             import os as _sec_os
-                            from app.services.workspace import workspace_service as _ws_svc
                             try:
-                                _ws_root = _ws_svc.get_workspace_root(bot.id, bot)
+                                if _sr.transcript_path.startswith("channels/"):
+                                    from app.services.channel_workspace import _get_ws_root as _cws_root
+                                    _ws_root = _cws_root(bot)
+                                else:
+                                    from app.services.workspace import workspace_service as _ws_svc
+                                    _ws_root = _ws_svc.get_workspace_root(bot.id, bot)
                                 _fpath = _sec_os.path.join(_ws_root, _sr.transcript_path)
                                 with open(_fpath) as _f:
                                     _sec_texts.append(_f.read())

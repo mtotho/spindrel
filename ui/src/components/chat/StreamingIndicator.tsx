@@ -31,6 +31,10 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
   const t = useThemeTokens();
   const isWeb = Platform.OS === "web";
 
+  // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
+  const displayContent = content.trim();
+  const displayThinking = thinkingContent?.trim() ?? "";
+
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
       {/* Bot avatar */}
@@ -61,27 +65,57 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         </View>
 
         {/* Thinking content */}
-        {thinkingContent ? (
-          <View
-            style={{
-              marginBottom: 6,
-              paddingLeft: 10,
-              borderLeftWidth: 3,
-              borderLeftColor: t.textDim,
-            }}
-          >
-            <Text
+        {displayThinking ? (
+          isWeb ? (
+            <div
               style={{
-                fontSize: 13,
-                lineHeight: 20,
-                color: t.textMuted,
-                fontStyle: "italic",
+                marginBottom: 8,
+                marginTop: 2,
+                paddingLeft: 12,
+                paddingTop: 6,
+                paddingBottom: 6,
+                borderLeft: `3px solid ${t.textDim}`,
+                maxHeight: 200,
+                overflowY: "auto",
               }}
-              numberOfLines={8}
             >
-              {thinkingContent}
-            </Text>
-          </View>
+              <div
+                style={{
+                  fontSize: 13,
+                  lineHeight: "1.55",
+                  color: t.textMuted,
+                  fontStyle: "italic",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {displayThinking}
+              </div>
+            </div>
+          ) : (
+            <View
+              style={{
+                marginBottom: 8,
+                marginTop: 2,
+                paddingLeft: 12,
+                paddingVertical: 6,
+                borderLeftWidth: 3,
+                borderLeftColor: t.textDim,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  lineHeight: 20,
+                  color: t.textMuted,
+                  fontStyle: "italic",
+                }}
+                numberOfLines={12}
+              >
+                {displayThinking}
+              </Text>
+            </View>
+          )
         ) : null}
 
         {/* Tool calls in progress — expanded with args */}
@@ -187,28 +221,26 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         )}
 
         {/* Streaming text */}
-        {content.trimStart() ? (
-          <View>
-            {isWeb ? (
-              <div>
-                <MarkdownContent text={content.trimStart()} t={t} />
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: 2,
-                    height: 17,
-                    backgroundColor: t.purple,
-                    marginLeft: 2,
-                    verticalAlign: "text-bottom",
-                    opacity: 0.8,
-                    animation: "blink 1s step-end infinite",
-                  }}
-                />
-              </div>
-            ) : (
-              <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{content.trimStart()}</Text>
-            )}
-          </View>
+        {displayContent ? (
+          isWeb ? (
+            <div style={{ contain: "content" }}>
+              <MarkdownContent text={displayContent} t={t} />
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 2,
+                  height: 17,
+                  backgroundColor: t.purple,
+                  marginLeft: 2,
+                  verticalAlign: "text-bottom",
+                  opacity: 0.8,
+                  animation: "blink 1s step-end infinite",
+                }}
+              />
+            </div>
+          ) : (
+            <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{displayContent}</Text>
+          )
         ) : toolCalls.length === 0 ? (
           /* Typing indicator dots */
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>

@@ -207,6 +207,8 @@ class BotConfig:
     shared_workspace_cwd: str | None = None  # resolved cwd override
     # Carapaces (composable skill+tool bundles)
     carapaces: list[str] = field(default_factory=list)
+    # Workspace-only: hide this bot from global channel list (only visible in its workspace)
+    workspace_only: bool = False
     # Context pruning (trim old tool results at assembly time)
     context_pruning: bool | None = None
     context_pruning_keep_turns: int | None = None
@@ -432,6 +434,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         shared_workspace_id=str(_sw_id) if _sw_id else None,
         shared_workspace_role=_sw_role,
         carapaces=row.carapaces or [],
+        workspace_only=getattr(row, "workspace_only", False),
         context_pruning=getattr(row, "context_pruning", None),
         context_pruning_keep_turns=getattr(row, "context_pruning_keep_turns", None),
         history_mode=row.history_mode or "file",
@@ -520,6 +523,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "fallback_models": data.get("fallback_models", []),
         "workspace": data.get("workspace", {"enabled": False}),
         "carapaces": data.get("carapaces", []),
+        "workspace_only": data.get("workspace_only", False),
         "context_pruning": data.get("context_pruning"),
         "context_pruning_keep_turns": data.get("context_pruning_keep_turns"),
         "history_mode": data.get("history_mode", "file"),

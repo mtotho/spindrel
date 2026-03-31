@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
                         "workspace_schema_template_id, heartbeat_enabled, "
                         "channel_workspace_enabled, context_compaction, "
                         "model_override, display_name, channel_prompt, "
+                        "workspace_id (UUID string or null to assign/clear workspace), "
                         "carapaces_extra (list of carapace IDs to add), "
                         "carapaces_disabled (list of carapace IDs to suppress)."
                     ),
@@ -140,6 +141,12 @@ async def manage_channel(
                 "workspace_schema_template_id",
                 "carapaces_extra", "carapaces_disabled",
             ]
+
+            # Handle workspace_id separately (needs UUID conversion)
+            if "workspace_id" in config:
+                import uuid as _uuid
+                ws_val = config.pop("workspace_id")
+                ch.workspace_id = _uuid.UUID(ws_val) if ws_val else None
             for field in simple_fields:
                 if field in config:
                     setattr(ch, field, config[field])

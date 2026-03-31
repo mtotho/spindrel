@@ -33,6 +33,7 @@ export interface MCOverview {
   total_channels_all: number;
   total_bots: number;
   total_tasks: number;
+  is_admin: boolean;
 }
 
 export interface MCKanbanCard {
@@ -121,21 +122,51 @@ export interface MCPrefs {
   layout_prefs: Record<string, unknown>;
 }
 
+export interface MCFeatureReadiness {
+  ready: boolean;
+  detail: string;
+  count: number;
+  total: number;
+  issues: string[];
+}
+
+export interface MCReadiness {
+  dashboard: MCFeatureReadiness;
+  kanban: MCFeatureReadiness;
+  journal: MCFeatureReadiness;
+  memory: MCFeatureReadiness;
+}
+
+export interface MCDashboardModule {
+  integration_id: string;
+  module_id: string;
+  label: string;
+  icon: string;
+  description: string;
+  api_base: string;
+}
+
 // ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
 
-export function useMCOverview() {
+export function useMCOverview(scope?: "fleet" | "personal") {
   return useQuery({
-    queryKey: ["mc-overview"],
-    queryFn: () => apiFetch<MCOverview>("/api/v1/mission-control/overview"),
+    queryKey: ["mc-overview", scope],
+    queryFn: () =>
+      apiFetch<MCOverview>(
+        `/api/v1/mission-control/overview${scope ? `?scope=${scope}` : ""}`
+      ),
   });
 }
 
-export function useMCKanban() {
+export function useMCKanban(scope?: "fleet" | "personal") {
   return useQuery({
-    queryKey: ["mc-kanban"],
-    queryFn: () => apiFetch<MCKanbanResponse>("/api/v1/mission-control/kanban"),
+    queryKey: ["mc-kanban", scope],
+    queryFn: () =>
+      apiFetch<MCKanbanResponse>(
+        `/api/v1/mission-control/kanban${scope ? `?scope=${scope}` : ""}`
+      ),
   });
 }
 
@@ -183,22 +214,25 @@ export function useMCKanbanCreate() {
   });
 }
 
-export function useMCJournal(days = 7) {
+export function useMCJournal(days = 7, scope?: "fleet" | "personal") {
   return useQuery({
-    queryKey: ["mc-journal", days],
-    queryFn: () =>
-      apiFetch<{ entries: MCJournalEntry[] }>(
-        `/api/v1/mission-control/journal?days=${days}`
-      ),
+    queryKey: ["mc-journal", days, scope],
+    queryFn: () => {
+      const params = new URLSearchParams({ days: String(days) });
+      if (scope) params.set("scope", scope);
+      return apiFetch<{ entries: MCJournalEntry[] }>(
+        `/api/v1/mission-control/journal?${params}`
+      );
+    },
   });
 }
 
-export function useMCMemory() {
+export function useMCMemory(scope?: "fleet" | "personal") {
   return useQuery({
-    queryKey: ["mc-memory"],
+    queryKey: ["mc-memory", scope],
     queryFn: () =>
       apiFetch<{ sections: MCMemorySection[] }>(
-        "/api/v1/mission-control/memory"
+        `/api/v1/mission-control/memory${scope ? `?scope=${scope}` : ""}`
       ),
   });
 }
@@ -236,5 +270,39 @@ export function useUpdateMCPrefs() {
       qc.invalidateQueries({ queryKey: ["mc-journal"] });
       qc.invalidateQueries({ queryKey: ["mc-memory"] });
     },
+  });
+}
+
+export function useMCReadiness() {
+  return useQuery({
+    queryKey: ["mc-readiness"],
+    queryFn: () =>
+      apiFetch<MCReadiness>("/api/v1/mission-control/readiness"),
+    staleTime: 60_000,
+  });
+}
+
+export function useMCReferenceFile(
+  botId: string | undefined,
+  filename: string | undefined
+) {
+  return useQuery({
+    queryKey: ["mc-reference-file", botId, filename],
+    queryFn: () =>
+      apiFetch<{ content: string }>(
+        `/api/v1/mission-control/memory/${botId}/reference/${filename}`
+      ),
+    enabled: !!botId && !!filename,
+  });
+}
+
+export function useMCModules() {
+  return useQuery({
+    queryKey: ["mc-modules"],
+    queryFn: () =>
+      apiFetch<{ modules: MCDashboardModule[] }>(
+        "/api/v1/mission-control/modules"
+      ),
+    staleTime: 300_000,
   });
 }

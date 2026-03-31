@@ -78,9 +78,7 @@ PLANS/
 # Runtime data
 data/
 
-# Personal carapace content (user-specific knowledge)
-carapaces/baking/
-carapaces/gardening/
+
 
 # MkDocs build output
 site/

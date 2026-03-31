@@ -108,22 +108,20 @@ def _truncate_at_sentence(text: str, max_chars: int) -> str:
 def _get_history_dir(bot: BotConfig, channel: Channel | None = None) -> str | None:
     """Return host-side .history dir path, creating if needed. None if no workspace.
 
-    Path: bots/<bot_id>/.history/<channel_slug>/  (always under bot's own dir)
-    For orchestrators this means writing into bots/<bot_id>/ even though their
-    ws_root is the shared workspace root — the relative path stored in DB will
-    be bots/<bot_id>/.history/<channel_slug>/001_foo.md which resolves correctly
-    from the orchestrator's ws_root.
+    When a channel is provided, history lives inside the channel workspace:
+      {channel_ws_root}/.history/   (i.e. channels/{channel_id}/.history/)
+    Without a channel, falls back to bot-level:
+      {bot_ws_root}/.history/
     """
-    from app.services.workspace import workspace_service
     try:
-        root = workspace_service.get_workspace_root(bot.id, bot)
-        bot_dir = root
-
         if channel:
-            ch_slug = _re_mod.sub(r'[^a-z0-9]+', '_', channel.name.lower())[:40].strip('_') or str(channel.id)[:8]
-            history_dir = os.path.join(bot_dir, ".history", ch_slug)
+            from app.services.channel_workspace import get_channel_workspace_root
+            channel_root = get_channel_workspace_root(str(channel.id), bot)
+            history_dir = os.path.join(channel_root, ".history")
         else:
-            history_dir = os.path.join(bot_dir, ".history")
+            from app.services.workspace import workspace_service
+            root = workspace_service.get_workspace_root(bot.id, bot)
+            history_dir = os.path.join(root, ".history")
         os.makedirs(history_dir, exist_ok=True)
         return history_dir
     except Exception:
@@ -138,6 +136,19 @@ def _get_workspace_root(bot: BotConfig) -> str | None:
         return workspace_service.get_workspace_root(bot.id, bot)
     except Exception:
         logger.exception("Failed to get workspace root for bot %s", bot.id)
+        return None
+
+
+def _get_channel_ws_root(bot: BotConfig) -> str | None:
+    """Return the channel-workspace root (parent of channels/) for a bot, or None.
+
+    This is the root against which `channels/{id}/.history/...` paths are relative.
+    """
+    from app.services.channel_workspace import _get_ws_root
+    try:
+        return _get_ws_root(bot)
+    except Exception:
+        logger.exception("Failed to get channel ws root for bot %s", bot.id)
         return None
 
 
@@ -954,7 +965,7 @@ async def run_compaction_stream(
             # Write transcript to filesystem
             transcript_path = None
             history_dir = _get_history_dir(bot, channel)
-            ws_root = _get_workspace_root(bot)
+            ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
             channel_id = channel.id if channel else None
 
             # Get next sequence number
@@ -1279,7 +1290,7 @@ async def run_compaction_forced(
         # Write transcript to filesystem
         transcript_path = None
         history_dir = _get_history_dir(bot, channel)
-        ws_root = _get_workspace_root(bot)
+        ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
         if history_dir and ws_root:
             try:
                 transcript_path = _write_section_file(
@@ -1650,7 +1661,7 @@ async def backfill_sections(
         # Write transcript to filesystem
         transcript_path = None
         history_dir = _get_history_dir(bot, channel)
-        ws_root = _get_workspace_root(bot)
+        ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
         if history_dir and ws_root:
             try:
                 transcript_path = _write_section_file(
