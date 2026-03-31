@@ -49,7 +49,7 @@ const VISIBILITY_ICONS = {
 } as const;
 
 export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
-  const { data, isLoading } = useUsageForecast();
+  const { data, isLoading, isError } = useUsageForecast();
   const visibility = useUsageHudStore((s) => s.visibility);
   const cycleVisibility = useUsageHudStore((s) => s.cycleVisibility);
   const t = useThemeTokens();
@@ -90,7 +90,47 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  if (isLoading || !data) return null;
+  if (isLoading) return null;
+
+  // API error or no data — show a dim fallback badge so it stays visible
+  if (isError || !data) {
+    const dimColor = t.textDim;
+    if (collapsed) {
+      return (
+        <View>
+          <Link href={"/admin/usage" as any} asChild>
+            <Pressable
+              className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+              style={{ width: 44, height: 44, opacity: 0.5 }}
+              accessibilityLabel="Usage forecast unavailable"
+            >
+              <Text
+                style={{ fontSize: 10, fontWeight: "700", color: dimColor, fontVariant: ["tabular-nums"] as any }}
+                numberOfLines={1}
+              >
+                $--
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
+      );
+    }
+    return (
+      <View>
+        <Link href={"/admin/usage" as any} asChild>
+          <Pressable
+            className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
+            style={{ opacity: 0.5 }}
+          >
+            <DollarSign size={14} color={dimColor} />
+            <Text style={{ fontSize: 12, fontWeight: "600", color: dimColor, fontVariant: ["tabular-nums"] as any }}>
+              $-- today
+            </Text>
+          </Pressable>
+        </Link>
+      </View>
+    );
+  }
 
   // Threshold mode: hide when below thresholds
   if (visibility === "threshold") {
