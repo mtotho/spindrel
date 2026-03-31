@@ -11,32 +11,18 @@ Revises: 134
 """
 
 from alembic import op
+from sqlalchemy import text
 
 revision = "135"
 down_revision = "134"
 
 
 def upgrade() -> None:
-    op.create_index(
-        "ix_tasks_status_scheduled_at",
-        "tasks",
-        ["status", "scheduled_at"],
-    )
-    op.create_index(
-        "ix_tool_calls_correlation_id",
-        "tool_calls",
-        ["correlation_id"],
-    )
-    op.create_index(
-        "ix_trace_events_correlation_id",
-        "trace_events",
-        ["correlation_id"],
-    )
-    op.create_index(
-        "ix_messages_session_id_created_at",
-        "messages",
-        ["session_id", "created_at"],
-    )
+    conn = op.get_bind()
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_status_scheduled_at ON tasks (status, scheduled_at)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_calls_correlation_id ON tool_calls (correlation_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_trace_events_correlation_id ON trace_events (correlation_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_messages_session_id_created_at ON messages (session_id, created_at)"))
 
 
 def downgrade() -> None:
