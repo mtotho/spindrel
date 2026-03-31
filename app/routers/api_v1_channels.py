@@ -66,7 +66,7 @@ class ChannelOut(BaseModel):
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
     channel_workspace_enabled: Optional[bool] = None
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
@@ -337,14 +337,13 @@ async def list_channels(
 
     def _enrich(ch: Channel) -> ChannelOut:
         out = ChannelOut.model_validate(ch)
-        ws_id = str(ch.workspace_id) if ch.workspace_id else None
-        out.workspace_id = ws_id
+        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
         try:
             from app.agent.bots import get_bot
             bot = get_bot(ch.bot_id)
-            out.resolved_workspace_id = ws_id or bot.shared_workspace_id
+            out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
         except Exception:
-            out.resolved_workspace_id = ws_id
+            out.resolved_workspace_id = ws_id_str
         out.tags = (ch.metadata_ or {}).get("tags", [])
         return out
 
@@ -363,14 +362,13 @@ async def list_channels(
     result = []
     for ch in channels:
         item = ChannelListItemOut.model_validate(ch)
-        ws_id = str(ch.workspace_id) if ch.workspace_id else None
-        item.workspace_id = ws_id
+        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
         try:
             from app.agent.bots import get_bot as _get_bot
             _b = _get_bot(ch.bot_id)
-            item.resolved_workspace_id = ws_id or _b.shared_workspace_id
+            item.resolved_workspace_id = ws_id_str or _b.shared_workspace_id
         except Exception:
-            item.resolved_workspace_id = ws_id
+            item.resolved_workspace_id = ws_id_str
         item.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         item.heartbeat_enabled = hb.enabled if hb else False
@@ -393,14 +391,13 @@ async def get_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     out = ChannelOut.model_validate(channel)
-    ws_id = str(channel.workspace_id) if channel.workspace_id else None
-    out.workspace_id = ws_id
+    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
     try:
         from app.agent.bots import get_bot
         bot = get_bot(channel.bot_id)
-        out.resolved_workspace_id = ws_id or bot.shared_workspace_id
+        out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
     except Exception:
-        out.resolved_workspace_id = ws_id
+        out.resolved_workspace_id = ws_id_str
         logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
