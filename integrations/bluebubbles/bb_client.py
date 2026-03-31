@@ -296,16 +296,26 @@ async def main() -> None:
         logger.error("BLUEBUBBLES_SERVER_URL and BLUEBUBBLES_PASSWORD must be set")
         sys.exit(1)
 
-    logger.info("Connecting to BlueBubbles at %s", BB_SERVER_URL)
-
-    # Socket.IO connection with auth
-    await sio.connect(
-        BB_SERVER_URL,
-        auth={"password": BB_PASSWORD},
-        transports=["websocket"],
-    )
-    # Keep running
-    await sio.wait()
+    # Retry connection with exponential backoff
+    delay = 2
+    max_delay = 60
+    while True:
+        try:
+            logger.info("Connecting to BlueBubbles at %s", BB_SERVER_URL)
+            await sio.connect(
+                BB_SERVER_URL,
+                auth={"password": BB_PASSWORD},
+                transports=["websocket"],
+            )
+            # Connected — reset backoff and block until disconnect
+            delay = 2
+            await sio.wait()
+            # If wait() returns, we disconnected cleanly
+            logger.warning("Disconnected from BlueBubbles, reconnecting in %ds...", delay)
+        except Exception as e:
+            logger.warning("BlueBubbles connection failed: %s — retrying in %ds", e, delay)
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, max_delay)
 
 
 if __name__ == "__main__":

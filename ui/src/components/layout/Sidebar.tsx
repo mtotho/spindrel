@@ -769,7 +769,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               </View>
               {/* Active workspace button */}
               <View className="flex-row items-center rounded-lg border border-surface-border overflow-hidden" style={{ marginHorizontal: 4 }}>
-                <Link href={`/admin/workspaces/${activeWs.id}` as any} asChild>
+                <Link href={`/admin/workspaces/${activeWs.id}/files` as any} asChild>
                   <Pressable
                     onPress={closeMobile}
                     className="flex-1 flex-row items-center gap-2.5 px-3 hover:bg-surface-overlay active:bg-surface-overlay"
@@ -786,6 +786,19 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                     >
                       {activeWs.name}
                     </Text>
+                  </Pressable>
+                </Link>
+                <Link href={`/admin/workspaces/${activeWs.id}` as any} asChild>
+                  <Pressable
+                    onPress={closeMobile}
+                    className="items-center justify-center hover:bg-surface-overlay active:bg-surface-overlay"
+                    style={{
+                      width: 32, alignSelf: "stretch",
+                      borderLeftWidth: 1, borderLeftColor: t.surfaceBorder,
+                    }}
+                    accessibilityLabel="Workspace settings"
+                  >
+                    <Settings size={12} color={t.textDim} />
                   </Pressable>
                 </Link>
                 {hasMultiple && (

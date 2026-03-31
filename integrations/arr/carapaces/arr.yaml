@@ -1,0 +1,72 @@
+id: arr
+name: Media Stack
+description: >-
+  Home media management — TV shows (Sonarr), movies (Radarr), downloads (qBittorrent),
+  streaming (Jellyfin), requests (Jellyseerr), subtitles (Bazarr).
+tags: [media, sonarr, radarr, jellyfin, qbittorrent, jellyseerr]
+
+skills:
+  - id: integrations/arr/media_management
+    mode: on_demand
+  - id: integrations/arr/download-monitoring
+    mode: on_demand
+
+local_tools:
+  - sonarr_calendar
+  - sonarr_series
+  - sonarr_wanted
+  - sonarr_queue
+  - sonarr_command
+  - sonarr_releases
+  - radarr_movies
+  - radarr_command
+  - radarr_queue
+  - radarr_releases
+  - qbit_torrents
+  - qbit_manage
+  - jellyfin_now_playing
+  - jellyfin_library
+  - jellyfin_users
+  - jellyseerr_requests
+  - jellyseerr_search
+  - jellyseerr_manage
+  - bazarr_subtitles
+
+system_prompt_fragment: |
+  ## Media Stack (ARR)
+
+  You manage a home media stack. Each service is independently configured — check tool
+  results for "not configured" errors and skip unconfigured services.
+
+  ### Tool Quick Reference
+  | Tool | Purpose |
+  |------|---------|
+  | `jellyfin_library` | Search library, recent additions, stats |
+  | `jellyseerr_search` | Find movies/shows on TMDB (get IDs for requesting) |
+  | `jellyseerr_manage` | Request, approve, decline media |
+  | `jellyseerr_requests` | List pending/approved/processing requests |
+  | `sonarr_series` | List monitored series or search TVDB |
+  | `sonarr_queue` | Current TV download queue |
+  | `sonarr_releases` | Browse/grab specific releases for a series |
+  | `sonarr_command` | Trigger series/episode/missing searches |
+  | `radarr_movies` | List library or search TMDB; filter missing/wanted |
+  | `radarr_queue` | Current movie download queue |
+  | `radarr_releases` | Browse/grab specific releases for a movie |
+  | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
+  | `qbit_manage` | Pause/resume/delete torrents |
+
+  ### Core Workflows
+  - **"Is X available?"** → `jellyfin_library(search)` → if not: check Sonarr/Radarr → offer to request via Jellyseerr
+  - **Request media** → `jellyseerr_search` → `jellyseerr_manage(action="request")`
+  - **Fix stuck download** → check queues → `qbit_torrents(filter="stalled")` → delete bad → `*_releases(action="search")` → evaluate → grab best
+
+  ### Deep Knowledge
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Full tool reference, parameters, ID lookups, all workflows | `get_skill('integrations/arr/media_management')` |
+  | Heartbeat monitoring, stuck download detection, torrent selection, workspace tracking | `get_skill('integrations/arr/download-monitoring')` |
+
+  ### Key Rules
+  - Always check Jellyfin FIRST for availability before searching Sonarr/Radarr
+  - When selecting releases: prefer high seeders (>10), reasonable size, matching quality profile, not rejected
+  - When requesting: confirm with the user before creating Jellyseerr requests
