@@ -1,6 +1,6 @@
 ---
-name: "Media Operations"
-description: "Workspace schema for media stack management — download monitoring, request tracking, library health."
+name: "Media Stack"
+description: "Download monitoring, request tracking, and library health for Sonarr/Radarr/qBit/Jellyfin."
 category: workspace_schema
 tags:
   - media
@@ -10,7 +10,7 @@ tags:
   - downloads
 ---
 
-## Workspace File Organization — Media Operations
+## Workspace File Organization — Media Stack
 
 Organize channel workspace files to track your media stack's ongoing state. Files are living documents — update them on each heartbeat or interaction, not append-only logs.
 
