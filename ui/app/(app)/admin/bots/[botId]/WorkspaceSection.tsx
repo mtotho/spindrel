@@ -1,10 +1,12 @@
 import React, { useState } from "react";
-import { Package } from "lucide-react";
+import { Container, Package, RefreshCw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
+import { useBotSandboxStatus, useRecreateBotSandbox } from "@/src/api/hooks/useBots";
+import { formatDateTime } from "@/src/utils/time";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 
 export function WorkspaceSection({
@@ -67,6 +69,10 @@ export function WorkspaceSection({
   );
 
   const inSharedWorkspace = !!draft.shared_workspace_id;
+  const isExisting = !!draft.id;
+  const isDocker = !inSharedWorkspace && ws.enabled && (ws.type || "docker") === "docker";
+  const sandbox = useBotSandboxStatus(isExisting && isDocker ? draft.id : undefined, isDocker);
+  const recreate = useRecreateBotSandbox(draft.id);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -143,6 +149,17 @@ export function WorkspaceSection({
               {(ws.type || "docker") === "docker" && (
                 <div style={{ borderLeft: `2px solid ${t.accentMuted}`, paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
+
+                  {/* Container status */}
+                  {isExisting && sandbox.data && (
+                    <ContainerStatusBanner
+                      sandbox={sandbox.data}
+                      isRecreating={recreate.isPending}
+                      onRecreate={() => recreate.mutate()}
+                      t={t}
+                    />
+                  )}
+
                   <Row gap={12}>
                     <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
                     <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(v) => setDocker({ network: v })}
@@ -419,6 +436,83 @@ export function WorkspaceSection({
         </>
       )}
 
+    </div>
+  );
+}
+
+
+function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
+  sandbox: { exists: boolean; status?: string | null; container_name?: string | null; container_id?: string | null; image_id?: string | null; error_message?: string | null; created_at?: string | null; last_used_at?: string | null };
+  isRecreating: boolean;
+  onRecreate: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  if (!sandbox.exists) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "8px 12px", background: t.surfaceRaised, borderRadius: 8,
+        fontSize: 11, color: t.textDim,
+      }}>
+        <Container size={13} />
+        <span>No container — will be created on first use</span>
+      </div>
+    );
+  }
+
+  const status = sandbox.status || "unknown";
+  const statusColor: Record<string, string> = {
+    running: t.success, creating: t.accent, stopped: t.warning,
+    dead: t.danger, unknown: t.textDim,
+  };
+  const color = statusColor[status] || t.textDim;
+
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", gap: 6,
+      padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8,
+      border: sandbox.error_message ? `1px solid ${t.dangerMuted}` : undefined,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Container size={13} color={color} />
+        <span style={{
+          padding: "1px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+          background: color + "22", color,
+        }}>
+          {status}
+        </span>
+        {sandbox.container_name && (
+          <span style={{ fontFamily: "monospace", fontSize: 10, color: t.textMuted }}>{sandbox.container_name}</span>
+        )}
+        {sandbox.container_id && (
+          <span style={{ fontFamily: "monospace", fontSize: 10, color: t.textDim }}>{sandbox.container_id}</span>
+        )}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={onRecreate}
+          disabled={isRecreating}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "3px 10px", fontSize: 10, fontWeight: 600,
+            background: t.surface, border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 4, color: t.warningMuted, cursor: isRecreating ? "wait" : "pointer",
+            opacity: isRecreating ? 0.6 : 1,
+          }}
+        >
+          <RefreshCw size={10} style={isRecreating ? { animation: "spin 1s linear infinite" } : undefined} />
+          {isRecreating ? "Recreating..." : "Recreate"}
+        </button>
+      </div>
+      <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim }}>
+        {sandbox.created_at && <span>Created: {formatDateTime(sandbox.created_at)}</span>}
+        {sandbox.last_used_at && <span>Last used: {formatDateTime(sandbox.last_used_at)}</span>}
+        {sandbox.image_id && <span>Image: <span style={{ fontFamily: "monospace" }}>{sandbox.image_id}</span></span>}
+      </div>
+      {sandbox.error_message && (
+        <div style={{ fontSize: 10, color: t.danger, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+          {sandbox.error_message}
+        </div>
+      )}
     </div>
   );
 }

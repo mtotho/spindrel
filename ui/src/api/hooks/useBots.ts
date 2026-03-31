@@ -2,6 +2,17 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { BotConfig, BotEditorData } from "../../types/api";
 
+export interface SandboxStatus {
+  exists: boolean;
+  status?: string | null;
+  container_name?: string | null;
+  container_id?: string | null;
+  image_id?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  last_used_at?: string | null;
+}
+
 export function useBots() {
   return useQuery({
     queryKey: ["bots"],
@@ -64,6 +75,26 @@ export function useCreateBot() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bots"] });
+    },
+  });
+}
+
+export function useBotSandboxStatus(botId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["bot-sandbox", botId],
+    queryFn: () => apiFetch<SandboxStatus>(`/api/v1/admin/bots/${botId}/sandbox`),
+    enabled: !!botId && enabled,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useRecreateBotSandbox(botId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/v1/admin/bots/${botId}/sandbox/recreate`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bot-sandbox", botId] });
     },
   });
 }

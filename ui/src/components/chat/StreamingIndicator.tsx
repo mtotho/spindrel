@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { View, Text, Platform } from "react-native";
 import { Loader2, Wrench, Check } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
@@ -15,6 +16,45 @@ function avatarColor(name: string): string {
     "#10b981", "#06b6d4", "#ef4444", "#e879f9",
   ];
   return colors[Math.abs(hash) % colors.length];
+}
+
+/** Auto-scrolling thinking block — keeps latest content visible as it streams */
+function ThinkingBlock({ text, borderColor, textColor }: { text: string; borderColor: string; textColor: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [text]);
+
+  return (
+    <div
+      ref={scrollRef}
+      style={{
+        marginBottom: 8,
+        marginTop: 2,
+        paddingLeft: 12,
+        paddingTop: 6,
+        paddingBottom: 6,
+        borderLeft: `3px solid ${borderColor}`,
+        maxHeight: 200,
+        overflowY: "auto",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          lineHeight: "1.55",
+          color: textColor,
+          fontStyle: "italic",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {text}
+      </div>
+    </div>
+  );
 }
 
 interface Props {
@@ -67,31 +107,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
         {/* Thinking content */}
         {displayThinking ? (
           isWeb ? (
-            <div
-              style={{
-                marginBottom: 8,
-                marginTop: 2,
-                paddingLeft: 12,
-                paddingTop: 6,
-                paddingBottom: 6,
-                borderLeft: `3px solid ${t.textDim}`,
-                maxHeight: 200,
-                overflowY: "auto",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 13,
-                  lineHeight: "1.55",
-                  color: t.textMuted,
-                  fontStyle: "italic",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {displayThinking}
-              </div>
-            </div>
+            <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} />
           ) : (
             <View
               style={{

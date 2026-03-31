@@ -49,6 +49,9 @@ current_session_depth: ContextVar[int] = ContextVar("current_session_depth", def
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
 current_ephemeral_skills: ContextVar[list] = ContextVar("current_ephemeral_skills", default=[])
+# All skill IDs available to the bot after carapace resolution + channel overrides.
+# Set by context_assembly; read by get_skill to authorize carapace-injected skills.
+current_resolved_skill_ids: ContextVar[set | None] = ContextVar("current_resolved_skill_ids", default=None)
 
 # Channel-level model tier overrides (sparse dict, e.g. {"fast": {"model": "...", "provider_id": null}}).
 # Set from context_assembly; read by delegation tools.

@@ -20,6 +20,11 @@ class FileWriteBody(BaseModel):
     content: str
 
 
+class FileMoveBody(BaseModel):
+    old_path: str
+    new_path: str
+
+
 def _get_bot(bot_id: str):
     from app.agent.bots import get_bot
     return get_bot(bot_id)
@@ -111,6 +116,26 @@ async def delete_workspace_file(
     from app.services.channel_workspace import delete_workspace_file as _delete
     try:
         result = _delete(str(channel_id), bot, path)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    _schedule_reindex(str(channel_id), bot)
+    return result
+
+
+@router.post("/files/move")
+async def move_workspace_file(
+    channel_id: uuid.UUID,
+    body: FileMoveBody,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Move/rename a file within the channel workspace."""
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    from app.services.channel_workspace import move_workspace_file as _move
+    try:
+        result = _move(str(channel_id), bot, body.old_path, body.new_path)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except FileNotFoundError as exc:

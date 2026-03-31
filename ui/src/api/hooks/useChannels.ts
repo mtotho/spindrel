@@ -243,6 +243,21 @@ export function useDeleteChannelWorkspaceFile(channelId: string) {
   });
 }
 
+export function useMoveChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ old_path, new_path }: { old_path: string; new_path: string }) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files/move`, {
+        method: "POST",
+        body: JSON.stringify({ old_path, new_path }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-content", channelId] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Context breakdown
 // ---------------------------------------------------------------------------
