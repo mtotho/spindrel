@@ -30,6 +30,7 @@ export interface MCOverview {
   channels: MCChannelOverview[];
   bots: MCBotOverview[];
   total_channels: number;
+  total_channels_all: number;
   total_bots: number;
   total_tasks: number;
 }
