@@ -4,8 +4,8 @@
 
 ```bash
 # Clone and run the interactive setup wizard
-git clone https://github.com/spindrel/agent-server.git
-cd agent-server
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
 bash setup.sh
 ```
 

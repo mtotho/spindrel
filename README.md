@@ -5,8 +5,8 @@ Self-hosted AI agent server with persistent channels, composable expertise (cara
 ## Quick Start
 
 ```bash
-git clone https://github.com/spindrel/agent-server.git
-cd agent-server
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
 bash setup.sh          # interactive wizard: deployment mode, LLM provider, auth
 docker compose up -d   # or: bash scripts/dev-server.sh for local dev
 ```

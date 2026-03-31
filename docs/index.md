@@ -14,8 +14,8 @@ A self-hosted LLM agent server built on FastAPI and PostgreSQL. All LLM calls ro
 ## Quick Start
 
 ```bash
-git clone https://github.com/spindrel/agent-server.git
-cd agent-server
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
 bash setup.sh
 ```
 

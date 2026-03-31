@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Spindrel — Interactive Setup
-# Usage: curl -fsSL https://raw.githubusercontent.com/<org>/agent-server/master/setup.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash
 #        or: bash setup.sh
 set -euo pipefail
 
@@ -72,7 +72,7 @@ if [ ! -f "app/main.py" ]; then
         exit 1
     fi
     info "Cloning spindrel..."
-    git clone https://github.com/spindrel/agent-server.git .
+    git clone https://github.com/mtotho/spindrel.git .
     ok "Cloned."
 fi
 
