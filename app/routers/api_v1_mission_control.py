@@ -58,10 +58,13 @@ async def _tracked_channels(
     user: User | None,
     prefs: dict | None = None,
 ) -> list[Channel]:
-    """Get channels tracked by MC for this user."""
+    """Get channels tracked by MC.
+
+    Admins and API keys see all channels. Regular users see only their own.
+    """
     q = select(Channel).where(Channel.channel_workspace_enabled == True)  # noqa: E712
 
-    if user:
+    if user and not user.is_admin:
         q = q.where(Channel.user_id == user.id)
 
     result = await db.execute(q.order_by(Channel.name))
@@ -200,13 +203,13 @@ async def overview(
 
     # Total channel count (regardless of workspace flag) for empty-state UX
     all_channels_q = select(func.count(Channel.id))
-    if user:
+    if user and not user.is_admin:
         all_channels_q = all_channels_q.where(Channel.user_id == user.id)
     total_channels_all = (await db.execute(all_channels_q)).scalar() or 0
 
     # Build bot lookup
     bots_q = select(Bot).order_by(Bot.name)
-    if user:
+    if user and not user.is_admin:
         bots_q = bots_q.where((Bot.user_id == user.id) | (Bot.user_id == None))  # noqa: E711
     bots_result = await db.execute(bots_q)
     bots = list(bots_result.scalars().all())
