@@ -210,17 +210,18 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                 module = _import_module(integration_id, "setup", setup_file, is_external, source)
                 setup = getattr(module, "SETUP", {})
 
-                # Env vars with is_set check (DB cache > env var)
+                # Env vars with is_set check (DB cache > env var > default)
                 for var in setup.get("env_vars", []):
                     try:
                         from app.services.integration_settings import get_value
-                        is_set = bool(get_value(integration_id, var["key"]))
+                        is_set = bool(get_value(integration_id, var["key"])) or bool(var.get("default"))
                     except ImportError:
-                        is_set = bool(os.environ.get(var["key"]))
+                        is_set = bool(os.environ.get(var["key"])) or bool(var.get("default"))
                     entry["env_vars"].append({
                         "key": var["key"],
                         "required": var.get("required", False),
                         "description": var.get("description", ""),
+                        "default": var.get("default"),
                         "is_set": is_set,
                     })
 

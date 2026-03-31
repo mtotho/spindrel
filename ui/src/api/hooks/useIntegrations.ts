@@ -6,6 +6,7 @@ export interface IntegrationEnvVar {
   required: boolean;
   description: string;
   is_set: boolean;
+  default?: string | null;
 }
 
 export interface IntegrationWebhook {
@@ -55,6 +56,7 @@ export interface IntegrationSettingItem {
   value: string;
   source: "db" | "env" | "default";
   is_set: boolean;
+  default?: string | null;
 }
 
 export function useIntegrations() {

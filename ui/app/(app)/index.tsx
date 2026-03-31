@@ -1,6 +1,6 @@
 import { View, Text, Pressable } from "react-native";
-import { Link } from "expo-router";
-import { useChannels } from "@/src/api/hooks/useChannels";
+import { Link, useRouter } from "expo-router";
+import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -13,6 +13,7 @@ import {
   Activity,
   Plus,
   Home,
+  ChevronRight,
 } from "lucide-react";
 import type { Channel } from "@/src/types/api";
 
@@ -87,6 +88,8 @@ export default function HomeScreen() {
   const columns = useResponsiveColumns();
   const { refreshing, onRefresh } = usePageRefresh();
   const t = useThemeTokens();
+  const router = useRouter();
+  const ensureOrchestrator = useEnsureOrchestrator();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
   // Separate orchestrator channel from the rest, pin it at top
@@ -116,6 +119,83 @@ export default function HomeScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 16 : 28 }}>
         <View className="max-w-2xl w-full mx-auto gap-6">
 
+        {/* Orchestrator hero */}
+        {!channelsLoading && orchestratorChannel && (
+          <Link href={`/channels/${orchestratorChannel.id}` as any} asChild>
+            <Pressable
+              className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+              style={{
+                padding: 20,
+                borderColor: t.accent + "50",
+                backgroundColor: t.accent + "08",
+              }}
+            >
+              <View className="flex-row items-center gap-3">
+                <View style={{
+                  width: 48, height: 48, borderRadius: 12,
+                  backgroundColor: t.accent + "20",
+                  alignItems: "center", justifyContent: "center",
+                }}>
+                  <Home size={24} color={t.accent} />
+                </View>
+                <View className="flex-1">
+                  <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+                    Home
+                  </Text>
+                  <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                    Setup, projects, and system management
+                  </Text>
+                </View>
+                <ChevronRight size={18} color={t.textDim} />
+              </View>
+            </Pressable>
+          </Link>
+        )}
+
+        {/* Setup orchestrator prompt when it doesn't exist */}
+        {!channelsLoading && !orchestratorChannel && (
+          <Pressable
+            onPress={() => {
+              ensureOrchestrator.mutate(undefined, {
+                onSuccess: (data) => {
+                  router.push(`/channels/${data.id}` as any);
+                },
+              });
+            }}
+            disabled={ensureOrchestrator.isPending}
+            className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+            style={{
+              padding: 20,
+              borderColor: t.surfaceBorder,
+              borderStyle: "dashed" as any,
+            }}
+          >
+            <View className="flex-row items-center gap-3">
+              <View style={{
+                width: 48, height: 48, borderRadius: 12,
+                backgroundColor: t.accentSubtle,
+                alignItems: "center", justifyContent: "center",
+              }}>
+                <Home size={24} color={t.textDim} />
+              </View>
+              <View className="flex-1">
+                <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+                  {ensureOrchestrator.isPending ? "Setting up..." : "Set Up Home"}
+                </Text>
+                <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                  Create the orchestrator channel for setup, projects, and management
+                </Text>
+                {ensureOrchestrator.isError && (
+                  <Text style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>
+                    {ensureOrchestrator.error instanceof Error ? ensureOrchestrator.error.message : "Failed to create orchestrator"}
+                  </Text>
+                )}
+              </View>
+              <ChevronRight size={18} color={t.textDim} />
+            </View>
+          </Pressable>
+        )}
+
         {/* Channel list */}
         {channelsError ? (
           <View className="items-center py-12 gap-2">
@@ -134,16 +214,11 @@ export default function HomeScreen() {
             <Text className="text-text-muted text-base">No channels yet</Text>
             <Text className="text-text-dim text-sm">Create a channel to get started</Text>
           </View>
-        ) : (
-          <View className="gap-2">
-            {orchestratorChannel && (
-              <ChannelCard
-                channel={orchestratorChannel}
-                bot={botMap.get(orchestratorChannel.bot_id)}
-                t={t}
-                isOrchestrator
-              />
-            )}
+        ) : otherChannels.length > 0 ? (
+          <View className="gap-1">
+            <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>
+              CHANNELS
+            </Text>
             {otherChannels.map((channel) => (
               <ChannelCard
                 key={channel.id}
@@ -154,7 +229,7 @@ export default function HomeScreen() {
               />
             ))}
           </View>
-        )}
+        ) : null}
         </View>
       </RefreshableScrollView>
     </View>

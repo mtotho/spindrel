@@ -549,13 +549,17 @@ async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
 
     async with async_session() as db:
         for path in yaml_files:
-            with open(path) as f:
-                data = yaml.safe_load(f)
-            if not data or "id" not in data:
-                continue
-            row_dict = _yaml_data_to_row_dict(data)
-            stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
-            await db.execute(stmt)
+            try:
+                with open(path) as f:
+                    data = yaml.safe_load(f)
+                if not data or "id" not in data:
+                    continue
+                row_dict = _yaml_data_to_row_dict(data)
+                stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
+                logger.info("Seeded bot '%s' from %s", data["id"], path.name)
+            except Exception:
+                logger.error("Failed to seed bot from %s", path, exc_info=True)
         await db.commit()
     logger.info("Seeded bots from YAML (seed-once, no overwrites)")
 

@@ -9,12 +9,14 @@ import {
   type MCChannelOverview,
   type MCBotOverview,
 } from "@/src/api/hooks/useMissionControl";
+import { useIntegrations } from "@/src/api/hooks/useIntegrations";
 import {
   Hash,
   Bot,
   ClipboardList,
   Columns,
   ArrowRight,
+  Info,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -170,6 +172,34 @@ function BotCard({ bot }: { bot: MCBotOverview }) {
 }
 
 // ---------------------------------------------------------------------------
+// Integration Status Banner
+// ---------------------------------------------------------------------------
+function IntegrationBanner() {
+  const t = useThemeTokens();
+  const { data } = useIntegrations();
+  const mc = data?.integrations?.find((i) => i.id === "mission_control");
+  if (!mc || mc.process_status?.status === "running") return null;
+
+  return (
+    <Link href={"/admin/integrations" as any} asChild>
+      <Pressable
+        className="rounded-lg p-3 flex-row items-center gap-2"
+        style={{ backgroundColor: "rgba(59,130,246,0.08)", borderWidth: 1, borderColor: "rgba(59,130,246,0.2)" }}
+      >
+        <Info size={14} color="#3b82f6" />
+        <Text style={{ fontSize: 13, color: "#3b82f6", flex: 1 }}>
+          Dashboard container is not running.
+        </Text>
+        <Text style={{ fontSize: 12, color: "#3b82f6", fontWeight: "600" }}>
+          Manage
+        </Text>
+        <ArrowRight size={12} color="#3b82f6" />
+      </Pressable>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function MCDashboard() {
@@ -191,6 +221,9 @@ export default function MCDashboard() {
           <Text className="text-text-muted text-sm">No data</Text>
         ) : (
           <>
+            {/* Integration status */}
+            <IntegrationBanner />
+
             {/* Stats */}
             <View className="flex-row flex-wrap gap-3">
               <StatCard

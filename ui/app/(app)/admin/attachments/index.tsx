@@ -184,17 +184,16 @@ function AttachmentRow({
   onPreview: (a: AttachmentAdmin) => void;
 }) {
   const t = useThemeTokens();
-  const [hovered, setHovered] = useState(false);
   const Icon = TYPE_ICONS[att.type] || Paperclip;
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       style={{
         padding: "10px 12px", background: t.inputBg, borderRadius: 8,
         border: `1px solid ${t.surfaceRaised}`,
         display: "flex", gap: 10, alignItems: "center",
+        position: "relative",
       }}
+      {...(att.description ? { title: att.description } : {})}
     >
       <Icon size={18} color={t.textMuted} />
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -226,16 +225,15 @@ function AttachmentRow({
           {att.source_integration !== "web" && (
             <span style={{ fontStyle: "italic" }}>{att.source_integration}</span>
           )}
+          {att.description && (
+            <span style={{
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              maxWidth: 280, fontStyle: "italic", color: t.textMuted,
+            }}>
+              {att.description}
+            </span>
+          )}
         </div>
-        {att.description && hovered && (
-          <div style={{
-            marginTop: 4, fontSize: 11, color: t.textMuted, fontStyle: "italic",
-            lineHeight: "15px",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            {att.description}
-          </div>
-        )}
       </div>
       <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
         {att.has_file_data && canPreview(att.mime_type) && (

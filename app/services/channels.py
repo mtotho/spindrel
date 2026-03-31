@@ -377,6 +377,11 @@ async def ensure_orchestrator_channel() -> None:
     """
     from app.agent.bots import _registry
     if "orchestrator" not in _registry:
+        logger.warning(
+            "Orchestrator bot not found in registry — skipping orchestrator channel. "
+            "Available bots: %s",
+            list(_registry.keys()),
+        )
         return
     async with async_session() as db:
         ch = await get_or_create_channel(

@@ -448,6 +448,45 @@ class ChannelSettingsUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Orchestrator channel setup
+# ---------------------------------------------------------------------------
+
+@router.post("/channels/ensure-orchestrator")
+async def ensure_orchestrator(
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Manually trigger orchestrator bot seeding + channel creation.
+
+    Useful if the automatic startup seeding failed for any reason.
+    """
+    from app.agent.bots import seed_bots_from_yaml, load_bots, _registry
+    from app.services.channels import ensure_orchestrator_channel
+
+    # Re-run seeding in case the orchestrator bot wasn't inserted
+    await seed_bots_from_yaml()
+    await load_bots()
+
+    if "orchestrator" not in _registry:
+        raise HTTPException(
+            status_code=500,
+            detail="Orchestrator bot failed to load into registry after seeding",
+        )
+
+    await ensure_orchestrator_channel()
+
+    # Return the channel
+    from app.db.models import Channel as ChannelModel
+    ch = (await db.execute(
+        select(ChannelModel).where(ChannelModel.client_id == "orchestrator:home")
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(status_code=500, detail="Orchestrator channel was not created")
+
+    return {"id": str(ch.id), "name": ch.name, "client_id": ch.client_id}
+
+
+# ---------------------------------------------------------------------------
 # Channel list / detail
 # ---------------------------------------------------------------------------
 
