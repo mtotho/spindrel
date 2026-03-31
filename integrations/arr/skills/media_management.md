@@ -15,10 +15,13 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 - `sonarr_wanted` — missing episodes that need downloading
 - `sonarr_queue` — items currently being downloaded
 - `sonarr_command` — trigger searches: SeriesSearch, EpisodeSearch, MissingEpisodeSearch
+- `sonarr_releases` — browse available releases for a series/episode, or grab a specific release
 
 ### Radarr (Movies)
 - `radarr_movies` — list library or search TMDB; filter by "missing"/"wanted"
 - `radarr_command` — trigger searches: MoviesSearch, MissingMoviesSearch
+- `radarr_queue` — items currently being downloaded
+- `radarr_releases` — browse available releases for a movie, or grab a specific release
 
 ### qBittorrent (Downloads)
 - `qbit_torrents` — list torrents with speeds; filters: downloading, seeding, completed, paused, active, stalled
@@ -64,7 +67,14 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 ### Fix stuck downloads
 1. `qbit_torrents(filter="stalled")` — find stuck torrents
 2. `qbit_manage(hashes=["abc123"], action="delete")` — remove stuck ones
-3. `sonarr_command(action="EpisodeSearch", episode_ids=[456])` — re-search
+3. `sonarr_releases(action="search", series_id=123)` — browse available releases
+4. Evaluate: prefer high seeders (>10), reasonable size, not rejected
+5. `sonarr_releases(action="grab", guid="...", indexer_id=1)` — grab best release
+
+### Browse and grab specific releases
+1. `sonarr_releases(action="search", series_id=123)` or `radarr_releases(action="search", movie_id=456)` — browse
+2. Evaluate results: seeders, size, quality, rejection status
+3. `sonarr_releases(action="grab", guid="...", indexer_id=1)` or `radarr_releases(action="grab", ...)` — grab
 
 ### Check subtitle status
 1. `bazarr_subtitles(action="wanted")` — see missing subtitles
@@ -74,4 +84,5 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 - **ID lookups**: Use `sonarr_series` to get series IDs, `radarr_movies` for movie IDs
 - **Torrent hashes**: Get from `qbit_torrents` results, pass to `qbit_manage`
 - **TMDB IDs**: Get from `jellyseerr_search`, pass to `jellyseerr_manage(action="request")`
+- **Release GUIDs**: Get from `*_releases(action="search")`, pass to `*_releases(action="grab")`
 - **Unconfigured services**: Tools return clear "X_URL not configured" errors — just skip those services

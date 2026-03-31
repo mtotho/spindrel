@@ -323,3 +323,99 @@ async def sonarr_command(
     except Exception as e:
         logger.exception("sonarr_command failed")
         return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_releases",
+        "description": (
+            "Browse or grab releases for a Sonarr series or episode. "
+            "Use action='search' to list available releases sorted by seeders. "
+            "Use action='grab' to download a specific release by guid + indexer_id."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "grab"],
+                    "description": "Action: 'search' to browse releases, 'grab' to download one.",
+                },
+                "series_id": {
+                    "type": "integer",
+                    "description": "Series ID (for search action).",
+                },
+                "episode_id": {
+                    "type": "integer",
+                    "description": "Episode ID (for search action — more specific than series_id).",
+                },
+                "guid": {
+                    "type": "string",
+                    "description": "Release GUID (for grab action).",
+                },
+                "indexer_id": {
+                    "type": "integer",
+                    "description": "Indexer ID (for grab action).",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+})
+async def sonarr_releases(
+    action: str,
+    series_id: int | None = None,
+    episode_id: int | None = None,
+    guid: str | None = None,
+    indexer_id: int | None = None,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        if action == "grab":
+            if not guid or indexer_id is None:
+                return error("guid and indexer_id required for grab")
+            result = await _post("/api/v3/release", {"guid": guid, "indexerId": indexer_id})
+            return json.dumps({
+                "status": "ok",
+                "message": "Release grabbed successfully",
+            })
+
+        # Default: search
+        params: dict = {}
+        if episode_id is not None:
+            params["episodeId"] = episode_id
+        elif series_id is not None:
+            params["seriesId"] = series_id
+        else:
+            return error("series_id or episode_id required for search")
+
+        data = await _get("/api/v3/release", params=params, timeout=30.0)
+
+        # Sort by seeders descending, take top 15
+        data.sort(key=lambda r: r.get("seeders", 0) or 0, reverse=True)
+        releases = []
+        for r in data[:15]:
+            size_bytes = r.get("size", 0) or 0
+            releases.append({
+                "title": sanitize(r.get("title", ""), max_len=200),
+                "size_mb": round(size_bytes / 1_048_576, 1),
+                "seeders": r.get("seeders", 0),
+                "leechers": r.get("leechers", 0),
+                "quality": r.get("quality", {}).get("quality", {}).get("name", ""),
+                "guid": r.get("guid", ""),
+                "indexer_id": r.get("indexerId", 0),
+                "indexer": r.get("indexer", ""),
+                "age_days": r.get("ageMinutes", 0) // 1440 if r.get("ageMinutes") else 0,
+                "rejected": bool(r.get("rejections")),
+                "rejection_reasons": r.get("rejections", [])[:3],
+            })
+        return json.dumps({"count": len(releases), "releases": releases})
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_releases failed")
+        return error(str(e))
