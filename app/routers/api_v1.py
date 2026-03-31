@@ -19,6 +19,7 @@ from app.routers.api_v1_tool_policies import router as tool_policies_router
 from app.routers.api_v1_approvals import router as approvals_router
 from app.routers.api_v1_carapaces import router as carapaces_router
 from app.routers.api_v1_mission_control import router as mission_control_router
+from app.routers.api_v1_search import router as search_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router, include_in_schema=False)
@@ -39,3 +40,4 @@ router.include_router(workspaces_router)
 router.include_router(workspace_editor_router)
 router.include_router(channel_workspace_router)
 router.include_router(mission_control_router)
+router.include_router(search_router)

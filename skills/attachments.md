@@ -144,6 +144,7 @@ Generated images become attachments immediately:
 | Guessing attachment UUIDs | Call `list_attachments` first | UUIDs are random; you must look them up |
 | Using `list_attachments(channel_id="C06RY3YBSLE")` | Omit channel_id | Slack IDs aren't UUIDs; current channel is used automatically |
 | Using `send_file` to re-show an attachment from the same turn | Just reference it in your response text | Attachments are auto-visible on the message that created them |
+| Calling `send_file` after `frigate_snapshot` or `frigate_event_snapshot` | Just use the attachment_id for analysis if needed | Frigate media tools auto-display in the channel |
 
 ## Delegation Context
 

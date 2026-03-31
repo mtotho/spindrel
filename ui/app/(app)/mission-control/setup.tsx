@@ -146,7 +146,8 @@ export default function MCSetup() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          paddingHorizontal: 16,
+          paddingLeft: 24,
+          paddingRight: 16,
           paddingTop: 24,
           gap: 32,
           paddingBottom: 40,

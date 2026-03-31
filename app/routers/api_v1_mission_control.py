@@ -36,6 +36,46 @@ router = APIRouter(prefix="/mission-control", tags=["Mission Control"])
 # Helpers
 # ---------------------------------------------------------------------------
 
+_COLUMN_VERBS: dict[str, str] = {
+    "in progress": "was started",
+    "done": "was completed",
+    "review": "moved to review",
+    "backlog": "moved back to backlog",
+}
+
+import re
+
+def _humanize_event(raw: str) -> str:
+    """Transform machine-readable timeline text into human-friendly prose."""
+    # Card moved: Card mc-xxx moved to **Col** (was: OldCol) — "Title"
+    m = re.match(
+        r'Card \S+ moved to \*\*(.+?)\*\* \(was: .+?\) — "(.+?)"',
+        raw,
+    )
+    if m:
+        col, title = m.group(1), m.group(2)
+        verb = _COLUMN_VERBS.get(col.lower(), f"moved to {col}")
+        return f"**{title}** {verb}"
+
+    # New card: New card created: mc-xxx "Title" in **Col**
+    m = re.match(r'New card created: \S+ "(.+?)" in \*\*(.+?)\*\*', raw)
+    if m:
+        title, col = m.group(1), m.group(2)
+        return f"New task: **{title}** added to {col}"
+
+    # Plan approved: Plan approved: **Title** (plan-xxx)
+    m = re.match(r"Plan approved: \*\*(.+?)\*\* \(\S+\)", raw)
+    if m:
+        return f"Plan **{m.group(1)}** was approved"
+
+    # Plan rejected: Plan rejected: **Title** (plan-xxx)
+    m = re.match(r"Plan rejected: \*\*(.+?)\*\* \(\S+\)", raw)
+    if m:
+        return f"Plan **{m.group(1)}** was rejected"
+
+    return raw
+
+
 def _get_user(auth) -> User | None:
     """Extract User from auth result. API keys get no user-scoping (admin-level)."""
     if isinstance(auth, User):
@@ -206,6 +246,17 @@ class KanbanCreateRequest(BaseModel):
     tags: str = ""
     due: str = ""
     description: str = ""
+
+
+class KanbanUpdateRequest(BaseModel):
+    card_id: str
+    channel_id: uuid.UUID
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    assigned: Optional[str] = None
+    due: Optional[str] = None
+    tags: Optional[str] = None
 
 
 class MCPrefsUpdate(BaseModel):
@@ -765,6 +816,95 @@ async def kanban_create(
     return {"ok": True, "card": card, "column": target_col["name"]}
 
 
+@router.patch("/kanban/update", dependencies=[Depends(require_scopes("mission_control:write"))])
+async def kanban_update(
+    body: KanbanUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Update card fields (title, description, priority, assigned, due, tags)."""
+    user = _get_user(auth)
+    channel = await db.get(Channel, body.channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    _require_channel_access(channel, user)
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(400, "Channel workspace not enabled")
+
+    from app.services.channel_workspace import read_workspace_file, write_workspace_file
+
+    try:
+        bot = _get_bot(channel.bot_id)
+    except Exception:
+        raise HTTPException(404, f"Bot '{channel.bot_id}' not found")
+    content = await asyncio.to_thread(read_workspace_file, str(channel.id), bot, "tasks.md")
+    if not content:
+        raise HTTPException(404, "tasks.md not found")
+
+    columns = parse_tasks_md(content)
+
+    # Find card by ID
+    found_card = None
+    for col in columns:
+        for card in col["cards"]:
+            if card["meta"].get("id") == body.card_id:
+                found_card = card
+                break
+        if found_card:
+            break
+
+    if not found_card:
+        raise HTTPException(404, f"Card {body.card_id} not found")
+
+    # Apply updates
+    changes: list[str] = []
+    if body.title is not None and body.title != found_card["title"]:
+        found_card["title"] = body.title
+        changes.append("title")
+    if body.description is not None and body.description != found_card.get("description", ""):
+        found_card["description"] = body.description
+        changes.append("description")
+    if body.priority is not None and body.priority != found_card["meta"].get("priority", ""):
+        found_card["meta"]["priority"] = body.priority
+        changes.append("priority")
+    if body.assigned is not None:
+        if body.assigned:
+            found_card["meta"]["assigned"] = body.assigned
+        else:
+            found_card["meta"].pop("assigned", None)
+        changes.append("assigned")
+    if body.due is not None:
+        if body.due:
+            found_card["meta"]["due"] = body.due
+        else:
+            found_card["meta"].pop("due", None)
+        changes.append("due")
+    if body.tags is not None:
+        if body.tags:
+            found_card["meta"]["tags"] = body.tags
+        else:
+            found_card["meta"].pop("tags", None)
+        changes.append("tags")
+
+    if not changes:
+        return {"ok": True, "card": found_card, "changes": []}
+
+    await asyncio.to_thread(write_workspace_file, str(channel.id), bot, "tasks.md", serialize_tasks_md(columns))
+
+    # Auto-log to timeline
+    try:
+        from integrations.mission_control.tools.mission_control import _append_timeline
+        change_str = ", ".join(changes)
+        await _append_timeline(
+            str(channel.id),
+            f"Card {body.card_id} updated ({change_str}) — \"{found_card['title']}\"",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline event for kanban_update", exc_info=True)
+
+    return {"ok": True, "card": found_card, "changes": changes}
+
+
 @router.get("/timeline", response_model=TimelineResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
 async def timeline(
     days: int = Query(7, ge=1, le=90),
@@ -791,7 +931,7 @@ async def timeline(
             all_events.append(TimelineEvent(
                 date=ev["date"],
                 time=ev["time"],
-                event=ev["event"],
+                event=_humanize_event(ev["event"]),
                 channel_id=str(ch.id),
                 channel_name=ch.name,
             ))

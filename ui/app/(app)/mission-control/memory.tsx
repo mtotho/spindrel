@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { View, Text, Pressable, TextInput, Platform } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -10,6 +10,7 @@ import {
   useMCReferenceFile,
   type MCMemorySection,
 } from "@/src/api/hooks/useMissionControl";
+import { useMemorySearch, type MemorySearchResult } from "@/src/api/hooks/useSearch";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
 import { botDotColor } from "@/src/components/mission-control/botColors";
 import {
@@ -20,6 +21,7 @@ import {
   Search,
   Eye,
   X,
+  Sparkles,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -189,6 +191,107 @@ function MemorySectionView({ section }: { section: MCMemorySection }) {
 }
 
 // ---------------------------------------------------------------------------
+// Search Results Section
+// ---------------------------------------------------------------------------
+function SearchResultsView({
+  results,
+  onClear,
+}: {
+  results: MemorySearchResult[];
+  onClear: () => void;
+}) {
+  const t = useThemeTokens();
+
+  return (
+    <View style={{ gap: 12 }}>
+      <View className="flex-row items-center gap-2">
+        <Sparkles size={14} color={t.accent} />
+        <Text
+          className="text-text-dim"
+          style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}
+        >
+          SEARCH RESULTS
+        </Text>
+        <Text className="text-text-dim text-xs">
+          {results.length} match{results.length !== 1 ? "es" : ""}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={onClear} className="flex-row items-center gap-1">
+          <X size={12} color={t.textDim} />
+          <Text style={{ fontSize: 11, color: t.textDim }}>Clear</Text>
+        </Pressable>
+      </View>
+
+      {results.map((result, i) => {
+        const color = botDotColor(result.bot_id);
+        const maxScore = results[0]?.score || 1;
+        const barWidth = maxScore > 0 ? (result.score / maxScore) * 100 : 0;
+
+        return (
+          <View
+            key={`${result.bot_id}-${result.file_path}-${i}`}
+            className="rounded-xl border border-surface-border overflow-hidden"
+          >
+            {/* Header */}
+            <View
+              className="flex-row items-center gap-2 px-4 py-2.5"
+              style={{ backgroundColor: `${color}08` }}
+            >
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: color,
+                }}
+              />
+              <Text className="text-text font-semibold text-xs">
+                {result.bot_name}
+              </Text>
+              <Text className="text-text-dim text-[10px] font-mono">
+                {result.file_path}
+              </Text>
+              <View style={{ flex: 1 }} />
+              {/* Score bar */}
+              <View style={{ width: 48, gap: 2 }}>
+                <View
+                  style={{
+                    height: 3,
+                    borderRadius: 1.5,
+                    backgroundColor: t.surfaceBorder,
+                    overflow: "hidden",
+                  }}
+                >
+                  <View
+                    style={{
+                      height: 3,
+                      borderRadius: 1.5,
+                      backgroundColor: t.accent,
+                      width: `${barWidth}%`,
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Content snippet */}
+            <View className="p-3">
+              <Text
+                className="text-text-muted text-xs"
+                style={{ fontFamily: "monospace", lineHeight: 17 }}
+                numberOfLines={6}
+              >
+                {result.content}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function MCMemory() {
@@ -199,20 +302,37 @@ export default function MCMemory() {
   const { refreshing, onRefresh } = usePageRefresh([["mc-memory"]]);
   const t = useThemeTokens();
   const [search, setSearch] = useState("");
+  const searchMutation = useMemorySearch();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sections = data?.sections || [];
 
-  // Client-side search filter
-  const filtered = useMemo(() => {
-    if (!search.trim()) return sections;
-    const q = search.toLowerCase();
-    return sections.filter(
-      (s) =>
-        s.bot_name.toLowerCase().includes(q) ||
-        (s.memory_content && s.memory_content.toLowerCase().includes(q)) ||
-        s.reference_files.some((f) => f.toLowerCase().includes(q))
-    );
-  }, [sections, search]);
+  const handleSearchSubmit = useCallback(() => {
+    if (search.trim()) {
+      searchMutation.mutate({ query: search.trim(), top_k: 15 });
+    }
+  }, [search, searchMutation]);
+
+  const handleSearchChange = useCallback(
+    (text: string) => {
+      setSearch(text);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (text.trim()) {
+        debounceRef.current = setTimeout(() => {
+          searchMutation.mutate({ query: text.trim(), top_k: 15 });
+        }, 500);
+      }
+    },
+    [searchMutation]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    setSearch("");
+    searchMutation.reset();
+  }, [searchMutation]);
+
+  const searchResults = searchMutation.data?.results;
+  const isSearchActive = search.trim().length > 0 && searchResults !== undefined;
 
   return (
     <View className="flex-1 bg-surface">
@@ -220,18 +340,29 @@ export default function MCMemory() {
 
       {/* Search bar */}
       {sections.length >= 1 && (
-        <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border">
+        <View
+          className="flex-row items-center gap-2 border-b border-surface-border"
+          style={{ paddingLeft: 24, paddingRight: 16, paddingVertical: 8 }}
+        >
+          <Brain size={14} color={t.accent} />
+          <Text style={{ fontSize: 10, color: t.accent, fontWeight: "600" }}>
+            Semantic
+          </Text>
           <Search size={14} color={t.textDim} />
           <TextInput
             value={search}
-            onChangeText={setSearch}
-            placeholder="Search bots, content, files..."
+            onChangeText={handleSearchChange}
+            onSubmitEditing={handleSearchSubmit}
+            placeholder="Search memory semantically..."
             placeholderTextColor={t.textDim}
             className="flex-1 text-text text-sm"
             style={{ backgroundColor: "transparent", outlineStyle: "none" } as any}
           />
+          {searchMutation.isPending && (
+            <Text style={{ fontSize: 10, color: t.textDim }}>Searching...</Text>
+          )}
           {search.length > 0 && (
-            <Pressable onPress={() => setSearch("")}>
+            <Pressable onPress={handleClearSearch}>
               <X size={14} color={t.textDim} />
             </Pressable>
           )}
@@ -241,22 +372,40 @@ export default function MCMemory() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, gap: 20, paddingBottom: 48, maxWidth: 960 }}
+        contentContainerStyle={{ paddingLeft: 24, paddingRight: 16, paddingTop: 20, gap: 20, paddingBottom: 48, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading memory...</Text>
-        ) : filtered.length === 0 ? (
-          <MCEmptyState feature="memory">
-            <Text className="text-text-muted text-sm">
-              {search
-                ? "No matching bots or content found."
-                : "No bots with workspace-files memory scheme found."}
-            </Text>
-          </MCEmptyState>
         ) : (
-          filtered.map((section) => (
-            <MemorySectionView key={section.bot_id} section={section} />
-          ))
+          <>
+            {/* Search results (above regular sections) */}
+            {isSearchActive && searchResults && searchResults.length > 0 && (
+              <SearchResultsView results={searchResults} onClear={handleClearSearch} />
+            )}
+            {isSearchActive && searchResults && searchResults.length === 0 && (
+              <View
+                className="rounded-xl border border-surface-border p-4"
+                style={{ backgroundColor: t.surfaceOverlay }}
+              >
+                <Text className="text-text-dim text-sm text-center">
+                  No semantic matches for "{search}"
+                </Text>
+              </View>
+            )}
+
+            {/* Regular memory sections */}
+            {sections.length === 0 ? (
+              <MCEmptyState feature="memory">
+                <Text className="text-text-muted text-sm">
+                  No bots with workspace-files memory scheme found.
+                </Text>
+              </MCEmptyState>
+            ) : (
+              sections.map((section) => (
+                <MemorySectionView key={section.bot_id} section={section} />
+              ))
+            )}
+          </>
         )}
       </RefreshableScrollView>
     </View>

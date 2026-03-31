@@ -40,11 +40,12 @@ def ws(tmp_path):
     return tmp_path
 
 
-def _mock_bot(ws_root: str, workspace_type="host", shared_workspace_id=None, bot_id="test_bot"):
+def _mock_bot(ws_root: str, workspace_type="host", shared_workspace_id=None, bot_id="test_bot", shared_workspace_role=None):
     """Create a minimal mock bot."""
     bot = MagicMock()
     bot.id = bot_id
     bot.shared_workspace_id = shared_workspace_id
+    bot.shared_workspace_role = shared_workspace_role
     bot.workspace = MagicMock()
     bot.workspace.type = workspace_type
     bot.workspace.enabled = True
@@ -172,6 +173,47 @@ class TestResolvePathSharedWorkspace:
     def test_other_bot_dir_blocked(self, shared_ws):
         """Cannot access another bot's directory."""
         bot = self._make_bot(shared_ws)
+        ws_root = str(shared_ws / "bots" / "my_bot")
+        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sw:
+            mock_sw.get_host_root.return_value = str(shared_ws)
+            mock_sw.translate_path.return_value = str(shared_ws / "bots" / "other_bot" / "memory" / "MEMORY.md")
+            with patch("app.services.workspace.workspace_service") as mock_ws:
+                mock_ws.translate_path.side_effect = lambda bid, p, w, bot: mock_sw.translate_path("ws-123", p)
+                with pytest.raises(ValueError, match="another bot"):
+                    _resolve_path("/workspace/bots/other_bot/memory/MEMORY.md", ws_root, bot)
+
+    def test_orchestrator_can_access_other_bot_dirs(self, shared_ws):
+        """Orchestrator role can read other bots' directories."""
+        bot = _mock_bot(
+            str(shared_ws / "bots" / "my_bot"),
+            workspace_type="docker",
+            shared_workspace_id="ws-123",
+            bot_id="my_bot",
+            shared_workspace_role="orchestrator",
+        )
+        ws_root = str(shared_ws / "bots" / "my_bot")
+        # Create the target file
+        other_dir = shared_ws / "bots" / "other_bot" / "memory"
+        other_dir.mkdir(parents=True, exist_ok=True)
+        (other_dir / "MEMORY.md").write_text("other bot memory")
+
+        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sw:
+            mock_sw.get_host_root.return_value = str(shared_ws)
+            mock_sw.translate_path.return_value = str(shared_ws / "bots" / "other_bot" / "memory" / "MEMORY.md")
+            with patch("app.services.workspace.workspace_service") as mock_ws:
+                mock_ws.translate_path.side_effect = lambda bid, p, w, bot: mock_sw.translate_path("ws-123", p)
+                result = _resolve_path("/workspace/bots/other_bot/memory/MEMORY.md", ws_root, bot)
+        assert result == os.path.realpath(str(shared_ws / "bots" / "other_bot" / "memory" / "MEMORY.md"))
+
+    def test_member_cannot_access_other_bot_dirs(self, shared_ws):
+        """Member role (default) cannot access other bots' directories."""
+        bot = _mock_bot(
+            str(shared_ws / "bots" / "my_bot"),
+            workspace_type="docker",
+            shared_workspace_id="ws-123",
+            bot_id="my_bot",
+            shared_workspace_role="member",
+        )
         ws_root = str(shared_ws / "bots" / "my_bot")
         with patch("app.services.shared_workspace.shared_workspace_service") as mock_sw:
             mock_sw.get_host_root.return_value = str(shared_ws)
