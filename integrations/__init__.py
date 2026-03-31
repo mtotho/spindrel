@@ -304,11 +304,22 @@ def discover_binding_metadata() -> dict[str, dict]:
     return results
 
 
+def _wrap_with_watchfiles(cmd: list[str], watch_paths: list[str] | None) -> list[str]:
+    """Wrap cmd with watchfiles for auto-reload if available and watch_paths given."""
+    if not watch_paths:
+        return cmd
+    import shutil
+    if not shutil.which("watchfiles"):
+        return cmd
+    return ["watchfiles", "--filter", "python", " ".join(cmd)] + watch_paths
+
+
 def discover_processes() -> list[dict]:
     """Discover integration background processes.
 
     Returns list of dicts: {id, cmd, required_env, description}
     Only includes processes whose REQUIRED_ENV vars are all set.
+    Wraps with watchfiles auto-reload when available.
     """
     results: list[dict] = []
 
@@ -324,6 +335,8 @@ def discover_processes() -> list[dict]:
             description = getattr(module, "DESCRIPTION", integration_id)
             if not cmd:
                 continue
+            watch_paths = getattr(module, "WATCH_PATHS", None)
+            cmd = _wrap_with_watchfiles(cmd, watch_paths)
             if all(os.environ.get(v) for v in required_env):
                 results.append({
                     "id": integration_id,

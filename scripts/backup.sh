@@ -3,12 +3,18 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env if present and vars not already exported
+# Load .env if present — only simple KEY=VALUE lines (skip JSON arrays, parens, etc.)
 if [ -f "$REPO_DIR/.env" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$REPO_DIR/.env"
-  set +a
+  while IFS='=' read -r key val; do
+    # Skip comments, blank lines, and lines where the value contains bash-hostile chars
+    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+    key="${key%%[[:space:]]}"
+    val="${val#[[:space:]]}"
+    # Strip surrounding quotes
+    val="${val#\"}" ; val="${val%\"}"
+    val="${val#\'}" ; val="${val%\'}"
+    export "$key=$val" 2>/dev/null || true
+  done < "$REPO_DIR/.env"
 fi
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -33,9 +39,13 @@ TAR_ARGS=( -C "$BACKUP_DIR" "$DUMP_FILE"
            -C "$REPO_DIR"   .env bots skills tools integrations mcp.yaml config/searxng/settings.yml )
 
 # Include workspace data if it exists
-WORKSPACE_DIR="${HOME}/.agent-workspaces"
+# Use WORKSPACE_BASE_DIR from .env, fall back to ~/.spindrel-workspaces
+_WS_BASE="${WORKSPACE_BASE_DIR:-${HOME}/.spindrel-workspaces}"
+WORKSPACE_DIR="$(eval echo "$_WS_BASE")"   # expand ~ if present
 if [[ -d "$WORKSPACE_DIR" ]]; then
-  TAR_ARGS+=( -C "$HOME" .agent-workspaces )
+  _WS_PARENT="$(dirname "$WORKSPACE_DIR")"
+  _WS_NAME="$(basename "$WORKSPACE_DIR")"
+  TAR_ARGS+=( -C "$_WS_PARENT" "$_WS_NAME" )
   echo "[backup] Including workspaces from $WORKSPACE_DIR"
 fi
 
