@@ -244,6 +244,21 @@ SCOPE_PRESETS: dict[str, dict] = {
         ],
         "instructions": "Safe for dashboards and monitoring. Cannot send messages or modify data.",
     },
+    "mission_control": {
+        "name": "Mission Control Dashboard",
+        "description": "Read-write access for the Mission Control dashboard — channels, tasks, workspace files",
+        "scopes": [
+            "bots:read", "channels:read", "sessions:read",
+            "tasks:read", "tasks:write",
+            "todos:read", "todos:write",
+            "workspaces:read", "workspaces.files:read", "workspaces.files:write",
+            "attachments:read", "logs:read",
+        ],
+        "instructions": (
+            "Used by the Mission Control dashboard container. Auto-provisioned on first start.\n\n"
+            "Set as `AGENT_SERVER_API_KEY` in the Mission Control container environment."
+        ),
+    },
 }
 
 # ---------------------------------------------------------------------------

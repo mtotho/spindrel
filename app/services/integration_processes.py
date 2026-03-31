@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import signal
 import time
 
@@ -41,6 +42,16 @@ class IntegrationProcessManager:
     def __init__(self):
         self._states: dict[str, _ProcessState] = {}
 
+    def _build_cmd(self, cmd: list[str], watch_paths: list[str] | None) -> list[str]:
+        """Wrap cmd with watchfiles for auto-reload if available and watch_paths specified."""
+        if not watch_paths:
+            return cmd
+        if not shutil.which("watchfiles"):
+            return cmd
+        # watchfiles CLI: watchfiles [opts] COMMAND [PATHS...]
+        # COMMAND is a shell string that watchfiles will pass to the shell
+        return ["watchfiles", "--filter", "python", " ".join(cmd)] + watch_paths
+
     def _discover(self) -> dict[str, dict]:
         """Discover all integrations with process.py (regardless of env readiness)."""
         from integrations import _iter_integration_candidates, _import_module
@@ -55,8 +66,9 @@ class IntegrationProcessManager:
                 cmd = getattr(module, "CMD", None)
                 if not cmd:
                     continue
+                watch_paths = getattr(module, "WATCH_PATHS", None)
                 results[integration_id] = {
-                    "cmd": cmd,
+                    "cmd": self._build_cmd(cmd, watch_paths),
                     "required_env": getattr(module, "REQUIRED_ENV", []),
                     "description": getattr(module, "DESCRIPTION", integration_id),
                 }

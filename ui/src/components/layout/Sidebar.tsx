@@ -14,6 +14,7 @@ import {
   Container,
   Plus,
   Hash,
+  Home,
   Lock,
   BarChart3,
   Shield,
@@ -268,6 +269,27 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             <ChevronRight size={16} color={t.textDim} />
           </Pressable>
 
+          {/* Home (orchestrator) icon */}
+          {(() => {
+            const orch = channels?.find((ch) => ch.client_id === "orchestrator:home");
+            if (!orch) return null;
+            const orchActive = pathname.includes(orch.id);
+            return (
+              <Link href={`/channels/${orch.id}` as any} asChild>
+                <Pressable
+                  onPress={closeMobile}
+                  className={`items-center justify-center rounded-lg ${
+                    orchActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                  }`}
+                  style={{ width: 44, height: 44 }}
+                  accessibilityLabel="Home"
+                >
+                  <Home size={18} color={orchActive ? t.accent : t.textDim} />
+                </Pressable>
+              </Link>
+            );
+          })()}
+
           {/* Channels icon */}
           <Link href="/" asChild>
             <Pressable
@@ -280,7 +302,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             >
               <View>
                 <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
-                {channels?.some((ch) => !pathname.includes(ch.id) && isUnread(ch.id, ch.updated_at)) && (
+                {channels?.filter((ch) => ch.client_id !== "orchestrator:home").some((ch) => !pathname.includes(ch.id) && isUnread(ch.id, ch.updated_at)) && (
                   <View
                     style={{
                       position: "absolute",
@@ -404,74 +426,114 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           {channelsLoading ? (
             <ChannelSkeletons />
           ) : (
-            channels?.map((channel) => {
-              const bot = botMap.get(channel.bot_id);
-              const isActive = pathname.includes(channel.id);
-              const unread = !isActive && isUnread(channel.id, channel.updated_at);
-              const displayName = channel.display_name || channel.name || channel.client_id;
-              return (
-                <Link
-                  key={channel.id}
-                  href={`/channels/${channel.id}` as any}
-                  asChild
-                >
-                  <Pressable
-                    onPress={closeMobile}
-                    className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
-                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                    }`}
-                  >
-                    {channel.private ? (
-                      <Lock size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
-                    ) : (
-                      <Hash size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
-                    )}
-                    <View className="flex-1 min-w-0">
+            <>
+              {/* Orchestrator channel pinned at top */}
+              {channels?.filter((ch) => ch.client_id === "orchestrator:home").map((channel) => {
+                const isActive = pathname.includes(channel.id);
+                const unread = !isActive && isUnread(channel.id, channel.updated_at);
+                return (
+                  <Link key={channel.id} href={`/channels/${channel.id}` as any} asChild>
+                    <Pressable
+                      onPress={closeMobile}
+                      className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
+                        isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                      }`}
+                    >
+                      <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
                       <Text
                         style={mobile ? { fontSize: 15 } : undefined}
-                        className={`${mobile ? "" : "text-sm"} ${
+                        className={`flex-1 ${mobile ? "" : "text-sm"} ${
                           isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text-muted"
                         }`}
                         numberOfLines={1}
                       >
-                        {displayName}
+                        Home
                       </Text>
-                      {bot && (
-                        <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
-                          {bot.name}
-                        </Text>
+                      {unread && (
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: t.accent,
+                            flexShrink: 0,
+                          }}
+                        />
                       )}
-                    </View>
-                    {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && (
-                      <View
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: 3,
-                          backgroundColor: "#22c55e",
-                          flexShrink: 0,
-                          opacity: 0.8,
-                        }}
-                      />
-                    )}
-                    {channel.heartbeat_in_quiet_hours && (
-                      <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
-                    )}
-                    {unread && (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: t.accent,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                  </Pressable>
-                </Link>
-              );
-            })
+                    </Pressable>
+                  </Link>
+                );
+              })}
+              {/* Regular channels */}
+              {channels?.filter((ch) => ch.client_id !== "orchestrator:home").map((channel) => {
+                const bot = botMap.get(channel.bot_id);
+                const isActive = pathname.includes(channel.id);
+                const unread = !isActive && isUnread(channel.id, channel.updated_at);
+                const displayName = channel.display_name || channel.name || channel.client_id;
+                return (
+                  <Link
+                    key={channel.id}
+                    href={`/channels/${channel.id}` as any}
+                    asChild
+                  >
+                    <Pressable
+                      onPress={closeMobile}
+                      className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
+                        isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                      }`}
+                    >
+                      {channel.private ? (
+                        <Lock size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
+                      ) : (
+                        <Hash size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
+                      )}
+                      <View className="flex-1 min-w-0">
+                        <Text
+                          style={mobile ? { fontSize: 15 } : undefined}
+                          className={`${mobile ? "" : "text-sm"} ${
+                            isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text-muted"
+                          }`}
+                          numberOfLines={1}
+                        >
+                          {displayName}
+                        </Text>
+                        {bot && (
+                          <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
+                            {bot.name}
+                          </Text>
+                        )}
+                      </View>
+                      {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && (
+                        <View
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 3,
+                            backgroundColor: "#22c55e",
+                            flexShrink: 0,
+                            opacity: 0.8,
+                          }}
+                        />
+                      )}
+                      {channel.heartbeat_in_quiet_hours && (
+                        <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
+                      )}
+                      {unread && (
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: t.accent,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </Pressable>
+                  </Link>
+                );
+              })}
+            </>
           )}
         </View>
 
