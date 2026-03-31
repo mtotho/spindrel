@@ -21,7 +21,7 @@ from app.agent.message_utils import (
 from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
-from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -369,6 +369,18 @@ async def run_agent_tool_loop(
                     {"type": "thinking_content", "text": accumulated_msg.thinking_content},
                     compaction,
                 )
+
+            if not accumulated_msg.tool_calls:
+                # Try to recover JSON tool calls from text (local model compat)
+                _json_tcs, _remaining = extract_json_tool_calls(
+                    accumulated_msg.content or "", _effective_allowed or set()
+                )
+                if _json_tcs:
+                    logger.info("Recovered %d JSON tool call(s) from text content", len(_json_tcs))
+                    accumulated_msg.tool_calls = _json_tcs
+                    accumulated_msg.content = _remaining or None
+                    # Update the eagerly-appended message in conversation history
+                    messages[-1] = accumulated_msg.to_msg_dict()
 
             if not accumulated_msg.tool_calls:
                 text = strip_malformed_tool_calls(accumulated_msg.content or "")
