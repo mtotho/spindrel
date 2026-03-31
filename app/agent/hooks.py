@@ -33,6 +33,7 @@ class IntegrationMeta:
     client_id_prefix: str
     user_attribution: Callable[[Any], dict] | None = None
     resolve_display_names: Callable[[list], Awaitable[dict]] | None = None
+    resolve_dispatch_config: Callable[[str], dict | None] | None = None
 
 
 _meta_registry: dict[str, IntegrationMeta] = {}

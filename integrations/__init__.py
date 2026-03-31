@@ -75,8 +75,10 @@ def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
     """Yield (candidate_dir, integration_id, is_external, source) for all directories.
 
     source is 'integration', 'package', or 'external'.
+    Later directories override earlier ones (external > package > integration).
     """
-    results = []
+    seen: dict[str, int] = {}
+    results: list[tuple[Path, str, bool, str]] = []
     for base_dir in _all_integration_dirs():
         if base_dir == _INTEGRATIONS_DIR:
             source = "integration"
@@ -90,9 +92,15 @@ def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
         for candidate in sorted(base_dir.iterdir()):
             if not candidate.is_dir():
                 continue
-            if candidate.name.startswith("_"):
+            if candidate.name.startswith(("_", ".")):
                 continue
-            results.append((candidate, candidate.name, is_external, source))
+            name = candidate.name
+            if name in seen:
+                # Later source overrides earlier one
+                results[seen[name]] = (candidate, name, is_external, source)
+            else:
+                seen[name] = len(results)
+                results.append((candidate, name, is_external, source))
     return results
 
 
