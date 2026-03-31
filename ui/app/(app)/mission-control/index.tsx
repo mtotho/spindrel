@@ -418,7 +418,7 @@ export default function MCDashboard() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingLeft: 24, paddingRight: 16, paddingTop: 20, gap: 24, paddingBottom: 48, maxWidth: 1200 }}
+        contentContainerStyle={{ paddingLeft: 24, paddingRight: 16, paddingTop: 24, gap: 32, paddingBottom: 48, maxWidth: 1200 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading...</Text>

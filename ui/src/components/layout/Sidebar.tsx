@@ -788,19 +788,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                     </Text>
                   </Pressable>
                 </Link>
-                <Link href={`/admin/workspaces/${activeWs.id}` as any} asChild>
-                  <Pressable
-                    onPress={closeMobile}
-                    className="items-center justify-center hover:bg-surface-overlay active:bg-surface-overlay"
-                    style={{
-                      width: 32, alignSelf: "stretch",
-                      borderLeftWidth: 1, borderLeftColor: t.surfaceBorder,
-                    }}
-                    accessibilityLabel="Workspace settings"
-                  >
-                    <Settings size={12} color={t.textDim} />
-                  </Pressable>
-                </Link>
                 {hasMultiple && (
                   <Pressable
                     onPress={() => setWsDropdownOpen(!wsDropdownOpen)}
