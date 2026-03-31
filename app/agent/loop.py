@@ -512,6 +512,7 @@ async def run_agent_tool_loop(
 
             _acc_tool_calls = accumulated_msg.tool_calls
             logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
+            _iteration_injected_images: list[dict] = []
 
             for tc_idx, tc in enumerate(_acc_tool_calls):
                 # Cancellation checkpoint: before each tool dispatch
@@ -620,6 +621,8 @@ async def run_agent_tool_loop(
                     yield pre_event
                 if tc_result.embedded_client_action is not None:
                     embedded_client_actions.append(tc_result.embedded_client_action)
+                if tc_result.injected_images:
+                    _iteration_injected_images.extend(tc_result.injected_images)
 
                 messages.append({
                     "role": "tool",
@@ -635,6 +638,20 @@ async def run_agent_tool_loop(
                     client_id=client_id, correlation_id=correlation_id,
                     extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
                 )))
+
+            # Inject images as synthetic user message so LLM sees them natively
+            if _iteration_injected_images:
+                _img_parts: list[dict] = [{"type": "text", "text": "[Requested image(s) for your analysis]"}]
+                for img in _iteration_injected_images:
+                    mime = img.get("mime_type", "image/jpeg")
+                    b64 = img.get("base64", "")
+                    if b64:
+                        _img_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                        })
+                if len(_img_parts) > 1:
+                    messages.append({"role": "user", "content": _img_parts})
 
         _max_iter_msg = (
             f"Max iterations reached ({effective_max_iterations} tool calls). "

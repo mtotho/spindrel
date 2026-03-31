@@ -65,6 +65,9 @@ class ChannelOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
+    channel_workspace_enabled: Optional[bool] = None
+    resolved_workspace_id: Optional[str] = None
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -187,7 +190,11 @@ class ChannelConfigOut(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -253,7 +260,11 @@ class ChannelConfigUpdate(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -358,7 +369,15 @@ async def get_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ChannelOut.model_validate(channel)
+    out = ChannelOut.model_validate(channel)
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(channel.bot_id)
+        out.resolved_workspace_id = bot.shared_workspace_id
+    except Exception:
+        logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
+    out.tags = (channel.metadata_ or {}).get("tags", [])
+    return out
 
 
 @router.get("/{channel_id}/config", response_model=ChannelConfigOut)
@@ -518,7 +537,10 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
         "channel_workspace_enabled": channel.channel_workspace_enabled,
         "workspace_schema_template_id": channel.workspace_schema_template_id,
+        "workspace_schema_content": channel.workspace_schema_content,
         "index_segments": channel.index_segments or [],
+        "carapaces_extra": channel.carapaces_extra,
+        "carapaces_disabled": channel.carapaces_disabled,
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

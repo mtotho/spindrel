@@ -1,161 +1,64 @@
 """Mission Control bot tools — kanban board management via tasks.md."""
 from __future__ import annotations
 
-import re
-import uuid
+import logging
 
 from integrations import _register as reg
+from app.services.task_board import (
+    generate_card_id,
+    parse_tasks_md,
+    serialize_tasks_md,
+    default_columns,
+)
+
+logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# tasks.md parser/serializer — shared between tools and dashboard
-# ---------------------------------------------------------------------------
-
-def _generate_card_id() -> str:
-    """Generate a short card ID like mc-a1b2c3."""
-    return f"mc-{uuid.uuid4().hex[:6]}"
-
-
-def _parse_card(raw: str) -> dict:
-    """Parse a single card block (everything after ### Title)."""
-    lines = raw.strip().splitlines()
-    if not lines:
-        return {"title": "", "meta": {}, "description": ""}
-
-    title = lines[0].strip()
-    meta: dict[str, str] = {}
-    desc_lines: list[str] = []
-    in_desc = False
-
-    for line in lines[1:]:
-        m = re.match(r"^- \*\*(\w+)\*\*:\s*(.*)$", line)
-        if m and not in_desc:
-            meta[m.group(1)] = m.group(2).strip()
-        else:
-            in_desc = True
-            desc_lines.append(line)
-
-    return {
-        "title": title,
-        "meta": meta,
-        "description": "\n".join(desc_lines).strip(),
-    }
-
-
-def _serialize_card(card: dict) -> str:
-    """Serialize a card dict back to markdown."""
-    lines = [f"### {card['title']}"]
-    for key, value in card["meta"].items():
-        lines.append(f"- **{key}**: {value}")
-    if card.get("description"):
-        lines.append("")
-        lines.append(card["description"])
-    return "\n".join(lines)
-
-
-def parse_tasks_md(content: str) -> list[dict]:
-    """Parse tasks.md into a list of columns with cards.
-
-    Returns: [{"name": "Backlog", "cards": [{"title": ..., "meta": {...}, "description": ...}, ...]}, ...]
-    """
-    columns: list[dict] = []
-
-    # Split by ## headers (columns)
-    parts = re.split(r"(?m)^## ", content)
-
-    for part in parts[1:]:  # skip preamble before first ##
-        lines = part.split("\n", 1)
-        col_name = lines[0].strip()
-        col_body = lines[1] if len(lines) > 1 else ""
-
-        cards: list[dict] = []
-        card_parts = re.split(r"(?m)^### ", col_body)
-
-        for card_raw in card_parts[1:]:  # skip text before first ###
-            card = _parse_card(card_raw)
-            if card["title"]:
-                cards.append(card)
-
-        columns.append({"name": col_name, "cards": cards})
-
-    return columns
-
-
-def serialize_tasks_md(columns: list[dict]) -> str:
-    """Serialize columns back to tasks.md format."""
-    lines = ["# Tasks", ""]
-
-    for col in columns:
-        lines.append(f"## {col['name']}")
-        lines.append("")
-        for card in col.get("cards", []):
-            lines.append(_serialize_card(card))
-            lines.append("")
-
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def _default_columns() -> list[dict]:
-    """Default kanban columns for a new tasks.md."""
-    return [
-        {"name": "Backlog", "cards": []},
-        {"name": "In Progress", "cards": []},
-        {"name": "Review", "cards": []},
-        {"name": "Done", "cards": []},
-    ]
+async def _resolve_bot(channel_id: str):
+    """Resolve the bot config for a channel. Falls back to first available bot."""
+    import uuid as _uuid
+    from app.agent.bots import get_bot, list_bots
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel
+        async with async_session() as db:
+            ch = await db.get(Channel, _uuid.UUID(channel_id))
+            if ch:
+                return get_bot(ch.bot_id)
+    except Exception:
+        logger.warning("Could not resolve bot for channel %s, falling back", channel_id, exc_info=True)
+    # Fallback: try "default", then first available bot
+    try:
+        return get_bot("default")
+    except Exception:
+        bots = list_bots()
+        if bots:
+            return bots[0]
+        raise ValueError("No bots configured — cannot resolve workspace path")
 
 
 async def _read_tasks_md(channel_id: str) -> tuple[str, list[dict]]:
     """Read and parse tasks.md for a channel. Creates it if missing."""
-    from app.agent.bots import get_bot
     from app.services.channel_workspace import read_workspace_file
 
-    # Try to find the bot for this channel
-    bot = None
-    try:
-        from app.db.session import async_session_factory
-        from app.db.models import Channel
-        async with async_session_factory() as db:
-            ch = await db.get(Channel, channel_id)
-            if ch:
-                bot = get_bot(ch.bot_id)
-    except Exception:
-        bot = get_bot("default")
-
-    if bot is None:
-        bot = get_bot("default")
-
+    bot = await _resolve_bot(channel_id)
     content = read_workspace_file(channel_id, bot, "tasks.md")
     if content:
         return content, parse_tasks_md(content)
 
     # No tasks.md yet — return default structure
-    columns = _default_columns()
+    columns = default_columns()
     return serialize_tasks_md(columns), columns
 
 
 async def _write_tasks_md(channel_id: str, columns: list[dict]) -> str:
     """Serialize and write tasks.md for a channel."""
-    from app.agent.bots import get_bot
     from app.services.channel_workspace import (
         ensure_channel_workspace,
         write_workspace_file,
     )
 
-    bot = None
-    try:
-        from app.db.session import async_session_factory
-        from app.db.models import Channel
-        async with async_session_factory() as db:
-            ch = await db.get(Channel, channel_id)
-            if ch:
-                bot = get_bot(ch.bot_id)
-    except Exception:
-        bot = get_bot("default")
-
-    if bot is None:
-        bot = get_bot("default")
-
+    bot = await _resolve_bot(channel_id)
     ensure_channel_workspace(channel_id, bot)
     content = serialize_tasks_md(columns)
     write_workspace_file(channel_id, bot, "tasks.md", content)
@@ -239,7 +142,7 @@ async def create_task_card(
         else:
             columns.append(target_col)
 
-    card_id = _generate_card_id()
+    card_id = generate_card_id()
     meta: dict[str, str] = {"id": card_id}
     if assigned:
         meta["assigned"] = assigned

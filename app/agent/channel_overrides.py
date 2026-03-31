@@ -16,6 +16,7 @@ class EffectiveTools:
     client_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
+    carapaces: list[str] = field(default_factory=list)
 
 
 def _resolve_list(bot_list: list[str], override: list | None, disabled: list | None) -> list[str]:
@@ -102,7 +103,18 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             client_tools=list(bot.client_tools),
             pinned_tools=list(bot.pinned_tools),
             skills=list(bot.skills),
+            carapaces=list(bot.carapaces),
         )
+
+    # Resolve carapaces: extras add, disabled removes
+    _carapaces = list(bot.carapaces)
+    _ch_extra = getattr(channel, "carapaces_extra", None) or []
+    for cid in _ch_extra:
+        if cid not in _carapaces:
+            _carapaces.append(cid)
+    _ch_disabled = set(getattr(channel, "carapaces_disabled", None) or [])
+    if _ch_disabled:
+        _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 
     return EffectiveTools(
         local_tools=_resolve_list(
@@ -131,4 +143,5 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             channel.skills_disabled,
             getattr(channel, "skills_extra", None),
         ),
+        carapaces=_carapaces,
     )

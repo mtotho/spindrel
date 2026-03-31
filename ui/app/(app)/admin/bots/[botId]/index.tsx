@@ -6,6 +6,7 @@ import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/us
 import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useHashTab } from "@/src/hooks/useHashTab";
+import { useCarapaces } from "@/src/api/hooks/useCarapaces";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt, GenerateButton } from "@/src/components/shared/LlmPrompt";
@@ -101,6 +102,7 @@ export default function BotEditorScreen() {
       persona: ["persona", "personality", "tone"],
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization"],
       skills: ["skill"],
+      carapaces: ["carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],
       elevation: ["elevation", "elevate", "threshold"],
@@ -464,6 +466,10 @@ export default function BotEditorScreen() {
                 </div>
               )}
             </div>
+          )}
+
+          {activeSection === "carapaces" && (
+            <CarapacesSection draft={draft} update={update} t={t} />
           )}
 
           {activeSection === "memory" && (
@@ -842,5 +848,65 @@ export default function BotEditorScreen() {
         </ScrollView>
       </div>
     </View>
+  );
+}
+
+function CarapacesSection({
+  draft,
+  update,
+  t,
+}: {
+  draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data: allCarapaces } = useCarapaces();
+  const selected = draft.carapaces || [];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Carapaces</div>
+      <div style={{ fontSize: 11, color: t.textDim }}>
+        Carapaces are composable skill+tool bundles. Select carapaces to equip this bot with pre-configured expertise.
+      </div>
+      {!allCarapaces || allCarapaces.length === 0 ? (
+        <div style={{ color: t.textDim, fontSize: 12, padding: 12, textAlign: "center" }}>
+          No carapaces available. Create one in the Carapaces admin page.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
+          {allCarapaces.map((c) => {
+            const on = selected.includes(c.id);
+            return (
+              <label
+                key={c.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
+                  borderRadius: 6, cursor: "pointer", fontSize: 12,
+                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  style={{ accentColor: "#3b82f6" }}
+                  onChange={() => {
+                    const next = on
+                      ? selected.filter((x) => x !== c.id)
+                      : [...selected, c.id];
+                    update({ carapaces: next });
+                  }}
+                />
+                <span style={{ fontWeight: 500, color: on ? "#3b82f6" : t.text }}>{c.name}</span>
+                <span style={{ color: t.surfaceBorder, fontFamily: "monospace", fontSize: 10 }}>{c.id}</span>
+                {c.description && (
+                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>{c.description}</span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

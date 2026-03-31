@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, Sparkles, RotateCcw } from "lucide-react";
+import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -306,6 +306,15 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
                 }}>
                   {hb.status}
                 </span>
+                {hb.repetition_detected && (
+                  <span style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                    background: t.warningSubtle, color: t.warningMuted,
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                  }}>
+                    <AlertTriangle size={10} /> repetitive
+                  </span>
+                )}
               </div>
               {isExpanded && (
                 <div style={{

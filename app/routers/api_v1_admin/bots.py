@@ -91,10 +91,17 @@ async def admin_bot_detail(
 # Editor data
 # ---------------------------------------------------------------------------
 
+class ToolPackOut(BaseModel):
+    pack: str
+    label: str
+    warning: Optional[str] = None
+    tools: list[dict] = []
+
+
 class ToolGroupOut(BaseModel):
     integration: str
     is_core: bool
-    packs: list[dict] = []
+    packs: list[ToolPackOut] = []
     total: int = 0
 
 
@@ -179,7 +186,8 @@ async def admin_bot_editor_data(
             api_permissions=api_perms,
         )
 
-    tool_groups = _build_tool_groups(tool_rows)
+    bot_memory_scheme = getattr(bot_out, "memory_scheme", None) if not is_new else None
+    tool_groups = _build_tool_groups(tool_rows, memory_scheme=bot_memory_scheme)
     mcp_servers = sorted(_servers.keys())
     client_tools = sorted(_client_tools.keys())
 
@@ -287,7 +295,15 @@ async def _fetch_sandbox_profiles(db: AsyncSession):
     )).scalars().all()
 
 
-def _build_tool_groups(tool_rows) -> list[dict]:
+PACK_METADATA: dict[str, dict] = {
+    "memory":       {"label": "Memory (DB)",    "deprecated": True},
+    "memory_files": {"label": "Memory (Files)"},
+    "knowledge":    {"label": "Knowledge (DB)", "deprecated": True},
+    "plans":        {"label": "Plans (DB)",      "deprecated": True},
+}
+
+
+def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[dict]:
     from collections import defaultdict
     integration_packs: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for r in tool_rows:
@@ -308,13 +324,26 @@ def _build_tool_groups(tool_rows) -> list[dict]:
     groups = []
     for intg_id in ordered:
         packs_dict = integration_packs[intg_id]
+        packs_out = []
+        for pn in sorted(packs_dict):
+            meta = PACK_METADATA.get(pn, {})
+            label = meta.get("label", pn)
+            warning = None
+            if meta.get("deprecated"):
+                if memory_scheme == "workspace-files":
+                    warning = "Not recommended with workspace-files memory scheme"
+                else:
+                    warning = "DB-based — consider workspace-files memory scheme instead"
+            packs_out.append({
+                "pack": pn,
+                "label": label,
+                "warning": warning,
+                "tools": sorted(packs_dict[pn], key=lambda t: t["name"]),
+            })
         groups.append({
             "integration": intg_id,
             "is_core": intg_id == "core",
-            "packs": [
-                {"pack": pn, "tools": sorted(packs_dict[pn], key=lambda t: t["name"])}
-                for pn in sorted(packs_dict)
-            ],
+            "packs": packs_out,
             "total": sum(len(v) for v in packs_dict.values()),
         })
     return groups

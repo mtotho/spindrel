@@ -9,6 +9,7 @@ import {
   Clock,
   Moon,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
@@ -120,7 +121,7 @@ export default function UpcomingActivityPage() {
   ];
 
   return (
-    <View className="flex-1 bg-background">
+    <View style={{ flex: 1, backgroundColor: t.surface }}>
       <MobileHeader title="Upcoming Activity" />
 
       <RefreshableScrollView
@@ -129,37 +130,43 @@ export default function UpcomingActivityPage() {
         contentContainerStyle={{ paddingBottom: 40 }}
       >
         {/* Header */}
-        <View className="px-6 pt-6 pb-3">
-          <View className="flex-row items-center justify-between mb-4">
-            <View className="flex-row items-center gap-3">
+        <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Clock size={20} color={t.text} />
               <Text style={{ fontSize: 20, fontWeight: "700", color: t.text }}>
                 Upcoming Activity
               </Text>
             </View>
             <Link href={"/admin/tasks" as any} asChild>
-              <Pressable className="flex-row items-center gap-1.5 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay">
-                <Text className="text-sm text-accent">Tasks</Text>
+              <Pressable
+                className="hover:bg-surface-overlay active:bg-surface-overlay"
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}
+              >
+                <Text style={{ fontSize: 14, color: t.accent }}>Tasks</Text>
                 <ArrowRight size={14} color={t.accent} />
               </Pressable>
             </Link>
           </View>
 
           {/* Type filter */}
-          <View className="flex-row gap-2">
+          <View style={{ flexDirection: "row", gap: 8 }}>
             {FILTERS.map((f) => (
               <Pressable
                 key={f.key}
                 onPress={() => setTypeFilter(f.key)}
-                className={`rounded-full px-3 py-1 ${
-                  typeFilter === f.key ? "bg-accent/15" : "bg-surface-overlay"
-                }`}
+                style={{
+                  borderRadius: 999,
+                  paddingHorizontal: 12,
+                  paddingVertical: 4,
+                  backgroundColor: typeFilter === f.key ? t.accentMuted : t.surfaceOverlay,
+                }}
               >
-                <Text
-                  className={`text-xs font-medium ${
-                    typeFilter === f.key ? "text-accent" : "text-text-muted"
-                  }`}
-                >
+                <Text style={{
+                  fontSize: 12,
+                  fontWeight: "500",
+                  color: typeFilter === f.key ? t.accent : t.textMuted,
+                }}>
                   {f.label}
                 </Text>
               </Pressable>
@@ -169,27 +176,27 @@ export default function UpcomingActivityPage() {
 
         {/* Content */}
         {isLoading ? (
-          <View className="px-6 gap-3 pt-2">
+          <View style={{ paddingHorizontal: 24, gap: 12, paddingTop: 8 }}>
             {[1, 2, 3, 4].map((i) => (
-              <View key={i} className="flex-row items-center gap-3 py-3">
-                <View className="rounded animate-pulse" style={{ width: 18, height: 18, backgroundColor: t.skeletonBg }} />
-                <View className="flex-1 gap-1.5">
-                  <View className="rounded animate-pulse" style={{ height: 14, width: `${40 + i * 12}%`, backgroundColor: t.skeletonBg }} />
-                  <View className="rounded animate-pulse" style={{ height: 11, width: `${25 + i * 8}%`, backgroundColor: t.skeletonBg }} />
+              <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 }}>
+                <View className="animate-pulse" style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: t.skeletonBg }} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View className="animate-pulse" style={{ height: 14, width: `${40 + i * 12}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
+                  <View className="animate-pulse" style={{ height: 11, width: `${25 + i * 8}%`, borderRadius: 4, backgroundColor: t.skeletonBg }} />
                 </View>
               </View>
             ))}
           </View>
         ) : !groups.length ? (
-          <View className="items-center justify-center py-16 px-6">
+          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 64, paddingHorizontal: 24 }}>
             <Clock size={32} color={t.textDim} style={{ opacity: 0.3, marginBottom: 12 }} />
-            <Text className="text-text-dim text-sm">No upcoming activity</Text>
+            <Text style={{ fontSize: 14, color: t.textDim }}>No upcoming activity</Text>
           </View>
         ) : (
           groups.map((group) => (
-            <View key={group.label} className="px-4 mb-2">
+            <View key={group.label} style={{ paddingHorizontal: 16, marginBottom: 8 }}>
               {/* Date header */}
-              <View className="px-2 py-2 mb-1">
+              <View style={{ paddingHorizontal: 8, paddingVertical: 8, marginBottom: 4 }}>
                 <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim, letterSpacing: 0.5 }}>
                   {group.label.toUpperCase()}
                 </Text>
@@ -202,12 +209,24 @@ export default function UpcomingActivityPage() {
                   ? TYPE_BADGE.heartbeat
                   : TYPE_BADGE[item.task_type || "agent"] || TYPE_BADGE.agent;
                 const href = item.type === "heartbeat" && item.channel_id
-                  ? `/channels/${item.channel_id}`
-                  : "/admin/tasks";
+                  ? `/channels/${item.channel_id}/settings#heartbeat`
+                  : item.task_id
+                    ? `/admin/tasks/${item.task_id}`
+                    : "/admin/tasks";
 
                 return (
                   <Link key={`${item.type}-${idx}`} href={href as any} asChild>
-                    <Pressable className="flex-row items-center gap-3 rounded-lg px-3 py-3 hover:bg-surface-overlay active:bg-surface-overlay">
+                    <Pressable
+                      className="hover:bg-surface-overlay active:bg-surface-overlay"
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                      }}
+                    >
                       {/* Type icon */}
                       {item.type === "heartbeat" ? (
                         <Heart
@@ -223,51 +242,58 @@ export default function UpcomingActivityPage() {
                       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: bc.dot, flexShrink: 0 }} />
 
                       {/* Title + meta */}
-                      <View className="flex-1 min-w-0">
-                        <Text className="text-text text-sm" numberOfLines={1}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={{ fontSize: 14, color: t.text }} numberOfLines={1}>
                           {item.type === "heartbeat" && item.channel_name
                             ? `Heartbeat — #${item.channel_name}`
                             : item.title}
                         </Text>
-                        <View className="flex-row items-center gap-2 mt-0.5">
-                          <Text className="text-text-dim text-xs" numberOfLines={1}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                          <Text style={{ fontSize: 12, color: t.textMuted }} numberOfLines={1}>
                             {item.bot_name}
                           </Text>
                           {item.type === "heartbeat" && item.interval_minutes && (
-                            <Text className="text-text-dim text-xs">
+                            <Text style={{ fontSize: 12, color: t.textDim }}>
                               every {item.interval_minutes}m
                             </Text>
                           )}
                           {item.type === "task" && item.channel_name && (
-                            <Text className="text-text-dim text-xs" numberOfLines={1}>
+                            <Text style={{ fontSize: 12, color: t.textDim }} numberOfLines={1}>
                               #{item.channel_name}
                             </Text>
                           )}
                           {item.in_quiet_hours && (
-                            <View className="flex-row items-center gap-0.5">
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                               <Moon size={10} color={t.textDim} style={{ opacity: 0.5 }} />
-                              <Text className="text-text-dim text-[10px]">quiet</Text>
+                              <Text style={{ fontSize: 10, color: t.textDim }}>quiet</Text>
                             </View>
                           )}
                         </View>
                       </View>
 
-                      {/* Type badge */}
-                      <View
-                        className="rounded-full px-2 py-0.5"
-                        style={{ backgroundColor: badge.bg }}
-                      >
-                        <Text style={{ fontSize: 10, fontWeight: "600", color: badge.fg }}>
-                          {badge.label}
-                        </Text>
+                      {/* Recurring indicator + Type badge */}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        {(item.recurrence || item.interval_minutes) && (
+                          <RefreshCw size={12} color={t.textDim} />
+                        )}
+                        <View style={{
+                          borderRadius: 999,
+                          paddingHorizontal: 8,
+                          paddingVertical: 2,
+                          backgroundColor: badge.bg,
+                        }}>
+                          <Text style={{ fontSize: 10, fontWeight: "600", color: badge.fg }}>
+                            {badge.label}
+                          </Text>
+                        </View>
                       </View>
 
                       {/* Time */}
-                      <View className="items-end" style={{ minWidth: 52 }}>
-                        <Text className="text-text-muted text-xs">
-                          {item.scheduled_at ? formatTimeShort(item.scheduled_at) : "—"}
+                      <View style={{ alignItems: "flex-end", minWidth: 52 }}>
+                        <Text style={{ fontSize: 12, color: t.textMuted }}>
+                          {item.scheduled_at ? formatTimeShort(item.scheduled_at) : "\u2014"}
                         </Text>
-                        <Text className="text-text-dim text-[10px]">
+                        <Text style={{ fontSize: 10, color: t.textDim }}>
                           {item.scheduled_at ? relativeTime(item.scheduled_at) : ""}
                         </Text>
                       </View>

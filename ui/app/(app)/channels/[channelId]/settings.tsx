@@ -110,7 +110,9 @@ export default function ChannelSettingsScreen() {
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
         channel_workspace_enabled: settings.channel_workspace_enabled,
         workspace_schema_template_id: settings.workspace_schema_template_id,
+        workspace_schema_content: settings.workspace_schema_content,
         index_segments: settings.index_segments ?? [],
+        tags: settings.tags ?? [],
       });
     }
   }, [settings]);

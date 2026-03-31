@@ -69,15 +69,35 @@ export interface BotConfig {
   api_permissions?: string[] | null;
   api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
   memory_scheme?: string | null;  // "workspace-files"|null
+  carapaces?: string[];
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
+export interface Carapace {
+  id: string;
+  name: string;
+  description?: string | null;
+  skills: SkillConfig[];
+  local_tools: string[];
+  mcp_tools: string[];
+  pinned_tools: string[];
+  system_prompt_fragment?: string | null;
+  includes: string[];
+  tags: string[];
+  source_type: string;
+  source_path?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Tool group from editor data
 export interface ToolPack {
   pack: string;
+  label: string;
+  warning?: string | null;
   tools: { name: string; description?: string | null }[];
 }
 
@@ -161,6 +181,9 @@ export interface Channel {
   integrations?: IntegrationBinding[];
   heartbeat_enabled?: boolean;
   heartbeat_in_quiet_hours?: boolean;
+  channel_workspace_enabled?: boolean;
+  resolved_workspace_id?: string | null;
+  tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -228,6 +251,7 @@ export interface ChannelSettings {
   // Channel workspace
   channel_workspace_enabled?: boolean | null;
   workspace_schema_template_id?: string | null;
+  workspace_schema_content?: string | null;
   index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;
   index_segment_defaults?: {
     embedding_model: string;
@@ -235,7 +259,11 @@ export interface ChannelSettings {
     similarity_threshold: number;
     top_k: number;
   } | null;
+  // Carapace overrides
+  carapaces_extra?: string[] | null;
+  carapaces_disabled?: string[] | null;
   resolved_workspace_id?: string | null;
+  tags?: string[];
 }
 
 export interface EffectiveTools {
@@ -247,6 +275,7 @@ export interface EffectiveTools {
   mode: Record<string, "inherit" | "override" | "disabled">;
   disabled: Record<string, string[]>;
   skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
+  carapaces: string[];
 }
 
 // Elevation types

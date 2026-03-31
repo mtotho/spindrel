@@ -111,9 +111,13 @@ Both scripts support environment variable overrides:
 
 ## Migration to a new server
 
+See **[docs/migration.md](migration.md)** for the full migration guide, including deployment mode switching (native ↔ Docker), Cloudflare tunnel setup, and integration re-pointing.
+
+Quick version:
+
 1. On old host: `./scripts/backup.sh`
 2. On new host: clone repo, install Docker + rclone, set the same AWS/rclone env vars
 3. Run `./scripts/restore.sh`
 4. Review `.env` for host-specific values (`LITELLM_BASE_URL`, paths, etc.)
 5. Set up cron on the new host
-6. Update DNS / webhook URLs to point to the new host
+6. Re-point Cloudflare tunnel connector (install `cloudflared` on new host)

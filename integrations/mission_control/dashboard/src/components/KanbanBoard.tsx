@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -16,10 +16,11 @@ import KanbanCardView from "./KanbanCard";
 interface KanbanBoardProps {
   columns: KanbanColumn[];
   onMove: (cardId: string, fromCol: string, toCol: string) => void;
+  onAddCard?: (columnName: string, card: { title: string; priority: string; description: string }) => void;
   isSaving: boolean;
 }
 
-export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardProps) {
+export default function KanbanBoard({ columns, onMove, onAddCard, isSaving }: KanbanBoardProps) {
   const [activeCard, setActiveCard] = useState<TaskCard | null>(null);
 
   const sensors = useSensors(
@@ -30,7 +31,7 @@ export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardPr
     (event: DragStartEvent) => {
       const cardId = event.active.id as string;
       for (const col of columns) {
-        const card = col.cards.find((c) => c.meta.id === cardId);
+        const card = col.cards.find((c) => (c.meta.id || c.title) === cardId);
         if (card) {
           setActiveCard(card);
           break;
@@ -40,6 +41,8 @@ export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardPr
     [columns],
   );
 
+  const columnNames = useMemo(() => new Set(columns.map((c) => c.name)), [columns]);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActiveCard(null);
@@ -47,12 +50,27 @@ export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardPr
       if (!over) return;
 
       const cardId = active.id as string;
-      const targetColName = over.id as string;
+      const overId = over.id as string;
+
+      // Resolve target: if dropped on a card, find its parent column
+      let targetColName: string | null = null;
+      if (columnNames.has(overId)) {
+        targetColName = overId;
+      } else {
+        // Dropped on a card — find which column contains that card
+        for (const col of columns) {
+          if (col.cards.some((c) => (c.meta.id || c.title) === overId)) {
+            targetColName = col.name;
+            break;
+          }
+        }
+      }
+      if (!targetColName) return;
 
       // Find source column
       let sourceCol: string | null = null;
       for (const col of columns) {
-        if (col.cards.some((c) => c.meta.id === cardId)) {
+        if (col.cards.some((c) => (c.meta.id || c.title) === cardId)) {
           sourceCol = col.name;
           break;
         }
@@ -62,7 +80,7 @@ export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardPr
         onMove(cardId, sourceCol, targetColName);
       }
     },
-    [columns, onMove],
+    [columns, columnNames, onMove],
   );
 
   return (
@@ -74,14 +92,18 @@ export default function KanbanBoard({ columns, onMove, isSaving }: KanbanBoardPr
     >
       <div className="flex gap-4 overflow-x-auto pb-4 min-h-[400px]">
         {columns.map((col) => (
-          <KanbanColumnView key={col.name} column={col} />
+          <KanbanColumnView
+            key={col.name}
+            column={col}
+            onAddCard={onAddCard}
+          />
         ))}
       </div>
       <DragOverlay>
         {activeCard ? <KanbanCardView card={activeCard} isDragging /> : null}
       </DragOverlay>
       {isSaving && (
-        <div className="fixed bottom-4 right-4 bg-accent/90 text-white text-xs px-3 py-1.5 rounded-full">
+        <div className="fixed bottom-4 right-4 bg-accent/90 text-white text-xs px-3 py-1.5 rounded-full animate-pulse">
           Saving...
         </div>
       )}

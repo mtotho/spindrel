@@ -173,9 +173,18 @@ def _detect_repetition(
     # Text repetition: most recent 3 results highly similar
     if len(results) >= 3:
         a, b, c = results[0][:500], results[1][:500], results[2][:500]
+        # Scale threshold down for short responses — minor rephrasing of
+        # short text yields lower ratios than for long text.
+        avg_len = (len(a) + len(b) + len(c)) / 3
+        if avg_len < 150:
+            effective_threshold = threshold * 0.55
+        elif avg_len < 300:
+            effective_threshold = threshold * 0.7
+        else:
+            effective_threshold = threshold
         if (
-            SequenceMatcher(None, a, b).ratio() > threshold
-            and SequenceMatcher(None, b, c).ratio() > threshold
+            SequenceMatcher(None, a, b).ratio() > effective_threshold
+            and SequenceMatcher(None, b, c).ratio() > effective_threshold
         ):
             return True
 
@@ -187,6 +196,27 @@ def _detect_repetition(
             return True
 
     return False
+
+
+def _build_repetition_preamble(recent_runs: list[HeartbeatRun]) -> str:
+    """Build a forceful preamble showing full recent results so the LLM avoids repeating them."""
+    lines = [
+        "",
+        "!!! REPETITION ALERT — CRITICAL !!!",
+        "Your last several heartbeat outputs are nearly IDENTICAL.",
+        "You MUST NOT produce similar text again. Read the previous results below",
+        "and produce something SUBSTANTIALLY different, or say 'No updates.' if there",
+        "is genuinely nothing new to report.",
+        "",
+    ]
+    results_with_text = [r for r in recent_runs if r.result]
+    for i, r in enumerate(results_with_text[:3]):
+        lines.append(f"--- Previous result #{i + 1} ---")
+        lines.append(r.result)
+        lines.append("")
+    lines.append("--- END PREVIOUS RESULTS ---")
+    lines.append("Do NOT rephrase or echo the above. Provide NEW information or say 'No updates.'")
+    return "\n".join(lines)
 
 
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
@@ -331,6 +361,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         # Recent run digest + repetition detection
         _rep_enabled = hb.repetition_detection if hb.repetition_detection is not None else settings.HEARTBEAT_REPETITION_DETECTION
+        _repetition_detected = False
         tool_calls_by_corr: dict[uuid.UUID, list[str]] = {}
         if len(recent_runs) >= 2:
             # Fetch tool calls for recent runs (for digest display + repetition detection)
@@ -360,8 +391,9 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             if _rep_enabled and _detect_repetition(
                 recent_runs, tool_calls_by_corr, settings.HEARTBEAT_REPETITION_THRESHOLD
             ):
-                metadata_lines.append("")
-                metadata_lines.append(settings.HEARTBEAT_REPETITION_WARNING)
+                _repetition_detected = True
+                logger.warning("Heartbeat %s: repetition detected across recent runs", hb.id)
+                metadata_lines.append(_build_repetition_preamble(recent_runs))
 
         # Dispatch mode guidance
         if _dispatch_mode == "optional":
@@ -515,6 +547,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             run_rec.error = error_text
             run_rec.correlation_id = correlation_id
             run_rec.status = "complete" if error_text is None else "failed"
+            run_rec.repetition_detected = _repetition_detected
 
         heartbeat = await db.get(ChannelHeartbeat, hb.id)
         if heartbeat:

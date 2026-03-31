@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.embeddings import embed_text as _embed_text, embed_batch as _embed_batch
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import BotKnowledge, PromptTemplate, Skill as SkillRow
+from app.db.models import BotKnowledge, Carapace as CarapaceRow, PromptTemplate, Skill as SkillRow
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,18 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                 for p in sorted(intg_skills.glob("*.md")):
                     skill_id = f"{prefix}/{intg_dir.name}/{p.stem}"
                     items.append((p, skill_id, SOURCE_INTEGRATION))
+
+    # carapaces/*/skills/*.md (carapace-scoped skills)
+    carapaces_dir = Path("carapaces")
+    if carapaces_dir.is_dir():
+        for c_dir in sorted(carapaces_dir.iterdir()):
+            if not c_dir.is_dir():
+                continue
+            c_skills = c_dir / "skills"
+            if c_skills.is_dir():
+                for p in sorted(c_skills.glob("*.md")):
+                    skill_id = f"carapaces/{c_dir.name}/{p.stem}"
+                    items.append((p, skill_id, SOURCE_FILE))
 
     return items
 
@@ -446,6 +458,114 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 logger.info("file_sync: deleted orphaned prompt template '%s'", row.name)
         await session.commit()
 
+    # --- Carapaces ---
+    from app.agent.carapaces import collect_carapace_files
+    import yaml as _yaml
+
+    carapace_files = collect_carapace_files()
+    seen_carapace_ids: set[str] = set()
+
+    for path, carapace_id, source_type in carapace_files:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except Exception:
+            logger.exception("Cannot read carapace file %s", path)
+            counts["errors"].append(f"Cannot read {path}")
+            continue
+
+        content_hash = _sha256(raw)
+        data = _yaml.safe_load(raw) or {}
+        cid = data.get("id", carapace_id)
+        seen_carapace_ids.add(cid)
+        source_path = str(path.resolve())
+
+        try:
+            async with async_session() as session:
+                existing = await session.get(CarapaceRow, cid)
+                if existing is None:
+                    row = CarapaceRow(
+                        id=cid,
+                        name=data.get("name", cid),
+                        description=data.get("description"),
+                        skills=data.get("skills", []),
+                        local_tools=data.get("local_tools", []),
+                        mcp_tools=data.get("mcp_tools", []),
+                        pinned_tools=data.get("pinned_tools", []),
+                        system_prompt_fragment=data.get("system_prompt_fragment"),
+                        includes=data.get("includes", []),
+                        tags=data.get("tags", []),
+                        source_path=source_path,
+                        source_type=source_type,
+                        content_hash=content_hash,
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    session.add(row)
+                    await session.commit()
+                    counts["added"] += 1
+                    logger.info("file_sync: added carapace '%s' from %s", cid, path)
+                elif existing.content_hash != content_hash:
+                    existing.name = data.get("name", cid)
+                    existing.description = data.get("description")
+                    existing.skills = data.get("skills", [])
+                    existing.local_tools = data.get("local_tools", [])
+                    existing.mcp_tools = data.get("mcp_tools", [])
+                    existing.pinned_tools = data.get("pinned_tools", [])
+                    existing.system_prompt_fragment = data.get("system_prompt_fragment")
+                    existing.includes = data.get("includes", [])
+                    existing.tags = data.get("tags", [])
+                    existing.source_path = source_path
+                    existing.source_type = source_type
+                    existing.content_hash = content_hash
+                    existing.updated_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    counts["updated"] += 1
+                    logger.info("file_sync: updated carapace '%s' from %s", cid, path)
+                else:
+                    counts["unchanged"] += 1
+                    if existing.source_type != source_type or existing.source_path != source_path:
+                        existing.source_type = source_type
+                        existing.source_path = source_path
+                        await session.commit()
+        except Exception:
+            logger.exception("file_sync: DB error syncing carapace '%s'", cid)
+            counts["errors"].append(f"DB error for carapace '{cid}'")
+
+    # Delete orphaned file/integration carapaces
+    if carapace_files:
+        async with async_session() as session:
+            stmt = select(CarapaceRow).where(
+                CarapaceRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            )
+            all_file_carapaces = list((await session.execute(stmt)).scalars().all())
+            for row in all_file_carapaces:
+                if row.id not in seen_carapace_ids:
+                    await session.delete(row)
+                    counts["deleted"] += 1
+                    logger.info("file_sync: deleted orphaned carapace '%s'", row.id)
+            await session.commit()
+    elif not carapace_files:
+        # Log a warning — zero files found might mean a mount issue
+        async with async_session() as session:
+            existing_count = (await session.execute(
+                select(func.count()).select_from(CarapaceRow).where(
+                    CarapaceRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+                )
+            )).scalar_one()
+        if existing_count > 0:
+            logger.warning(
+                "file_sync: found 0 carapace files on disk but %d file-sourced carapaces in DB. "
+                "Skipping orphan deletion — possible volume mount issue. cwd=%s",
+                existing_count, cwd,
+            )
+
+    # Reload carapace registry after sync
+    if carapace_files or seen_carapace_ids:
+        try:
+            from app.agent.carapaces import reload_carapaces
+            await reload_carapaces()
+        except Exception:
+            logger.warning("file_sync: failed to reload carapaces", exc_info=True)
+
     logger.info(
         "file_sync complete: +%d added, ~%d updated, =%d unchanged, -%d deleted, %d errors",
         counts["added"], counts["updated"], counts["unchanged"],
@@ -479,12 +599,23 @@ async def sync_changed_file(path: Path) -> None:
             rows3 = list((await session.execute(stmt3)).scalars().all())
             for row in rows3:
                 await session.delete(row)
-            if rows or rows2 or rows3:
+            # Carapaces
+            stmt4 = select(CarapaceRow).where(CarapaceRow.source_path == path_str)
+            rows4 = list((await session.execute(stmt4)).scalars().all())
+            for row in rows4:
+                await session.delete(row)
+            if rows or rows2 or rows3 or rows4:
                 await session.commit()
                 logger.info("file_sync: removed DB rows for deleted file %s", path)
+            if rows4:
+                try:
+                    from app.agent.carapaces import reload_carapaces
+                    await reload_carapaces()
+                except Exception:
+                    pass
         return
 
-    if path.suffix != ".md":
+    if path.suffix not in (".md", ".yaml"):
         return
 
     raw = path.read_text(encoding="utf-8")
@@ -604,6 +735,54 @@ async def sync_changed_file(path: Path) -> None:
                 existing.updated_at = datetime.now(timezone.utc)
                 await session.commit()
                 logger.info("file_sync(watch): updated prompt template '%s'", display_name)
+    elif kind == "carapace":
+        import yaml as _yaml
+        cid = skill_id_or_name
+        data = _yaml.safe_load(raw) or {}
+        cid = data.get("id", cid)
+        async with async_session() as session:
+            existing = await session.get(CarapaceRow, cid)
+            if existing is None:
+                row = CarapaceRow(
+                    id=cid,
+                    name=data.get("name", cid),
+                    description=data.get("description"),
+                    skills=data.get("skills", []),
+                    local_tools=data.get("local_tools", []),
+                    mcp_tools=data.get("mcp_tools", []),
+                    pinned_tools=data.get("pinned_tools", []),
+                    system_prompt_fragment=data.get("system_prompt_fragment"),
+                    includes=data.get("includes", []),
+                    tags=data.get("tags", []),
+                    source_path=path_str,
+                    source_type=source_type,
+                    content_hash=content_hash,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                session.add(row)
+                await session.commit()
+                logger.info("file_sync(watch): added carapace '%s'", cid)
+            elif existing.content_hash != content_hash:
+                existing.name = data.get("name", cid)
+                existing.description = data.get("description")
+                existing.skills = data.get("skills", [])
+                existing.local_tools = data.get("local_tools", [])
+                existing.mcp_tools = data.get("mcp_tools", [])
+                existing.pinned_tools = data.get("pinned_tools", [])
+                existing.system_prompt_fragment = data.get("system_prompt_fragment")
+                existing.includes = data.get("includes", [])
+                existing.tags = data.get("tags", [])
+                existing.source_path = path_str
+                existing.source_type = source_type
+                existing.content_hash = content_hash
+                existing.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+                logger.info("file_sync(watch): updated carapace '%s'", cid)
+        try:
+            from app.agent.carapaces import reload_carapaces
+            await reload_carapaces()
+        except Exception:
+            pass
 
 
 def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
@@ -648,6 +827,34 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     if len(parts) == 2 and parts[0] == "prompts" and parts[1].endswith(".md"):
         return ("prompt_template", Path(parts[1]).stem, None, SOURCE_FILE)
 
+    # carapaces/*.yaml
+    if len(parts) == 2 and parts[0] == "carapaces" and parts[1].endswith(".yaml"):
+        return ("carapace", Path(parts[1]).stem, None, SOURCE_FILE)
+
+    # carapaces/*/carapace.yaml (subdirectory carapaces)
+    if len(parts) == 3 and parts[0] == "carapaces" and parts[2] == "carapace.yaml":
+        return ("carapace", parts[1], None, SOURCE_FILE)
+
+    # carapaces/*/skills/*.md (carapace-scoped skills)
+    if len(parts) == 4 and parts[0] == "carapaces" and parts[2] == "skills" and parts[3].endswith(".md"):
+        skill_id = f"carapaces/{parts[1]}/{Path(parts[3]).stem}"
+        return ("skill", skill_id, None, SOURCE_FILE)
+
+    # integrations/{id}/carapaces/*.yaml
+    if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "carapaces" and parts[3].endswith(".yaml"):
+        carapace_id = f"integrations/{parts[1]}/{Path(parts[3]).stem}"
+        return ("carapace", carapace_id, None, SOURCE_INTEGRATION)
+
+    # integrations/{id}/carapaces/*/carapace.yaml (subdirectory integration carapaces)
+    if len(parts) == 5 and parts[0] == "integrations" and parts[2] == "carapaces" and parts[4] == "carapace.yaml":
+        carapace_id = f"integrations/{parts[1]}/{parts[3]}"
+        return ("carapace", carapace_id, None, SOURCE_INTEGRATION)
+
+    # integrations/{id}/carapaces/*/skills/*.md (integration carapace-scoped skills)
+    if len(parts) == 6 and parts[0] == "integrations" and parts[2] == "carapaces" and parts[4] == "skills" and parts[5].endswith(".md"):
+        skill_id = f"integrations/{parts[1]}/carapaces/{parts[3]}/{Path(parts[5]).stem}"
+        return ("skill", skill_id, None, SOURCE_INTEGRATION)
+
     return None
 
 
@@ -665,7 +872,7 @@ async def watch_files() -> None:
     backoff = 1.0
     while True:
         watch_dirs: list[str] = []
-        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts"]:
+        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts", "carapaces"]:
             p = Path(d)
             if p.exists():
                 watch_dirs.append(str(p))
@@ -681,7 +888,7 @@ async def watch_files() -> None:
                 backoff = 1.0  # reset backoff on successful event
                 for change_type, changed_path in changes:
                     p = Path(changed_path)
-                    if p.suffix != ".md":
+                    if p.suffix not in (".md", ".yaml"):
                         continue
                     try:
                         await sync_changed_file(p)

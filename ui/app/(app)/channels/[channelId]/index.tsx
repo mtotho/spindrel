@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft, Hash, ChevronDown } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code } from "lucide-react";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -18,6 +18,9 @@ import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { apiFetch } from "@/src/api/client";
+import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
+import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -337,6 +340,32 @@ export default function ChatScreen() {
     [invertedData, bot?.name]
   );
 
+  // Workspace header buttons
+  const workspaceEnabled = channel?.channel_workspace_enabled;
+  const workspaceId = channel?.resolved_workspace_id;
+  const enableEditorMutation = useEnableEditor(workspaceId ?? "");
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
+
+  const handleBrowseWorkspace = useCallback(() => {
+    if (!workspaceId || !channelId) return;
+    const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
+    for (const seg of segments) expandDir(seg);
+  }, [workspaceId, channelId, expandDir]);
+
+  const handleOpenEditor = useCallback(async () => {
+    if (!workspaceId || !channelId || Platform.OS !== "web") return;
+    try {
+      await enableEditorMutation.mutateAsync();
+      const { serverUrl } = useAuthStore.getState();
+      const token = getAuthToken();
+      const folder = `/workspace/channels/${channelId}`;
+      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
+      window.open(editorUrl, `editor-${workspaceId}`);
+    } catch (err) {
+      console.error("Failed to open editor:", err);
+    }
+  }, [workspaceId, channelId, enableEditorMutation]);
+
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
   return (
@@ -384,6 +413,28 @@ export default function ChatScreen() {
             </View>
           )}
         </View>
+        {workspaceEnabled && workspaceId && (
+          <>
+            <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
+              <Pressable
+                onPress={handleBrowseWorkspace}
+                className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                style={{ width: 36, height: 36 }}
+              >
+                <FolderOpen size={16} color={t.textDim} />
+              </Pressable>
+            </Link>
+            {Platform.OS === "web" && (
+              <Pressable
+                onPress={handleOpenEditor}
+                className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                style={{ width: 36, height: 36 }}
+              >
+                <Code size={16} color={t.textDim} />
+              </Pressable>
+            )}
+          </>
+        )}
         {channelId && (
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
@@ -495,6 +546,7 @@ export default function ChatScreen() {
         modelOverride={turnModelOverride}
         onModelOverrideChange={setTurnModelOverride}
         defaultModel={channel?.model_override || bot?.model}
+        currentBotId={channel?.bot_id}
       />
     </SafeAreaView>
   );

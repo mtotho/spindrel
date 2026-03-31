@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useWindowDimensions } from "react-native";
-import { Search, X, Info } from "lucide-react";
+import { Search, X, Info, AlertTriangle } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
@@ -206,7 +206,7 @@ export function ToolsSection({
                         transition: "transform 0.15s", display: "inline-block",
                       }}>▶</span>
                       <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", flex: 1 }}>
-                        {pack.pack}
+                        {pack.label ?? pack.pack}
                       </span>
                       <button
                         onClick={(e) => { e.stopPropagation(); togglePack(packNames); }}
@@ -220,6 +220,19 @@ export function ToolsSection({
                         {allEnabled ? "none" : someEnabled ? "all" : "all"}
                       </button>
                       <span style={{ fontSize: 9, color: t.surfaceBorder }}>{packNames.filter((n) => localTools.includes(n)).length}/{packNames.length}</span>
+                    </div>
+                  )}
+
+                  {/* Pack warning */}
+                  {pack.warning && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "3px 10px", fontSize: 10,
+                      background: t.warningSubtle, color: t.warningMuted,
+                      borderTop: `1px solid ${t.inputBg}`,
+                    }}>
+                      <AlertTriangle size={10} />
+                      <span>{pack.warning}</span>
                     </div>
                   )}
 

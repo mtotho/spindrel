@@ -22,40 +22,80 @@ cd client && pip install -e . && agent
 
 # Run tests
 pytest
+
+# Run UI typecheck (REQUIRED after any UI changes)
+cd ui && npx tsc --noEmit
 ```
+
+## Quality Standards
+
+**These rules are non-negotiable. Follow them on every change.**
+
+### Testing
+- **ALWAYS write tests for every bug fix** — write the test FIRST, verify it FAILS without the fix, then fix the code and verify it passes
+- **Never leave tests failing** — if a test fails, fix it before moving on
+- **Explore adjacent coverage gaps** — when fixing a bug, look for related untested code paths and add tests for those too
+- Tests run via `Dockerfile.test`: `docker build -f Dockerfile.test -t agent-server-test . && docker run --rm agent-server-test`
+- Full suite: `pytest tests/ integrations/ -v`
+- Uses SQLite in-memory (aiosqlite) — no postgres needed
+- Do NOT use `docker compose run` for tests
+
+### UI Quality
+- **ALWAYS run `cd ui && npx tsc --noEmit` after ANY UI changes** — build failures crash prod, there is NO CI safety net
+- Production build: `npx expo export --platform web` (runs in Docker via `ui/Dockerfile`)
+- Common gotcha: adjacent JSX elements need `<>...</>` fragment wrappers
+- **ALWAYS split large files proactively** — don't let UI files hit 1000+ lines; extract into sibling files without being asked
+
+### Code Quality
+- Double-check your work — no bugs, verify edge cases
+- Improve UX quality of life — think about the user experience, not just correctness
+- Research existing code before making changes — understand what's there before modifying
+- Don't propose hacky guardrails when the real fix is better design
+- Prefer reusing existing infrastructure over building new pipelines
 
 ## Project Architecture
 
-This is a self-hosted LLM agent server built on FastAPI + PostgreSQL (pgvector). All LLM calls go through a LiteLLM proxy. There are no direct Anthropic/OpenAI SDK calls — the `openai` client is pointed at `LITELLM_BASE_URL`.
+Self-hosted LLM agent server built on FastAPI + PostgreSQL (pgvector). Supports multiple LLM provider types:
+- **OpenAI-compatible** (`openai` SDK client): OpenAI, Gemini, Ollama, OpenRouter, LiteLLM, vLLM, any `/v1/chat/completions` endpoint
+- **Anthropic-compatible** (native `anthropic` SDK client): Direct Anthropic API, Bedrock, etc.
+- **LiteLLM bonus**: When using a LiteLLM proxy, Spindrel can pull model pricing data for cost tracking
+
+Each bot can use a different provider via `model_provider_id`. The default provider is configured via `LITELLM_BASE_URL`/`LITELLM_API_KEY` in `.env` (named for historical reasons — works with any OpenAI-compatible endpoint).
 
 ### Startup Sequence (app/main.py lifespan)
 1. Run Alembic migrations
-2. Load provider configs from DB
-3. Seed + load bot configs from `bots/*.yaml` (seed-once pattern)
-4. Load MCP server config from `mcp.yaml`
-5. Discover and load tool files (`tools/` + `TOOL_DIRS`)
-6. Import `app/tools/local/` to trigger `@register` decorators
-7. Index all tool schemas for retrieval (RAG)
-8. Fetch + index MCP tool schemas (warm cache)
-9. Validate pinned tools
-10. Sync file-sourced skills/knowledge from `skills/*.md`
-11. Load harness configs from `harnesses.yaml`
-12. Start file watcher + index configured filesystem directories
-13. Warm up STT provider (if enabled)
-14. Start `task_worker` background loop (polls every 5s)
-15. Start `heartbeat_worker` background loop (polls every 30s)
+2. Load server settings + integration settings from DB
+3. Load provider configs from DB
+4. Seed + load bot configs from `bots/*.yaml` (seed-once pattern)
+5. Load MCP server config from `mcp.yaml`
+6. Discover and load tool files (`tools/` + `TOOL_DIRS` + `integrations/*/tools/`)
+7. Import `app/tools/local/` to trigger `@register` decorators
+8. Index all tool schemas for retrieval (RAG)
+9. Fetch + index MCP tool schemas (warm cache)
+10. Validate pinned tools
+11. Sync file-sourced skills/knowledge/prompts from `skills/*.md`, `knowledge/*.md`, `prompts/*.md`
+12. Seed + load carapaces from `carapaces/*.yaml` + `integrations/*/carapaces/*.yaml`
+13. Load harness configs from `harnesses.yaml`
+14. Register integration routers (discover + mount at `/integrations/{id}`)
+15. Start file watcher + index configured filesystem directories
+16. Warm up STT provider (if enabled)
+17. Start integration background processes (Slack bot, MQTT listener, etc.)
+18. Start `task_worker` background loop (polls every 5s)
+19. Start `heartbeat_worker` background loop (polls every 30s)
 
 ### Request Flow
 `run_stream()` (loop.py) → `assemble_context()` (context_assembly.py) → `run_agent_tool_loop()` (loop.py) → `_llm_call()` (llm.py) → `dispatch_tool_call()` (tool_dispatch.py) → LLM → ... → final response
 
-The agent loop is iterative: LLM calls tools until it returns a text response (max `AGENT_MAX_ITERATIONS` iterations). Events are streamed as JSON lines. LLM calls have automatic retry with exponential backoff for transient errors and optional fallback model (`LLM_FALLBACK_MODEL`).
+The agent loop is iterative: LLM calls tools until it returns a text response (max `AGENT_MAX_ITERATIONS` iterations). Events are streamed as JSON lines (SSE). LLM calls have automatic retry with exponential backoff for transient errors and optional fallback model (`LLM_FALLBACK_MODEL`).
 
 ### Configuration Layers
 - **`.env`** → `app/config.py` (Pydantic Settings) — all runtime config
 - **`bots/*.yaml`** → `app/agent/bots.py` (BotConfig) — per-bot behavior (gitignored; users create their own)
 - **`skills/*.md`** — Markdown knowledge files (gitignored; users create their own)
+- **`carapaces/*.yaml`** — Composable expertise bundles (checked in; see Carapaces section)
 - **`mcp.yaml`** — MCP server URLs and auth (supports `${ENV_VAR}` substitution)
-- **`INTEGRATION_DIRS`** — colon-separated paths to external integration directories (see `docs/integrations/README.md`)
+- **`harnesses.yaml`** — External CLI tool configs (claude, cursor, etc.)
+- **`INTEGRATION_DIRS`** — colon-separated paths to external integration directories
 
 ### Tool System
 Three tool types, all passed to the LLM in OpenAI function format:
@@ -67,35 +107,149 @@ Three tool types, all passed to the LLM in OpenAI function format:
 
 **Adding a new local tool**: Create a `.py` file in `tools/` (or any `TOOL_DIRS` path). Use `@register({...openai schema...})` from `app/tools.registry`. The tool is auto-discovered on next server restart.
 
-### RAG Systems (all use pgvector cosine similarity)
-| System | Table | Source | Retrieval trigger |
-|--------|-------|--------|------------------|
-| Skills | `documents` | `skills/*.md` chunks | Every request (if bot lists skill) |
-| Memory | `memories` | Compaction summaries | Every request (if memory enabled) |
-| Knowledge | `bot_knowledge` | LLM-written docs | Every request (if knowledge enabled) |
-| Tool schemas | `tool_embeddings` | All registered tools | Every request (if tool_retrieval enabled) |
+### Context Assembly Pipeline
+
+`assemble_context()` in `context_assembly.py` is the central hub. It runs in this order:
+
+1. **Current time injection** (timezone-aware)
+2. **Context pruning** (trim stale tool results from old turns)
+3. **Channel-level overrides** (tool/skill override/disabled lists, model overrides)
+4. **Workspace DB skills merge** (if bot has `shared_workspace_id`)
+5. **Carapace resolution** (merge skills + tools + system prompt fragments from carapaces)
+6. **Memory scheme setup** ("workspace-files": inject MEMORY.md, daily logs, reference index)
+7. **Channel workspace files** (if `channel_workspace_enabled`: inject active .md files + schema)
+8. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`, `@knowledge:name`)
+9. **Skills injection** (pinned: full content; rag: semantic match; on-demand: index + get_skill tool)
+10. **API docs injection** (if `api_permissions` set)
+11. **Delegate bot index** (list available bots for delegation)
+12. **Conversation history** (sections index + `read_conversation_history` tool in file mode)
+13. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
+14. **Tool retrieval** (tool RAG: cosine similarity matching)
+15. **Channel prompt + system preamble** (per-channel customization, heartbeat metadata)
+16. **User message** (text or native audio)
+
+### Carapaces System
+
+Carapaces are composable bundles of skills, tools, and behavioral instructions that give bots instant expertise in specific domains.
+
+- **Model**: `app/db/models.py` (Carapace table)
+- **Core logic**: `app/agent/carapaces.py` (registry, resolution, YAML seeding)
+- **API**: `app/routers/api_v1_admin/carapaces.py` (admin CRUD + export + resolve)
+- **Bot-facing API**: `app/routers/api_v1_carapaces.py`
+- **Tool**: `app/tools/local/carapaces.py` (`manage_carapace` — list/get/create/update)
+- **UI**: `ui/app/(app)/admin/carapaces/` (list + detail editor)
+- **Examples**: `carapaces/*.yaml` (orchestrator, qa, code-review, bug-fix)
+
+**Key concepts:**
+- **Composition via `includes`**: Carapaces can reference other carapaces; resolution is depth-first with cycle detection (max 5 levels)
+- **Source types**: `manual` (API/UI), `file` (YAML, read-only), `integration`, `tool`
+- **Channel overrides**: `carapaces_extra` (add) and `carapaces_disabled` (remove) on Channel
+- **Bot config**: `carapaces: [qa, code-review]` in bot YAML
+
+### Channel Workspace System
+
+Per-channel file stores with schema-guided organization.
+
+- **Storage**: `~/.agent-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
+- **Active files** (`.md` at root): Auto-injected into context every request
+- **Archive files** (`archive/`): Searchable via tool, not auto-injected
+- **Data files** (`data/`): Listed but not injected; referenced via search tool
+- **Schema templates**: 7 pre-seeded templates (Software Dev, Research, Creative, General, PM Hub, QA, Structured Task Hub) stored as `PromptTemplate` rows
+- **Schema resolution**: channel override (`workspace_schema_content`) > template (`workspace_schema_template_id`) > none
+- **Indexing**: Background re-index on every message (content-hash makes it cheap); `filesystem_chunks` table
+- **Tools**: `search_channel_workspace`, `search_channel_archive`, `list_workspace_channels`
+- **UI**: `ChannelWorkspaceTab.tsx` (file browser), `WorkspaceSchemaEditor.tsx` (schema picker/editor)
+
+### Heartbeat System
+
+Periodic autonomous check-ins for channels. Fires scheduled prompts to gather status, trigger actions, or maintain monitoring.
+
+- **Worker**: `app/services/heartbeat.py` — polls every 30s for due heartbeats
+- **Model**: `channel_heartbeats` (one-to-one with Channel) + `heartbeat_runs` (execution history)
+- **Config**: Per-channel via admin API (not in bot YAML)
+- **Quiet hours**: Global (`HEARTBEAT_QUIET_HOURS`) or per-heartbeat (`quiet_start`/`quiet_end`/`timezone`)
+- **Repetition detection**: Detects 3+ similar outputs; skips LLM call if repetitive + idle
+- **Dispatch modes**: `"always"` (classic) or `"optional"` (LLM gets `post_heartbeat_to_channel` tool)
+- **Tools**: `get_last_heartbeat`, `post_heartbeat_to_channel` (injected only in optional mode)
+- **API**: `GET/PUT /channels/{id}/heartbeat`, `POST /channels/{id}/heartbeat/toggle`, `POST /channels/{id}/heartbeat/fire`
+
+### Task/Scheduling System
+
+Manages scheduled recurring tasks and one-off deferred agent executions.
+
+- **Worker**: `app/agent/tasks.py` — polls every 5s, max 20 tasks per poll
+- **Model**: `tasks` table — status: pending/running/complete/failed/active/cancelled
+- **Schedule templates**: status=`active` + `recurrence` set (e.g., `+1h`, `+1d`) → spawns concrete tasks
+- **Task types**: agent, scheduled, delegation, harness, exec, callback, api, webhook
+- **Dispatch**: `dispatch_type` + `dispatch_config` routed via dispatcher registry
+- **execution_config** (JSONB): Model overrides, system preamble, injected skills/tools/carapaces
+- **callback_config** (JSONB): Orchestration — trigger_rag_loop, notify_parent, harness params
+- **Tool**: `schedule_task` (local tool for bots — supports cross-bot, relative time, recurrence)
+- **Prompt resolution**: workspace file path (fresh at exec time) > template > inline prompt
+- **Rate limit handling**: Exponential backoff (65s, 130s, 260s), max 3 retries
+- **API**: Admin CRUD at `/api/v1/admin/tasks`, polling at `/api/v1/tasks/{id}`
+
+### Integration System
+
+Pluggable integration architecture for connecting to external services.
+
+- **Discovery**: `integrations/__init__.py` — scans in-repo, packages, and `INTEGRATION_DIRS`
+- **Three layers per integration**:
+  - **Router** (`router.py`): FastAPI endpoints (webhooks, config)
+  - **Dispatcher** (`dispatcher.py`): Result delivery (Slack messages, GitHub comments)
+  - **Hooks** (`hooks.py`): Lifecycle (emoji reactions, display names) + metadata
+- **Shipped integrations**: slack, github, frigate, mission_control, example
+- **Channel binding**: `channel_integrations` table — client_id format `{type}:{identifier}`
+- **Background processes**: Each integration can declare auto-start processes (`process.py`)
+- **Settings**: `IntegrationSetting` table (DB cache > env var fallback)
+- **Tools**: Auto-discovered from `integrations/*/tools/*.py`
+
+### Delegation + Harness System
+
+- **Delegation**: Bot-to-bot communication via `DelegationService`
+  - Immediate (`run_immediate`): Synchronous child agent run
+  - Deferred (`run_deferred`): Creates Task, executed by task_worker
+  - Security: `delegate_bots` allowlist (bypassed by @-tags), max depth 3
+- **Harnesses**: External CLI tools (claude, cursor) via `HarnessService`
+  - Config: `harnesses.yaml`
+  - Execution modes: host, bot sandbox, docker sandbox, shared workspace
+
+### Memory/Knowledge Status
+- **DB memory (`memories` table) is DEPRECATED** — not in use
+- **DB knowledge (`bot_knowledge` table) is DEPRECATED** — not in use
+- **Active memory system**: `memory_scheme: "workspace-files"` (MEMORY.md + daily logs + reference files)
+- **Active history system**: `history_mode: "file"` (sections + transcript files + `read_conversation_history` tool)
 
 ### Key Files
-- `app/agent/loop.py` — Core agent loop (iteration skeleton, stream orchestration, `run_stream`/`run`)
-- `app/agent/llm.py` — LLM call infrastructure (retry/backoff, fallback model, tool result summarization)
-- `app/agent/context_assembly.py` — RAG context injection pipeline (skills, memory, knowledge, tools, etc.)
-- `app/agent/tool_dispatch.py` — Tool call routing + execution (local, MCP, client tools)
-- `app/agent/tracing.py` — Trace helpers and system message classification
+- `app/agent/loop.py` — Core agent loop (iteration skeleton, stream orchestration)
+- `app/agent/llm.py` — LLM call infrastructure (retry/backoff, fallback model, summarization)
+- `app/agent/context_assembly.py` — Context injection pipeline (the big orchestrator)
+- `app/agent/tool_dispatch.py` — Tool call routing + execution
+- `app/agent/carapaces.py` — Carapace registry, resolution, YAML seeding
 - `app/agent/bots.py` — BotConfig dataclass and YAML loader
+- `app/agent/channel_overrides.py` — Channel-level tool/skill/carapace override resolution
+- `app/agent/tags.py` — @mention tag parsing and resolution
 - `app/agent/tools.py` — Tool embedding/retrieval (RAG)
-- `app/tools/registry.py` — Local tool registration, `_current_load_source_dir` sentinel for auto-discovery
+- `app/agent/tasks.py` — Task worker, scheduling, execution
+- `app/agent/dispatchers.py` — Dispatcher registry (none, webhook, internal, + integrations)
+- `app/agent/hooks.py` — Integration lifecycle hooks
+- `app/tools/registry.py` — Local tool registration
 - `app/tools/loader.py` — importlib-based tool file discovery
-- `app/tools/mcp.py` — MCP client (60s cache, background re-index on cache miss)
-- `app/tools/local/exec_tool.py` — `delegate_to_exec` tool (raw command execution in sandbox)
-- `app/services/compaction.py` — Context compaction with optional memory-phase (LLM saves memories before summarizing)
-- `app/services/heartbeat.py` — Heartbeat worker with quiet hours support
+- `app/tools/mcp.py` — MCP client (60s cache)
+- `app/services/heartbeat.py` — Heartbeat worker with quiet hours + repetition detection
+- `app/services/delegation.py` — DelegationService
+- `app/services/channels.py` — Channel service (get_or_create, binding, resolution)
+- `app/services/compaction.py` — Context compaction with memory-phase
+- `app/services/file_sync.py` — Skill/knowledge/prompt/carapace file sync
+- `app/services/task_board.py` — Markdown kanban parser/serializer
 - `app/db/models.py` — All SQLAlchemy ORM models
 
 ### Database Notes
 - `schema_` is the ORM attribute for the `schema` column in `tool_embeddings` (PostgreSQL reserved word)
 - When using `sqlalchemy.dialects.postgresql.insert` (Core-level), use `**{"schema": value}` — Core doesn't translate ORM attribute names
-- `EMBEDDING_DIMENSIONS` must match the vector dimensions in the DB; changing it requires re-embedding everything (no migration path)
-- Alembic migrations run automatically on startup and are in `migrations/versions/`
+- JSONB server_default: use `sa.text("'{}'::jsonb")` not bare string
+- `EMBEDDING_DIMENSIONS` must match the vector dimensions in the DB
+- Alembic migrations run automatically on startup; files in `migrations/versions/`
 
 ### Bot YAML Fields
 ```yaml
@@ -104,34 +258,53 @@ name: "My Bot"
 model: gemini/gemini-2.5-flash      # LiteLLM model alias
 system_prompt: |
   ...
-local_tools: [web_search, save_memory]
+local_tools: [web_search, file]
 mcp_servers: [homeassistant]
 client_tools: [shell_exec]
-skills: [arch_linux]
-pinned_tools: [homeassistant_call_service]  # bypass tool retrieval
+skills:
+  - id: channel-workspace
+    mode: on_demand                  # pinned | rag | on_demand
+pinned_tools: [exec_command]         # bypass tool retrieval
 tool_retrieval: true                 # default true; false = always pass all tools
 tool_similarity_threshold: 0.35      # override TOOL_RETRIEVAL_THRESHOLD
-audio_input: transcribe              # or "native" (Gemini audio models)
+carapaces: [qa, code-review]         # composable expertise bundles
+memory_scheme: workspace-files       # workspace-files (only active option)
+history_mode: file                   # file (only active option)
+workspace:
+  enabled: true
+  type: docker                       # docker | host
+  indexing:
+    enabled: true
+delegate_bots: [helper_bot]
+harness_access: [claude-code]
 context_compaction: true
-compaction_interval: 10              # turns between compactions
+compaction_interval: 10
 compaction_keep_turns: 4
-memory:
-  enabled: true
-  cross_channel: true
-knowledge:
-  enabled: true
 persona: true
-docker_sandbox_profiles: [python-scratch]  # subset of sandbox_bot_access rows; omit = all
+audio_input: transcribe              # or "native" (Gemini audio models)
+docker_sandbox_profiles: [python-scratch]
 ```
+
+### UI Architecture
+- **Framework**: Expo 55 + React Native 0.83 + NativeWind (Tailwind) + TanStack Query + Zustand
+- **Location**: `ui/` directory — the canonical UI (old Jinja2/HTMX admin is deprecated)
+- **Routing**: Expo Router (file-based) — `ui/app/(app)/` for authenticated pages
+- **API hooks**: `ui/src/api/hooks/` — 35+ TanStack Query hooks
+- **State**: `ui/src/stores/` — auth, chat (SSE streaming), UI, theme, channelRead
+- **Types**: `ui/src/types/api.ts` — 650+ lines of TypeScript types
+- **Key pages**: channels (chat), admin/bots, admin/carapaces, admin/tasks, admin/integrations, mission-control
 
 ### Docker Sandboxes
 
-Long-lived containers (OpenClaw-style) with `docker exec`. Scope modes: `session` (default), `client`, `agent`, `shared`. Enable with `DOCKER_SANDBOX_ENABLED=true`.
+Long-lived containers with `docker exec`. Scope modes: `session` (default), `client`, `agent`, `shared`. Enable with `DOCKER_SANDBOX_ENABLED=true`.
 
-- **Design**: [DOCKER_SANDBOX_PLAN.md](DOCKER_SANDBOX_PLAN.md)
-- **Service**: `app/services/sandbox.py` — `SandboxService` (ensure, exec, stop, remove, lock enforcement)
-- **Tools**: `app/tools/local/sandbox.py` — `list_sandbox_profiles`, `ensure_sandbox`, `exec_sandbox`, `stop_sandbox`, `remove_sandbox`
-- **Tables**: `sandbox_profiles`, `sandbox_bot_access`, `sandbox_instances` (migration 014)
-- **Config**: `DOCKER_SANDBOX_ENABLED`, `DOCKER_SANDBOX_MOUNT_ALLOWLIST`, `DOCKER_SANDBOX_DEFAULT_TIMEOUT`, `DOCKER_SANDBOX_MAX_CONCURRENT`
-- **Bot access**: grant via `sandbox_bot_access` DB rows; bot YAML `docker_sandbox_profiles` can further restrict the subset
-- **Admin locking**: `locked_operations` JSONB on each instance — prevents bots from calling `stop`/`remove`/`ensure`/`exec` on that container
+- **Service**: `app/services/sandbox.py`
+- **Tools**: `app/tools/local/sandbox.py`
+- **Tables**: `sandbox_profiles`, `sandbox_bot_access`, `sandbox_instances`
+- **Bot access**: `sandbox_bot_access` DB rows; bot YAML `docker_sandbox_profiles` restricts subset
+- **Admin locking**: `locked_operations` JSONB on instances
+
+### Deployment
+- **Production runs in Docker** — do NOT connect to local postgres or assume localhost access
+- Debug production issues by reading CODE, not by querying the DB directly
+- To investigate prod issues: read the code paths, check Docker config, reason about what could go wrong

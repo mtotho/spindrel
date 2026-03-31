@@ -137,7 +137,11 @@ async def list_workspace_files(
         return {"files": []}
     bot = _get_bot(channel.bot_id)
     from app.services.channel_workspace import list_workspace_files as _list
-    files = _list(str(channel_id), bot, include_archive=include_archive, include_data=include_data)
+    try:
+        files = _list(str(channel_id), bot, include_archive=include_archive, include_data=include_data)
+    except Exception:
+        logger.exception("Failed to list workspace files for channel %s", channel_id)
+        return {"files": []}
     return {"files": files}
 
 

@@ -63,6 +63,14 @@ export function parseTasksMd(content: string): KanbanColumn[] {
   return columns;
 }
 
+/** Generate a short card ID like mc-a1b2c3. */
+export function generateCardId(): string {
+  const hex = Array.from(crypto.getRandomValues(new Uint8Array(3)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `mc-${hex}`;
+}
+
 /** Serialize columns back to tasks.md format. */
 export function serializeTasksMd(columns: KanbanColumn[]): string {
   const lines = ["# Tasks", ""];

@@ -56,6 +56,12 @@ ALL_SCOPES = [
     "settings:read", "settings:write",
     # Operations
     "operations:read", "operations:write",
+    # Usage
+    "usage:read",
+    # Mission Control
+    "mission_control:read", "mission_control:write",
+    # Carapaces
+    "carapaces:read", "carapaces:write",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -101,6 +107,11 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "settings:write": "Modify server settings",
     "operations:read": "View backup config, backup history, and active operations",
     "operations:write": "Trigger backups, git pull, server restart, and update backup config",
+    "usage:read": "View usage summary, logs, breakdown, timeseries, forecast, and limit status",
+    "mission_control:read": "Read Mission Control dashboard data (overview, kanban, journal, memory, context)",
+    "mission_control:write": "Write Mission Control data (create/move kanban cards, update preferences)",
+    "carapaces:read": "List and get carapace details (skill+tool bundles)",
+    "carapaces:write": "Create, update, and delete carapaces",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -183,6 +194,18 @@ SCOPE_GROUPS: dict[str, dict] = {
         "description": "System operations: backup, pull, restart",
         "scopes": ["operations:read", "operations:write"],
     },
+    "Usage": {
+        "description": "Cost analytics, forecasting, and usage limits",
+        "scopes": ["usage:read"],
+    },
+    "Mission Control": {
+        "description": "Aggregated dashboard: overview, kanban, journal, memory, debug context",
+        "scopes": ["mission_control:read", "mission_control:write"],
+    },
+    "Carapaces": {
+        "description": "Manage skill+tool bundles (composable expert configurations)",
+        "scopes": ["carapaces:read", "carapaces:write"],
+    },
 }
 
 # Pre-built scope bundles for common use cases.
@@ -229,6 +252,7 @@ SCOPE_PRESETS: dict[str, dict] = {
             "todos:read", "todos:write",
             "workspaces.files:read", "workspaces.files:write",
             "attachments:read", "attachments:write",
+            "carapaces:read", "carapaces:write",
         ],
         "instructions": (
             "Injected automatically when a bot has API permissions configured.\n"
@@ -253,6 +277,8 @@ SCOPE_PRESETS: dict[str, dict] = {
             "todos:read", "todos:write",
             "workspaces:read", "workspaces.files:read", "workspaces.files:write",
             "attachments:read", "logs:read",
+            "mission_control:read", "mission_control:write",
+            "carapaces:read",
         ],
         "instructions": (
             "Used by the Mission Control dashboard container. Auto-provisioned on first start.\n\n"
@@ -666,6 +692,48 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations/backup/history",
         "description": "List local backup archives with sizes and dates",
         "response": "{backup_dir, files: [{name, size_bytes, modified_at}]}",
+    },
+    # Usage & Cost
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/summary",
+        "description": "Aggregated cost summary (by model, bot, provider)",
+        "params": "?after=&before=&bot_id=&model=&provider_id=&channel_id=",
+        "response": "{total_calls, total_tokens, total_cost, cost_by_model, cost_by_bot, cost_by_provider}",
+    },
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/logs",
+        "description": "Paginated usage log entries with cost per call",
+        "params": "?after=&before=&bot_id=&model=&provider_id=&channel_id=&page=1&page_size=50",
+        "response": "{entries: [{model, cost, prompt_tokens, completion_tokens, ...}], total, page}",
+    },
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/forecast",
+        "description": "Cost forecast: projected daily/monthly spend from heartbeats, recurring tasks, and current pace",
+        "response": "{daily_spend, monthly_spend, projected_daily, projected_monthly, components: [{source, label, daily_cost, monthly_cost}], limits: [{scope_type, period, limit_usd, current_spend, projected_spend, projected_percentage}]}",
+    },
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/limits/status",
+        "description": "Current spend vs. limit for all enabled usage limits",
+        "response": "[{scope_type, scope_value, period, limit_usd, current_spend, percentage}]",
+    },
+    # Carapaces
+    {
+        "scope": "carapaces:read", "method": "GET", "path": "/api/v1/carapaces",
+        "description": "List available carapaces (skill+tool bundles)",
+        "response": "[{id, name, description, skills, local_tools, pinned_tools, includes, tags}]",
+    },
+    {
+        "scope": "carapaces:read", "method": "GET", "path": "/api/v1/carapaces/{id}",
+        "description": "Get carapace detail",
+    },
+    {
+        "scope": "carapaces:write", "method": "POST", "path": "/api/v1/carapaces",
+        "description": "Create a carapace",
+        "body": '{"id": "str", "name": "str", "skills?": [], "local_tools?": [], "pinned_tools?": [], "includes?": [], "system_prompt_fragment?": "str"}',
+    },
+    {
+        "scope": "carapaces:write", "method": "PUT", "path": "/api/v1/carapaces/{id}",
+        "description": "Update a carapace",
     },
     # Discovery
     {

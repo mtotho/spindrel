@@ -30,6 +30,10 @@ import {
   Moon,
   Clock,
   Heart,
+  LayoutDashboard,
+  Columns,
+  Brain,
+  Layers,
 } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
@@ -40,6 +44,8 @@ import { useWorkspaces } from "../../api/hooks/useWorkspaces";
 import { useChannelReadStore } from "../../stores/channelRead";
 import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useThemeTokens } from "../../theme/tokens";
+import { UsageHudBadge } from "./UsageHudBadge";
+import { SpindrelLogo } from "./SpindrelLogo";
 
 interface NavItem {
   label: string;
@@ -52,6 +58,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "AGENTS",
     items: [
       { label: "Bots", href: "/admin/bots", icon: Bot },
+      { label: "Carapaces", href: "/admin/carapaces", icon: Layers },
     ],
   },
   {
@@ -91,6 +98,14 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },
+];
+
+const MC_NAV_ITEMS: NavItem[] = [
+  { label: "Dashboard", href: "/mission-control", icon: LayoutDashboard },
+  { label: "Kanban", href: "/mission-control/kanban", icon: Columns },
+  { label: "Journal", href: "/mission-control/journal", icon: BookOpen },
+  { label: "Memory", href: "/mission-control/memory", icon: Brain },
+  { label: "Settings", href: "/mission-control/settings", icon: Settings },
 ];
 
 const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
@@ -259,6 +274,11 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
     return (
       <View className="bg-surface border-r border-surface-border items-center" style={{ width: 56, flexShrink: 0, height: '100%' }}>
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: "center", paddingTop: 10, paddingBottom: 10, gap: 2 }}>
+          {/* Logo */}
+          <View className="items-center justify-center" style={{ width: 44, height: 36 }}>
+            <SpindrelLogo size={22} color={t.text} />
+          </View>
+
           {/* Expand toggle */}
           <Pressable
             onPress={toggleSidebar}
@@ -347,6 +367,20 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             </Pressable>
           </Link>
 
+          {/* Mission Control icon */}
+          <Link href={"/mission-control" as any} asChild>
+            <Pressable
+              onPress={closeMobile}
+              className={`items-center justify-center rounded-lg ${
+                pathname.startsWith("/mission-control") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+              }`}
+              style={{ width: 44, height: 44 }}
+              accessibilityLabel="Mission Control"
+            >
+              <LayoutDashboard size={18} color={pathname.startsWith("/mission-control") ? t.accent : t.textDim} />
+            </Pressable>
+          </Link>
+
           {/* Divider */}
           <View className="bg-surface-border my-1.5" style={{ height: 1, width: 32 }} />
 
@@ -362,6 +396,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
         {/* Footer icons */}
         <View className="border-t border-surface-border items-center py-2.5 gap-1">
+          <UsageHudBadge collapsed />
           <ThemeToggleIcon />
           <Link href={"/(app)/profile" as any} asChild>
             <Pressable
@@ -394,6 +429,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         <View className="flex-row items-center justify-between px-4 py-4">
           <Link href="/" asChild>
             <Pressable className="flex-row items-center gap-2">
+              <SpindrelLogo size={22} color={t.text} />
               <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: t.text }}>SPINDREL</Text>
             </Pressable>
           </Link>
@@ -498,8 +534,18 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                           {displayName}
                         </Text>
                         {bot && (
-                          <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
-                            {bot.name}
+                          <View className="flex-row items-center gap-1">
+                            <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
+                              {bot.name}
+                            </Text>
+                            {channel.channel_workspace_enabled && (
+                              <Container size={11} color={t.textDim} style={{ opacity: 0.5 }} />
+                            )}
+                          </View>
+                        )}
+                        {channel.tags && channel.tags.length > 0 && (
+                          <Text className="text-[10px] text-text-dim" numberOfLines={1} style={{ opacity: 0.6 }}>
+                            {channel.tags.slice(0, 2).join(", ")}
                           </Text>
                         )}
                       </View>
@@ -638,7 +684,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           ) : (
             upcomingItems.map((item, idx) => {
               const href = item.type === "heartbeat" && item.channel_id
-                ? `/channels/${item.channel_id}`
+                ? `/channels/${item.channel_id}/settings#heartbeat`
                 : "/admin/tasks";
               return (
                 <Link key={`${item.type}-${idx}`} href={href as any} asChild>
@@ -673,6 +719,21 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           )}
         </View>
 
+        {/* Mission Control */}
+        <View className="px-2 py-1.5">
+          <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
+            MISSION CONTROL
+          </Text>
+          {MC_NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              active={pathname === item.href || (item.href !== "/mission-control" && pathname.startsWith(item.href))}
+              mobile={mobile}
+            />
+          ))}
+        </View>
+
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
           <View key={section.title} className="px-2 py-1.5">
@@ -693,6 +754,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
       {/* Footer — theme toggle + profile */}
       <View className="border-t border-surface-border p-2.5 gap-0.5">
+        <UsageHudBadge collapsed={false} />
         <ThemeToggleRow />
         <Link href={"/(app)/profile" as any} asChild>
           <Pressable
