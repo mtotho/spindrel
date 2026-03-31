@@ -90,11 +90,14 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
         if not (resolved == shared_root or resolved.startswith(shared_root + os.sep)):
             raise ValueError(f"Path escapes workspace: {path}")
         # Inner boundary: block access to other bots' private directories.
-        bots_dir = os.path.join(shared_root, "bots")
-        if resolved.startswith(bots_dir + os.sep):
-            own_bot_dir = os.path.realpath(os.path.join(bots_dir, bot.id))
-            if not (resolved == own_bot_dir or resolved.startswith(own_bot_dir + os.sep)):
-                raise ValueError(f"Cannot access another bot's directory: {path}")
+        # Orchestrators can read all bot directories in the shared workspace.
+        is_orchestrator = getattr(bot, "shared_workspace_role", None) == "orchestrator"
+        if not is_orchestrator:
+            bots_dir = os.path.join(shared_root, "bots")
+            if resolved.startswith(bots_dir + os.sep):
+                own_bot_dir = os.path.realpath(os.path.join(bots_dir, bot.id))
+                if not (resolved == own_bot_dir or resolved.startswith(own_bot_dir + os.sep)):
+                    raise ValueError(f"Cannot access another bot's directory: {path}")
     else:
         # --- Standalone bot ---
         # Boundary: must stay within the bot's own workspace root.

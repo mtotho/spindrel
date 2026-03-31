@@ -200,7 +200,7 @@ export default function MCSettings() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16, gap: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingLeft: 24, paddingRight: 16, paddingTop: 16, gap: 20, paddingBottom: 40 }}
       >
         {prefsLoading ? (
           <Text className="text-text-muted text-sm">Loading...</Text>

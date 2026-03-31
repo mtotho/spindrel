@@ -591,7 +591,7 @@ export default function ChatScreen() {
     fileDirtyRef.current = false;
   }, [channelId]);
 
-  const showExplorer = workspaceEnabled && explorerOpen;
+  const showExplorer = workspaceEnabled && !!workspaceId && explorerOpen;
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
 

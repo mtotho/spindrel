@@ -219,6 +219,31 @@ export function useMCKanbanMove() {
   });
 }
 
+export function useMCKanbanUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      card_id: string;
+      channel_id: string;
+      title?: string;
+      description?: string;
+      priority?: string;
+      assigned?: string;
+      due?: string;
+      tags?: string;
+    }) =>
+      apiFetch("/api/v1/mission-control/kanban/update", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-kanban"] });
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
 export function useMCKanbanCreate() {
   const qc = useQueryClient();
   return useMutation({

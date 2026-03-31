@@ -2,9 +2,9 @@
  * Rich detail modal for kanban cards — view/edit title, description,
  * priority, status (column), and metadata. Opens on card click.
  */
-import { useEffect } from "react";
-import { View, Text, Pressable } from "react-native";
-import { X, Tag, User, Calendar, ArrowRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { View, Text, Pressable, TextInput } from "react-native";
+import { X, Tag, User, Calendar, ArrowRight, Pencil, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
 import type { MCKanbanCard, MCKanbanColumn } from "@/src/api/hooks/useMissionControl";
@@ -16,11 +16,14 @@ const PRIORITY_COLORS: Record<string, { bg: string; fg: string }> = {
   low: { bg: "rgba(107,114,128,0.10)", fg: "#9ca3af" },
 };
 
+const PRIORITY_CYCLE = ["low", "medium", "high", "critical"];
+
 interface Props {
   card: MCKanbanCard;
   currentColumn: string;
   columns: MCKanbanColumn[];
   onMove: (cardId: string, channelId: string, fromColumn: string, toColumn: string) => void;
+  onUpdate?: (cardId: string, channelId: string, fields: Record<string, string>) => void;
   onClose: () => void;
   moveDisabled?: boolean;
 }
@@ -30,6 +33,7 @@ export function KanbanCardModal({
   currentColumn,
   columns,
   onMove,
+  onUpdate,
   onClose,
   moveDisabled,
 }: Props) {
@@ -38,15 +42,31 @@ export function KanbanCardModal({
   const pc = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
   const cc = channelColor(card.channel_id);
 
+  // Inline editing state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(card.title);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState(card.description || "");
+
   // Escape key to close
   useEffect(() => {
     if (typeof document === "undefined") return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (editingTitle) {
+          setEditingTitle(false);
+          setTitleDraft(card.title);
+        } else if (editingDesc) {
+          setEditingDesc(false);
+          setDescDraft(card.description || "");
+        } else {
+          onClose();
+        }
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, editingTitle, editingDesc, card.title, card.description]);
 
   if (typeof document === "undefined") return null;
 
@@ -55,9 +75,26 @@ export function KanbanCardModal({
 
   const otherColumns = columns.filter((col) => col.name !== currentColumn);
 
-  const metaEntries = Object.entries(card.meta).filter(
-    ([k]) => !["id", "priority", "created", "assigned", "tags", "due", "started", "completed"].includes(k)
-  );
+  const handleSaveTitle = () => {
+    if (titleDraft.trim() && titleDraft !== card.title && onUpdate) {
+      onUpdate(card.meta.id, card.channel_id, { title: titleDraft.trim() });
+    }
+    setEditingTitle(false);
+  };
+
+  const handleSaveDesc = () => {
+    if (descDraft !== (card.description || "") && onUpdate) {
+      onUpdate(card.meta.id, card.channel_id, { description: descDraft });
+    }
+    setEditingDesc(false);
+  };
+
+  const handleCyclePriority = () => {
+    if (!onUpdate) return;
+    const idx = PRIORITY_CYCLE.indexOf(priority);
+    const next = PRIORITY_CYCLE[(idx + 1) % PRIORITY_CYCLE.length];
+    onUpdate(card.meta.id, card.channel_id, { priority: next });
+  };
 
   return ReactDOM.createPortal(
     <>
@@ -100,16 +137,44 @@ export function KanbanCardModal({
           }}
         >
           <View style={{ flex: 1, gap: 6 }}>
-            <Text
-              style={{
-                fontSize: 17,
-                fontWeight: "700",
-                color: t.text,
-                lineHeight: 22,
-              }}
-            >
-              {card.title}
-            </Text>
+            {editingTitle ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <TextInput
+                  value={titleDraft}
+                  onChangeText={setTitleDraft}
+                  onBlur={handleSaveTitle}
+                  onSubmitEditing={handleSaveTitle}
+                  autoFocus
+                  style={{
+                    fontSize: 17,
+                    fontWeight: "700",
+                    color: t.text,
+                    flex: 1,
+                    borderBottomWidth: 2,
+                    borderBottomColor: t.accent,
+                    paddingVertical: 2,
+                    backgroundColor: "transparent",
+                    outlineStyle: "none",
+                  } as any}
+                />
+                <Pressable onPress={handleSaveTitle}>
+                  <Check size={16} color={t.accent} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable onPress={() => onUpdate && setEditingTitle(true)}>
+                <Text
+                  style={{
+                    fontSize: 17,
+                    fontWeight: "700",
+                    color: t.text,
+                    lineHeight: 22,
+                  }}
+                >
+                  {card.title}
+                </Text>
+              </Pressable>
+            )}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <View
                 style={{
@@ -170,25 +235,28 @@ export function KanbanCardModal({
               </View>
             </View>
 
-            {/* Priority badge */}
+            {/* Priority badge — clickable to cycle */}
             <View style={{ gap: 4 }}>
               <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Priority
               </Text>
-              <View
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                  borderRadius: 6,
-                  backgroundColor: pc.bg,
-                  borderWidth: 1,
-                  borderColor: pc.fg + "40",
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "600", color: pc.fg, textTransform: "capitalize" }}>
-                  {priority}
-                </Text>
-              </View>
+              <Pressable onPress={handleCyclePriority} disabled={!onUpdate}>
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 6,
+                    backgroundColor: pc.bg,
+                    borderWidth: 1,
+                    borderColor: pc.fg + "40",
+                    cursor: onUpdate ? "pointer" : "default",
+                  } as any}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: pc.fg, textTransform: "capitalize" }}>
+                    {priority}
+                  </Text>
+                </View>
+              </Pressable>
             </View>
 
             {/* Assigned */}
@@ -230,12 +298,66 @@ export function KanbanCardModal({
             )}
           </View>
 
-          {/* Description */}
+          {/* Description — inline edit */}
           <View style={{ gap: 6 }}>
-            <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Description
-            </Text>
-            {card.description ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Description
+              </Text>
+              {!editingDesc && onUpdate && (
+                <Pressable
+                  onPress={() => setEditingDesc(true)}
+                  className="flex-row items-center gap-1"
+                >
+                  <Pencil size={10} color={t.textDim} />
+                  <Text style={{ fontSize: 10, color: t.textDim }}>Edit</Text>
+                </Pressable>
+              )}
+            </View>
+            {editingDesc ? (
+              <View style={{ gap: 8 }}>
+                <TextInput
+                  value={descDraft}
+                  onChangeText={setDescDraft}
+                  multiline
+                  autoFocus
+                  style={{
+                    fontSize: 13,
+                    color: t.text,
+                    lineHeight: 20,
+                    backgroundColor: t.surfaceOverlay,
+                    borderRadius: 8,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: t.accent,
+                    minHeight: 80,
+                    outlineStyle: "none",
+                  } as any}
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={handleSaveDesc}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 6,
+                      backgroundColor: t.accent + "18",
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: t.accent }}>Save</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setEditingDesc(false);
+                      setDescDraft(card.description || "");
+                    }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                  >
+                    <Text style={{ fontSize: 12, color: t.textDim }}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : card.description ? (
               <View
                 style={{
                   backgroundColor: t.surfaceOverlay,

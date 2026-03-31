@@ -12,7 +12,15 @@ import {
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
 import { channelColor } from "@/src/components/mission-control/botColors";
-import { Calendar, Hash, LayoutList, Clock } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  Plus,
+  ArrowRight,
+  CheckCircle,
+  ClipboardCheck,
+  Circle,
+} from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Day filter
@@ -23,6 +31,28 @@ const DAY_OPTIONS = [
   { label: "30d", value: 30 },
   { label: "60d", value: 60 },
 ];
+
+// ---------------------------------------------------------------------------
+// Event type detection from humanized text
+// ---------------------------------------------------------------------------
+type EventType = "create" | "move" | "complete" | "plan" | "other";
+
+const EVENT_CONFIG: Record<EventType, { icon: typeof Plus; color: string }> = {
+  create: { icon: Plus, color: "#22c55e" },
+  move: { icon: ArrowRight, color: "#3b82f6" },
+  complete: { icon: CheckCircle, color: "#22c55e" },
+  plan: { icon: ClipboardCheck, color: "#8b5cf6" },
+  other: { icon: Circle, color: "#6b7280" },
+};
+
+function detectEventType(text: string): EventType {
+  const lower = text.toLowerCase();
+  if (lower.includes("was completed")) return "complete";
+  if (lower.includes("new task:") || lower.includes("added to")) return "create";
+  if (lower.includes("was started") || lower.includes("moved to")) return "move";
+  if (lower.includes("plan ")) return "plan";
+  return "other";
+}
 
 // ---------------------------------------------------------------------------
 // Relative date label
@@ -39,75 +69,9 @@ function dateLabel(isoDate: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Event row
-// ---------------------------------------------------------------------------
-function TimelineEventRow({ event, showChannel }: { event: MCTimelineEvent; showChannel: boolean }) {
-  const t = useThemeTokens();
-  const cc = channelColor(event.channel_id);
-
-  return (
-    <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 2 }}>
-      {/* Time badge */}
-      <View style={{ width: 46, alignItems: "flex-end", paddingTop: 1 }}>
-        <Text
-          style={{
-            fontSize: 11,
-            fontWeight: "600",
-            fontFamily: "monospace",
-            color: t.textDim,
-            letterSpacing: 0.3,
-          }}
-        >
-          {event.time}
-        </Text>
-      </View>
-
-      {/* Dot + line */}
-      <View style={{ alignItems: "center", width: 12 }}>
-        <View
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: cc,
-            marginTop: 4,
-            shadowColor: cc,
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.5,
-            shadowRadius: 4,
-          }}
-        />
-      </View>
-
-      {/* Event content */}
-      <View style={{ flex: 1, gap: 2 }}>
-        <EventText text={event.event} t={t} />
-        {showChannel && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
-            <View
-              style={{
-                width: 5,
-                height: 5,
-                borderRadius: 2.5,
-                backgroundColor: cc,
-                opacity: 0.6,
-              }}
-            />
-            <Text style={{ fontSize: 10, color: t.textDim }}>
-              {event.channel_name}
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Inline markdown bold rendering
 // ---------------------------------------------------------------------------
 function EventText({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
-  // Split on **bold** markers
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return (
     <Text style={{ fontSize: 13, color: t.text, lineHeight: 19 }}>
@@ -122,6 +86,86 @@ function EventText({ text, t }: { text: string; t: ReturnType<typeof useThemeTok
         return <Text key={i}>{part}</Text>;
       })}
     </Text>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Event row — card-style with icon and left color tint
+// ---------------------------------------------------------------------------
+function TimelineEventRow({ event, showChannel }: { event: MCTimelineEvent; showChannel: boolean }) {
+  const t = useThemeTokens();
+  const cc = channelColor(event.channel_id);
+  const evType = detectEventType(event.event);
+  const config = EVENT_CONFIG[evType];
+  const IconComponent = config.icon;
+
+  return (
+    <View
+      className="rounded-lg border border-surface-border"
+      style={{
+        flexDirection: "row",
+        overflow: "hidden",
+        marginBottom: 6,
+      }}
+    >
+      {/* Left color tint */}
+      <View
+        style={{
+          width: 3,
+          backgroundColor: config.color,
+        }}
+      />
+
+      <View style={{ flex: 1, flexDirection: "row", gap: 10, paddingVertical: 10, paddingHorizontal: 12 }}>
+        {/* Icon */}
+        <View
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            backgroundColor: config.color + "15",
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: 1,
+          }}
+        >
+          <IconComponent size={14} color={config.color} />
+        </View>
+
+        {/* Content */}
+        <View style={{ flex: 1, gap: 2 }}>
+          <EventText text={event.event} t={t} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+            <Text
+              style={{
+                fontSize: 11,
+                fontWeight: "600",
+                fontFamily: "monospace",
+                color: t.textDim,
+              }}
+            >
+              {event.time}
+            </Text>
+            {showChannel && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <View
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: 2.5,
+                    backgroundColor: cc,
+                    opacity: 0.6,
+                  }}
+                />
+                <Text style={{ fontSize: 10, color: t.textDim }}>
+                  {event.channel_name}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -142,14 +186,13 @@ function DayGroup({
   const isToday = label === "Today";
 
   return (
-    <View style={{ gap: 0 }}>
+    <View style={{ gap: 8 }}>
       {/* Date header */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
-          marginBottom: 8,
           paddingHorizontal: 2,
         }}
       >
@@ -182,7 +225,7 @@ function DayGroup({
       </View>
 
       {/* Events */}
-      <View style={{ borderLeftWidth: 1, borderLeftColor: t.surfaceBorder, marginLeft: 68 }}>
+      <View style={{ gap: 0 }}>
         {events.map((ev, i) => (
           <TimelineEventRow
             key={`${ev.date}-${ev.time}-${i}`}
@@ -207,8 +250,6 @@ export default function MCTimeline() {
   const { data: overview } = useMCOverview(scope);
   const { refreshing, onRefresh } = usePageRefresh([["mc-timeline"]]);
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
-  const isWide = width >= 768;
 
   const events = data?.events || [];
 
@@ -254,7 +295,10 @@ export default function MCTimeline() {
       />
 
       {/* Filter bar */}
-      <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border flex-wrap">
+      <View
+        className="flex-row items-center gap-2 border-b border-surface-border flex-wrap"
+        style={{ paddingLeft: 24, paddingRight: 16, paddingVertical: 8 }}
+      >
         {/* Date range */}
         <Calendar size={14} color={t.textDim} />
         {DAY_OPTIONS.map((opt) => (
@@ -337,7 +381,8 @@ export default function MCTimeline() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          paddingHorizontal: 16,
+          paddingLeft: 24,
+          paddingRight: 16,
           paddingTop: 20,
           gap: 24,
           paddingBottom: 48,

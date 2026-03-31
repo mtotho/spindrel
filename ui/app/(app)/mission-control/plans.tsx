@@ -380,7 +380,7 @@ export default function MCPlans() {
       />
 
       {/* Filter bar */}
-      <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border flex-wrap">
+      <View className="flex-row items-center gap-2 border-b border-surface-border flex-wrap" style={{ paddingLeft: 24, paddingRight: 16, paddingVertical: 8 }}>
         {/* Status filter */}
         {STATUS_FILTERS.map((s) => (
           <Pressable
@@ -464,7 +464,8 @@ export default function MCPlans() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          paddingHorizontal: 16,
+          paddingLeft: 24,
+          paddingRight: 16,
           paddingTop: 20,
           gap: 12,
           paddingBottom: 48,

@@ -176,7 +176,7 @@ export default function MCJournal() {
       <MobileHeader title="Journal" subtitle="Daily logs across bots" />
 
       {/* Filter bar */}
-      <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border flex-wrap">
+      <View className="flex-row items-center gap-2 border-b border-surface-border flex-wrap" style={{ paddingLeft: 24, paddingRight: 16, paddingVertical: 8 }}>
         {/* Date range */}
         <Calendar size={14} color={t.textDim} />
         {DAY_OPTIONS.map((opt) => (
@@ -276,7 +276,7 @@ export default function MCJournal() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, gap: 24, paddingBottom: 48, maxWidth: 960 }}
+        contentContainerStyle={{ paddingLeft: 24, paddingRight: 16, paddingTop: 20, gap: 24, paddingBottom: 48, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading journal...</Text>
