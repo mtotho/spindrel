@@ -5,5 +5,5 @@ alongside the agent server in development.
 """
 
 DESCRIPTION = "Mission Control dashboard (Docker container)"
-CMD = ["python", "integrations/mission-control/container.py"]
+CMD = ["python", "integrations/mission_control/container.py"]
 REQUIRED_ENV = []  # No required env — works with defaults

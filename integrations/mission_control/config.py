@@ -8,7 +8,7 @@ def _get(key: str, default: str = "") -> str:
     """Get a config value: DB cache > env var > default."""
     try:
         from app.services.integration_settings import get_value
-        return get_value("mission-control", key, default)
+        return get_value("mission_control", key, default)
     except ImportError:
         return os.environ.get(key, default)
 

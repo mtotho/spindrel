@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import signal
+import sys
 import time
 
 logger = logging.getLogger(__name__)
@@ -43,14 +44,19 @@ class IntegrationProcessManager:
         self._states: dict[str, _ProcessState] = {}
 
     def _build_cmd(self, cmd: list[str], watch_paths: list[str] | None) -> list[str]:
-        """Wrap cmd with watchfiles for auto-reload if available and watch_paths specified."""
+        """Resolve python path and optionally wrap with watchfiles for auto-reload."""
+        # Replace bare "python" with the actual interpreter path
+        resolved = list(cmd)
+        if resolved and resolved[0] == "python":
+            resolved[0] = sys.executable
+
         if not watch_paths:
-            return cmd
+            return resolved
         if not shutil.which("watchfiles"):
-            return cmd
+            return resolved
         # watchfiles CLI: watchfiles [opts] COMMAND [PATHS...]
         # COMMAND is a shell string that watchfiles will pass to the shell
-        return ["watchfiles", "--filter", "python", " ".join(cmd)] + watch_paths
+        return ["watchfiles", "--filter", "python", " ".join(resolved)] + watch_paths
 
     def _discover(self) -> dict[str, dict]:
         """Discover all integrations with process.py (regardless of env readiness)."""
