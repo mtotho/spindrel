@@ -192,9 +192,17 @@ async def overview(
     auth=Depends(verify_auth_or_user),
 ):
     """Fleet stats, channel list with task counts, bot list."""
+    from sqlalchemy import func
+
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
     channels = await _tracked_channels(db, user, prefs)
+
+    # Total channel count (regardless of workspace flag) for empty-state UX
+    all_channels_q = select(func.count(Channel.id))
+    if user:
+        all_channels_q = all_channels_q.where(Channel.user_id == user.id)
+    total_channels_all = (await db.execute(all_channels_q)).scalar() or 0
 
     # Build bot lookup
     bots_q = select(Bot).order_by(Bot.name)
@@ -258,6 +266,7 @@ async def overview(
         "channels": [co.model_dump() for co in channel_overviews],
         "bots": [bo.model_dump() for bo in bot_overviews],
         "total_channels": len(channels),
+        "total_channels_all": total_channels_all,
         "total_bots": len(bots),
         "total_tasks": total_tasks,
     }

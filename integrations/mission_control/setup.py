@@ -3,6 +3,12 @@
 SETUP = {
     "env_vars": [
         {
+            "key": "AGENT_API_KEY",
+            "required": False,
+            "secret": True,
+            "description": "API key for the MC container to authenticate with the agent server (proxy requests)",
+        },
+        {
             "key": "MISSION_CONTROL_PORT",
             "required": False,
             "description": "Dashboard port",
