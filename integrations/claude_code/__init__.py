@@ -1,1 +1,1 @@
-"""Claude Code integration — native SDK-based tool for running Claude Code as a subprocess."""
+"""Claude Code integration — runs the claude CLI inside the bot's Docker workspace container."""

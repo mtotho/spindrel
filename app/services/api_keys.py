@@ -599,6 +599,102 @@ ENDPOINT_CATALOG: list[dict] = [
         "description": "Get disk usage report for all workspaces",
         "response": "{filesystem: {total_bytes, used_bytes, free_bytes, usage_percent}, workspace_base_dir, workspace_total_bytes, workspaces: [{type, id, name, path, total_bytes, file_count, subdirs?}]}",
     },
+    # Workspace — bot membership
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/bots",
+        "description": "Add bot to workspace",
+        "body": '{"bot_id": "str", "workspace_dir?": "str", "indexing?": {"enabled": true, "extensions": [".py",".md"]}}',
+        "response": "WorkspaceOut (full workspace object with updated bots list)",
+        "notes": "Returns 201 on success. The bot must exist in the bot registry.",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
+        "description": "Get bot's workspace config (dir, indexing overrides)",
+        "response": "{bot_id, workspace_dir, indexing, ...}",
+    },
+    {
+        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
+        "description": "Update bot workspace membership/config",
+        "body": '{"workspace_dir?": "str", "indexing?": {"enabled": bool, "extensions": [...]}}',
+        "notes": "Also accepts PATCH method.",
+    },
+    {
+        "scope": "workspaces:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
+        "description": "Remove bot from workspace",
+        "notes": "Returns 204 No Content.",
+    },
+    # Workspace — channels
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/channels",
+        "description": "List channels belonging to bots in this workspace",
+        "response": "[{id, name, bot_id, active_session_id, ...}]",
+    },
+    # Workspace — file operations (additional)
+    {
+        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/mkdir",
+        "description": "Create directory in workspace",
+        "params": "?path=/path/to/new/dir",
+    },
+    {
+        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/move",
+        "description": "Move/rename file or directory",
+        "body": '{"src": "/old/path", "dst": "/new/path"}',
+    },
+    {
+        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files/index-status",
+        "description": "RAG indexing status for workspace files",
+        "response": "{indexed_count, pending_count, last_indexed_at, ...}",
+    },
+    # Workspace — indexing & skills
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/reindex",
+        "description": "Trigger full workspace reindex (file content + embeddings)",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/reindex-skills",
+        "description": "Re-discover and re-embed workspace skill files",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/skills",
+        "description": "List discovered workspace skill files",
+        "response": "[{path, mode, bot_id?, size_bytes, ...}]",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/indexing",
+        "description": "Get full indexing config (global, workspace-level, per-bot overrides)",
+    },
+    {
+        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/bots/{bot_id}/indexing",
+        "description": "Update per-bot indexing overrides",
+        "body": '{"enabled?": bool, "extensions?": [...], "exclude_patterns?": [...]}',
+        "notes": "Also accepts PATCH method.",
+    },
+    # Workspace — container operations
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/pull",
+        "description": "Pull/update workspace Docker image",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/cron-jobs",
+        "description": "List cron jobs discovered inside workspace container",
+    },
+    # Workspace — code editor
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/enable",
+        "description": "Enable code-server for workspace",
+    },
+    {
+        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/disable",
+        "description": "Disable code-server for workspace",
+    },
+    {
+        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/editor/status",
+        "description": "Get code-server status (enabled, port, URL)",
+    },
+    {
+        "scope": "workspaces:read", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/session",
+        "description": "Create editor session cookie for authenticated access",
+    },
     # Logs — agent turns (high-level view of each agent invocation)
     {
         "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/turns",

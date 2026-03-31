@@ -46,6 +46,12 @@ Organize channel workspace files to manage daily operations:
   - Upcoming large expenses and capital needs
   - Budget vs actual tracking
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures operational events: inventory orders, staff changes, equipment issues, inspections, menu updates
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **notes.md** — Operational notes and scratch space
   - Health inspection prep items
   - Customer feedback highlights
@@ -145,3 +151,30 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (smooth operations), `yellow` (staffing gaps or supply issues), `red` (critical equipment failure, compliance issue, or major shortfall).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing operational activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 17:00 — Daily close: revenue $4,250 / 127 covers / labor 28% / food cost 31%
+- 14:30 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Train new line cook"
+- 11:00 — Inventory order placed: Sysco — produce restock ($620)
+- 09:00 — Status health changed: yellow → green — cooler thermostat fixed
+
+## 2026-03-27
+
+- 18:00 — Daily close: revenue $3,890 / 112 covers / labor 30% / food cost 29%
+- 15:30 — 86'd: salmon special (supplier shortage, ETA tomorrow)
+- 13:00 — Card mc-j0k1l2 moved to **Done** (was: In Progress) — "Health inspection prep"
+- 10:00 — Staff change: Maria approved for Saturday AM shift swap with Carlos
+- 08:30 — Walk-in cooler temp alarm — thermostat malfunction, repair scheduled
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (daily revenue, inventory orders, staff changes, equipment issues, 86'd items, inspections). Heartbeats can auto-append daily close summaries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

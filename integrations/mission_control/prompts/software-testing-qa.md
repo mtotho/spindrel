@@ -43,6 +43,12 @@ Organize channel workspace files to track testing activities:
   - Summary: total/pass/fail/skip counts
   - Failed test details and investigation notes
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures QA events: test runs completed, bugs filed/verified, coverage changes, release sign-offs
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **notes.md** — Working notes and scratch space
   - Environment quirks, workarounds, tribal knowledge
   - Meeting notes from test planning/triage sessions
@@ -114,3 +120,28 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (all tests passing, on track), `yellow` (some failures or blockers), `red` (critical bugs or blocked).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing QA activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 16:30 — Test run completed: 142 passed, 2 failed, 1 skipped (v2.1 regression suite)
+- 14:00 — BUG-047 filed: "Checkout form loses state on back navigation" (severity: high)
+- 11:45 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Investigate flaky login test"
+- 09:30 — Status health changed: green → yellow — staging environment intermittent
+
+## 2026-03-27
+
+- 17:00 — BUG-045 verified and closed — "Search results pagination off by one"
+- 15:00 — Card mc-j0k1l2 moved to **Done** (was: In Progress) — "Set up test environment"
+- 10:00 — Coverage updated: 78% → 82% (added E2E tests for user profile)
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (test runs, bugs filed/verified, coverage changes, release sign-offs). Heartbeats can auto-append periodic entries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

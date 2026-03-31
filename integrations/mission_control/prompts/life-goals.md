@@ -17,6 +17,11 @@ Organize channel workspace files as follows:
 - **habits.md** — Habit tracking and streaks
 - **journal.md** — Periodic reflections, reviews, and check-ins
 - **values.md** — Core values, long-term vision, and guiding principles
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures life events: goals completed, habit milestones, area rating changes, weekly review completions
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
 - **notes.md** — Scratch space for ideas, brainstorms, and quick captures
 
 Create files as needed — not all files are required from the start. Archive completed goals and past reviews to the archive/ folder.
@@ -114,6 +119,27 @@ Track habits with simple weekly or daily logs:
 - Current streak: 12 days
 ```
 
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing life progress. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 20:00 — Completed "Atomic Habits" — card mc-j0k1l2 moved to **Done**
+- 18:30 — Meditation streak: 6 days
+- 14:00 — Card mc-g7h8i9 moved to **This Week** (was: This Quarter) — "Schedule annual checkup"
+- 09:00 — Morning routine completed (day 4) — exercise + journaling
+
+## 2026-03-27
+
+- 21:00 — Weekly review completed — Growth area rating: 3/5 → 4/5
+- 15:00 — New card created: mc-p1q2r3 "Research meal prep services" (area: health)
+- 08:00 — Emergency fund goal hit $10K — card mc-m3n4o5 moved to **Done**
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (habit milestones, goal completions, life area rating changes, weekly review completions). Heartbeats can auto-append periodic check-in summaries.
+
 ### journal.md — Reflections
 
 Use for weekly reviews, monthly retrospectives, or ad-hoc reflections:
@@ -130,3 +156,7 @@ Use for weekly reviews, monthly retrospectives, or ad-hoc reflections:
 ### Focus for next week
 - ...
 ```
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

@@ -26,6 +26,12 @@ Organize channel workspace files as follows:
   - Observations, ideas, and open questions
   - Action items in bold or checklist format
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures significant events: task moves, status changes, decisions, milestones
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **references.md** — Links, resources, and reference material
   - Categorize by topic
   - Add brief annotations explaining relevance
@@ -92,3 +98,27 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (on track), `yellow` (at risk), `red` (blocked/behind).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing significant project activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 15:00 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Draft project proposal"
+- 11:30 — Status health changed: yellow → green
+- 09:00 — Kickoff meeting completed — scope and timeline confirmed
+
+## 2026-03-27
+
+- 16:00 — Card mc-j0k1l2 moved to **Done** (was: Review) — "Define project scope"
+- 14:00 — New card created: mc-g7h8i9 "Review budget estimates"
+- 10:00 — Stakeholder alignment meeting — approved project charter
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (decisions, milestones, meetings). Heartbeats can auto-append periodic entries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

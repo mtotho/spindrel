@@ -1,7 +1,10 @@
-"""Mission Control bot tools — kanban board management via tasks.md."""
+"""Mission Control bot tools — kanban board management via tasks.md + timeline."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+from datetime import date, datetime, timezone
 
 from integrations import _register as reg
 from app.services.task_board import (
@@ -42,7 +45,7 @@ async def _read_tasks_md(channel_id: str) -> tuple[str, list[dict]]:
     from app.services.channel_workspace import read_workspace_file
 
     bot = await _resolve_bot(channel_id)
-    content = read_workspace_file(channel_id, bot, "tasks.md")
+    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "tasks.md")
     if content:
         return content, parse_tasks_md(content)
 
@@ -59,10 +62,78 @@ async def _write_tasks_md(channel_id: str, columns: list[dict]) -> str:
     )
 
     bot = await _resolve_bot(channel_id)
-    ensure_channel_workspace(channel_id, bot)
+    await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
     content = serialize_tasks_md(columns)
-    write_workspace_file(channel_id, bot, "tasks.md", content)
+    await asyncio.to_thread(write_workspace_file, channel_id, bot, "tasks.md", content)
     return content
+
+
+# ---------------------------------------------------------------------------
+# Timeline helpers
+# ---------------------------------------------------------------------------
+
+async def _append_timeline(channel_id: str, event: str) -> None:
+    """Append an event line to the channel's timeline.md.
+
+    Format: entries grouped under ``## YYYY-MM-DD`` date headers,
+    newest day first, newest event at the top of its day section.
+    """
+    from app.services.channel_workspace import (
+        ensure_channel_workspace,
+        read_workspace_file,
+        write_workspace_file,
+    )
+
+    bot = await _resolve_bot(channel_id)
+    await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
+
+    now = datetime.now(timezone.utc).astimezone()
+    today_header = f"## {now.strftime('%Y-%m-%d')}"
+    time_str = now.strftime("%H:%M")
+    entry_line = f"- {time_str} — {event}"
+
+    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "timeline.md") or ""
+
+    if today_header in content:
+        # Insert new entry right after the date header line
+        content = content.replace(
+            today_header,
+            f"{today_header}\n{entry_line}",
+            1,
+        )
+    else:
+        # Prepend a new day section at the top of the file
+        new_section = f"{today_header}\n{entry_line}\n"
+        content = f"{new_section}\n{content}" if content.strip() else new_section
+
+    await asyncio.to_thread(write_workspace_file, channel_id, bot, "timeline.md", content)
+
+
+def parse_timeline_md(content: str) -> list[dict]:
+    """Parse timeline.md into structured event dicts.
+
+    Returns list of ``{"date": "YYYY-MM-DD", "time": "HH:MM", "event": "..."}``
+    in file order (newest first).
+    """
+    events: list[dict] = []
+    current_date: str | None = None
+    date_re = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
+    entry_re = re.compile(r"^-\s+(\d{1,2}:\d{2})\s*[—–-]\s*(.+)")
+
+    for line in content.splitlines():
+        line = line.strip()
+        dm = date_re.match(line)
+        if dm:
+            current_date = dm.group(1)
+            continue
+        em = entry_re.match(line)
+        if em and current_date:
+            events.append({
+                "date": current_date,
+                "time": em.group(1),
+                "event": em.group(2).strip(),
+            })
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +228,16 @@ async def create_task_card(
     target_col["cards"].append(card)
 
     await _write_tasks_md(channel_id, columns)
+
+    # Auto-log to timeline
+    try:
+        await _append_timeline(
+            channel_id,
+            f"New card created: {card_id} \"{title}\" in **{target_col['name']}**",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline event for create_task_card", exc_info=True)
+
     return f"Created task card '{title}' (id: {card_id}) in column '{target_col['name']}'"
 
 
@@ -220,4 +301,50 @@ async def move_task_card(
 
     target_col["cards"].append(found_card)
     await _write_tasks_md(channel_id, columns)
+
+    # Auto-log to timeline
+    try:
+        await _append_timeline(
+            channel_id,
+            f"Card {task_id} moved to **{target_col['name']}** (was: {source_col_name}) — \"{found_card['title']}\"",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline event for move_task_card", exc_info=True)
+
     return f"Moved '{found_card['title']}' from '{source_col_name}' to '{target_col['name']}'"
+
+
+@reg.register({"type": "function", "function": {
+    "name": "append_timeline_event",
+    "description": (
+        "Log a notable event to the channel's timeline.md activity log. "
+        "Use for deployments, decisions, meetings, milestones, incidents, "
+        "or any significant event worth recording. "
+        "Task card moves and creation are auto-logged — you don't need to "
+        "call this tool for those."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_id": {"type": "string", "description": "Channel UUID"},
+            "event": {
+                "type": "string",
+                "description": (
+                    "Short description of the event. "
+                    "Use **bold** for emphasis. Examples: "
+                    "'Deployed v2.1.0 to production', "
+                    "'DEC-005 recorded: \"Use Redis for caching\"', "
+                    "'Sprint 5 retrospective completed — all 6 cards delivered'"
+                ),
+            },
+        },
+        "required": ["channel_id", "event"],
+    },
+}})
+async def append_timeline_event(
+    channel_id: str,
+    event: str,
+) -> str:
+    """Log a notable event to the channel's timeline.md activity log."""
+    await _append_timeline(channel_id, event)
+    return f"Logged timeline event: {event}"

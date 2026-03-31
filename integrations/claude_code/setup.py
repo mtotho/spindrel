@@ -5,17 +5,17 @@ SETUP = {
         {
             "key": "CLAUDE_CODE_MAX_TURNS",
             "required": False,
-            "description": "Max agent turns per invocation (default: 30)",
+            "description": "Max agent turns per CLI invocation (default: 30)",
         },
         {
             "key": "CLAUDE_CODE_TIMEOUT",
             "required": False,
-            "description": "Timeout in seconds (default: 1800 = 30 min)",
+            "description": "Timeout in seconds for CLI execution (default: 1800 = 30 min)",
         },
         {
             "key": "CLAUDE_CODE_PERMISSION_MODE",
             "required": False,
-            "description": "SDK permission mode: default, acceptEdits, plan, bypassPermissions (default: bypassPermissions)",
+            "description": "CLI permission mode: default, acceptEdits, plan, bypassPermissions (default: bypassPermissions)",
         },
         {
             "key": "CLAUDE_CODE_ALLOWED_TOOLS",
@@ -25,7 +25,7 @@ SETUP = {
         {
             "key": "CLAUDE_CODE_MODEL",
             "required": False,
-            "description": "Model override (empty = SDK default)",
+            "description": "Model override (empty = CLI default)",
         },
         {
             "key": "CLAUDE_CODE_MAX_RESUME_RETRIES",
@@ -35,7 +35,5 @@ SETUP = {
     ],
     "webhook": None,
     "instructions_url": None,
-    "python_dependencies": [
-        {"package": "claude-agent-sdk", "import_name": "claude_agent_sdk"},
-    ],
+    "python_dependencies": [],
 }

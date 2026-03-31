@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { View, Text, Pressable, useWindowDimensions, Platform } from "react-native";
+import { View, Text, Pressable, Platform } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
@@ -7,7 +7,6 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useMCJournal,
   useMCPrefs,
-  useUpdateMCPrefs,
   type MCJournalEntry,
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
@@ -28,25 +27,52 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// Entry component
+// Relative date label
+// ---------------------------------------------------------------------------
+function dateLabel(isoDate: string): string {
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
+  const yestStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
+
+  if (isoDate === todayStr) return "Today";
+  if (isoDate === yestStr) return "Yesterday";
+
+  const d = new Date(isoDate + "T12:00:00");
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.round(diffMs / 86_400_000);
+  if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// Entry component — shows more content by default
 // ---------------------------------------------------------------------------
 function JournalEntryView({ entry }: { entry: MCJournalEntry }) {
   const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   const dot = botDotColor(entry.bot_id);
-  const preview = entry.content.split("\n").slice(0, 3).join("\n");
+  const lines = entry.content.split("\n");
+  const isLong = lines.length > 8;
+  const preview = lines.slice(0, 8).join("\n");
 
   return (
     <Pressable
       onPress={() => setExpanded(!expanded)}
-      className="rounded-lg border border-surface-border p-4 hover:bg-surface-overlay"
+      className="rounded-xl border border-surface-border hover:bg-surface-overlay"
+      style={{ overflow: "hidden" }}
     >
-      <View className="flex-row items-center gap-2 mb-2">
-        {expanded ? (
+      {/* Header */}
+      <View
+        className="flex-row items-center gap-2 px-4 py-3"
+        style={{ borderBottomWidth: 1, borderBottomColor: t.surfaceBorder }}
+      >
+        {isLong && (expanded ? (
           <ChevronDown size={14} color={t.textDim} />
         ) : (
           <ChevronRight size={14} color={t.textDim} />
-        )}
+        ))}
         <View
           style={{
             width: 8,
@@ -55,27 +81,35 @@ function JournalEntryView({ entry }: { entry: MCJournalEntry }) {
             backgroundColor: dot,
           }}
         />
-        <Text className="text-text font-semibold text-sm">{entry.bot_name}</Text>
-        <Text className="text-text-dim text-xs">{entry.date}</Text>
+        <Text className="text-text font-semibold" style={{ fontSize: 13 }}>
+          {entry.bot_name}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Text className="text-text-dim" style={{ fontSize: 11, fontFamily: "monospace" }}>
+          {entry.date}
+        </Text>
       </View>
 
-      {expanded && MarkdownViewer ? (
-        <MarkdownViewer content={entry.content} />
-      ) : (
-        <Text
-          className="text-text-muted text-xs"
-          style={{ fontFamily: "monospace", lineHeight: 18 }}
-          numberOfLines={expanded ? undefined : 3}
-        >
-          {expanded ? entry.content : preview}
-        </Text>
-      )}
+      {/* Content */}
+      <View style={{ padding: 16 }}>
+        {expanded && MarkdownViewer ? (
+          <MarkdownViewer content={entry.content} />
+        ) : (
+          <Text
+            className="text-text"
+            style={{ fontSize: 12, lineHeight: 19, fontFamily: "monospace" }}
+            numberOfLines={expanded ? undefined : 8}
+          >
+            {expanded ? entry.content : preview}
+          </Text>
+        )}
 
-      {!expanded && entry.content.split("\n").length > 3 && (
-        <Text className="text-accent text-[10px] mt-1">
-          Show more...
-        </Text>
-      )}
+        {!expanded && isLong && (
+          <Text className="text-accent mt-2" style={{ fontSize: 11, fontWeight: "500" }}>
+            {lines.length - 8} more lines...
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -130,9 +164,11 @@ export default function MCJournal() {
     return map;
   }, [filtered, groupMode]);
 
-  const groupLabel = (key: string) => {
-    if (groupMode === "date") return key;
-    return bots.find((b) => b.id === key)?.name || key;
+  const groupLabel = (key: string): { label: string; sub?: string } => {
+    if (groupMode === "date") {
+      return { label: dateLabel(key), sub: key };
+    }
+    return { label: bots.find((b) => b.id === key)?.name || key };
   };
 
   return (
@@ -240,7 +276,7 @@ export default function MCJournal() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, gap: 28, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading journal...</Text>
@@ -251,18 +287,56 @@ export default function MCJournal() {
             </Text>
           </MCEmptyState>
         ) : (
-          Array.from(grouped.entries()).map(([key, groupEntries]) => (
-            <View key={key} style={{ gap: 10 }}>
-              <Text className="text-text-dim text-xs font-semibold tracking-wider">
-                {groupLabel(key)}
-              </Text>
-              <View style={{ gap: 10 }}>
-                {groupEntries.map((entry) => (
-                  <JournalEntryView key={`${entry.bot_id}-${entry.date}`} entry={entry} />
-                ))}
+          Array.from(grouped.entries()).map(([key, groupEntries]) => {
+            const gl = groupLabel(key);
+            const isToday = gl.label === "Today";
+            return (
+              <View key={key} style={{ gap: 12 }}>
+                {/* Group header */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <View
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      borderRadius: 12,
+                      backgroundColor: isToday ? t.accent + "18" : t.surfaceOverlay,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "700",
+                        color: isToday ? t.accent : t.text,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {gl.label}
+                    </Text>
+                  </View>
+                  {gl.sub && (
+                    <Text style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>
+                      {gl.sub}
+                    </Text>
+                  )}
+                  <Text style={{ fontSize: 10, color: t.textDim }}>
+                    {groupEntries.length} entr{groupEntries.length !== 1 ? "ies" : "y"}
+                  </Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder, marginLeft: 4 }} />
+                </View>
+                <View style={{ gap: 10 }}>
+                  {groupEntries.map((entry) => (
+                    <JournalEntryView key={`${entry.bot_id}-${entry.date}`} entry={entry} />
+                  ))}
+                </View>
               </View>
-            </View>
-          ))
+            );
+          })
         )}
       </RefreshableScrollView>
     </View>

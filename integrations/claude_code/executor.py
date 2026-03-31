@@ -1,9 +1,7 @@
 """Deferred task executor for claude_code tasks — called by the task worker."""
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,9 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 async def run_claude_code_task(task) -> None:
-    """Execute a claude_code task: run SDK subprocess, store result, dispatch."""
+    """Execute a claude_code task: run CLI in Docker container, store result, dispatch."""
     from app.agent import dispatchers
-    from app.agent.bots import get_bot
     from app.agent.tasks import resolve_task_timeout
     from app.db.engine import async_session
     from app.db.models import Task
@@ -40,16 +37,13 @@ async def run_claude_code_task(task) -> None:
     allowed_tools = ecfg.get("allowed_tools")
 
     _timeout = resolve_task_timeout(task)
-    claude_session_id: str | None = None
 
     try:
-        from claude_agent_sdk import query as sdk_query, ClaudeAgentOptions, ResultMessage
         from integrations.claude_code.config import settings as cc_settings
+        from integrations.claude_code.runner import run_in_container
 
         # Use the larger of task-level timeout and Claude Code's configured timeout
         _timeout = max(_timeout, cc_settings.TIMEOUT)
-
-        bot = get_bot(task.bot_id)
 
         # Resolve prompt (supports template/workspace-file-linked tasks)
         from app.services.prompt_resolution import resolve_prompt
@@ -62,60 +56,33 @@ async def run_claude_code_task(task) -> None:
                 db=resolve_db,
             )
 
-        # Resolve cwd
-        from app.services.workspace import workspace_service
-        ws_root = workspace_service.get_workspace_root(task.bot_id, bot)
-        if not ws_root:
-            raise ValueError(f"No workspace root configured for bot {task.bot_id}")
-        cwd = ws_root
-        if working_directory:
-            cwd = os.path.normpath(os.path.join(ws_root, working_directory))
-            ws_prefix = ws_root.rstrip(os.sep) + os.sep
-            if cwd != ws_root and not cwd.startswith(ws_prefix):
-                raise ValueError(f"working_directory escapes workspace: {working_directory}")
-
-        effective_max_turns = max_turns if max_turns is not None else cc_settings.MAX_TURNS
-        effective_allowed = allowed_tools if allowed_tools is not None else cc_settings.ALLOWED_TOOLS
-
-        options = ClaudeAgentOptions(
-            cwd=cwd,
-            permission_mode=cc_settings.PERMISSION_MODE,
-            max_turns=effective_max_turns,
-            allowed_tools=effective_allowed,
+        result = await run_in_container(
+            bot_id=task.bot_id,
+            prompt=prompt,
+            working_directory=working_directory,
+            max_turns=max_turns,
+            system_prompt=system_prompt,
+            resume_session_id=resume_session_id,
+            allowed_tools=allowed_tools,
+            timeout=_timeout,
         )
-        if system_prompt:
-            options.system_prompt = system_prompt
-        if resume_session_id:
-            options.resume = resume_session_id
-        if cc_settings.MODEL:
-            options.model = cc_settings.MODEL
-
-        result_msg = None
-        async with asyncio.timeout(_timeout):
-            async for message in sdk_query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result_msg = message
-                if hasattr(message, "session_id") and getattr(message, "session_id", None):
-                    claude_session_id = message.session_id
-
-        if result_msg is None:
-            raise RuntimeError("No result message received from Claude Code")
-
-        claude_session_id = result_msg.session_id
 
         # Build result text with metadata header
         parts = []
-        if result_msg.result:
-            parts.append(result_msg.result)
-        if result_msg.is_error:
+        if result.result:
+            parts.append(result.result)
+        if result.is_error:
             parts.append("[claude-code reported error]")
+        if result.stderr:
+            parts.append(f"[stderr]\n{result.stderr}")
         meta_parts = []
-        if result_msg.num_turns is not None:
-            meta_parts.append(f"turns={result_msg.num_turns}")
-        if result_msg.total_cost_usd is not None:
-            meta_parts.append(f"cost=${result_msg.total_cost_usd:.2f}")
-        if result_msg.duration_ms is not None:
-            meta_parts.append(f"{result_msg.duration_ms}ms")
+        if result.num_turns is not None:
+            meta_parts.append(f"turns={result.num_turns}")
+        if result.cost_usd is not None:
+            meta_parts.append(f"cost=${result.cost_usd:.2f}")
+        if result.duration_ms is not None:
+            meta_parts.append(f"{result.duration_ms}ms")
+        meta_parts.append(f"exit={result.exit_code}")
         if meta_parts:
             parts.append(f"[{', '.join(meta_parts)}]")
         result_text = "\n".join(parts)
@@ -128,11 +95,12 @@ async def run_claude_code_task(task) -> None:
                 t.result = result_text
                 t.completed_at = datetime.now(timezone.utc)
                 merged_ecfg = dict(t.execution_config or {})
-                merged_ecfg["claude_session_id"] = claude_session_id
-                if result_msg.total_cost_usd is not None:
-                    merged_ecfg["claude_cost_usd"] = result_msg.total_cost_usd
-                if result_msg.num_turns is not None:
-                    merged_ecfg["claude_num_turns"] = result_msg.num_turns
+                if result.session_id:
+                    merged_ecfg["claude_session_id"] = result.session_id
+                if result.cost_usd is not None:
+                    merged_ecfg["claude_cost_usd"] = result.cost_usd
+                if result.num_turns is not None:
+                    merged_ecfg["claude_num_turns"] = result.num_turns
                 t.execution_config = merged_ecfg
                 await db.commit()
 
@@ -148,33 +116,13 @@ async def run_claude_code_task(task) -> None:
 
         # Notify parent bot
         if cfg.get("notify_parent") and result_text:
-            await _notify_parent(task, cfg, result_msg, result_text, output_dispatch_type, output_dispatch_config)
-
-    except TimeoutError:
-        logger.error("claude_code task %s timed out after %ds", task.id, _timeout)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = f"Timed out after {_timeout}s"
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-        try:
-            _err_text = f"[Error: Claude Code task timed out after {_timeout}s]"
-            output_task = Task(
-                id=task.id, bot_id=task.bot_id,
-                dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
-            )
-            dispatcher = dispatchers.get(output_dispatch_type)
-            await dispatcher.deliver(output_task, _err_text)
-        except Exception:
-            logger.warning("Failed to dispatch timeout error for claude_code task %s", task.id)
+            await _notify_parent(task, cfg, result, result_text, output_dispatch_type, output_dispatch_config)
 
     except Exception as exc:
         logger.exception("claude_code task %s failed", task.id)
 
-        # Resume retry logic
-        _resume_session_id = claude_session_id or ecfg.get("claude_session_id")
+        # Resume retry logic — try to extract session_id from ecfg
+        _resume_session_id = ecfg.get("claude_session_id") or ecfg.get("resume_session_id")
         _resume_retries = ecfg.get("resume_retries", 0)
         from integrations.claude_code.config import settings as cc_settings
         _can_resume = (
@@ -221,10 +169,11 @@ async def run_claude_code_task(task) -> None:
                 logger.warning("Failed to dispatch error for claude_code task %s", task.id)
 
 
-async def _notify_parent(task, cfg, result_msg, result_text, output_dispatch_type, output_dispatch_config):
+async def _notify_parent(task, cfg, result, result_text, output_dispatch_type, output_dispatch_config):
     """Create a callback task so the parent bot can react to the result."""
     from app.db.engine import async_session
     from app.db.models import Task
+    from integrations.claude_code.runner import ClaudeCodeResult
 
     _parent_bot_id = cfg.get("parent_bot_id")
     _parent_session_str = cfg.get("parent_session_id")
@@ -236,11 +185,11 @@ async def _notify_parent(task, cfg, result_msg, result_text, output_dispatch_typ
         _parent_session_id = uuid.UUID(_parent_session_str)
         _cb_header = "[Claude Code completed"
         _meta = []
-        if result_msg.num_turns is not None:
-            _meta.append(f"turns={result_msg.num_turns}")
-        if result_msg.total_cost_usd is not None:
-            _meta.append(f"cost=${result_msg.total_cost_usd:.2f}")
-        if result_msg.is_error:
+        if result.num_turns is not None:
+            _meta.append(f"turns={result.num_turns}")
+        if result.cost_usd is not None:
+            _meta.append(f"cost=${result.cost_usd:.2f}")
+        if result.is_error:
             _meta.append("error=true")
         if _meta:
             _cb_header += f" ({', '.join(_meta)})"

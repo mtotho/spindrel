@@ -60,6 +60,14 @@ export interface MCJournalEntry {
   content: string;
 }
 
+export interface MCTimelineEvent {
+  date: string;
+  time: string;
+  event: string;
+  channel_id: string;
+  channel_name: string;
+}
+
 export interface MCMemorySection {
   bot_id: string;
   bot_name: string;
@@ -122,6 +130,23 @@ export interface MCPrefs {
   layout_prefs: Record<string, unknown>;
 }
 
+export interface MCPlanStep {
+  position: number;
+  status: string;
+  content: string;
+}
+
+export interface MCPlan {
+  id: string;
+  title: string;
+  status: string;
+  meta: Record<string, string>;
+  steps: MCPlanStep[];
+  notes: string;
+  channel_id: string;
+  channel_name: string;
+}
+
 export interface MCFeatureReadiness {
   ready: boolean;
   detail: string;
@@ -135,6 +160,8 @@ export interface MCReadiness {
   kanban: MCFeatureReadiness;
   journal: MCFeatureReadiness;
   memory: MCFeatureReadiness;
+  timeline: MCFeatureReadiness;
+  plans: MCFeatureReadiness;
 }
 
 export interface MCDashboardModule {
@@ -186,6 +213,7 @@ export function useMCKanbanMove() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mc-kanban"] });
       qc.invalidateQueries({ queryKey: ["mc-overview"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
     },
   });
 }
@@ -210,6 +238,7 @@ export function useMCKanbanCreate() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mc-kanban"] });
       qc.invalidateQueries({ queryKey: ["mc-overview"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
     },
   });
 }
@@ -222,6 +251,19 @@ export function useMCJournal(days = 7, scope?: "fleet" | "personal") {
       if (scope) params.set("scope", scope);
       return apiFetch<{ entries: MCJournalEntry[] }>(
         `/api/v1/mission-control/journal?${params}`
+      );
+    },
+  });
+}
+
+export function useMCTimeline(days = 7, scope?: "fleet" | "personal") {
+  return useQuery({
+    queryKey: ["mc-timeline", days, scope],
+    queryFn: () => {
+      const params = new URLSearchParams({ days: String(days) });
+      if (scope) params.set("scope", scope);
+      return apiFetch<{ events: MCTimelineEvent[] }>(
+        `/api/v1/mission-control/timeline?${params}`
       );
     },
   });
@@ -269,6 +311,7 @@ export function useUpdateMCPrefs() {
       qc.invalidateQueries({ queryKey: ["mc-kanban"] });
       qc.invalidateQueries({ queryKey: ["mc-journal"] });
       qc.invalidateQueries({ queryKey: ["mc-memory"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
     },
   });
 }
@@ -304,5 +347,86 @@ export function useMCModules() {
         "/api/v1/mission-control/modules"
       ),
     staleTime: 300_000,
+  });
+}
+
+export function useMCPlans(scope?: "fleet" | "personal", status?: string) {
+  return useQuery({
+    queryKey: ["mc-plans", scope, status],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (scope) params.set("scope", scope);
+      if (status) params.set("status", status);
+      const qs = params.toString();
+      return apiFetch<{ plans: MCPlan[] }>(
+        `/api/v1/mission-control/plans${qs ? `?${qs}` : ""}`
+      );
+    },
+  });
+}
+
+export function useMCPlanApprove() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+    }: {
+      channelId: string;
+      planId: string;
+    }) =>
+      apiFetch(
+        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/approve`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
+      qc.invalidateQueries({ queryKey: ["mc-readiness"] });
+    },
+  });
+}
+
+export function useMCPlanReject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+    }: {
+      channelId: string;
+      planId: string;
+    }) =>
+      apiFetch(
+        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/reject`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+      qc.invalidateQueries({ queryKey: ["mc-readiness"] });
+    },
+  });
+}
+
+export function useMCPlanResume() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+    }: {
+      channelId: string;
+      planId: string;
+    }) =>
+      apiFetch(
+        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/resume`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
   });
 }

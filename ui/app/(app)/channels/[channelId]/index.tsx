@@ -368,6 +368,35 @@ export default function ChatScreen() {
     [channelId, channel, turnModelOverride]
   );
 
+  const handleSendAudio = useCallback(
+    (audioBase64: string, audioFormat: string, message?: string) => {
+      if (!channelId || !channel) return;
+
+      addMessage(channelId, {
+        id: `msg-${Date.now()}`,
+        session_id: channel.active_session_id ?? "",
+        role: "user",
+        content: message || "[voice message]",
+        created_at: new Date().toISOString(),
+      });
+
+      startStreaming(channelId);
+
+      chatStream.mutate({
+        message: message || "",
+        bot_id: channel.bot_id,
+        client_id: channel.client_id ?? "",
+        channel_id: channelId,
+        audio_data: audioBase64,
+        audio_format: audioFormat,
+        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
+      });
+
+      setTurnModelOverride(undefined);
+    },
+    [channelId, channel, turnModelOverride]
+  );
+
   // Merge consecutive assistant messages then reverse for inverted FlatList
   const mergedMessages = useMemo(
     () => mergeConsecutiveAssistant(chatState.messages),
@@ -612,6 +641,7 @@ export default function ChatScreen() {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
+        onSendAudio={handleSendAudio}
         disabled={isPaused}
         isStreaming={chatState.isStreaming}
         onCancel={handleCancel}

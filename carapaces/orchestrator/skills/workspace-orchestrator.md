@@ -337,17 +337,55 @@ All paths relative to `AGENT_SERVER_URL`. Use `agent api` or `agent-api` for aut
 ### Workspace Management
 
 ```sh
+# Get workspace details (includes bots list in response)
+agent api GET /api/v1/workspaces/{ws_id}
+
 # Container status
 agent api GET /api/v1/workspaces/{ws_id}/status
 
 # Container logs (last 300 lines)
 agent api GET /api/v1/workspaces/{ws_id}/logs?tail=300
 
-# List workspace bots
-agent api GET /api/v1/workspaces/{ws_id}/bots
+# List channels belonging to workspace bots
+agent api GET /api/v1/workspaces/{ws_id}/channels
+```
 
+### Bot Membership (add/update/remove bots in workspace)
+
+```sh
 # Get specific bot's workspace config
 agent api GET /api/v1/workspaces/{ws_id}/bots/{bot_id}
+
+# Add bot to workspace
+agent api POST /api/v1/workspaces/{ws_id}/bots \
+  '{"bot_id":"my-bot","workspace_dir":"/workspace/my-bot"}'
+
+# Update bot workspace config (dir, indexing overrides)
+agent api PUT /api/v1/workspaces/{ws_id}/bots/{bot_id} \
+  '{"workspace_dir":"/workspace/my-bot","indexing":{"enabled":true}}'
+
+# Remove bot from workspace
+agent api DELETE /api/v1/workspaces/{ws_id}/bots/{bot_id}
+```
+
+### Skills & Indexing
+
+```sh
+# List discovered workspace skill files
+agent api GET /api/v1/workspaces/{ws_id}/skills
+
+# Trigger full reindex (file content + embeddings)
+agent api POST /api/v1/workspaces/{ws_id}/reindex
+
+# Re-discover and re-embed workspace skills only
+agent api POST /api/v1/workspaces/{ws_id}/reindex-skills
+
+# Get full indexing config (global, workspace-level, per-bot)
+agent api GET /api/v1/workspaces/{ws_id}/indexing
+
+# Update per-bot indexing overrides
+agent api PUT /api/v1/workspaces/{ws_id}/bots/{bot_id}/indexing \
+  '{"enabled":true,"extensions":[".py",".md",".ts"]}'
 ```
 
 ### File Operations (via API — alternative to exec_command)

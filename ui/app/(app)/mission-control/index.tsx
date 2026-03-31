@@ -19,6 +19,7 @@ import {
   Hash,
   Bot,
   ClipboardList,
+  ClipboardCheck,
   Columns,
   ArrowRight,
   Info,
@@ -26,6 +27,7 @@ import {
   ChevronRight,
   Calendar,
   Brain,
+  Clock,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -119,8 +121,10 @@ function ChannelCard({ channel }: { channel: MCChannelOverview }) {
 // ---------------------------------------------------------------------------
 function QuickNav() {
   const t = useThemeTokens();
-  const links: { href: string; icon: any; label: string; feature: "kanban" | "journal" | "memory" }[] = [
+  const links: { href: string; icon: any; label: string; feature: "kanban" | "journal" | "memory" | "timeline" | "plans" }[] = [
     { href: "/mission-control/kanban", icon: Columns, label: "Kanban", feature: "kanban" },
+    { href: "/mission-control/timeline", icon: Clock, label: "Timeline", feature: "timeline" },
+    { href: "/mission-control/plans", icon: ClipboardCheck, label: "Plans", feature: "plans" },
     { href: "/mission-control/journal", icon: Calendar, label: "Journal", feature: "journal" },
     { href: "/mission-control/memory", icon: Brain, label: "Memory", feature: "memory" },
   ];

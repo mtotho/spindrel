@@ -423,6 +423,9 @@ export interface ChatRequest {
   model_override?: string;
   attachments?: ChatAttachment[];
   file_metadata?: ChatFileMetadata[];
+  audio_data?: string;
+  audio_format?: string;
+  audio_native?: boolean;
 }
 
 export interface ChatResponse {

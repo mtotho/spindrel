@@ -313,7 +313,10 @@ def discover_dashboard_modules() -> list[dict]:
     return results
 
 
-def discover_sidebar_sections() -> list[dict]:
+_sidebar_sections_cache: list[dict] | None = None
+
+
+def discover_sidebar_sections(*, refresh: bool = False) -> list[dict]:
     """Discover sidebar sections from integration setup.py manifests.
 
     Integrations declare a ``sidebar_section`` in their ``SETUP`` dict to add
@@ -332,7 +335,12 @@ def discover_sidebar_sections() -> list[dict]:
         }
 
     Returns list of dicts with the above fields plus ``integration_id``.
+    Results are cached after the first call; pass ``refresh=True`` to rebuild.
     """
+    global _sidebar_sections_cache
+    if _sidebar_sections_cache is not None and not refresh:
+        return _sidebar_sections_cache
+
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
@@ -343,19 +351,23 @@ def discover_sidebar_sections() -> list[dict]:
             module = _import_module(integration_id, "setup", setup_file, is_external, source)
             setup = getattr(module, "SETUP", {})
             section = setup.get("sidebar_section")
-            if section:
+            if section and isinstance(section, dict) and "id" in section and section.get("items"):
                 results.append({
                     "integration_id": integration_id,
                     "id": section["id"],
                     "title": section.get("title", section["id"].upper()),
                     "icon": section.get("icon", "Plug"),
-                    "items": section.get("items", []),
+                    "items": [
+                        item for item in section["items"]
+                        if isinstance(item, dict) and "label" in item and "href" in item
+                    ],
                     "readiness_endpoint": section.get("readiness_endpoint"),
                     "readiness_field": section.get("readiness_field"),
                 })
         except Exception:
             logger.exception("Failed to load sidebar section for integration %r", integration_id)
 
+    _sidebar_sections_cache = results
     return results
 
 

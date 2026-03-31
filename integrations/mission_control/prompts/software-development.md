@@ -38,6 +38,12 @@ Organize channel workspace files as follows:
   - Date-stamp entries: `## YYYY-MM-DD Topic`
   - Action items in bold or checklist format
 
+- **timeline.md** — Reverse-chronological activity log (Mission Control compatible)
+  - Auto-captures significant workspace events: task moves, status changes, decisions, deploys
+  - Entries: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers
+  - Append new entries at top of current day's section
+  - Use `append_timeline_event` tool to log events (also auto-logged by `move_task_card`, status changes, etc.)
+
 - **references.md** — External links, API docs, useful resources
   - Categorize by topic (APIs, libraries, standards, tutorials)
   - Add brief annotations explaining relevance
@@ -111,3 +117,28 @@ Use `create_task_card` and `move_task_card` tools for task management instead of
 ```
 
 Health values: `green` (on track), `yellow` (at risk), `red` (blocked/behind).
+
+### timeline.md — Activity Log
+
+Reverse-chronological event stream capturing significant workspace activity. New entries go at the top of the current day's section.
+
+```markdown
+## 2026-03-28
+
+- 16:45 — Card mc-j0k1l2 moved to **Done** (was: Review) — "Initialize project repository"
+- 14:20 — Status health changed: yellow → green
+- 11:00 — ADR-003 recorded: "Use PostgreSQL over MongoDB for transactional data"
+- 09:30 — Card mc-d4e5f6 moved to **In Progress** (was: Backlog) — "Set up CI/CD pipeline"
+
+## 2026-03-27
+
+- 17:00 — Deployed v0.2.0 to staging environment
+- 15:30 — New card created: mc-g7h8i9 "Add input validation to forms"
+- 10:15 — Architecture review meeting — approved component diagram v2
+```
+
+Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (deploys, reviews, incidents, decisions). Heartbeats can auto-append periodic entries for passive monitoring.
+
+### plans.md — Structured Execution Plans
+
+You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.

@@ -218,7 +218,6 @@ export default function MCMemory() {
     <View className="flex-1 bg-surface">
       <MobileHeader title="Memory" subtitle="MEMORY.md across bots" />
 
-
       {/* Search bar */}
       {sections.length >= 1 && (
         <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border">
@@ -242,7 +241,7 @@ export default function MCMemory() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading memory...</Text>
