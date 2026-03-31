@@ -20,6 +20,8 @@ _tpm_windows: dict[str, deque] = {}
 _model_info_cache: dict[str | None, dict[str, dict]] = {}
 # Cached set of model_ids flagged as no_system_messages in provider_models table
 _no_sys_msg_models: set[str] = set()
+# Cached set of model_ids flagged as supports_tools=False in provider_models table
+_no_tools_models: set[str] = set()
 
 
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
@@ -93,12 +95,13 @@ async def _warm_model_info_cache() -> None:
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
     _model_info_cache = {}
     _no_sys_msg_models = set()
+    _no_tools_models = set()
 
     async with async_session() as db:
         rows = (
@@ -116,6 +119,16 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _no_sys_msg_models = set(flagged)
+
+        # Load model IDs flagged as not supporting tools
+        no_tools = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_tools == False  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _no_tools_models = set(no_tools)
 
     from app.services.encryption import decrypt
 
@@ -137,6 +150,8 @@ async def load_providers() -> None:
 
     if _no_sys_msg_models:
         logger.info("Models with no_system_messages flag: %s", _no_sys_msg_models)
+    if _no_tools_models:
+        logger.info("Models with supports_tools=false flag: %s", _no_tools_models)
 
     # Pre-warm model info cache for all litellm providers + .env fallback
     await _warm_model_info_cache()
@@ -153,6 +168,25 @@ def requires_system_message_folding(model: str) -> bool:
         return True
     from app.agent.model_params import _HEURISTIC_NO_SYS_MSG_FAMILIES, get_provider_family
     return get_provider_family(model) in _HEURISTIC_NO_SYS_MSG_FAMILIES
+
+
+def model_supports_tools(model: str) -> bool:
+    """Check whether a model supports function calling / tools.
+
+    Resolution order:
+    1. Explicit DB flag (provider_models.supports_tools=False) — checked via cached set.
+    2. Heuristic fallback: exact model ID or substring pattern match.
+    """
+    if model in _no_tools_models:
+        return False
+    from app.agent.model_params import _HEURISTIC_NO_TOOLS_MODELS, _HEURISTIC_NO_TOOLS_PATTERNS
+    if model in _HEURISTIC_NO_TOOLS_MODELS:
+        return False
+    model_lower = model.lower()
+    for pattern in _HEURISTIC_NO_TOOLS_PATTERNS:
+        if pattern in model_lower:
+            return False
+    return True
 
 
 def get_provider(provider_id: str) -> ProviderConfigRow | None:

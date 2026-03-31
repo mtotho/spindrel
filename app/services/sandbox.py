@@ -117,6 +117,8 @@ def _build_docker_run_args(
 
     args += ["--restart", "unless-stopped"]
     args += ["--network", network_mode or "none"]
+    # Allow containers to reach the host (matches shared_workspace.py)
+    args += ["--add-host", "host.docker.internal:host-gateway"]
 
     if read_only_root:
         args += ["--read-only"]
@@ -337,8 +339,9 @@ class SandboxService:
 
         start_ts = datetime.now(timezone.utc).timestamp()
 
-        # Build exec args, optionally injecting per-bot API key
+        # Build exec args, injecting server URL + per-bot API key
         _exec_args = ["docker", "exec", "-i"]
+        _exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
         try:
             from app.services.api_keys import get_bot_api_key_value
             async with async_session() as _db:
@@ -751,7 +754,8 @@ class SandboxService:
             exec_args = ["docker", "exec", "-i"]
             if config.user:
                 exec_args += ["--user", config.user]
-            # Inject per-bot API key if available
+            # Inject server URL + per-bot API key so containers can call back
+            exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
             try:
                 from app.services.api_keys import get_bot_api_key_value
                 async with async_session() as _db:

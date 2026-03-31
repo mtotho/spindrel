@@ -1,6 +1,7 @@
 """Mission Control integration setup manifest."""
 
 SETUP = {
+    "icon": "LayoutDashboard",
     "env_vars": [
         {
             "key": "AGENT_API_KEY",

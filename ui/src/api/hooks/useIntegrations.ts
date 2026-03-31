@@ -46,6 +46,7 @@ export interface IntegrationItem {
   deps_installed?: boolean;
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
+  icon?: string;
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
 }
@@ -200,6 +201,21 @@ export function useSetAutoStart(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-integration-autostart", id] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration icons (lightweight id -> lucide icon name mapping)
+// ---------------------------------------------------------------------------
+
+export function useIntegrationIcons() {
+  return useQuery({
+    queryKey: ["integration-icons"],
+    queryFn: () =>
+      apiFetch<{ icons: Record<string, string> }>(
+        "/api/v1/admin/integrations/icons"
+      ),
+    staleTime: 600_000, // 10 min — icons rarely change
   });
 }
 

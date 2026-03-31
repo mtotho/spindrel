@@ -6,6 +6,9 @@ description: >-
   an orchestrator via channel carapaces_extra.
 tags: [admin, delegation, orchestration]
 
+includes:
+  - mission-control
+
 delegates:
   # Cheap workers — use liberally
   - id: scanner
@@ -44,20 +47,27 @@ delegates:
     description: "Systematic debugging: reproduce, isolate, blast radius, test, fix, verify, document. Use when a specific bug needs resolution."
 
 skills:
+  # Pinned — concise core context (always in every turn)
   - id: carapaces/orchestrator/workspace-orchestrator
     mode: pinned
-  - id: carapaces/orchestrator/integration-builder
+  # On-demand — deep knowledge fetched via get_skill() when needed
+  - id: carapaces/orchestrator/workspace-delegation
     mode: on_demand
-  - id: carapaces/orchestrator/project-management
+  - id: carapaces/orchestrator/workspace-api-reference
+    mode: on_demand
+  - id: carapaces/orchestrator/workspace-management
     mode: on_demand
   - id: carapaces/orchestrator/carapace-architect
     mode: on_demand
   - id: carapaces/orchestrator/model-efficiency
     mode: on_demand
+  # Shared skills (not owned by this carapace)
   - id: channel_workspaces
     mode: on_demand
   - id: context_mastery
     mode: on_demand
+  # Note: mission-control skills (task boards, planning, project management,
+  # content feeds, integration builder) come via includes: [mission-control]
 
 local_tools:
   - get_system_status
@@ -92,6 +102,9 @@ pinned_tools:
 system_prompt_fragment: |
   ## Orchestrator Protocol
 
+  You are the system orchestrator. You coordinate bots, manage channels, configure
+  integrations, and delegate work — you don't do domain work yourself.
+
   ### First Message
   On cold-start (no prior messages in this session):
   1. Call `get_system_status` to load current bot/channel/integration state
@@ -100,22 +113,33 @@ system_prompt_fragment: |
 
   ### Setup Flow (when system is fresh)
   1. Inventory available bots, integrations, and skills
-  2. Create channels for each major workflow (e.g. github-events, daily-standup)
-  3. Configure channel prompts, heartbeats, and workspace schemas as needed
-  4. Document the setup in the workspace MEMORY.md
+  2. Create channels for each major workflow
+  3. Configure channel prompts, heartbeats, and workspace schemas
+  4. Document the setup in workspace MEMORY.md
 
-  ### Delegation Patterns
+  ### Delegation
+  Prefer delegation over doing everything yourself. Use `delegate_to_agent` for
+  bot work, `delegate_to_harness` for CLI agents (Claude Code, Cursor), and
+  `exec_command` only for orchestrator-level operations (file placement, coordination).
 
-  **Fan-out/Fan-in**: Break a complex task into subtasks, delegate each to the
-  best-suited bot, collect results, synthesize a unified response.
+  ### Deep Knowledge Index
 
-  **Pipeline**: Chain bots sequentially — e.g. research → code → review → deploy.
-  Pass context forward via the prompt. Use `delegate_to_agent` with clear
-  instructions and expected output format.
+  Fetch these skills with `get_skill()` when you need depth:
 
-  **Harness+Bot Hybrid**: For tasks requiring iteration with tools, use
-  `delegate_to_harness` for the tool-heavy work, then hand the result to a
-  specialist bot for analysis or writing.
+  **Orchestration:**
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Delegation patterns, harness usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
+  | Server API endpoints, permissions, scopes, `agent` CLI | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
+  | Channels, workspace skills, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
+  | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
+  | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |
+  | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
+  | Context assembly, skill modes, tool RAG, compaction tuning | `get_skill('context_mastery')` |
+
+  **Mission Control** (included via mission-control carapace):
+  See the Mission Control section below for task boards, planning, project
+  tracking, content feeds, and integration setup.
 
   ### Channel Management
   - Create channels with descriptive names and appropriate bots

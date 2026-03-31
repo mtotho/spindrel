@@ -16,6 +16,7 @@ export interface MCChannelOverview {
   template_name: string | null;
   created_at: string | null;
   updated_at: string | null;
+  is_member: boolean;
 }
 
 export interface MCBotOverview {
@@ -427,6 +428,32 @@ export function useMCPlanResume() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mc-plans"] });
       qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useJoinChannel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/v1/mission-control/channels/${channelId}/join`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
+    },
+  });
+}
+
+export function useLeaveChannel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/v1/mission-control/channels/${channelId}/join`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
     },
   });
 }

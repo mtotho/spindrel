@@ -2,12 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { TurnToolCall } from "@/src/api/hooks/useTurns";
 import { useThemeTokens } from "@/src/theme/tokens";
-
-function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
+import { formatDuration } from "@/src/utils/time";
 
 export interface ToolCallsListProps {
   toolCalls: TurnToolCall[];
@@ -46,7 +41,7 @@ export function ToolCallsList({ toolCalls, isWide }: ToolCallsListProps) {
               <span style={{ fontWeight: 600, color: t.text, flexShrink: 0 }}>{tc.tool_name}</span>
               <span style={{ color: t.textDim, fontSize: 10, flexShrink: 0 }}>{tc.tool_type}</span>
               {tc.duration_ms != null && (
-                <span style={{ color: t.textDim, flexShrink: 0 }}>{fmtDuration(tc.duration_ms)}</span>
+                <span style={{ color: t.textDim, flexShrink: 0 }}>{formatDuration(tc.duration_ms)}</span>
               )}
               {tc.error && (
                 <span style={{

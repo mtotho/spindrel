@@ -1,6 +1,7 @@
 """Frigate integration setup manifest."""
 
 SETUP = {
+    "icon": "Camera",
     "env_vars": [
         {"key": "FRIGATE_URL", "required": True, "description": "Frigate NVR base URL (e.g. http://frigate:5000)"},
         {"key": "FRIGATE_API_KEY", "required": False, "description": "Bearer token for Frigate API auth", "secret": True},

@@ -436,6 +436,36 @@ export function MarkdownContent({ text, t }: { text: string; t: ReturnType<typeo
 // Attachment rendering (web only)
 // ---------------------------------------------------------------------------
 
+function AttachmentImage({ src, alt, t }: { src: string; alt: string; t: ReturnType<typeof useThemeTokens> }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer">
+      <div style={{
+        minHeight: loaded ? undefined : 200,
+        maxWidth: "100%",
+        borderRadius: 8,
+        overflow: "hidden",
+        background: loaded ? "transparent" : t.surfaceRaised,
+        transition: "min-height 0.15s ease-out",
+      }}>
+        <img
+          src={src}
+          alt={alt}
+          onLoad={() => setLoaded(true)}
+          style={{
+            maxWidth: "100%",
+            maxHeight: 360,
+            borderRadius: 8,
+            display: "block",
+            opacity: loaded ? 1 : 0,
+            transition: "opacity 0.15s ease-in",
+          }}
+        />
+      </div>
+    </a>
+  );
+}
+
 function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; t: ReturnType<typeof useThemeTokens> }) {
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const token = getAuthToken();
@@ -450,25 +480,17 @@ function AttachmentImages({ attachments, t }: { attachments: AttachmentBrief[]; 
 
   return (
     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-      {images.map((img) => (
-        <a
-          key={img.id}
-          href={`${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img
-            src={`${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`}
+      {images.map((img) => {
+        const url = `${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`;
+        return (
+          <AttachmentImage
+            key={img.id}
+            src={url}
             alt={img.description || img.filename}
-            style={{
-              maxWidth: "100%",
-              maxHeight: 360,
-              borderRadius: 8,
-              display: "block",
-            }}
+            t={t}
           />
-        </a>
-      ))}
+        );
+      })}
       {files.map((f) => {
         // Always generate a download link — let the server return 404 if data was purged
         const href = `${serverUrl}/api/v1/attachments/${f.id}/file${token ? `?token=${token}` : ""}`;

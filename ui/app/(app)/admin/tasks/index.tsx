@@ -16,31 +16,13 @@ import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatTime, formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { CronJobsView } from "./CronJobsView";
-
-interface TaskItem {
-  id: string;
-  status: string;
-  bot_id: string;
-  prompt: string;
-  title?: string;
-  result?: string;
-  error?: string;
-  dispatch_type: string;
-  task_type?: string;
-  recurrence?: string;
-  run_count?: number;
-  channel_id?: string;
-  parent_task_id?: string;
-  correlation_id?: string;
-  created_at?: string;
-  scheduled_at?: string;
-  run_at?: string;
-  completed_at?: string;
-  is_schedule?: boolean;
-  is_virtual?: boolean;
-  /** For virtual entries, the real schedule ID to open in editor */
-  _schedule_id?: string;
-}
+import {
+  type TaskItem,
+  TYPE_BADGE_COLORS, STATUS_CFG, BOT_COLORS,
+  botColor, displayTitle,
+  TypeBadge, TaskStatusBadge as StatusBadge, BotDot,
+} from "@/src/components/shared/TaskConstants";
+import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 
 interface TasksResponse {
   tasks: TaskItem[];
@@ -74,59 +56,6 @@ const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "failed", label: "Failed" },
 ];
 
-const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6" },
-  heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04" },
-  delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea" },
-  harness: { bg: "rgba(20,184,166,0.12)", fg: "#0d9488" },
-  exec: { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
-  callback: { bg: "rgba(239,68,68,0.12)", fg: "#dc2626" },
-  api: { bg: "rgba(34,197,94,0.12)", fg: "#16a34a" },
-  agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af" },
-};
-
-const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string }> = {
-  pending:   { bg: "rgba(107,114,128,0.12)", fg: "#6b7280",  icon: Clock,        label: "Pending" },
-  running:   { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6",  icon: Loader2,      label: "Running" },
-  complete:  { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a",  icon: CheckCircle2, label: "Complete" },
-  failed:    { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626",  icon: AlertCircle,  label: "Failed" },
-  active:    { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04",  icon: RefreshCw,    label: "Active" },
-  upcoming:  { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: Clock,        label: "Upcoming" },
-  cancelled: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: XCircle,      label: "Cancelled" },
-};
-
-// ---------------------------------------------------------------------------
-// Bot color palette — deterministic hash to 12 distinct hues
-// ---------------------------------------------------------------------------
-const BOT_COLORS = [
-  { bg: "rgba(59,130,246,0.12)", border: "#3b82f6", dot: "#3b82f6", fg: "#2563eb" },  // blue
-  { bg: "rgba(168,85,247,0.12)", border: "#a855f7", dot: "#a855f7", fg: "#9333ea" },  // purple
-  { bg: "rgba(236,72,153,0.12)", border: "#ec4899", dot: "#ec4899", fg: "#db2777" },  // pink
-  { bg: "rgba(239,68,68,0.12)",  border: "#ef4444", dot: "#ef4444", fg: "#dc2626" },  // red
-  { bg: "rgba(249,115,22,0.12)", border: "#f97316", dot: "#f97316", fg: "#ea580c" },  // orange
-  { bg: "rgba(234,179,8,0.12)",  border: "#eab308", dot: "#eab308", fg: "#ca8a04" },  // yellow
-  { bg: "rgba(34,197,94,0.12)",  border: "#22c55e", dot: "#22c55e", fg: "#16a34a" },  // green
-  { bg: "rgba(20,184,166,0.12)", border: "#14b8a6", dot: "#14b8a6", fg: "#0d9488" },  // teal
-  { bg: "rgba(6,182,212,0.12)",  border: "#06b6d4", dot: "#06b6d4", fg: "#0891b2" },  // cyan
-  { bg: "rgba(99,102,241,0.12)", border: "#6366f1", dot: "#6366f1", fg: "#4f46e5" },  // indigo
-  { bg: "rgba(244,63,94,0.12)",  border: "#f43f5e", dot: "#f43f5e", fg: "#e11d48" },  // rose
-  { bg: "rgba(132,204,22,0.12)", border: "#84cc16", dot: "#84cc16", fg: "#65a30d" },  // lime
-];
-
-function botColor(botId: string) {
-  let hash = 0;
-  for (let i = 0; i < botId.length; i++) {
-    hash = ((hash << 5) - hash + botId.charCodeAt(i)) | 0;
-  }
-  return BOT_COLORS[Math.abs(hash) % BOT_COLORS.length];
-}
-
-function displayTitle(task: TaskItem): string {
-  if (task.title) return task.title;
-  if (!task.prompt) return "(no title)";
-  const clean = task.prompt.replace(/\n/g, " ").trim();
-  return clean.length > 60 ? clean.substring(0, 57) + "..." : clean;
-}
 
 // ---------------------------------------------------------------------------
 // Utility helpers
@@ -330,55 +259,6 @@ function HourGrid() {
         }} />
       ))}
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Task type badge
-// ---------------------------------------------------------------------------
-function TypeBadge({ type }: { type: string }) {
-  const c = TYPE_BADGE_COLORS[type] || TYPE_BADGE_COLORS.agent;
-  return (
-    <span style={{
-      display: "inline-block",
-      background: c.bg, color: c.fg,
-      padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600,
-      textTransform: "uppercase", letterSpacing: 0.5,
-    }}>
-      {type}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Status badge — always visible, color-coded
-// ---------------------------------------------------------------------------
-function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
-  const Icon = cfg.icon;
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      background: cfg.bg, color: cfg.fg,
-      padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-      flexShrink: 0, whiteSpace: "nowrap",
-    }}>
-      <Icon size={10} color={cfg.fg} />
-      {cfg.label}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bot color dot
-// ---------------------------------------------------------------------------
-function BotDot({ botId, size = 8 }: { botId: string; size?: number }) {
-  const c = botColor(botId);
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: size / 2,
-      background: c.dot, flexShrink: 0,
-    }} />
   );
 }
 
@@ -971,51 +851,13 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
           <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: t.warning, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Schedules
           </div>
-          {activeSchedules.map((tk) => {
-            const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
-            const Icon = s.icon;
-            const isCancelled = tk.status === "cancelled";
-            return (
-              <div
-                key={tk.id}
-                onClick={() => onTaskPress(tk)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 14px", background: t.inputBg, borderRadius: 8,
-                  border: `1px solid ${isCancelled ? t.surfaceBorder : t.surfaceRaised}`,
-                  cursor: "pointer", marginBottom: 2,
-                  opacity: isCancelled ? 0.4 : 1,
-                }}
-              >
-                <Icon size={14} color={s.fg} />
-                <BotDot botId={tk.bot_id} />
-                <span style={{
-                  fontSize: 13, fontWeight: 600,
-                  color: isCancelled ? t.textDim : t.text,
-                  textDecoration: isCancelled ? "line-through" : "none",
-                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {displayTitle(tk)}
-                </span>
-                <StatusBadge status={tk.status} />
-                <span style={{ fontSize: 10, color: t.textDim }}>{tk.bot_id}</span>
-                {tk.recurrence && (
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", gap: 3,
-                    background: isCancelled ? t.surfaceRaised : t.warningSubtle,
-                    color: isCancelled ? t.textDim : t.warning,
-                    padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-                  }}>
-                    <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
-                    {tk.recurrence}
-                  </span>
-                )}
-                {tk.run_count != null && tk.run_count > 0 && (
-                  <span style={{ fontSize: 10, color: t.textDim }}>{tk.run_count} runs</span>
-                )}
-              </div>
-            );
-          })}
+          {activeSchedules.map((tk) => (
+            <TaskCardRow
+              key={tk.id}
+              task={tk}
+              onPress={() => onTaskPress(tk)}
+            />
+          ))}
         </>
       )}
 
@@ -1025,42 +867,14 @@ function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
           <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: isToday(new Date(dayStr)) ? t.accent : t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
             {dateSectionLabel(new Date(dayStr))}
           </div>
-          {dayTasks.map((tk) => {
-            const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
-            const Icon = s.icon;
-            const time = tk.scheduled_at || tk.created_at;
-            const isPast = getTaskTime(tk) < now && tk.status !== "running";
-            const isCancelled = tk.status === "cancelled";
-            return (
-              <div
-                key={tk.id}
-                onClick={() => onTaskPress(tk)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 14px", background: t.inputBg, borderRadius: 8,
-                  border: `1px solid ${t.surfaceRaised}`, cursor: "pointer", marginBottom: 2,
-                  opacity: isCancelled ? 0.35 : isPast ? 0.6 : 1,
-                }}
-              >
-                <Icon size={14} color={s.fg} />
-                <BotDot botId={tk.bot_id} />
-                <span style={{
-                  fontSize: 13, fontWeight: 600,
-                  color: isCancelled ? t.textDim : t.text,
-                  textDecoration: isCancelled ? "line-through" : "none",
-                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {displayTitle(tk)}
-                </span>
-                <StatusBadge status={tk.status} />
-                <span style={{ fontSize: 10, color: t.textDim }}>{tk.bot_id}</span>
-                {tk.task_type && <TypeBadge type={tk.task_type} />}
-                <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
-                  {time ? formatTime(time) : "\u2014"}
-                </span>
-              </div>
-            );
-          })}
+          {dayTasks.map((tk) => (
+            <TaskCardRow
+              key={tk.id}
+              task={tk}
+              onPress={() => onTaskPress(tk)}
+              isPast={getTaskTime(tk) < now && tk.status !== "running"}
+            />
+          ))}
         </div>
       ))}
     </div>

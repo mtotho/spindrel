@@ -130,6 +130,13 @@ class TestDecodeHeader:
         assert "Re" in result
         assert "Meeting" in result
 
+    def test_unknown_charset_falls_back(self):
+        # RFC 2047 with bogus charset should not crash
+        encoded = "=?x-unknown-999?b?SGVsbG8=?="
+        result = _decode_header(encoded)
+        # Should decode as utf-8 fallback
+        assert "Hello" in result
+
 
 class TestSafeFilename:
     def test_simple(self):
@@ -143,13 +150,25 @@ class TestSafeFilename:
         result = _safe_filename(long_title, max_len=20)
         assert len(result) <= 20
 
-    def test_empty_returns_untitled(self):
-        assert _safe_filename("") == "untitled"
-        assert _safe_filename("!!!") == "untitled"
+    def test_empty_uses_hash(self):
+        # Empty input produces a hash-based slug
+        result = _safe_filename("")
+        assert len(result) == 12  # sha256[:12]
+        # All-punctuation also gets a hash
+        result2 = _safe_filename("!!!")
+        assert len(result2) == 12
 
-    def test_unicode(self):
+    def test_unicode_latin(self):
         result = _safe_filename("Café résumé")
         assert "cafe" in result
+
+    def test_unicode_cjk_uses_hash(self):
+        # CJK text produces no ASCII slug — should fall back to hash
+        result = _safe_filename("会议记录")
+        assert len(result) == 12
+        # Different text produces different hash
+        result2 = _safe_filename("每日报告")
+        assert result != result2
 
 
 class TestDateSlug:
@@ -165,6 +184,12 @@ class TestDateSlug:
     def test_empty_returns_today(self):
         result = _date_slug("")
         assert len(result) == 10
+
+    def test_malformed_date_returns_today(self):
+        # Malformed dates should not crash — fall back to today
+        result = _date_slug("not a date at all")
+        assert len(result) == 10
+        assert result[4] == "-"
 
 
 # ---------------------------------------------------------------------------

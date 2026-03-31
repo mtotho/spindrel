@@ -138,6 +138,25 @@ class Channel(Base):
     heartbeat: Mapped[Optional["ChannelHeartbeat"]] = relationship(
         "ChannelHeartbeat", uselist=False, viewonly=True,
     )
+    members: Mapped[list["ChannelMember"]] = relationship(
+        cascade="all, delete-orphan",
+    )
+
+
+class ChannelMember(Base):
+    __tablename__ = "channel_members"
+
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_channel_members_user_id", "user_id"),
+    )
 
 
 class ConversationSection(Base):
@@ -705,6 +724,7 @@ class ProviderModel(Base):
     input_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
     no_system_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     provider: Mapped["ProviderConfig"] = relationship(back_populates="models")

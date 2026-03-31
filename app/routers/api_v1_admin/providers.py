@@ -71,6 +71,7 @@ class ProviderModelOut(BaseModel):
     input_cost_per_1m: str | None = None
     output_cost_per_1m: str | None = None
     no_system_messages: bool = False
+    supports_tools: bool = True
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -83,6 +84,7 @@ class ProviderModelCreateIn(BaseModel):
     input_cost_per_1m: str | None = None
     output_cost_per_1m: str | None = None
     no_system_messages: bool = False
+    supports_tools: bool = True
 
 
 class ProviderTestResult(BaseModel):
@@ -174,6 +176,7 @@ async def admin_add_provider_model(
         input_cost_per_1m=body.input_cost_per_1m.strip() if body.input_cost_per_1m else None,
         output_cost_per_1m=body.output_cost_per_1m.strip() if body.output_cost_per_1m else None,
         no_system_messages=body.no_system_messages,
+        supports_tools=body.supports_tools,
     )
     db.add(row)
     try:
@@ -182,7 +185,7 @@ async def admin_add_provider_model(
     except Exception as exc:
         raise HTTPException(status_code=409, detail=f"Model already exists or DB error: {exc}")
 
-    if body.no_system_messages:
+    if body.no_system_messages or not body.supports_tools:
         from app.services.providers import load_providers
         await load_providers()
 
@@ -199,7 +202,7 @@ async def admin_delete_provider_model(
     row = await db.get(ProviderModel, model_pk)
     if not row or row.provider_id != provider_id:
         raise HTTPException(status_code=404, detail="Model not found")
-    had_flag = row.no_system_messages
+    had_flag = row.no_system_messages or not row.supports_tools
     await db.delete(row)
     await db.commit()
 

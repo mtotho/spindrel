@@ -13,6 +13,22 @@ from app.services.sandbox import _build_docker_run_args
 
 
 class TestBuildDockerRunArgs:
+    def test_add_host_always_present(self):
+        """Containers must have --add-host for host.docker.internal resolution."""
+        args = _build_docker_run_args(
+            image="python:3.12-slim",
+            container_name="test",
+            network_mode="none",
+            read_only_root=False,
+            create_options={},
+            env={},
+            labels={},
+            mount_specs=[],
+            port_mappings=[],
+        )
+        idx = args.index("--add-host")
+        assert args[idx + 1] == "host.docker.internal:host-gateway"
+
     def test_no_ports(self):
         args = _build_docker_run_args(
             image="python:3.12-slim",
@@ -358,3 +374,65 @@ class TestEnsureBotLocalConfigDrift:
         assert result is fake_instance
         sandbox_service._docker_stop.assert_not_awaited()
         sandbox_service._docker_rm.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# exec_bot_local — AGENT_SERVER_URL injection
+# ---------------------------------------------------------------------------
+
+
+class TestExecBotLocalEnvInjection:
+    """exec_bot_local must inject AGENT_SERVER_URL so containers can call back."""
+
+    @pytest.mark.asyncio
+    async def test_injects_agent_server_url(self):
+        from app.services.sandbox import SandboxService
+
+        svc = SandboxService()
+        fake_instance = MagicMock()
+        fake_instance.id = uuid.uuid4()
+        fake_instance.container_id = "abc123"
+        fake_instance.status = "running"
+
+        svc.ensure_bot_local = AsyncMock(return_value=fake_instance)
+
+        from app.agent.bots import BotSandboxConfig
+        config = BotSandboxConfig(enabled=True)
+
+        captured_args = []
+
+        async def fake_subprocess(*args, **kwargs):
+            captured_args.extend(args)
+            proc = MagicMock()
+            proc.returncode = 0
+
+            async def comm():
+                return (b"ok", b"")
+            proc.communicate = comm
+            return proc
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=fake_instance)
+        mock_db.commit = AsyncMock()
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("app.services.sandbox.asyncio.create_subprocess_exec", side_effect=fake_subprocess),
+            patch("app.services.sandbox.async_session", return_value=mock_session_ctx),
+            patch("app.services.sandbox.settings") as mock_settings,
+            patch("app.services.api_keys.get_bot_api_key_value", new_callable=AsyncMock, return_value=None),
+        ):
+            mock_settings.DOCKER_SANDBOX_DEFAULT_TIMEOUT = 30
+            mock_settings.DOCKER_SANDBOX_MAX_OUTPUT_BYTES = 1024
+            mock_settings.SERVER_PUBLIC_URL = "http://host.docker.internal:8000"
+
+            result = await svc.exec_bot_local("test-bot", "echo hi", config)
+
+        assert result.exit_code == 0
+        # The captured args should contain the AGENT_SERVER_URL env injection
+        flat = list(captured_args)
+        assert "-e" in flat
+        env_idx = flat.index("-e")
+        assert flat[env_idx + 1] == "AGENT_SERVER_URL=http://host.docker.internal:8000"

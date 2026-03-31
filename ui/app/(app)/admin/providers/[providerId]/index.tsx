@@ -89,6 +89,7 @@ export default function ProviderDetailScreen() {
   const [newModelInputCost, setNewModelInputCost] = useState("");
   const [newModelOutputCost, setNewModelOutputCost] = useState("");
   const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
+  const [newModelNoTools, setNewModelNoTools] = useState(false);
 
   if (provider && !initialized) {
     setDisplayName(provider.display_name || "");
@@ -351,6 +352,13 @@ export default function ProviderDetailScreen() {
                           borderRadius: 4,
                         }}>no-sys</span>
                       )}
+                      {m.supports_tools === false && (
+                        <span style={{
+                          color: t.warning, fontSize: 10, fontWeight: 600,
+                          background: t.warningSubtle, padding: "1px 5px",
+                          borderRadius: 4,
+                        }}>no-tools</span>
+                      )}
                       <button
                         onClick={() => deleteModelMut.mutate(m.id)}
                         disabled={deleteModelMut.isPending}
@@ -456,6 +464,19 @@ export default function ProviderDetailScreen() {
                   />
                   No system msgs
                 </label>
+                <label style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  fontSize: 10, color: t.textMuted, cursor: "pointer",
+                  flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={newModelNoTools}
+                    onChange={(e) => setNewModelNoTools(e.target.checked)}
+                    style={{ accentColor: t.warning }}
+                  />
+                  No tools
+                </label>
                 <button
                   onClick={async () => {
                     if (!newModelId.trim()) return;
@@ -466,6 +487,7 @@ export default function ProviderDetailScreen() {
                       input_cost_per_1m: newModelInputCost.trim() || undefined,
                       output_cost_per_1m: newModelOutputCost.trim() || undefined,
                       no_system_messages: newModelNoSysMsg || undefined,
+                      supports_tools: newModelNoTools ? false : undefined,
                     });
                     setNewModelId("");
                     setNewModelDisplay("");
@@ -473,6 +495,7 @@ export default function ProviderDetailScreen() {
                     setNewModelInputCost("");
                     setNewModelOutputCost("");
                     setNewModelNoSysMsg(false);
+                    setNewModelNoTools(false);
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}
                   style={{

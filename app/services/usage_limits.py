@@ -82,24 +82,13 @@ async def _compute_spend(scope_type: str, scope_value: str, since: datetime) -> 
         if not events:
             return 0.0
 
-        # Import pricing helpers from the usage router
-        from app.routers.api_v1_admin.usage import _load_pricing_map, _lookup_pricing, _compute_cost
+        from app.routers.api_v1_admin.usage import (
+            _load_pricing_map, _compute_cost_for_events, _get_provider_type_map,
+        )
 
         pricing = await _load_pricing_map(db)
-        total = 0.0
-        for ev in events:
-            d = ev.data or {}
-            cost = d.get("response_cost")
-            if cost is None:
-                pt = d.get("prompt_tokens", 0)
-                ct = d.get("completion_tokens", 0)
-                ev_model = d.get("model")
-                ev_provider = d.get("provider_id")
-                input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-                cost = _compute_cost(pt, ct, input_rate, output_rate)
-            if cost is not None:
-                total += cost
-        return total
+        ptype_map = _get_provider_type_map()
+        return _compute_cost_for_events(events, pricing, ptype_map)
 
 
 async def check_usage_limits(model: str, bot_id: str) -> None:

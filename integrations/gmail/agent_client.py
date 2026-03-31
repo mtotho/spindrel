@@ -13,14 +13,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
-API_KEY = os.environ.get("AGENT_API_KEY", "")
-
 _http = httpx.AsyncClient(timeout=30.0)
 
 
+def _base_url() -> str:
+    return os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
+
+
 def _headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {API_KEY}"}
+    api_key = os.environ.get("AGENT_API_KEY", "")
+    return {"Authorization": f"Bearer {api_key}"}
 
 
 async def write_workspace_file(
@@ -31,7 +33,7 @@ async def write_workspace_file(
     """Write a file to a channel's workspace via MC's PUT endpoint."""
     try:
         r = await _http.put(
-            f"{AGENT_BASE_URL}/integrations/mission_control/channels/{channel_id}/workspace/files/content",
+            f"{_base_url()}/integrations/mission_control/channels/{channel_id}/workspace/files/content",
             params={"path": path},
             json={"content": content},
             headers=_headers(),
@@ -43,19 +45,18 @@ async def write_workspace_file(
         return False
 
 
-async def append_timeline(channel_id: str, event: str) -> bool:
-    """Append a timeline event via a passive chat message.
+async def append_timeline(channel_id: str, bot_id: str, event: str) -> bool:
+    """Append a timeline event by sending a passive message to the channel.
 
-    Uses a passive message with metadata to trigger timeline logging
-    without triggering the agent loop.
+    The bot_id + client_id route the message to the correct channel.
     """
     try:
         r = await _http.post(
-            f"{AGENT_BASE_URL}/chat",
+            f"{_base_url()}/chat",
             json={
                 "message": event,
-                "bot_id": "",  # resolved from channel
-                "client_id": f"gmail:timeline",
+                "bot_id": bot_id,
+                "client_id": f"gmail:{channel_id}",
                 "passive": True,
                 "msg_metadata": {"source": "gmail", "type": "timeline"},
             },
@@ -75,7 +76,7 @@ async def resolve_channels_for_binding(prefix: str = "gmail:") -> list[dict]:
     """
     try:
         r = await _http.get(
-            f"{AGENT_BASE_URL}/api/v1/admin/channels",
+            f"{_base_url()}/api/v1/admin/channels",
             headers=_headers(),
             timeout=10.0,
         )

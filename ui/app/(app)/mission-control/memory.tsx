@@ -241,7 +241,7 @@ export default function MCMemory() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, gap: 20, paddingBottom: 48, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading memory...</Text>

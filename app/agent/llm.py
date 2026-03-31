@@ -385,6 +385,8 @@ class AccumulatedMessage:
     tool_calls: list[dict] | None = None
     thinking_content: str | None = None
     usage: Any = None  # openai Usage object or None
+    cached_tokens: int | None = None
+    response_cost: float | None = None
 
     def to_msg_dict(self) -> dict:
         """Produce the same dict as msg.model_dump(exclude_none=True)."""
@@ -407,6 +409,7 @@ class StreamAccumulator:
         self._tool_calls: dict[int, dict] = {}
         self._usage: Any = None
         self._finish_reason: str | None = None
+        self._response_cost: float | None = None
 
     def feed(self, chunk) -> tuple[list[dict], bool]:
         """Process one chunk. Returns (events_to_emit, is_done)."""
@@ -415,6 +418,13 @@ class StreamAccumulator:
             # Usage-only chunk (final chunk with stream_options)
             if chunk.usage:
                 self._usage = chunk.usage
+            # Usage-only chunks from LiteLLM may carry response_cost
+            if self._response_cost is None:
+                _hidden = getattr(chunk, '_hidden_params', None)
+                if _hidden is None and hasattr(chunk, 'model_extra'):
+                    _hidden = (chunk.model_extra or {}).get('_hidden_params')
+                if isinstance(_hidden, dict) and 'response_cost' in _hidden:
+                    self._response_cost = _hidden['response_cost']
             return events, False
 
         choice = chunk.choices[0]
@@ -458,6 +468,14 @@ class StreamAccumulator:
         if chunk.usage:
             self._usage = chunk.usage
 
+        # Try to grab response_cost from chunk (LiteLLM adds it to _hidden_params)
+        if self._response_cost is None:
+            _hidden = getattr(chunk, '_hidden_params', None)
+            if _hidden is None and hasattr(chunk, 'model_extra'):
+                _hidden = (chunk.model_extra or {}).get('_hidden_params')
+            if isinstance(_hidden, dict) and 'response_cost' in _hidden:
+                self._response_cost = _hidden['response_cost']
+
         is_done = choice.finish_reason is not None
         if is_done:
             self._finish_reason = choice.finish_reason
@@ -484,13 +502,33 @@ class StreamAccumulator:
             [self._tool_calls[i] for i in sorted(self._tool_calls)]
             if self._tool_calls else None
         )
+        # Extract cached_tokens from usage details (provider-agnostic)
+        cached_tokens = None
+        if self._usage:
+            details = getattr(self._usage, 'prompt_tokens_details', None)
+            if details:
+                cached_tokens = getattr(details, 'cached_tokens', None)
         return AccumulatedMessage(
             role="assistant",
             content=content,
             tool_calls=tool_calls,
             thinking_content=thinking,
             usage=self._usage,
+            cached_tokens=cached_tokens,
+            response_cost=self._response_cost,
         )
+
+
+def _is_tools_not_supported_error(exc: openai.BadRequestError) -> bool:
+    """Detect 400 errors that indicate the model doesn't support function calling / tools."""
+    msg = str(exc).lower()
+    return any(k in msg for k in (
+        "function calling",
+        "tools are not supported",
+        "does not support tools",
+        "does not support function",
+        "tool use is not supported",
+    ))
 
 
 _USAGE_DRAIN_TIMEOUT = 5.0  # seconds to wait for usage chunk after finish_reason
@@ -553,16 +591,27 @@ async def _llm_call_stream(
         msg = str(exc).lower()
         return any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400"))
 
-    async def _try_model(m: str, pid: str | None, mp: dict | None):
+    async def _try_model(m: str, pid: str | None, mp: dict | None, *, force_no_tools: bool = False):
         """Attempt one model with retries. Returns stream or raises."""
+        from app.services.providers import model_supports_tools
+
         client = get_llm_client(pid)
         filtered = filter_model_params(m, mp or {})
         eff_msgs = messages
         if requires_system_message_folding(m):
             eff_msgs = _fold_system_messages(messages)
+
+        eff_tools = tools_param
+        eff_tool_choice = tool_choice
+        if force_no_tools or not model_supports_tools(m):
+            if tools_param:
+                logger.warning("Stripping tools for model %s (supports_tools=false)", m)
+            eff_tools = None
+            eff_tool_choice = None
+
         return await client.chat.completions.create(
-            model=m, messages=eff_msgs, tools=tools_param,
-            tool_choice=tool_choice, stream=True,
+            model=m, messages=eff_msgs, tools=eff_tools,
+            tool_choice=eff_tool_choice, stream=True,
             stream_options={"include_usage": True}, **filtered,
         )
 
@@ -597,6 +646,14 @@ async def _llm_call_stream(
             try:
                 stream = await _try_model(model, provider_id, model_params)
                 break
+            except openai.BadRequestError as exc:
+                if _is_tools_not_supported_error(exc) and tools_param:
+                    logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
+                    yield {"type": "llm_retry", "attempt": 1, "max_retries": 1,
+                           "wait_seconds": 0, "reason": "tools_not_supported", "model": model}
+                    stream = await _try_model(model, provider_id, model_params, force_no_tools=True)
+                    break
+                raise
             except openai.RateLimitError as exc:
                 if attempt >= max_retries:
                     primary_exc = exc
@@ -653,6 +710,19 @@ async def _llm_call_stream(
                     ))
                     set_model_cooldown(model, fb_model)
                     break
+                except openai.BadRequestError as exc:
+                    if _is_tools_not_supported_error(exc) and tools_param:
+                        logger.warning("Fallback %s returned 400 (tools not supported), retrying without tools", fb_model)
+                        stream = await _try_model(fb_model, fb_provider, model_params, force_no_tools=True)
+                        last_fallback_info.set(FallbackInfo(
+                            original_model=model, fallback_model=fb_model,
+                            reason=type(primary_exc).__name__,
+                            original_error=str(primary_exc)[:500],
+                        ))
+                        set_model_cooldown(model, fb_model)
+                        break
+                    last_exc = exc
+                    break
                 except openai.RateLimitError as exc:
                     if attempt >= max_retries:
                         last_exc = exc
@@ -701,7 +771,7 @@ async def _attempt_stream_with_retries(
 ):
     """Retry the initial streaming create() call with exponential backoff."""
     from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, requires_system_message_folding
+    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding
 
     client = get_llm_client(provider_id)
     filtered_params = filter_model_params(model, model_params or {})
@@ -710,19 +780,41 @@ async def _attempt_stream_with_retries(
     if requires_system_message_folding(model):
         effective_messages = _fold_system_messages(messages)
 
+    eff_tools = tools_param
+    eff_tool_choice = tool_choice
+    if not model_supports_tools(model):
+        if tools_param:
+            logger.warning("Stripping tools for model %s (supports_tools=false)", model)
+        eff_tools = None
+        eff_tool_choice = None
+
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):
         try:
             stream = await client.chat.completions.create(
                 model=model,
                 messages=effective_messages,
-                tools=tools_param,
-                tool_choice=tool_choice,
+                tools=eff_tools,
+                tool_choice=eff_tool_choice,
                 stream=True,
                 stream_options={"include_usage": True},
                 **filtered_params,
             )
             return stream
+        except openai.BadRequestError as exc:
+            if _is_tools_not_supported_error(exc) and eff_tools:
+                logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
+                stream = await client.chat.completions.create(
+                    model=model,
+                    messages=effective_messages,
+                    tools=None,
+                    tool_choice=None,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    **filtered_params,
+                )
+                return stream
+            raise
         except openai.RateLimitError:
             if attempt >= max_retries:
                 raise
@@ -911,21 +1003,30 @@ async def _llm_call_with_retries(
 ):
     """Execute LLM call with exponential backoff on transient errors."""
     from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, record_usage, requires_system_message_folding
+    from app.services.providers import get_llm_client, model_supports_tools, record_usage, requires_system_message_folding
 
     client = get_llm_client(provider_id)
     filtered_params = filter_model_params(model, model_params or {})
 
     if requires_system_message_folding(model):
         messages = _fold_system_messages(messages)
+
+    eff_tools = tools_param
+    eff_tool_choice = tool_choice
+    if not model_supports_tools(model):
+        if tools_param:
+            logger.warning("Stripping tools for model %s (supports_tools=false)", model)
+        eff_tools = None
+        eff_tool_choice = None
+
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):
         try:
             resp = await client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=tools_param,
-                tool_choice=tool_choice,
+                tools=eff_tools,
+                tool_choice=eff_tool_choice,
                 **filtered_params,
             )
             if not resp.choices:
@@ -936,6 +1037,25 @@ async def _llm_call_with_retries(
             if resp.usage:
                 record_usage(provider_id, resp.usage.total_tokens)
             return resp
+        except openai.BadRequestError as exc:
+            if _is_tools_not_supported_error(exc) and eff_tools:
+                logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=None,
+                    tool_choice=None,
+                    **filtered_params,
+                )
+                if not resp.choices:
+                    raise EmptyChoicesError(
+                        f"LLM returned empty choices list (model={model}, "
+                        f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
+                    )
+                if resp.usage:
+                    record_usage(provider_id, resp.usage.total_tokens)
+                return resp
+            raise
         except openai.RateLimitError:
             if attempt >= max_retries:
                 raise

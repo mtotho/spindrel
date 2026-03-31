@@ -79,6 +79,33 @@ export function localInputToISO(value: string): string {
  *
  * "2025-03-26T18:30:00+00:00" → "2025-03-26T14:30" (if browser is in EDT)
  */
+/** Format time with seconds — e.g. "2:30:15 PM" (no timezone, for log entries) */
+export function formatTimeCompact(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** Format a short date — e.g. "Mar 26" */
+export function formatDateShort(iso: string): string {
+  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** Format a duration in ms — e.g. "1.2s" or "450ms" */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null) return "";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** Format a token count — e.g. "1.2k" or "450" */
+export function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
 export function isoToLocalInput(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";

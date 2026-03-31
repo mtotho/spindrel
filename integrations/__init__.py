@@ -182,6 +182,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "id": integration_id,
             "name": integration_id.replace("_", " ").replace("-", " ").title(),
             "source": source,
+            "icon": "Plug",
             "has_router": (candidate / "router.py").exists(),
             "has_dispatcher": (candidate / "dispatcher.py").exists(),
             "has_hooks": (candidate / "hooks.py").exists(),
@@ -211,6 +212,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             try:
                 module = _import_module(integration_id, "setup", setup_file, is_external, source)
                 setup = getattr(module, "SETUP", {})
+                entry["icon"] = setup.get("icon", "Plug")
 
                 # Env vars with is_set check (DB cache > env var > default)
                 for var in setup.get("env_vars", []):

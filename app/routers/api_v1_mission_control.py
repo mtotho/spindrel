@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot, Channel, ToolCall, TraceEvent, User
+from app.db.models import Bot, Channel, ChannelMember, ToolCall, TraceEvent, User
 from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services.task_board import (
     default_columns,
@@ -63,14 +63,18 @@ async def _tracked_channels(
 ) -> list[Channel]:
     """Get channels tracked by MC.
 
-    Admins and API keys see all channels in fleet scope.
-    ``scope="personal"`` forces user-only filter even for admins.
-    Non-admin users always get personal scope.
+    Fleet: all workspace-enabled channels (everyone can see).
+    Personal: workspace-enabled channels where user is a member (channel_members).
+    tracked_channel_ids pref still applies as additional filter.
     """
     q = select(Channel).where(Channel.channel_workspace_enabled == True)  # noqa: E712
 
-    if user and (not user.is_admin or scope == "personal"):
-        q = q.where(Channel.user_id == user.id)
+    if user and scope == "personal":
+        q = q.where(
+            Channel.id.in_(
+                select(ChannelMember.channel_id).where(ChannelMember.user_id == user.id)
+            )
+        )
 
     result = await db.execute(q.order_by(Channel.name))
     channels = list(result.scalars().all())
@@ -222,6 +226,7 @@ class ChannelOverview(BaseModel):
     template_name: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    is_member: bool = False
 
 
 class BotOverview(BaseModel):
@@ -485,15 +490,18 @@ async def overview(
     channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     # Total channel count (regardless of workspace flag) for empty-state UX
-    all_channels_q = select(func.count(Channel.id))
-    if user and (not user.is_admin or scope == "personal"):
-        all_channels_q = all_channels_q.where(Channel.user_id == user.id)
-    total_channels_all = (await db.execute(all_channels_q)).scalar() or 0
+    total_channels_all = (await db.execute(select(func.count(Channel.id)))).scalar() or 0
+
+    # Load member channel IDs for the current user (single query)
+    member_channel_ids: set[uuid.UUID] = set()
+    if user:
+        rows = (await db.execute(
+            select(ChannelMember.channel_id).where(ChannelMember.user_id == user.id)
+        )).scalars().all()
+        member_channel_ids = set(rows)
 
     # Build bot lookup
     bots_q = select(Bot).order_by(Bot.name)
-    if user and (not user.is_admin or scope == "personal"):
-        bots_q = bots_q.where((Bot.user_id == user.id) | (Bot.user_id == None))  # noqa: E711
     bots_result = await db.execute(bots_q)
     bots = list(bots_result.scalars().all())
     bot_map = {b.id: b for b in bots}
@@ -538,6 +546,7 @@ async def overview(
             template_name=template_name,
             created_at=ch.created_at.isoformat() if ch.created_at else None,
             updated_at=ch.updated_at.isoformat() if ch.updated_at else None,
+            is_member=ch.id in member_channel_ids,
         ))
 
     bot_overviews = [
@@ -1498,3 +1507,59 @@ async def resume_plan(
         "status": "executing",
         "task_created": task_created,
     }
+
+
+# ---------------------------------------------------------------------------
+# Channel membership (join / leave)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/channels/{channel_id}/join",
+    dependencies=[Depends(require_scopes("mission_control:write"))],
+)
+async def join_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Add current user as a member of a channel (idempotent)."""
+    user = _get_user(auth)
+    if not user:
+        raise HTTPException(403, "JWT auth required")
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    stmt = pg_insert(ChannelMember).values(
+        channel_id=channel_id, user_id=user.id,
+    ).on_conflict_do_nothing()
+    await db.execute(stmt)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete(
+    "/channels/{channel_id}/join",
+    dependencies=[Depends(require_scopes("mission_control:write"))],
+)
+async def leave_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Remove current user from channel membership."""
+    user = _get_user(auth)
+    if not user:
+        raise HTTPException(403, "JWT auth required")
+
+    from sqlalchemy import delete
+    await db.execute(
+        delete(ChannelMember).where(
+            ChannelMember.channel_id == channel_id,
+            ChannelMember.user_id == user.id,
+        )
+    )
+    await db.commit()
+    return {"ok": True}
