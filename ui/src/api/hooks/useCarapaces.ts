@@ -75,3 +75,18 @@ export function useResolveCarapace(id?: string) {
     enabled: !!id,
   });
 }
+
+export interface CarapaceUsageItem {
+  type: "bot" | "channel_extra" | "channel_inherited";
+  id: string;
+  name: string | null;
+  auto_injected: boolean;
+}
+
+export function useCarapaceUsage(id?: string) {
+  return useQuery({
+    queryKey: ["carapaces", id, "usage"],
+    queryFn: () => apiFetch<CarapaceUsageItem[]>(`/api/v1/admin/carapaces/${id}/usage`),
+    enabled: !!id,
+  });
+}

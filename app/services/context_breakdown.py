@@ -343,13 +343,45 @@ async def compute_context_breakdown(
             description=f"{pinned_k_count} pinned knowledge doc(s)",
         ))
 
-    # Workspace / filesystem context
+    # Channel workspace active files (injected every turn as static context)
+    if getattr(channel, "channel_workspace_enabled", False):
+        try:
+            import os as _cw_os
+            from app.services.channel_workspace import get_channel_workspace_root
+            _cw_root = get_channel_workspace_root(str(channel_id), bot)
+            _cw_active_chars = 0
+            _cw_active_count = 0
+            if _cw_os.path.isdir(_cw_root):
+                for _cw_entry in sorted(_cw_os.scandir(_cw_root), key=lambda e: e.name):
+                    if _cw_entry.is_file() and _cw_entry.name.endswith(".md"):
+                        try:
+                            _cw_content = Path(_cw_entry.path).read_text()
+                            if _cw_content.strip():
+                                _cw_active_chars += len(_cw_content)
+                                _cw_active_count += 1
+                        except Exception:
+                            pass
+            if _cw_active_chars > 0:
+                # Cap at the same budget used in context_assembly
+                _CW_BUDGET = 50_000
+                _cw_injected = min(_cw_active_chars, _CW_BUDGET)
+                categories.append(ContextCategory(
+                    key="channel_workspace_files", label="Channel Workspace Files",
+                    chars=_cw_injected,
+                    tokens_approx=0, percentage=0, category="static",
+                    description=f"{_cw_active_count} active .md file(s) injected every turn ({_cw_active_chars:,} chars total"
+                                + (f", capped to {_CW_BUDGET:,})" if _cw_active_chars > _CW_BUDGET else ")"),
+                ))
+        except Exception:
+            logger.debug("Could not compute channel workspace files for channel %s", channel_id, exc_info=True)
+
+    # Workspace / filesystem RAG context
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
         est_ws = int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.3)
         categories.append(ContextCategory(
-            key="workspace_context", label="Workspace Files", chars=est_ws,
+            key="workspace_context", label="Workspace Files (RAG)", chars=est_ws,
             tokens_approx=0, percentage=0, category="rag",
-            description="Workspace file chunks; varies by query",
+            description="Workspace file chunks retrieved by semantic search; varies by query",
         ))
 
     # Section index (file mode)

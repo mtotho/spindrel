@@ -908,30 +908,30 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             select(Task).where(
                 Task.status.in_(["completed", "active"]),
                 Task.recurrence.isnot(None),
-                Task.correlation_id.isnot(None),
-                Task.updated_at >= seven_days_ago,
+                Task.session_id.isnot(None),
+                Task.completed_at >= seven_days_ago,
             )
         )).scalars().all()
 
-        task_correlation_ids = [t.correlation_id for t in recent_completed_tasks if t.correlation_id]
+        task_session_ids = [t.session_id for t in recent_completed_tasks if t.session_id]
 
         # Group costs by bot_id from task-scoped events only
         bot_run_costs: dict[str, list[float]] = {}  # bot_id -> [cost_per_run, ...]
-        if task_correlation_ids:
+        if task_session_ids:
             task_events = (await db.execute(
                 select(TraceEvent).where(
                     TraceEvent.event_type == "token_usage",
-                    TraceEvent.correlation_id.in_(task_correlation_ids),
+                    TraceEvent.session_id.in_(task_session_ids),
                 )
             )).scalars().all()
 
-            # Group events by correlation_id, then sum per-run cost
+            # Group events by session_id, then sum per-run cost
             from collections import defaultdict
-            corr_costs: dict[str, float] = defaultdict(float)
-            corr_bot: dict[str, str] = {}
+            session_costs: dict[str, float] = defaultdict(float)
+            session_bot: dict[str, str] = {}
             for ev in task_events:
-                cid = str(ev.correlation_id) if ev.correlation_id else None
-                if not cid:
+                sid = str(ev.session_id) if ev.session_id else None
+                if not sid:
                     continue
                 d = ev.data or {}
                 cost = d.get("response_cost")
@@ -943,12 +943,12 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
                     input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
                     cost = _compute_cost(pt, ct, input_rate, output_rate)
                 if cost is not None:
-                    corr_costs[cid] += cost
+                    session_costs[sid] += cost
                 if ev.bot_id:
-                    corr_bot[cid] = ev.bot_id
+                    session_bot[sid] = ev.bot_id
 
-            for cid, run_cost in corr_costs.items():
-                bid = corr_bot.get(cid)
+            for sid, run_cost in session_costs.items():
+                bid = session_bot.get(sid)
                 if bid:
                     bot_run_costs.setdefault(bid, []).append(run_cost)
 
