@@ -210,16 +210,22 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
     integration = binding.integration_type
     dispatch_config = binding.dispatch_config
 
-    # If binding has no dispatch_config, try to construct one from client_id + env
+    # If binding has no dispatch_config, try to construct one from client_id
     if not dispatch_config and binding.client_id:
-        # Extract integration-native channel ID from client_id (e.g. "slack:C01ABC" → "C01ABC")
-        prefix = f"{integration}:"
-        native_id = binding.client_id.removeprefix(prefix) if binding.client_id.startswith(prefix) else None
-        if native_id:
-            from app.services.integration_settings import get_value
-            token = get_value(integration, f"{integration.upper()}_BOT_TOKEN")
-            if token:
-                dispatch_config = {"channel_id": native_id, "token": token}
+        # Ask the integration's registered resolver first
+        from app.agent.hooks import get_integration_meta
+        meta = get_integration_meta(integration)
+        if meta and meta.resolve_dispatch_config:
+            dispatch_config = meta.resolve_dispatch_config(binding.client_id)
+        else:
+            # Legacy fallback: Slack-style token lookup
+            prefix = f"{integration}:"
+            native_id = binding.client_id.removeprefix(prefix) if binding.client_id.startswith(prefix) else None
+            if native_id:
+                from app.services.integration_settings import get_value
+                token = get_value(integration, f"{integration.upper()}_BOT_TOKEN")
+                if token:
+                    dispatch_config = {"channel_id": native_id, "token": token}
 
     return integration, dispatch_config
 
