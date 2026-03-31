@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, Pressable, Platform } from "react-native";
+import { createPortal } from "react-dom";
 import { Link } from "expo-router";
 import { DollarSign, Eye, EyeOff, Gauge } from "lucide-react";
 import { useUsageForecast } from "../../api/hooks/useUsageForecast";
@@ -55,17 +56,35 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   const cycleVisibility = useUsageHudStore((s) => s.cycleVisibility);
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
-  const ref = useRef<any>(null);
+  const anchorRef = useRef<any>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; bottom: number } | null>(null);
 
-  // This component uses raw HTML elements (div, button, span) for the popover —
-  // only render on web.
+  // This component uses raw HTML elements for the popover — only render on web.
   if (Platform.OS !== "web") return null;
 
-  // Close popover on outside click (web only)
+  // Compute popover position when opening
+  const openPopover = useCallback(() => {
+    if (anchorRef.current) {
+      const el = anchorRef.current as HTMLElement;
+      const rect = el.getBoundingClientRect();
+      setPopoverPos({
+        left: rect.left,
+        bottom: window.innerHeight - rect.top + 4,
+      });
+    }
+    setOpen(true);
+  }, []);
+
+  // Close popover on outside click
   useEffect(() => {
-    if (!open || Platform.OS !== "web") return;
+    if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        popoverRef.current && !popoverRef.current.contains(target) &&
+        anchorRef.current && !(anchorRef.current as HTMLElement).contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -87,103 +106,122 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     ? data.limits.reduce((a, b) => (b.percentage > a.percentage ? b : a))
     : null;
 
+  const popover = open && popoverPos
+    ? createPortal(
+        <PopoverContent
+          ref={popoverRef}
+          data={data}
+          t={t}
+          color={color}
+          worstLimit={worstLimit}
+          cycleVisibility={cycleVisibility}
+          visibility={visibility}
+          onClose={() => setOpen(false)}
+          pos={popoverPos}
+        />,
+        document.body,
+      )
+    : null;
+
   // --- Collapsed rail: icon-sized badge ---
   if (collapsed) {
     return (
-      <div ref={ref} style={{ position: "relative" }}>
-        <Pressable
-          onPress={() => setOpen(!open)}
-          className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ width: 44, height: 44 }}
-          accessibilityLabel="Usage forecast"
-        >
-          <Text
-            style={{ fontSize: 10, fontWeight: "700", color, fontVariant: ["tabular-nums"] as any }}
-            numberOfLines={1}
+      <>
+        <View ref={anchorRef}>
+          <Pressable
+            onPress={() => open ? setOpen(false) : openPopover()}
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+            style={{ width: 44, height: 44 }}
+            accessibilityLabel="Usage forecast"
           >
-            {fmt(data.daily_spend)}
-          </Text>
-        </Pressable>
-        {open && <Popover data={data} t={t} color={color} worstLimit={worstLimit} cycleVisibility={cycleVisibility} visibility={visibility} onClose={() => setOpen(false)} />}
-      </div>
+            <Text
+              style={{ fontSize: 10, fontWeight: "700", color, fontVariant: ["tabular-nums"] as any }}
+              numberOfLines={1}
+            >
+              {fmt(data.daily_spend)}
+            </Text>
+          </Pressable>
+        </View>
+        {popover}
+      </>
     );
   }
 
   // --- Expanded sidebar: row with progress ---
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <Pressable
-        onPress={() => setOpen(!open)}
-        className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
-      >
-        <DollarSign size={14} color={color} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={{ fontSize: 12, fontWeight: "600", color, fontVariant: ["tabular-nums"] as any }}>
-              {fmt(data.daily_spend)}/day
-            </Text>
-            {worstLimit && (
-              <Text style={{ fontSize: 10, color: t.textDim }}>
-                {Math.round(worstLimit.percentage)}%
+    <>
+      <View ref={anchorRef}>
+        <Pressable
+          onPress={() => open ? setOpen(false) : openPopover()}
+          className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
+        >
+          <DollarSign size={14} color={color} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ fontSize: 12, fontWeight: "600", color, fontVariant: ["tabular-nums"] as any }}>
+                {fmt(data.daily_spend)} today
               </Text>
+              {worstLimit && (
+                <Text style={{ fontSize: 10, color: t.textDim }}>
+                  {Math.round(worstLimit.percentage)}%
+                </Text>
+              )}
+            </View>
+            {worstLimit && (
+              <View style={{ height: 3, borderRadius: 2, backgroundColor: t.surfaceBorder }}>
+                <View
+                  style={{
+                    height: 3,
+                    borderRadius: 2,
+                    backgroundColor: color,
+                    width: `${Math.min(worstLimit.percentage, 100)}%`,
+                  }}
+                />
+              </View>
             )}
           </View>
-          {worstLimit && (
-            <View style={{ height: 3, borderRadius: 2, backgroundColor: t.surfaceBorder }}>
-              <View
-                style={{
-                  height: 3,
-                  borderRadius: 2,
-                  backgroundColor: color,
-                  width: `${Math.min(worstLimit.percentage, 100)}%`,
-                }}
-              />
-            </View>
-          )}
-        </View>
-      </Pressable>
-      {open && <Popover data={data} t={t} color={color} worstLimit={worstLimit} cycleVisibility={cycleVisibility} visibility={visibility} onClose={() => setOpen(false)} />}
-    </div>
+        </Pressable>
+      </View>
+      {popover}
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Popover
+// Popover (rendered via portal at document.body)
 // ---------------------------------------------------------------------------
 
-function Popover({
-  data,
-  t,
-  color,
-  worstLimit,
-  cycleVisibility,
-  visibility,
-  onClose,
-}: {
-  data: NonNullable<ReturnType<typeof useUsageForecast>["data"]>;
-  t: ReturnType<typeof useThemeTokens>;
-  color: string;
-  worstLimit: LimitForecast | null;
-  cycleVisibility: () => void;
-  visibility: "always" | "threshold" | "never";
-  onClose: () => void;
-}) {
+import { forwardRef } from "react";
+
+const PopoverContent = forwardRef<
+  HTMLDivElement,
+  {
+    data: NonNullable<ReturnType<typeof useUsageForecast>["data"]>;
+    t: ReturnType<typeof useThemeTokens>;
+    color: string;
+    worstLimit: LimitForecast | null;
+    cycleVisibility: () => void;
+    visibility: "always" | "threshold" | "never";
+    onClose: () => void;
+    pos: { left: number; bottom: number };
+  }
+>(function PopoverContent({ data, t, color, worstLimit, cycleVisibility, visibility, onClose, pos }, ref) {
   const VisIcon = VISIBILITY_ICONS[visibility];
 
   return (
     <div
+      ref={ref}
       style={{
-        position: "absolute",
-        bottom: "100%",
-        left: 0,
-        marginBottom: 4,
+        position: "fixed",
+        left: pos.left,
+        bottom: pos.bottom,
         background: t.surfaceRaised,
         border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 8,
         padding: 14,
         minWidth: 260,
         maxWidth: 300,
-        zIndex: 200,
+        zIndex: 10000,
         fontSize: 12,
         color: t.text,
         boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
@@ -217,6 +255,9 @@ function Popover({
       {/* Today's spend */}
       <Row label="Today" value={fmt(data.daily_spend)} valueColor={color} t={t} />
       <Row label="Projected daily" value={fmt(data.projected_daily)} valueColor={t.textMuted} t={t} />
+      {data.monthly_spend > 0 && (
+        <Row label="This month" value={fmt(data.monthly_spend)} valueColor={t.textMuted} t={t} />
+      )}
 
       {/* Limit bar */}
       {worstLimit && (
@@ -263,7 +304,7 @@ function Popover({
               <span style={{ color: t.textDim, fontSize: 10 }}> ({c.count})</span>
             )}
           </span>
-          <span style={{ fontSize: 11, color: t.text, fontVariant: ["tabular-nums"] as any }}>
+          <span style={{ fontSize: 11, color: t.text, fontVariant: "tabular-nums" }}>
             {fmt(c.daily_cost)}/d
           </span>
         </div>
@@ -281,7 +322,7 @@ function Popover({
       </div>
     </div>
   );
-}
+});
 
 function Row({
   label,
@@ -297,7 +338,7 @@ function Row({
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
       <span style={{ color: t.textDim, fontSize: 11 }}>{label}</span>
-      <span style={{ fontSize: 11, fontWeight: 600, color: valueColor, fontVariant: ["tabular-nums"] as any }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: valueColor, fontVariant: "tabular-nums" }}>
         {value}
       </span>
     </div>

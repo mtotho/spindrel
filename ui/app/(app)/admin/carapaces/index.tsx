@@ -34,28 +34,12 @@ export default function CarapacesPage() {
     <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh}>
       <MobileHeader title="Carapaces" />
       <View style={{ padding: 16, maxWidth: 960 }}>
-        {/* Header row */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <Text style={{ color: t.text, fontSize: 20, fontWeight: "700", flex: 1 }}>
-            Carapaces
-          </Text>
-          <Pressable
-            onPress={() => setShowHelp(true)}
-            style={{
-              padding: 6,
-              borderRadius: 6,
-            }}
-            accessibilityLabel="Help — what are carapaces?"
-          >
-            <HelpCircle size={18} color={t.textDim} />
-          </Pressable>
-        </View>
-        <Text style={{ color: t.textDim, fontSize: 12, marginBottom: 16 }}>
+        <Text style={{ color: t.textDim, fontSize: 12, marginBottom: 12 }}>
           Composable expertise bundles — tools, skills, and behavioral instructions packaged for reuse.
         </Text>
 
-        {/* Search + New */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        {/* Search + Help + New */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <View
             style={{
               flex: 1,
@@ -78,6 +62,13 @@ export default function CarapacesPage() {
               style={{ flex: 1, marginLeft: 8, color: t.inputText, fontSize: 13 }}
             />
           </View>
+          <Pressable
+            onPress={() => setShowHelp(true)}
+            style={{ padding: 6, borderRadius: 6 }}
+            accessibilityLabel="Help — what are carapaces?"
+          >
+            <HelpCircle size={18} color={t.textDim} />
+          </Pressable>
           <Link href={"/admin/carapaces/new" as any} asChild>
             <Pressable
               style={{

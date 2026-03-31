@@ -1,4 +1,4 @@
-"""Tests for strip_malformed_tool_calls — strips XML tool-call fragments from text."""
+"""Tests for strip_malformed_tool_calls — strips XML and JSON tool-call fragments from text."""
 import pytest
 
 from app.agent.llm import strip_malformed_tool_calls
@@ -41,6 +41,38 @@ from app.agent.llm import strip_malformed_tool_calls
     (
         'Response text\n<invoke name="search">\n<parameter name="q">hello</parameter>\n</invoke>\nMore text',
         "Response text\n\nMore text",
+    ),
+    # --- JSON tool-call fragments ---
+    # JSON tool call with name + arguments (the Qwen/local model pattern)
+    (
+        '{"name": "client_action", "arguments": {"action": "greet", "params": "Hello!"}}',
+        "",
+    ),
+    # Mangled tool name still stripped (has name + arguments structure)
+    (
+        '{"name": "clientaction", "arguments": {"action": "greet", "params": "Hi there!"}}',
+        "",
+    ),
+    # Multiple concatenated JSON tool calls (exact pattern from screenshot)
+    (
+        '{"name": "clientaction", "arguments": {"action": "greet", "params": "Hi"}}'
+        '{"name": "shellexec", "arguments": {"command": "echo hello"}}',
+        "",
+    ),
+    # JSON tool call mixed with real text
+    (
+        'Here is my response. {"name": "web_search", "arguments": {"query": "test"}} Done.',
+        "Here is my response.  Done.",
+    ),
+    # JSON without "arguments" key — NOT stripped (not a tool call)
+    (
+        '{"name": "some_data", "value": 42}',
+        '{"name": "some_data", "value": 42}',
+    ),
+    # JSON without "name" key — NOT stripped
+    (
+        '{"tool": "search", "arguments": {"q": "test"}}',
+        '{"tool": "search", "arguments": {"q": "test"}}',
     ),
 ])
 def test_strip_malformed_tool_calls(input_text: str, expected: str):

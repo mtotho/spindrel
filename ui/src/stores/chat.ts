@@ -57,20 +57,47 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }),
 
   startStreaming: (channelId) =>
-    set((s) => ({
-      channels: {
-        ...s.channels,
-        [channelId]: {
-          ...(s.channels[channelId] ?? emptyChannel),
-          isStreaming: true,
-          streamingContent: "",
-          thinkingContent: "",
-          toolCalls: [],
-          correlationId: null,
-          error: null,
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+
+      // If already streaming with partial content, materialize it as a message
+      // so it doesn't vanish when we reset the streaming buffer.
+      let messages = ch.messages;
+      if (ch.isStreaming && ch.streamingContent) {
+        const toolsUsed = ch.toolCalls.length > 0
+          ? ch.toolCalls.map((tc) => tc.name)
+          : undefined;
+        const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
+        messages = [
+          ...messages,
+          {
+            id: `msg-${Date.now()}`,
+            session_id: "",
+            role: "assistant" as const,
+            content: ch.streamingContent,
+            created_at: new Date().toISOString(),
+            correlation_id: ch.correlationId ?? undefined,
+            metadata,
+          },
+        ];
+      }
+
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            messages,
+            isStreaming: true,
+            streamingContent: "",
+            thinkingContent: "",
+            toolCalls: [],
+            correlationId: null,
+            error: null,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   handleSSEEvent: (channelId, event) =>
     set((s) => {
