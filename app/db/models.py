@@ -800,6 +800,7 @@ class Carapace(Base):
     pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     system_prompt_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
     includes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    delegates: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))

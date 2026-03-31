@@ -74,6 +74,7 @@ async def admin_create_carapace(
         pinned_tools=body.pinned_tools,
         system_prompt_fragment=body.system_prompt_fragment,
         includes=body.includes,
+        delegates=body.delegates,
         tags=body.tags,
         source_type="manual",
         created_at=now,
@@ -118,6 +119,8 @@ async def admin_update_carapace(
         row.system_prompt_fragment = body.system_prompt_fragment
     if body.includes is not None:
         row.includes = body.includes
+    if body.delegates is not None:
+        row.delegates = body.delegates
     if body.tags is not None:
         row.tags = body.tags
     row.updated_at = datetime.now(timezone.utc)
@@ -285,6 +288,8 @@ async def admin_export_carapace(
         data["pinned_tools"] = row.pinned_tools
     if row.includes:
         data["includes"] = row.includes
+    if row.delegates:
+        data["delegates"] = row.delegates
     if row.system_prompt_fragment:
         data["system_prompt_fragment"] = row.system_prompt_fragment
 

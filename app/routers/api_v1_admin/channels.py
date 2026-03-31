@@ -1856,7 +1856,11 @@ async def admin_channels_enriched(
         if workspace_id == "none":
             stmt_base = stmt_base.where(or_(Channel.workspace_id.is_(None), orchestrator_clause))
         else:
-            stmt_base = stmt_base.where(or_(Channel.workspace_id == workspace_id, orchestrator_clause))
+            try:
+                ws_uuid = uuid.UUID(workspace_id)
+            except ValueError:
+                raise HTTPException(400, f"Invalid workspace_id: {workspace_id}")
+            stmt_base = stmt_base.where(or_(Channel.workspace_id == ws_uuid, orchestrator_clause))
 
     total = (await db.execute(
         select(func.count()).select_from(stmt_base.subquery())

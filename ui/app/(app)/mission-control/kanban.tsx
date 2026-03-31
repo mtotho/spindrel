@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { View, Text, Pressable, ScrollView, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -40,77 +41,68 @@ export default function MCKanban() {
   const isMobile = width < 768;
   const qc = useQueryClient();
 
-  const handleMove = useCallback(
-    (cardId: string, channelId: string, fromColumn: string, toColumn: string) => {
-      setMoveError(null);
+  const handleMove = (cardId: string, channelId: string, fromColumn: string, toColumn: string) => {
+    setMoveError(null);
 
-      // Optimistic update
-      qc.setQueryData<{ columns: MCKanbanColumn[] }>(
-        ["mc-kanban", scope],
-        (old) => {
-          if (!old) return old;
-          const columns = old.columns.map((col) => ({
-            ...col,
-            cards: [...col.cards],
-          }));
-          // Find and remove card from source
-          let movedCard = null;
-          for (const col of columns) {
-            if (col.name.toLowerCase() === fromColumn.toLowerCase()) {
-              const idx = col.cards.findIndex((c) => c.meta.id === cardId);
-              if (idx >= 0) {
-                movedCard = col.cards.splice(idx, 1)[0];
-              }
+    // Optimistic update
+    qc.setQueryData<{ columns: MCKanbanColumn[] }>(
+      ["mc-kanban", scope],
+      (old) => {
+        if (!old) return old;
+        const cols = old.columns.map((col) => ({
+          ...col,
+          cards: [...col.cards],
+        }));
+        let movedCard = null;
+        for (const col of cols) {
+          if (col.name.toLowerCase() === fromColumn.toLowerCase()) {
+            const idx = col.cards.findIndex((c) => c.meta.id === cardId);
+            if (idx >= 0) {
+              movedCard = col.cards.splice(idx, 1)[0];
             }
           }
-          // Add to target
-          if (movedCard) {
-            const target = columns.find(
-              (c) => c.name.toLowerCase() === toColumn.toLowerCase()
-            );
-            if (target) target.cards.push(movedCard);
-          }
-          return { columns };
         }
-      );
-
-      moveMutation.mutate(
-        {
-          card_id: cardId,
-          from_column: fromColumn,
-          to_column: toColumn,
-          channel_id: channelId,
-        },
-        {
-          onError: (err: any) => {
-            setMoveError(err?.message || "Failed to move card");
-            // Revert optimistic update
-            qc.invalidateQueries({ queryKey: ["mc-kanban"] });
-          },
+        if (movedCard) {
+          const target = cols.find(
+            (c) => c.name.toLowerCase() === toColumn.toLowerCase()
+          );
+          if (target) target.cards.push(movedCard);
         }
-      );
-    },
-    [moveMutation.mutate, qc, scope]
-  );
+        return { columns: cols };
+      }
+    );
 
-  const handleCreate = useCallback(
-    (formData: {
-      channel_id: string;
-      title: string;
-      column: string;
-      priority: string;
-      description: string;
-    }) => {
-      setMoveError(null);
-      createMutation.mutate(formData, {
-        onSuccess: () => setShowNewCard(false),
+    moveMutation.mutate(
+      {
+        card_id: cardId,
+        from_column: fromColumn,
+        to_column: toColumn,
+        channel_id: channelId,
+      },
+      {
         onError: (err: any) => {
-          setMoveError(err?.message || "Failed to create card");
+          setMoveError(err?.message || "Failed to move card");
+          qc.invalidateQueries({ queryKey: ["mc-kanban"] });
         },
-      });
-    },
-    [createMutation.mutate]
-  );
+      }
+    );
+  };
+
+  const handleCreate = (formData: {
+    channel_id: string;
+    title: string;
+    column: string;
+    priority: string;
+    description: string;
+  }) => {
+    setMoveError(null);
+    createMutation.mutate(formData, {
+      onSuccess: () => setShowNewCard(false),
+      onError: (err: any) => {
+        setMoveError(err?.message || "Failed to create card");
+      },
+    });
+  };
 
   // Get unique channels for filter
   const channels =
@@ -225,8 +217,10 @@ export default function MCKanban() {
         </View>
       ) : isMobile ? (
         /* Mobile: vertical accordion layout */
-        <ScrollView
-          contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 40 }}
+        <RefreshableScrollView
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          contentContainerStyle={{ padding: 12, gap: 12, paddingBottom: 40 }}
           className="flex-1"
         >
           {columns.map((col) => (
@@ -238,7 +232,7 @@ export default function MCKanban() {
               moveDisabled={moveMutation.isPending}
             />
           ))}
-        </ScrollView>
+        </RefreshableScrollView>
       ) : (
         /* Desktop: horizontal scroll */
         <ScrollView

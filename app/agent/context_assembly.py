@@ -883,25 +883,38 @@ async def assemble_context(
 
     # --- delegate bot index ---
     _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))
+    _delegate_lines: list[str] = []
+    _seen_delegate_ids: set[str] = set()
     if _all_delegate_ids:
         from app.agent.bots import get_bot as _get_bot
-        _delegate_lines: list[str] = []
         for _did in _all_delegate_ids:
+            _seen_delegate_ids.add(_did)
             try:
                 _db = _get_bot(_did)
                 _desc = (_db.system_prompt or "").strip().splitlines()[0][:120] if _db.system_prompt else ""
-                _delegate_lines.append(f"  • {_did} — {_db.name}" + (f": {_desc}" if _desc else ""))
+                _delegate_lines.append(f"  [bot] {_did} — {_db.name}" + (f": {_desc}" if _desc else ""))
             except Exception:
-                _delegate_lines.append(f"  • {_did}")
-        if _delegate_lines:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n"
-                    + "\n".join(_delegate_lines)
-                ),
-            })
-            yield {"type": "delegate_index", "count": len(_delegate_lines)}
+                _delegate_lines.append(f"  [bot] {_did}")
+
+    # Carapace delegates from resolved carapaces (bot delegates take precedence on conflict)
+    if _carapace_ids:
+        for _cd in _resolved_c.delegates:
+            if _cd.id not in _seen_delegate_ids:
+                _seen_delegate_ids.add(_cd.id)
+                _label = f"  [{_cd.type}] {_cd.id}"
+                if _cd.description:
+                    _label += f" — {_cd.description}"
+                _delegate_lines.append(_label)
+
+    if _delegate_lines:
+        messages.append({
+            "role": "system",
+            "content": (
+                "Available sub-agents (delegate via delegate_to_agent):\n"
+                + "\n".join(_delegate_lines)
+            ),
+        })
+        yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
     # --- memories (DB-based — skip when using workspace-files scheme) ---
     if bot.memory.enabled and bot.memory_scheme != "workspace-files" and session_id and client_id:

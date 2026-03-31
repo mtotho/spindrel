@@ -25,16 +25,19 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "delegate_to_agent",
         "description": (
-            "Delegate work to another bot. Creates a background task that the child bot executes "
-            "asynchronously. The child's result is automatically posted to the originating channel "
-            "when complete. Do NOT use create_task for cross-bot work; use this tool instead."
+            "Delegate work to another bot or carapace. Creates a background task that the child "
+            "agent executes asynchronously. The child's result is automatically posted to the "
+            "originating channel when complete. Do NOT use create_task for cross-bot work; use "
+            "this tool instead.\n\n"
+            "bot_id accepts either a bot ID or a carapace ID. When a carapace ID is given, "
+            "the parent bot runs with that carapace's expertise applied."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "bot_id": {
                     "type": "string",
-                    "description": "The bot_id of the delegate agent to run.",
+                    "description": "The bot_id or carapace_id of the delegate agent to run.",
                 },
                 "prompt": {
                     "type": "string",
@@ -82,6 +85,7 @@ async def delegate_to_agent(
         reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")
 
     from app.agent.bots import get_bot, resolve_bot_id, list_bots
+    from app.agent.carapaces import get_carapace, resolve_carapaces
     from app.services.delegation import delegation_service, DelegationError
 
     session_id = current_session_id.get()
@@ -96,18 +100,40 @@ async def delegate_to_agent(
     except Exception as exc:
         return json.dumps({"error": f"Could not load parent bot: {exc}"})
 
-    # Global flag OR bot-level config (non-empty delegate_bots) enables delegation
-    if not parent_bot.delegate_bots:
-        return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
-
-    # Fuzzy-resolve bot_id so partial names / aliases work
+    # Try bot resolution first, then fall back to carapace
     resolved = resolve_bot_id(bot_id)
-    if resolved is None:
-        available = ", ".join(b.id for b in list_bots())
-        return json.dumps({"error": f"No bot matching {bot_id!r}. Available: {available}"})
-    if resolved.id != bot_id:
-        logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
-        bot_id = resolved.id
+    carapace_delegate = False
+    target_carapace_id: str | None = None
+
+    if resolved is not None:
+        # Bot found — standard bot delegation
+        if resolved.id != bot_id:
+            logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
+            bot_id = resolved.id
+
+        # Permission check: delegate_bots must be configured for bot delegation
+        if not parent_bot.delegate_bots:
+            return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
+    else:
+        # No bot found — try carapace resolution
+        carapace = get_carapace(bot_id)
+        if carapace is None:
+            available_bots = ", ".join(b.id for b in list_bots())
+            return json.dumps({"error": f"No bot or carapace matching {bot_id!r}. Available bots: {available_bots}"})
+
+        # Permission check: carapace must appear in delegates of an active carapace the parent wears
+        resolved_parent = resolve_carapaces(parent_bot.carapaces)
+        authorized_carapace_delegates = {d.id for d in resolved_parent.delegates if d.type == "carapace"}
+        if bot_id not in authorized_carapace_delegates:
+            return json.dumps({
+                "error": f"Carapace {bot_id!r} is not in the delegates list of any active carapace. "
+                f"Authorized carapace delegates: {sorted(authorized_carapace_delegates) or 'none'}"
+            })
+
+        carapace_delegate = True
+        target_carapace_id = bot_id
+        # For carapace delegation, the task runs under the parent bot with the target carapace applied
+        bot_id = parent_bot.id
 
     sched_dt: datetime | None = None
     if scheduled_at:
@@ -130,7 +156,10 @@ async def delegate_to_agent(
             channel_id=channel_id,
             reply_in_thread=reply_in_thread,
             notify_parent=notify_parent,
+            carapace_ids=[target_carapace_id] if carapace_delegate else None,
         )
+        if carapace_delegate:
+            return f"Carapace delegation task created: {task_id} (carapace: {target_carapace_id})"
         return f"Delegation task created: {task_id}"
     except DelegationError as exc:
         return json.dumps({"error": str(exc)})

@@ -146,11 +146,11 @@ function MemorySectionView({ section }: { section: MCMemorySection }) {
 
           {/* Reference files */}
           {section.reference_files.length > 0 && (
-            <View className="px-4 pb-4">
-              <Text className="text-text-dim text-[10px] font-semibold tracking-wider mb-2">
+            <View className="px-4 pb-4" style={{ borderTopWidth: 1, borderTopColor: 'rgba(107,114,128,0.1)', paddingTop: 12 }}>
+              <Text className="text-text-dim text-[10px] font-semibold tracking-wider mb-3">
                 REFERENCE FILES
               </Text>
-              <View className="gap-1">
+              <View style={{ gap: 6 }}>
                 {section.reference_files.map((file) => (
                   <View key={file}>
                     <View className="flex-row items-center gap-2">
@@ -218,8 +218,9 @@ export default function MCMemory() {
     <View className="flex-1 bg-surface">
       <MobileHeader title="Memory" subtitle="MEMORY.md across bots" />
 
+
       {/* Search bar */}
-      {sections.length > 1 && (
+      {sections.length >= 1 && (
         <View className="flex-row items-center gap-2 px-4 py-2 border-b border-surface-border">
           <Search size={14} color={t.textDim} />
           <TextInput
@@ -241,7 +242,7 @@ export default function MCMemory() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ padding: 16, gap: 20, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading memory...</Text>

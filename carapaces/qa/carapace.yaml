@@ -5,6 +5,11 @@ description: >-
   and bug reporting. Includes code review via composition.
 tags: [testing, quality]
 
+delegates:
+  - id: bug-fix
+    type: carapace
+    description: "When QA finds a bug, delegate to bug-fix for resolution."
+
 skills:
   - id: channel_workspaces
     mode: on_demand
@@ -15,6 +20,7 @@ local_tools:
   - exec_command
   - file
   - web_search
+  - delegate_to_agent
 
 pinned_tools:
   - exec_command

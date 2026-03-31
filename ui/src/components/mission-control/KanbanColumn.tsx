@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { MCKanbanCard, MCKanbanColumn } from "@/src/api/hooks/useMissionControl";
 
 // ---------------------------------------------------------------------------
@@ -183,11 +184,9 @@ export function KanbanAccordionColumn({
       >
         <View className="flex-row items-center gap-2">
           {open ? (
-            <View style={{ transform: [{ rotate: "90deg" }] }}>
-              <Text style={{ fontSize: 10, color: t.textDim }}>{'▶'}</Text>
-            </View>
+            <ChevronDown size={14} color={t.textDim} />
           ) : (
-            <Text style={{ fontSize: 10, color: t.textDim }}>{'▶'}</Text>
+            <ChevronRight size={14} color={t.textDim} />
           )}
           <Text className="text-text font-semibold text-sm">{column.name}</Text>
         </View>

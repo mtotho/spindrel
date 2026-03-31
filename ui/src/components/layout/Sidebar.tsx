@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
@@ -10,7 +10,6 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Settings,
   Users,
   Container,
@@ -36,7 +35,6 @@ import {
   Columns,
   Brain,
   Layers,
-  Check,
   HelpCircle,
   Zap,
 } from "lucide-react";
@@ -308,22 +306,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
   const { data: upcomingItems, isLoading: upcomingLoading } = useUpcomingActivity(3);
   const t = useThemeTokens();
-  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
-  const wsDropdownRef = useRef<View>(null);
-
-  // Close workspace dropdown on click outside
-  useEffect(() => {
-    if (!wsDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      const node = wsDropdownRef.current as unknown as HTMLElement | null;
-      if (node && !node.contains(e.target as Node)) {
-        setWsDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [wsDropdownOpen]);
-
   // Auto-clear stale workspace filter if workspace no longer exists
   useEffect(() => {
     if (activeWorkspaceId && workspaces && !workspacesLoading) {
@@ -341,9 +323,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const orchestratorChannel = channels?.find((ch) => ch.client_id === "orchestrator:home");
   // Regular channels exclude orchestrator
   const regularChannels = channels?.filter((ch) => ch.client_id !== "orchestrator:home") ?? [];
-
-  // Active workspace name for display
-  const activeWorkspaceName = workspaces?.find((w) => w.id === activeWorkspaceId)?.name;
 
   // -----------------------------------------------------------------------
   // Collapsed: icon rail (56px)
@@ -562,86 +541,56 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
         {/* Workspace switcher + Channels */}
         <View className="px-2 py-1.5">
-          {/* Workspace switcher dropdown */}
+          {/* Workspace filter chips */}
           {workspaces && workspaces.length > 0 && (
-            <View ref={wsDropdownRef} className="px-1 mb-1.5" style={{ position: "relative", zIndex: 50 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="mb-1.5 px-1"
+              contentContainerStyle={{ gap: 4 }}
+            >
               <Pressable
-                onPress={() => setWsDropdownOpen(!wsDropdownOpen)}
-                className="flex-row items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+                onPress={() => setActiveWorkspace(null)}
+                className="rounded-md px-2.5 py-1"
+                style={{
+                  backgroundColor: !activeWorkspaceId ? t.accent + "18" : "transparent",
+                  borderWidth: 1,
+                  borderColor: !activeWorkspaceId ? t.accent + "40" : t.surfaceBorder,
+                }}
               >
-                <Container size={14} color={activeWorkspaceId ? t.accent : t.textDim} />
                 <Text
-                  className={`text-xs flex-1 ${activeWorkspaceId ? "text-accent font-medium" : "text-text-dim font-semibold"}`}
-                  numberOfLines={1}
-                  style={{ letterSpacing: activeWorkspaceId ? 0 : 0.5 }}
+                  className={`text-[11px] ${!activeWorkspaceId ? "text-accent font-medium" : "text-text-dim"}`}
                 >
-                  {activeWorkspaceId ? activeWorkspaceName || "Workspace" : "ALL WORKSPACES"}
+                  All
                 </Text>
-                <ChevronDown size={12} color={t.textDim} style={wsDropdownOpen ? { transform: "rotate(180deg)" } as any : undefined} />
               </Pressable>
-
-              {wsDropdownOpen && (
-                <View
-                  className="bg-surface-raised border border-surface-border rounded-lg"
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    left: 0,
-                    right: 0,
-                    marginTop: 2,
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 8,
-                    elevation: 8,
-                    zIndex: 100,
-                  }}
-                >
-                  {/* All Workspaces */}
+              {workspaces.map((ws) => {
+                const isActive = activeWorkspaceId === ws.id;
+                return (
                   <Pressable
-                    onPress={() => { setActiveWorkspace(null); setWsDropdownOpen(false); }}
-                    className="flex-row items-center gap-2 px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay rounded-t-lg"
+                    key={ws.id}
+                    onPress={() => setActiveWorkspace(isActive ? null : ws.id)}
+                    className="flex-row items-center gap-1.5 rounded-md px-2.5 py-1"
+                    style={{
+                      backgroundColor: isActive ? t.accent + "18" : "transparent",
+                      borderWidth: 1,
+                      borderColor: isActive ? t.accent + "40" : t.surfaceBorder,
+                    }}
                   >
-                    <Text className={`text-xs flex-1 ${!activeWorkspaceId ? "text-accent font-medium" : "text-text-muted"}`}>
-                      All Workspaces
+                    <View style={{
+                      width: 5, height: 5, borderRadius: 3,
+                      backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
+                    }} />
+                    <Text
+                      className={`text-[11px] ${isActive ? "text-accent font-medium" : "text-text-dim"}`}
+                      numberOfLines={1}
+                    >
+                      {ws.name}
                     </Text>
-                    {!activeWorkspaceId && <Check size={12} color={t.accent} />}
                   </Pressable>
-
-                  {/* Each workspace */}
-                  {workspaces.map((ws) => (
-                    <Pressable
-                      key={ws.id}
-                      onPress={() => { setActiveWorkspace(ws.id); setWsDropdownOpen(false); }}
-                      className="flex-row items-center gap-2 px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
-                    >
-                      <View style={{
-                        width: 6, height: 6, borderRadius: 3,
-                        backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
-                      }} />
-                      <Text
-                        className={`text-xs flex-1 ${activeWorkspaceId === ws.id ? "text-accent font-medium" : "text-text-muted"}`}
-                        numberOfLines={1}
-                      >
-                        {ws.name}
-                      </Text>
-                      {activeWorkspaceId === ws.id && <Check size={12} color={t.accent} />}
-                    </Pressable>
-                  ))}
-
-                  {/* Manage link */}
-                  <Link href={"/admin/workspaces" as any} asChild>
-                    <Pressable
-                      onPress={() => { closeMobile(); setWsDropdownOpen(false); }}
-                      className="flex-row items-center gap-2 px-3 py-2 border-t border-surface-border hover:bg-surface-overlay active:bg-surface-overlay rounded-b-lg"
-                    >
-                      <Settings size={11} color={t.textDim} />
-                      <Text className="text-xs text-text-dim">Manage Workspaces</Text>
-                    </Pressable>
-                  </Link>
-                </View>
-              )}
-            </View>
+                );
+              })}
+            </ScrollView>
           )}
 
           <View className="flex-row items-center justify-between px-3 mb-1">
