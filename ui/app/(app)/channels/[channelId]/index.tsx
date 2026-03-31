@@ -219,12 +219,19 @@ export default function ChatScreen() {
   const cancelChat = useCancelChat();
 
   const handleCancel = useCallback(() => {
-    if (!channel) return;
+    if (!channel || !channelId) return;
+    // Send server-side cancel (sets flag + cancels queued tasks)
     cancelChat.mutate({
       client_id: channel.client_id ?? "",
       bot_id: channel.bot_id,
     });
-  }, [channel]);
+    // Abort local SSE immediately so UI is responsive
+    chatStream.abort();
+    // Clear streaming state (same as receiving a "cancelled" event from server)
+    handleSSEEvent(channelId, { event: "cancelled", data: {} });
+    // Refetch messages to pick up whatever the server persisted
+    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+  }, [channel, channelId]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {

@@ -43,7 +43,7 @@ interface UseChatStreamOptions {
 export function useChatStream(options: UseChatStreamOptions) {
   const abortRef = useRef<AbortController | null>(null);
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: async (request: ChatRequest) => {
       // Abort any previous SSE stream so its stale callbacks don't fire
       abortRef.current?.abort();
@@ -100,4 +100,6 @@ export function useChatStream(options: UseChatStreamOptions) {
       }
     },
   });
+
+  return { ...mutation, abort: () => abortRef.current?.abort() };
 }

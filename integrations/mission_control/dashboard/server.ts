@@ -250,7 +250,7 @@ function findChannelDir(channelId: string): string | null {
 // API proxy — forwards requests to the agent server with auth
 // ---------------------------------------------------------------------------
 app.all("/api/proxy/*", async (req, res) => {
-  const targetPath = req.params[0];
+  const targetPath = (req.params as Record<string, string>)[0];
   const url = `${AGENT_SERVER_URL}/${targetPath}`;
 
   const headers: Record<string, string> = {
