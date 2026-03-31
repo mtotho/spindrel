@@ -55,15 +55,39 @@ The plan appears in the Mission Control dashboard with **Approve** and **Reject*
 
 ## Executing an Approved Plan
 
-After approval, `plans.md` shows the plan as `[executing]` (or `[approved]` — treat both as ready to execute). Work through steps in order:
+After approval, `plans.md` shows the plan as `[executing]` (or `[approved]` — treat both as ready to execute). **Execute ONE step per run, then self-schedule continuation.**
 
-1. Read the plan from `plans.md` (auto-injected in context)
-2. Start the next pending step — call `update_plan_step(plan_id, step_number, "in_progress")`
+### Per-Step Protocol
+
+1. Read plans.md — find the next `[ ]` pending or `[~]` in_progress step
+2. Call `update_plan_step(plan_id, step_number, "in_progress")`
 3. Do the work for that step
-4. Mark it done — call `update_plan_step(plan_id, step_number, "done")`
-5. Repeat for remaining steps
+4. Write results to workspace files (e.g. `data/plans/{plan_id}/step-{n}.md`)
+5. Call `update_plan_step(plan_id, step_number, "done")` — or `"failed"` if it cannot be completed
+6. Check if more steps remain:
+   - **Yes** → call `schedule_task()` to continue (see Self-Continuation below)
+   - **No** → plan auto-completes when all steps are done/skipped/failed
 
-When all steps are done or skipped, the plan auto-transitions to `[complete]`.
+### Self-Continuation
+
+After completing a step, if pending steps remain, schedule the next iteration:
+
+```
+schedule_task(
+  prompt="Continue executing plan '{title}' ({plan_id}). Pick up from the next pending step.",
+  title="Plan: {title} — next step"
+)
+```
+
+This gives each step a **fresh context window** with workspace files as ground truth. The plan file itself is the state machine — each iteration reads it, finds the next step, and executes it.
+
+### Context Dumping
+
+Write intermediate results to workspace files so future steps (and the user) can reference them:
+- Step outputs → `data/plans/{plan_id}/step-{n}.md`
+- Shared artifacts → workspace root (e.g. `architecture.md`, `tasks.md`)
+
+This prevents context bloat and ensures results persist across step boundaries.
 
 ## Step Status Reference
 
@@ -73,6 +97,7 @@ When all steps are done or skipped, the plan auto-transitions to `[complete]`.
 | `[~]` | in_progress | Currently being worked on |
 | `[x]` | done | Completed |
 | `[-]` | skipped | Intentionally skipped |
+| `[!]` | failed | Attempted but could not be completed |
 
 ## Progress Reporting
 
@@ -82,13 +107,15 @@ When all steps are done or skipped, the plan auto-transitions to `[complete]`.
 
 ## Handling Issues
 
-- If a step is blocked, mark it skipped with a note and continue to the next
+- If a step fails, mark it `failed` with `update_plan_step(plan_id, step_number, "failed")` and continue to the next step
+- If a step is blocked by something outside your control, mark it `skipped` with `[-]`
 - If the whole plan needs to stop, call `update_plan_status(plan_id, "abandoned")`
 - If you need to revise the plan, abandon the current one and draft a new plan
 
 ## Anti-patterns
 
 - **Don't execute draft plans** — always wait for user approval
-- **Don't skip steps silently** — mark them with `[-]` skipped status
+- **Don't skip steps silently** — mark them with `[-]` skipped or `[!]` failed status
 - **Don't plan single-step tasks** — just do them
 - **Don't create vague steps** — each step should be a concrete, verifiable action
+- **Don't try to do everything in one run** — execute one step, dump context, self-schedule the next

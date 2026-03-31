@@ -160,7 +160,7 @@ async def draft_plan(
             },
             "status": {
                 "type": "string",
-                "enum": ["pending", "in_progress", "done", "skipped"],
+                "enum": ["pending", "in_progress", "done", "skipped", "failed"],
                 "description": "New step status",
             },
         },
@@ -174,7 +174,7 @@ async def update_plan_step(
     status: str,
 ) -> str:
     """Update a step's status in a plan."""
-    if status not in ("pending", "in_progress", "done", "skipped"):
+    if status not in ("pending", "in_progress", "done", "skipped", "failed"):
         return f"Invalid step status: {status}"
 
     _raw, plans = await _read_plans_md(channel_id)
@@ -209,8 +209,8 @@ async def update_plan_step(
     if plan["status"] == "approved":
         plan["status"] = "executing"
 
-    # Check if all steps are done/skipped → auto-complete
-    all_terminal = all(s["status"] in ("done", "skipped") for s in plan["steps"])
+    # Check if all steps are done/skipped/failed → auto-complete
+    all_terminal = all(s["status"] in ("done", "skipped", "failed") for s in plan["steps"])
     if all_terminal:
         plan["status"] = "complete"
 
@@ -226,6 +226,11 @@ async def update_plan_step(
         await _append_timeline(
             channel_id,
             f"Plan step {step_number} started: **{step['content']}** ({plan_id})",
+        )
+    elif status == "failed":
+        await _append_timeline(
+            channel_id,
+            f"Plan step {step_number} failed: **{step['content']}** ({plan_id})",
         )
 
     if all_terminal:

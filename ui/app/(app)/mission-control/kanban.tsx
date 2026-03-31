@@ -15,40 +15,32 @@ import {
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
 import { channelColor } from "@/src/components/mission-control/botColors";
-import {
-  KanbanColumnView,
-  KanbanReviewColumn,
-  KanbanAccordionColumn,
-  type DragState,
-} from "@/src/components/mission-control/KanbanColumn";
 import { KanbanNewCardForm } from "@/src/components/mission-control/KanbanNewCardForm";
+import { KanbanSwimlaneBoard } from "@/src/components/mission-control/KanbanSwimlaneBoard";
+import { KanbanMobileSwimlanes } from "@/src/components/mission-control/KanbanMobileSwimlanes";
+import { buildSwimlanes, EMPTY_DRAG, type DragState } from "@/src/components/mission-control/kanbanTypes";
 import { Plus, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-// Primary columns in display order
-const PRIMARY_COLUMNS = ["Backlog", "In Progress", "Done"];
-
+// ---------------------------------------------------------------------------
+// Column ordering
+// ---------------------------------------------------------------------------
 function orderColumns(columns: MCKanbanColumn[]): MCKanbanColumn[] {
   const byName = new Map(columns.map((c) => [c.name.toLowerCase(), c]));
   const ordered: MCKanbanColumn[] = [];
 
-  // Backlog
   const backlog = byName.get("backlog");
   if (backlog) ordered.push(backlog);
 
-  // In Progress
   const inProgress = byName.get("in progress");
   if (inProgress) ordered.push(inProgress);
 
-  // Review (inserted between In Progress and Done)
   const review = byName.get("review");
   if (review) ordered.push(review);
 
-  // Done
   const done = byName.get("done");
   if (done) ordered.push(done);
 
-  // Any remaining columns not in the standard set
   for (const col of columns) {
     const lc = col.name.toLowerCase();
     if (!["backlog", "in progress", "review", "done"].includes(lc)) {
@@ -74,72 +66,59 @@ export default function MCKanban() {
   const [showNewCard, setShowNewCard] = useState(false);
   const [filterChannel, setFilterChannel] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [dragState, setDragState] = useState<DragState>({
-    cardId: null,
-    channelId: null,
-    fromColumn: null,
-    hoverColumn: null,
-  });
+  const [dragState, setDragState] = useState<DragState>({ ...EMPTY_DRAG });
   const t = useThemeTokens();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
   const qc = useQueryClient();
 
+  // Ordered columns (full, unfiltered — needed for column list)
+  const columns = useMemo(() => orderColumns(data?.columns || []), [data?.columns]);
+
+  // Swimlane rows (filtered by channel if set)
+  const swimlanes = useMemo(
+    () => buildSwimlanes(columns, filterChannel),
+    [columns, filterChannel],
+  );
+
+  // Handlers
   const handleMove = (cardId: string, channelId: string, fromColumn: string, toColumn: string) => {
     setMoveError(null);
-
     // Optimistic update
     qc.setQueryData<{ columns: MCKanbanColumn[] }>(
       ["mc-kanban", scope],
       (old) => {
         if (!old) return old;
-        const cols = old.columns.map((col) => ({
-          ...col,
-          cards: [...col.cards],
-        }));
+        const cols = old.columns.map((col) => ({ ...col, cards: [...col.cards] }));
         let movedCard = null;
         for (const col of cols) {
           if (col.name.toLowerCase() === fromColumn.toLowerCase()) {
             const idx = col.cards.findIndex((c) => c.meta.id === cardId);
-            if (idx >= 0) {
-              movedCard = col.cards.splice(idx, 1)[0];
-            }
+            if (idx >= 0) movedCard = col.cards.splice(idx, 1)[0];
           }
         }
         if (movedCard) {
-          const target = cols.find(
-            (c) => c.name.toLowerCase() === toColumn.toLowerCase()
-          );
+          const target = cols.find((c) => c.name.toLowerCase() === toColumn.toLowerCase());
           if (target) target.cards.push(movedCard);
         }
         return { columns: cols };
-      }
-    );
-
-    moveMutation.mutate(
-      {
-        card_id: cardId,
-        from_column: fromColumn,
-        to_column: toColumn,
-        channel_id: channelId,
       },
+    );
+    moveMutation.mutate(
+      { card_id: cardId, from_column: fromColumn, to_column: toColumn, channel_id: channelId },
       {
         onError: (err: any) => {
           setMoveError(err?.message || "Failed to move card");
           qc.invalidateQueries({ queryKey: ["mc-kanban"] });
         },
-      }
+      },
     );
   };
 
   const handleUpdate = (cardId: string, channelId: string, fields: Record<string, string>) => {
     updateMutation.mutate(
       { card_id: cardId, channel_id: channelId, ...fields },
-      {
-        onError: (err: any) => {
-          setMoveError(err?.message || "Failed to update card");
-        },
-      }
+      { onError: (err: any) => setMoveError(err?.message || "Failed to update card") },
     );
   };
 
@@ -153,25 +132,18 @@ export default function MCKanban() {
     setMoveError(null);
     createMutation.mutate(formData, {
       onSuccess: () => setShowNewCard(false),
-      onError: (err: any) => {
-        setMoveError(err?.message || "Failed to create card");
-      },
+      onError: (err: any) => setMoveError(err?.message || "Failed to create card"),
     });
   };
 
   // Drag handlers
   const handleDragStart = (cardId: string, channelId: string, fromColumn: string) => {
-    setDragState({ cardId, channelId, fromColumn, hoverColumn: null });
+    setDragState({ cardId, channelId, fromColumn, hoverColumn: null, hoverChannelId: null });
   };
-
-  const handleDragEnd = () => {
-    setDragState({ cardId: null, channelId: null, fromColumn: null, hoverColumn: null });
+  const handleDragEnd = () => setDragState({ ...EMPTY_DRAG });
+  const handleDragHover = (column: string | null, channelId: string | null) => {
+    setDragState((prev) => ({ ...prev, hoverColumn: column, hoverChannelId: channelId }));
   };
-
-  const handleDragHover = (column: string | null) => {
-    setDragState((prev) => ({ ...prev, hoverColumn: column }));
-  };
-
   const handleDrop = (toColumn: string) => {
     if (dragState.cardId && dragState.channelId && dragState.fromColumn) {
       if (dragState.fromColumn.toLowerCase() !== toColumn.toLowerCase()) {
@@ -181,22 +153,7 @@ export default function MCKanban() {
     handleDragEnd();
   };
 
-  // Get unique channels for filter
-  const channels =
-    overview?.channels.map((ch) => ({ id: ch.id, name: ch.name })) || [];
-
-  // Filter and order columns
-  const columns = useMemo(() => {
-    const filtered = (data?.columns || []).map((col) => ({
-      ...col,
-      cards: filterChannel
-        ? col.cards.filter((c) => c.channel_id === filterChannel)
-        : col.cards,
-    }));
-    return orderColumns(filtered);
-  }, [data?.columns, filterChannel]);
-
-  const isReviewColumn = (name: string) => name.toLowerCase() === "review";
+  const channels = overview?.channels.map((ch) => ({ id: ch.id, name: ch.name })) || [];
 
   return (
     <View className="flex-1 bg-surface">
@@ -209,9 +166,7 @@ export default function MCKanban() {
             className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:bg-surface-overlay"
           >
             <Plus size={16} color={t.accent} />
-            <Text style={{ fontSize: 13, color: t.accent, fontWeight: "600" }}>
-              Add
-            </Text>
+            <Text style={{ fontSize: 13, color: t.accent, fontWeight: "600" }}>Add</Text>
           </Pressable>
         }
       />
@@ -226,13 +181,9 @@ export default function MCKanban() {
           }}
         >
           <AlertCircle size={14} color="#ef4444" />
-          <Text style={{ fontSize: 12, color: "#ef4444", flex: 1 }}>
-            {moveError}
-          </Text>
+          <Text style={{ fontSize: 12, color: "#ef4444", flex: 1 }}>{moveError}</Text>
           <Pressable onPress={() => setMoveError(null)}>
-            <Text style={{ fontSize: 11, color: "#ef4444", fontWeight: "600" }}>
-              Dismiss
-            </Text>
+            <Text style={{ fontSize: 11, color: "#ef4444", fontWeight: "600" }}>Dismiss</Text>
           </Pressable>
         </View>
       )}
@@ -240,7 +191,7 @@ export default function MCKanban() {
       {/* Filter bar */}
       <View
         className="flex-row items-center gap-2 border-b border-surface-border flex-wrap"
-        style={{ paddingLeft: 24, paddingRight: 16, paddingVertical: 8 }}
+        style={{ paddingHorizontal: 8, paddingVertical: 6 }}
       >
         <Pressable
           onPress={() => setFilterChannel(null)}
@@ -301,69 +252,33 @@ export default function MCKanban() {
           </MCEmptyState>
         </View>
       ) : isMobile ? (
-        /* Mobile: vertical accordion layout */
         <RefreshableScrollView
           refreshing={refreshing}
           onRefresh={onRefresh}
-          contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}
+          contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 48 }}
           className="flex-1"
         >
-          {columns.map((col) => (
-            <KanbanAccordionColumn
-              key={col.name}
-              column={col}
-              allColumns={columns}
-              onMove={handleMove}
-              onUpdate={handleUpdate}
-              moveDisabled={moveMutation.isPending}
-            />
-          ))}
+          <KanbanMobileSwimlanes
+            columns={columns}
+            swimlanes={swimlanes}
+            onMove={handleMove}
+            onUpdate={handleUpdate}
+            moveDisabled={moveMutation.isPending}
+          />
         </RefreshableScrollView>
       ) : (
-        /* Desktop: flex row filling viewport */
-        <View
-          style={{
-            flex: 1,
-            flexDirection: "row",
-            gap: 12,
-            paddingLeft: 24,
-            paddingRight: 16,
-            paddingTop: 16,
-            paddingBottom: 16,
-          }}
-        >
-          {columns.map((col) =>
-            isReviewColumn(col.name) ? (
-              <KanbanReviewColumn
-                key={col.name}
-                column={col}
-                allColumns={columns}
-                onMove={handleMove}
-                onUpdate={handleUpdate}
-                moveDisabled={moveMutation.isPending}
-                dragState={dragState}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragHover={handleDragHover}
-                onDrop={handleDrop}
-              />
-            ) : (
-              <KanbanColumnView
-                key={col.name}
-                column={col}
-                allColumns={columns}
-                onMove={handleMove}
-                onUpdate={handleUpdate}
-                moveDisabled={moveMutation.isPending}
-                dragState={dragState}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragHover={handleDragHover}
-                onDrop={handleDrop}
-              />
-            )
-          )}
-        </View>
+        <KanbanSwimlaneBoard
+          columns={columns}
+          swimlanes={swimlanes}
+          dragState={dragState}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragHover={handleDragHover}
+          onDrop={handleDrop}
+          onMove={handleMove}
+          onUpdate={handleUpdate}
+          moveDisabled={moveMutation.isPending}
+        />
       )}
     </View>
   );

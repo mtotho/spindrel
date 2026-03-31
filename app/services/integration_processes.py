@@ -82,14 +82,24 @@ class IntegrationProcessManager:
                 logger.exception("Failed to load process config for integration %r", integration_id)
         return results
 
-    def _env_ready(self, required_env: list[str]) -> bool:
-        """Check if all required env vars are set in os.environ.
+    def _env_ready(self, integration_id: str, required_env: list[str]) -> bool:
+        """Check if all required env vars are available.
 
-        Uses os.environ directly (same as discover_processes()), not the
-        integration_settings DB cache — process.py env vars are system-level
-        credentials that must be in the real environment for the subprocess.
+        Checks both os.environ and the IntegrationSetting DB cache, since
+        users may configure values via the admin UI (stored in DB) rather
+        than in .env files.
         """
-        return all(os.environ.get(k) for k in required_env)
+        for key in required_env:
+            if os.environ.get(key):
+                continue
+            try:
+                from app.services.integration_settings import get_value
+                if get_value(integration_id, key):
+                    continue
+            except Exception:
+                pass
+            return False
+        return True
 
     async def get_auto_start(self, integration_id: str) -> bool:
         """Check if auto-start is enabled for an integration.
@@ -159,23 +169,37 @@ class IntegrationProcessManager:
             )
             self._states[integration_id] = state
 
-        # Check env readiness
-        if not self._env_ready(state.required_env):
+        # Check env readiness (os.environ + DB settings)
+        if not self._env_ready(integration_id, state.required_env):
             missing = [k for k in state.required_env if not os.environ.get(k)]
             logger.warning(
                 "Cannot start %s: missing env vars %s", integration_id, missing,
             )
             return False
 
-        # Build env with scoped API key if available
-        env = None
+        # Build subprocess env: start from os.environ, overlay DB-stored settings,
+        # then inject scoped API key if available.
+        env = dict(os.environ)
+
+        # Inject IntegrationSetting values (DB cache) into env so the subprocess
+        # can read them — users may configure via admin UI instead of .env files.
+        try:
+            from app.services.integration_settings import _cache as _settings_cache
+            for (iid, key), val in _settings_cache.items():
+                if iid == integration_id and key and not key.startswith("_") and val:
+                    if not env.get(key):
+                        env[key] = val
+        except Exception:
+            logger.debug("Could not load integration settings for %s", integration_id, exc_info=True)
+
+        # Inject scoped API key if available
         try:
             from app.db.engine import async_session as _async_session
             from app.services.api_keys import get_integration_api_key_value
             async with _async_session() as _db:
                 scoped_key = await get_integration_api_key_value(_db, integration_id)
             if scoped_key:
-                env = {**os.environ, "AGENT_API_KEY": scoped_key}
+                env["AGENT_API_KEY"] = scoped_key
                 logger.info("Injecting scoped API key for %s", integration_id)
         except Exception:
             logger.debug("Could not load scoped API key for %s, using inherited env", integration_id, exc_info=True)
@@ -339,7 +363,7 @@ class IntegrationProcessManager:
 
         for integration_id, info in discovered.items():
             # Check env readiness first
-            if not self._env_ready(info["required_env"]):
+            if not self._env_ready(integration_id, info["required_env"]):
                 missing = [k for k in info["required_env"] if not os.environ.get(k)]
                 logger.debug("Skipping %s: missing env vars %s", integration_id, missing)
                 continue
@@ -376,7 +400,7 @@ class IntegrationProcessManager:
                 "integration_id": iid,
                 "description": info["description"],
                 "required_env": info["required_env"],
-                "env_ready": self._env_ready(info["required_env"]),
+                "env_ready": self._env_ready(iid, info["required_env"]),
             })
         return results
 

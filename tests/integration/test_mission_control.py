@@ -1,6 +1,6 @@
 """Integration tests for Mission Control API router."""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -363,3 +363,199 @@ class TestMCPrefs:
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
+
+
+class TestMCPlanApprove:
+    """Tests for plan approval with execution_config and callback_config."""
+
+    def _make_channel(self, db_session):
+        from app.db.models import Channel
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="plan-test",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        return ch
+
+    def _draft_plan_md(self, plan_id="plan-abc123", title="Test Plan", num_steps=3):
+        steps = "\n".join(f"{i+1}. [ ] Step {i+1}" for i in range(num_steps))
+        return (
+            f"# Plans\n\n"
+            f"## {title} [draft]\n"
+            f"- **id**: {plan_id}\n"
+            f"- **created**: {date.today().isoformat()}\n\n"
+            f"### Steps\n{steps}\n"
+        )
+
+    async def test_approve_creates_task_with_execution_config(self, client, db_session):
+        ch = self._make_channel(db_session)
+        await db_session.commit()
+
+        plans_md = self._draft_plan_md()
+        written_content = {}
+
+        def mock_write(channel_id, bot, path, content):
+            written_content[path] = content
+
+        with (
+            patch("app.services.channel_workspace.read_workspace_file", return_value=plans_md),
+            patch("app.services.channel_workspace.write_workspace_file", side_effect=mock_write),
+            patch("app.services.channel_workspace.ensure_channel_workspace"),
+        ):
+            resp = await client.post(
+                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-abc123/approve",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["status"] == "approved"
+        assert body["task_created"] is True
+
+        # Verify a Task was created with execution_config and callback_config
+        from app.db.models import Task as TaskModel
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(TaskModel).where(TaskModel.channel_id == ch.id)
+        )
+        task = result.scalar_one()
+        assert task.execution_config is not None
+        assert "system_preamble" in task.execution_config
+        assert "plan-abc123" in task.execution_config["system_preamble"]
+        assert "ONE step at a time" in task.execution_config["system_preamble"]
+        assert "schedule_task()" in task.execution_config["system_preamble"]
+        assert task.callback_config is not None
+        assert task.callback_config.get("trigger_rag_loop") is True
+
+    async def test_approve_prompt_includes_step_summary(self, client, db_session):
+        ch = self._make_channel(db_session)
+        await db_session.commit()
+
+        plans_md = self._draft_plan_md(num_steps=2)
+
+        with (
+            patch("app.services.channel_workspace.read_workspace_file", return_value=plans_md),
+            patch("app.services.channel_workspace.write_workspace_file"),
+            patch("app.services.channel_workspace.ensure_channel_workspace"),
+        ):
+            resp = await client.post(
+                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-abc123/approve",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+
+        from app.db.models import Task as TaskModel
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(TaskModel).where(TaskModel.channel_id == ch.id)
+        )
+        task = result.scalar_one()
+        assert "Step 1" in task.prompt
+        assert "Step 2" in task.prompt
+        assert "Next step: #1" in task.prompt
+
+    async def test_approve_rejects_non_draft(self, client, db_session):
+        ch = self._make_channel(db_session)
+        await db_session.commit()
+
+        executing_plan = (
+            "# Plans\n\n"
+            "## Running Plan [executing]\n"
+            "- **id**: plan-run001\n\n"
+            "### Steps\n1. [~] In progress step\n"
+        )
+
+        with patch("app.services.channel_workspace.read_workspace_file", return_value=executing_plan):
+            resp = await client.post(
+                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-run001/approve",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 409
+
+
+class TestMCPlanResume:
+    """Tests for plan resume with step-aware prompts."""
+
+    def _make_channel(self, db_session):
+        from app.db.models import Channel
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="resume-test",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        return ch
+
+    async def test_resume_creates_task_with_step_context(self, client, db_session):
+        ch = self._make_channel(db_session)
+        await db_session.commit()
+
+        executing_plan = (
+            "# Plans\n\n"
+            "## Multi-Step Plan [executing]\n"
+            "- **id**: plan-res001\n\n"
+            "### Steps\n"
+            "1. [x] First step\n"
+            "2. [x] Second step\n"
+            "3. [ ] Third step\n"
+            "4. [ ] Fourth step\n"
+        )
+
+        with (
+            patch("app.services.channel_workspace.read_workspace_file", return_value=executing_plan),
+            patch("app.services.channel_workspace.ensure_channel_workspace"),
+        ):
+            resp = await client.post(
+                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-res001/resume",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["task_created"] is True
+
+        from app.db.models import Task as TaskModel
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(TaskModel).where(TaskModel.channel_id == ch.id)
+        )
+        task = result.scalar_one()
+        # Prompt should include step summary with next step info
+        assert "plan-res001" in task.prompt
+        assert "Next step: #3" in task.prompt
+        assert "Third step" in task.prompt
+        # Should have execution_config and callback_config
+        assert task.execution_config is not None
+        assert "system_preamble" in task.execution_config
+        assert task.callback_config is not None
+        assert task.callback_config.get("trigger_rag_loop") is True
+
+    async def test_resume_rejects_non_executing(self, client, db_session):
+        ch = self._make_channel(db_session)
+        await db_session.commit()
+
+        draft_plan = (
+            "# Plans\n\n"
+            "## Draft Plan [draft]\n"
+            "- **id**: plan-drf001\n\n"
+            "### Steps\n1. [ ] Do something\n"
+        )
+
+        with patch("app.services.channel_workspace.read_workspace_file", return_value=draft_plan):
+            resp = await client.post(
+                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-drf001/resume",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 409

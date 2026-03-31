@@ -64,6 +64,7 @@ class TestParseStepStatus:
         ("[x]", "done"),
         ("[~]", "in_progress"),
         ("[-]", "skipped"),
+        ("[!]", "failed"),
     ])
     def test_known_markers(self, marker, expected):
         assert parse_step_status(marker) == expected
@@ -183,6 +184,48 @@ class TestSerializePlansMd:
         assert "2. [x] Step two" in result
         assert "### Notes" in result
         assert "Some notes." in result
+
+
+class TestFailedStepStatus:
+    """Tests for the [!] failed step marker."""
+
+    def test_parse_failed_step(self):
+        md = "# Plans\n\n## My Plan [executing]\n- **id**: plan-000001\n\n### Steps\n1. [x] First step\n2. [!] Failed step\n3. [ ] Pending step\n"
+        plans = parse_plans_md(md)
+        assert len(plans) == 1
+        assert plans[0]["steps"][1]["status"] == "failed"
+        assert plans[0]["steps"][1]["content"] == "Failed step"
+
+    def test_serialize_failed_step(self):
+        plans = [{
+            "title": "Test",
+            "status": "executing",
+            "meta": {"id": "plan-fail01"},
+            "steps": [
+                {"position": 1, "status": "done", "content": "Step one"},
+                {"position": 2, "status": "failed", "content": "Step two"},
+            ],
+            "notes": "",
+        }]
+        result = serialize_plans_md(plans)
+        assert "2. [!] Step two" in result
+
+    def test_round_trip_with_failed(self):
+        md = (
+            "# Plans\n\n"
+            "## Deploy [executing]\n"
+            "- **id**: plan-rt0001\n\n"
+            "### Steps\n"
+            "1. [x] Prepare\n"
+            "2. [!] Deploy staging\n"
+            "3. [-] Skipped\n"
+            "4. [ ] Deploy prod\n"
+        )
+        plans = parse_plans_md(md)
+        serialized = serialize_plans_md(plans)
+        reparsed = parse_plans_md(serialized)
+        assert reparsed[0]["steps"][1]["status"] == "failed"
+        assert reparsed[0]["steps"][2]["status"] == "skipped"
 
 
 class TestStepMarkerConsistency:
