@@ -84,11 +84,17 @@ async def send_file(
         mime = att.mime_type or "application/octet-stream"
         data = att.file_data
 
-        # Always create a new channel-linked attachment so persist_turn's
-        # orphan-linking attaches it to the assistant message.  Without this,
-        # same-channel re-posts leave the original attachment on its old
-        # message and the web UI only shows "[Image: caption]" text.
-        if channel_id:
+        # Create a new channel-linked attachment so persist_turn's
+        # orphan-linking attaches it to the assistant message — but only when
+        # needed.  If the original attachment is already orphaned (no
+        # message_id) in the same channel, it will be linked automatically
+        # and creating a copy would cause a duplicate image in the UI.
+        already_orphaned_here = (
+            att.message_id is None
+            and att.channel_id is not None
+            and str(att.channel_id) == str(channel_id)
+        )
+        if channel_id and not already_orphaned_here:
             await create_attachment(
                 message_id=None,
                 channel_id=channel_id,

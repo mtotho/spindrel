@@ -714,17 +714,19 @@ export default function ChatScreen() {
             >
               <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
             </Pressable>
-            <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
-              <Pressable
-                onPress={handleBrowseWorkspace}
-                className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-                style={{ width: 36, height: 36 }}
-                {...(Platform.OS === "web" ? { title: "Browse workspace" } as any : {})}
-              >
-                <FolderOpen size={16} color={t.textDim} />
-              </Pressable>
-            </Link>
-            {Platform.OS === "web" && (
+            {!isMobile && (
+              <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
+                <Pressable
+                  onPress={handleBrowseWorkspace}
+                  className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                  style={{ width: 36, height: 36 }}
+                  {...(Platform.OS === "web" ? { title: "Browse workspace" } as any : {})}
+                >
+                  <FolderOpen size={16} color={t.textDim} />
+                </Pressable>
+              </Link>
+            )}
+            {!isMobile && Platform.OS === "web" && (
               <Pressable
                 onPress={handleOpenEditor}
                 className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
