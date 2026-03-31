@@ -1,8 +1,10 @@
 """LLM call infrastructure — retry/backoff, model fallback, and tool result summarization."""
 
 import asyncio
+import json
 import logging
 import re
+import uuid
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -122,6 +124,139 @@ def strip_malformed_tool_calls(text: str) -> str:
     """
     cleaned = _MALFORMED_TOOL_CALL_RE.sub("", text).strip()
     return cleaned
+
+
+# ---------------------------------------------------------------------------
+# JSON tool-call extraction (local model compat)
+# ---------------------------------------------------------------------------
+# Local models (e.g. Qwen, DeepSeek via Ollama/LiteLLM) sometimes output
+# tool calls as raw JSON text instead of using the OpenAI function-calling
+# wire format.  This extracts and parses them so they can be dispatched.
+
+# Matches fenced code blocks: ```json ... ``` or ``` ... ```
+_CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\s*\n.*?\n\s*```", re.DOTALL)
+
+
+def _find_top_level_json_objects(text: str) -> list[tuple[int, int, Any]]:
+    """Find top-level JSON objects in *text* using brace counting.
+
+    Returns list of (start, end, parsed_obj) tuples.
+    Only returns objects (dicts), not arrays or scalars.
+    """
+    results: list[tuple[int, int, Any]] = []
+    i = 0
+    while i < len(text):
+        if text[i] == "{":
+            depth = 0
+            in_string = False
+            escape_next = False
+            j = i
+            while j < len(text):
+                ch = text[j]
+                if escape_next:
+                    escape_next = False
+                elif ch == "\\":
+                    if in_string:
+                        escape_next = True
+                elif ch == '"':
+                    in_string = not in_string
+                elif not in_string:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[i:j + 1]
+                            try:
+                                obj = json.loads(candidate)
+                                if isinstance(obj, dict):
+                                    results.append((i, j + 1, obj))
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                            break
+                j += 1
+            i = j + 1 if depth == 0 else j + 1
+        else:
+            i += 1
+    return results
+
+
+def extract_json_tool_calls(
+    text: str, known_tool_names: set[str]
+) -> tuple[list[dict], str]:
+    """Extract JSON-formatted tool calls from text content.
+
+    Local models sometimes emit tool calls as raw JSON like:
+        {"name": "tool_name", "arguments": {...}}
+
+    This finds such objects, validates them against *known_tool_names*,
+    and returns synthesized tool-call dicts matching the OpenAI format
+    plus the remaining text with JSON stripped out.
+
+    Returns (tool_calls, remaining_text). tool_calls is empty if none found.
+    """
+    if not text or not known_tool_names:
+        return [], text
+
+    # Identify code-block regions to skip (avoid false positives from examples)
+    skip_ranges: list[tuple[int, int]] = []
+    for m in _CODE_BLOCK_RE.finditer(text):
+        skip_ranges.append((m.start(), m.end()))
+
+    def _in_code_block(start: int, end: int) -> bool:
+        for sr_start, sr_end in skip_ranges:
+            if start >= sr_start and end <= sr_end:
+                return True
+        return False
+
+    candidates = _find_top_level_json_objects(text)
+
+    tool_calls: list[dict] = []
+    # Track regions to strip (in reverse order later)
+    strip_ranges: list[tuple[int, int]] = []
+
+    for start, end, obj in candidates:
+        if _in_code_block(start, end):
+            continue
+
+        name = obj.get("name")
+        if not isinstance(name, str) or name not in known_tool_names:
+            continue
+
+        arguments = obj.get("arguments")
+        if arguments is None:
+            continue
+
+        # Normalize arguments to JSON string
+        if isinstance(arguments, dict):
+            args_str = json.dumps(arguments)
+        elif isinstance(arguments, str):
+            args_str = arguments
+        else:
+            args_str = json.dumps(arguments)
+
+        tool_calls.append({
+            "id": f"json-tc-{uuid.uuid4().hex[:12]}",
+            "type": "function",
+            "function": {
+                "name": name,
+                "arguments": args_str,
+            },
+        })
+        strip_ranges.append((start, end))
+
+    if not tool_calls:
+        return [], text
+
+    # Strip extracted JSON from text (process in reverse to preserve indices)
+    remaining = text
+    for start, end in reversed(sorted(strip_ranges)):
+        remaining = remaining[:start] + remaining[end:]
+
+    # Clean up whitespace artifacts
+    remaining = re.sub(r"\n{3,}", "\n\n", remaining).strip()
+
+    return tool_calls, remaining
 
 
 @dataclass
