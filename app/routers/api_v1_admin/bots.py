@@ -686,6 +686,72 @@ async def admin_bot_enable_memory_scheme(
 
 
 # ---------------------------------------------------------------------------
+# Bot sandbox status + recreate
+# ---------------------------------------------------------------------------
+
+class SandboxStatusOut(BaseModel):
+    exists: bool = False
+    status: Optional[str] = None
+    container_name: Optional[str] = None
+    container_id: Optional[str] = None
+    image_id: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
+@router.get("/bots/{bot_id}/sandbox", response_model=SandboxStatusOut)
+async def admin_bot_sandbox_status(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Get the status of a bot's local sandbox container."""
+    from app.db.models import SandboxInstance
+
+    instance = (await db.execute(
+        select(SandboxInstance).where(
+            SandboxInstance.scope_type == "bot",
+            SandboxInstance.scope_key == bot_id,
+        )
+    )).scalar_one_or_none()
+
+    if not instance:
+        return SandboxStatusOut(exists=False)
+
+    return SandboxStatusOut(
+        exists=True,
+        status=instance.status,
+        container_name=instance.container_name,
+        container_id=instance.container_id[:12] if instance.container_id else None,
+        image_id=instance.image_id[:19] if instance.image_id else None,
+        error_message=instance.error_message,
+        created_at=instance.created_at,
+        last_used_at=instance.last_used_at,
+    )
+
+
+@router.post("/bots/{bot_id}/sandbox/recreate")
+async def admin_bot_sandbox_recreate(
+    bot_id: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Recreate the bot's local sandbox container.
+
+    Stops and removes the existing container. The next exec_command call
+    will auto-create a fresh one with the latest config.
+    """
+    from app.services.sandbox import sandbox_service
+
+    try:
+        await sandbox_service.recreate_bot_local(bot_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"status": "ok", "message": f"Sandbox for '{bot_id}' destroyed. Will be recreated on next use."}
+
+
+# ---------------------------------------------------------------------------
 # Bot memories
 # ---------------------------------------------------------------------------
 

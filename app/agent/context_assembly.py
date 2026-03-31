@@ -339,6 +339,10 @@ async def assemble_context(
             mcp_servers=list(bot.mcp_servers) + _new_mcp,
             pinned_tools=list(bot.pinned_tools) + _new_pinned,
         )
+        # Publish resolved skill IDs so get_skill can authorize carapace-injected skills
+        from app.agent.context import current_resolved_skill_ids
+        current_resolved_skill_ids.set({s.id for s in bot.skills})
+
         # Inject system prompt fragments
         if _resolved_c.system_prompt_fragments:
             _carapace_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)

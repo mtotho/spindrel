@@ -236,6 +236,29 @@ def delete_workspace_file(channel_id: str, bot: "BotConfig", path: str) -> dict:
     return {"path": path, "deleted": True}
 
 
+def move_workspace_file(channel_id: str, bot: "BotConfig", old_path: str, new_path: str) -> dict:
+    """Move/rename a file within the channel workspace."""
+    ws_path = get_channel_workspace_root(channel_id, bot)
+    ws_real = os.path.realpath(ws_path)
+
+    src = os.path.realpath(os.path.join(ws_real, old_path))
+    dst = os.path.realpath(os.path.join(ws_real, new_path))
+
+    if not (src == ws_real or src.startswith(ws_real + os.sep)):
+        raise ValueError("Source path escapes workspace root")
+    if not (dst == ws_real or dst.startswith(ws_real + os.sep)):
+        raise ValueError("Destination path escapes workspace root")
+    if not os.path.isfile(src):
+        raise FileNotFoundError(f"File not found: {old_path}")
+    if os.path.exists(dst):
+        raise ValueError(f"Destination already exists: {new_path}")
+
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    import shutil
+    shutil.move(src, dst)
+    return {"old_path": old_path, "new_path": new_path, "size": os.path.getsize(dst)}
+
+
 def get_channel_workspace_index_prefix(channel_id: str) -> str:
     """Returns the file_path prefix for filesystem_chunks queries."""
     return f"channels/{channel_id}"

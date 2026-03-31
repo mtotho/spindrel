@@ -53,9 +53,13 @@ async def get_skill(skill_id: str) -> str:
             from app.agent.bots import get_bot
             bot = get_bot(bot_id)
             if bot.skills and skill_id not in bot.skill_ids:
-                # Check ephemeral @-tagged skills first
-                from app.agent.context import current_ephemeral_skills
-                if skill_id in (current_ephemeral_skills.get() or []):
+                # Check carapace-resolved skills (set by context_assembly)
+                from app.agent.context import current_resolved_skill_ids, current_ephemeral_skills
+                _resolved = current_resolved_skill_ids.get()
+                if _resolved and skill_id in _resolved:
+                    pass  # carapace-injected skill — allow access
+                # Check ephemeral @-tagged skills
+                elif skill_id in (current_ephemeral_skills.get() or []):
                     pass  # tagged skill — allow access
                 else:
                     # Check workspace DB skills and channel skills_extra
