@@ -132,7 +132,12 @@ async def dispatch_tool_call(
                     _trace("⏳ %s requires approval (rule %s)", name, decision.rule_id)
                     return result_obj
         except Exception:
-            logger.exception("Policy check failed for %s — allowing by default", name)
+            logger.exception("Policy check failed for %s — denying by default", name)
+            _policy_err = "Tool call denied: policy evaluation error. Please retry."
+            result_obj.result = json.dumps({"error": _policy_err})
+            result_obj.result_for_llm = result_obj.result
+            result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _policy_err}
+            return result_obj
 
     # Determine tool type for hook data
     if is_client_tool(name):

@@ -1,0 +1,5 @@
+default_bot: default   # use a bot id from bots/*.yaml (e.g. default, brief_bot)
+
+# Optional: map specific channels to a bot (fallback if user not mapped)
+# channels:
+#   123456789012345678: assistant

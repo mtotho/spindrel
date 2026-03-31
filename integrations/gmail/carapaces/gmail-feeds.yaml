@@ -1,0 +1,16 @@
+id: gmail-feeds
+name: Gmail Feeds
+description: >
+  Email ingestion and digest management via Gmail IMAP.
+  Includes Mission Control tools for workspace organization.
+
+includes:
+  - mission-control
+
+skills:
+  - id: integrations/gmail/gmail_feeds
+    mode: on_demand
+
+local_tools:
+  - check_gmail_status
+  - trigger_gmail_poll

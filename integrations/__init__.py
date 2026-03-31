@@ -192,6 +192,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "process_status": None,
             "env_vars": [],
             "webhook": None,
+            "api_permissions": None,
             "status": "not_configured",
             "readme": None,
         }
@@ -241,6 +242,11 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                             all_installed = False
                     entry["python_dependencies"] = deps_status
                     entry["deps_installed"] = all_installed
+
+                # API permissions
+                ap = setup.get("api_permissions")
+                if ap:
+                    entry["api_permissions"] = ap
 
                 # Webhook
                 wh = setup.get("webhook")

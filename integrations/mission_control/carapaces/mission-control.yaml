@@ -9,6 +9,8 @@ skills:
     mode: on_demand
   - id: integrations/mission_control/planning
     mode: on_demand
+  - id: integrations/mission_control/content_feeds
+    mode: on_demand
 
 local_tools:
   - create_task_card

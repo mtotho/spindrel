@@ -5,9 +5,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func, select
+
+# Task types allowed to be created/updated via the admin API.
+# Internal types like 'exec', 'harness', 'claude_code', 'delegation' are only
+# created programmatically by the system (task worker, delegation service, etc.).
+ALLOWED_TASK_TYPES = {"scheduled", "agent"}
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
 
@@ -103,6 +110,13 @@ class TaskCreateIn(BaseModel):
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
+    @field_validator("task_type")
+    @classmethod
+    def _validate_task_type(cls, v: str) -> str:
+        if v not in ALLOWED_TASK_TYPES:
+            raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
+
 
 class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
@@ -122,6 +136,13 @@ class TaskUpdateIn(BaseModel):
     max_run_seconds: Optional[int] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
+
+    @field_validator("task_type")
+    @classmethod
+    def _validate_task_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_TASK_TYPES:
+            raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
 
 
 # ---------------------------------------------------------------------------

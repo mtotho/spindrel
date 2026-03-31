@@ -45,6 +45,7 @@ export interface IntegrationItem {
   python_dependencies?: PythonDependency[];
   deps_installed?: boolean;
   webhook: IntegrationWebhook | null;
+  api_permissions: string | string[] | null;
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
 }
@@ -230,5 +231,66 @@ export function useSidebarSections() {
         "/api/v1/admin/integrations/sidebar-sections"
       ),
     staleTime: 300_000, // 5 min — sidebar sections rarely change
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration API key hooks
+// ---------------------------------------------------------------------------
+
+export interface IntegrationApiKeyInfo {
+  provisioned: boolean;
+  key_prefix?: string;
+  scopes?: string[];
+  created_at?: string | null;
+  last_used_at?: string | null;
+}
+
+export interface IntegrationApiKeyProvisionResult {
+  key_prefix: string;
+  key_value: string | null;
+  scopes: string[];
+  created_at: string | null;
+}
+
+export function useIntegrationApiKey(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["admin-integration-api-key", id],
+    queryFn: () =>
+      apiFetch<IntegrationApiKeyInfo>(
+        `/api/v1/admin/integrations/${id}/api-key`
+      ),
+    enabled,
+  });
+}
+
+export function useProvisionIntegrationApiKey(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<IntegrationApiKeyProvisionResult>(
+        `/api/v1/admin/integrations/${id}/api-key`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ["admin-integration-api-key", id],
+      });
+    },
+  });
+}
+
+export function useRevokeIntegrationApiKey(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/v1/admin/integrations/${id}/api-key`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ["admin-integration-api-key", id],
+      });
+    },
   });
 }

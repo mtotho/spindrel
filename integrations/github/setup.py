@@ -6,6 +6,7 @@ SETUP = {
         {"key": "GITHUB_WEBHOOK_SECRET", "required": True, "description": "Webhook signature secret", "secret": True},
         {"key": "GITHUB_BOT_LOGIN", "required": False, "description": "GitHub username of the bot/PAT owner (to ignore its own comments)"},
     ],
+    "api_permissions": ["chat", "bots:read", "channels:read", "channels:write", "sessions:read", "sessions:write"],
     "webhook": {
         "path": "/integrations/github/webhook",
         "description": "GitHub webhook receiver (push, PR, issue events)",

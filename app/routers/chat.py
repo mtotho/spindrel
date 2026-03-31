@@ -276,17 +276,24 @@ def _resolve_audio_native(req: ChatRequest, bot) -> bool:
     return bot.audio_input == "native"
 
 
-def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> str:
-    """Decode base64 audio and transcribe via Whisper (server-side STT)."""
+async def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> str:
+    """Decode base64 audio and transcribe via Whisper (server-side STT).
+
+    Runs in a thread to avoid blocking the event loop (Whisper is CPU-bound).
+    """
+    import asyncio
     import base64
     import tempfile
 
-    raw = base64.b64decode(audio_b64)
-    ext = f".{audio_format}" if audio_format else ".m4a"
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=True) as tmp:
-        tmp.write(raw)
-        tmp.flush()
-        return stt_transcribe(tmp.name)
+    def _sync_transcribe() -> str:
+        raw = base64.b64decode(audio_b64)
+        ext = f".{audio_format}" if audio_format else ".m4a"
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=True) as tmp:
+            tmp.write(raw)
+            tmp.flush()
+            return stt_transcribe(tmp.name)
+
+    return await asyncio.to_thread(_sync_transcribe)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -338,7 +345,7 @@ async def chat(
             if isinstance(_override, str) and _override.strip():
                 message = _override
             else:
-                message = _transcribe_audio_data(req.audio_data, req.audio_format)
+                message = await _transcribe_audio_data(req.audio_data, req.audio_format)
             if not message.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
 
@@ -498,7 +505,7 @@ async def chat_stream(
         else:
             logger.info("POST /chat/stream  bot=%s  session=%s  transcribing audio",
                         req.bot_id, req.session_id)
-            message = _transcribe_audio_data(req.audio_data, req.audio_format)
+            message = await _transcribe_audio_data(req.audio_data, req.audio_format)
             if not message.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
 

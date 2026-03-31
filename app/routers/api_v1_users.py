@@ -95,13 +95,28 @@ async def update_user(
     if req.integration_config is not None:
         user.integration_config = req.integration_config
     if req.is_admin is not None:
+        role_changed = req.is_admin != user.is_admin
         user.is_admin = req.is_admin
+    else:
+        role_changed = False
     if req.is_active is not None:
         user.is_active = req.is_active
     if req.password is not None and user.auth_method == "local":
         user.password_hash = hash_password(req.password)
     await db.commit()
     await db.refresh(user)
+
+    # Sync API key scopes when role changes
+    if role_changed and user.api_key_id:
+        from app.services.api_keys import ensure_entity_api_key, SCOPE_PRESETS
+        preset_name = "admin_user" if user.is_admin else "member_user"
+        scopes = SCOPE_PRESETS[preset_name]["scopes"]
+        await ensure_entity_api_key(
+            db, name=f"user:{user.email}", scopes=scopes,
+            existing_key_id=user.api_key_id,
+        )
+        await db.commit()
+
     return _user_out(user)
 
 
