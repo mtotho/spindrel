@@ -306,6 +306,17 @@ async def assemble_context(
         _new_mcp = [t for t in _resolved_c.mcp_tools if t not in _existing_mcp]
         _existing_pinned = set(bot.pinned_tools)
         _new_pinned = [t for t in _resolved_c.pinned_tools if t not in _existing_pinned]
+        # Re-apply channel disabled lists so carapaces can't bypass channel restrictions
+        if _ch_row is not None:
+            _ch_tools_disabled = set(getattr(_ch_row, "local_tools_disabled", None) or [])
+            _ch_mcp_disabled = set(getattr(_ch_row, "mcp_servers_disabled", None) or [])
+            _ch_skills_disabled = set(getattr(_ch_row, "skills_disabled", None) or [])
+            if _ch_tools_disabled:
+                _new_local = [t for t in _new_local if t not in _ch_tools_disabled]
+            if _ch_mcp_disabled:
+                _new_mcp = [t for t in _new_mcp if t not in _ch_mcp_disabled]
+            if _ch_skills_disabled:
+                _new_skills = [s for s in _new_skills if s.id not in _ch_skills_disabled]
         bot = _dc_replace(
             bot,
             skills=list(bot.skills) + _new_skills,
@@ -481,10 +492,12 @@ async def assemble_context(
                 _schema_content = _ch_schema_override
             elif getattr(_ch_row, "workspace_schema_template_id", None):
                 try:
+                    from app.db.engine import async_session as _schema_session_factory
                     from app.services.prompt_resolution import resolve_prompt_template
-                    _schema_content = await resolve_prompt_template(
-                        str(_ch_row.workspace_schema_template_id), fallback="", db=db,
-                    )
+                    async with _schema_session_factory() as _schema_db:
+                        _schema_content = await resolve_prompt_template(
+                            str(_ch_row.workspace_schema_template_id), fallback="", db=_schema_db,
+                        )
                 except Exception:
                     logger.warning("Failed to resolve workspace schema template for channel %s", _ch_row.id, exc_info=True)
 
@@ -643,10 +656,14 @@ async def assemble_context(
                 },
             ))
 
-    # --- execution_config ephemeral skills (not already @-tagged) ---
+    # --- execution_config ephemeral skills (not already @-tagged or in bot.skills) ---
     from app.agent.context import current_ephemeral_skills
     _ephemeral_skill_ids = list(current_ephemeral_skills.get() or [])
-    _untagged_ephemeral = [s for s in _ephemeral_skill_ids if s not in _tagged_skill_names]
+    _bot_skill_ids = {s.id for s in bot.skills}
+    _untagged_ephemeral = [
+        s for s in _ephemeral_skill_ids
+        if s not in _tagged_skill_names and s not in _bot_skill_ids
+    ]
     if _untagged_ephemeral:
         _eph_chunks: list[str] = []
         for _eph_id in _untagged_ephemeral:

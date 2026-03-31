@@ -334,8 +334,19 @@ async def list_channels(
         stmt = stmt.where(Channel.bot_id == bot_id)
     channels = (await db.execute(stmt)).scalars().all()
 
+    def _enrich(ch: Channel) -> ChannelOut:
+        out = ChannelOut.model_validate(ch)
+        try:
+            from app.agent.bots import get_bot
+            bot = get_bot(ch.bot_id)
+            out.resolved_workspace_id = bot.shared_workspace_id
+        except Exception:
+            pass
+        out.tags = (ch.metadata_ or {}).get("tags", [])
+        return out
+
     if not include_heartbeat:
-        return [ChannelOut.model_validate(ch) for ch in channels]
+        return [_enrich(ch) for ch in channels]
 
     # Batch-load heartbeat rows
     channel_ids = [ch.id for ch in channels]
@@ -349,6 +360,13 @@ async def list_channels(
     result = []
     for ch in channels:
         item = ChannelListItemOut.model_validate(ch)
+        try:
+            from app.agent.bots import get_bot as _get_bot
+            _b = _get_bot(ch.bot_id)
+            item.resolved_workspace_id = _b.shared_workspace_id
+        except Exception:
+            pass
+        item.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         item.heartbeat_enabled = hb.enabled if hb else False
         item.heartbeat_next_run_at = hb.next_run_at if hb else None

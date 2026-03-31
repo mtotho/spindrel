@@ -211,6 +211,9 @@ class Settings(BaseSettings):
     TIMEZONE: str = "America/New_York"
     BASE_URL: str = ""  # Public URL (e.g. tunnel); used to build webhook URLs in admin UI
 
+    # Encryption (secrets at rest)
+    ENCRYPTION_KEY: str = ""  # Fernet key for encrypting provider API keys + integration secrets
+
     # Auth
     API_KEY: str
     ADMIN_API_KEY: str = ""  # empty = fall back to API_KEY for backward compat

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator, TextInput, ScrollView } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, TextInput, ScrollView, Alert, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   useCarapace,
@@ -97,12 +97,22 @@ export default function CarapaceDetailPage() {
     }
   };
 
-  const handleDelete = async () => {
-    try {
-      await deleteMut.mutateAsync(carapaceId!);
-      router.back();
-    } catch {
-      // ignore
+  const handleDelete = () => {
+    const doDelete = async () => {
+      try {
+        await deleteMut.mutateAsync(carapaceId!);
+        router.back();
+      } catch {
+        // error shown via mutation state below
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(`Delete carapace "${draft.name}"?`)) doDelete();
+    } else {
+      Alert.alert("Delete Carapace", `Delete "${draft.name}"?`, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ]);
     }
   };
 
@@ -150,6 +160,14 @@ export default function CarapaceDetailPage() {
             )}
           </View>
         </View>
+
+        {(createMut.isError || updateMut.isError || deleteMut.isError) && (
+          <View style={{ backgroundColor: "rgba(239,68,68,0.08)", padding: 10, borderRadius: 8, marginBottom: 12 }}>
+            <Text style={{ color: "#ef4444", fontSize: 12 }}>
+              {(createMut.error || updateMut.error || deleteMut.error)?.message || "Operation failed"}
+            </Text>
+          </View>
+        )}
 
         {isFileBased && (
           <View style={{ backgroundColor: "rgba(59,130,246,0.08)", padding: 10, borderRadius: 8, marginBottom: 16 }}>

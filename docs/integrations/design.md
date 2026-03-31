@@ -214,7 +214,7 @@ The admin UI's bot edit page has a Slack subsection under Display for `icon_emoj
 
 - Webhook prompt injection (`system_preamble`, `skills`, `tools`) — lives in
   `Task.execution_config` JSONB. Set by integrations via `inject_message(execution_config=...)`.
-  See [README.md](README.md#webhook-prompt-injection-execution_config) for details.
+  See [Creating an Integration](index.md#webhook-prompt-injection-execution_config) for details.
 
 ---
 
@@ -265,7 +265,7 @@ This enables:
 - **Clean separation** — the agent-server repo ships only core integrations (slack, example)
 
 For Docker deployments, mount external integration directories as volumes and set
-`INTEGRATION_DIRS` to the mount path. See [README.md](README.md) for examples.
+`INTEGRATION_DIRS` to the mount path. See [Creating an Integration](index.md) for examples.
 
 ---
 

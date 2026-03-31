@@ -149,6 +149,25 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                     skill_id = f"carapaces/{c_dir.name}/{p.stem}"
                     items.append((p, skill_id, SOURCE_FILE))
 
+    # integrations/*/carapaces/*/skills/*.md (integration carapace-scoped skills)
+    for base_dir in _integration_dirs():
+        if not base_dir.is_dir():
+            continue
+        for intg_dir in sorted(base_dir.iterdir()):
+            if not intg_dir.is_dir():
+                continue
+            intg_carapaces = intg_dir / "carapaces"
+            if not intg_carapaces.is_dir():
+                continue
+            for c_dir in sorted(intg_carapaces.iterdir()):
+                if not c_dir.is_dir():
+                    continue
+                c_skills = c_dir / "skills"
+                if c_skills.is_dir():
+                    for p in sorted(c_skills.glob("*.md")):
+                        skill_id = f"{base_dir.name}/{intg_dir.name}/carapaces/{c_dir.name}/{p.stem}"
+                        items.append((p, skill_id, SOURCE_INTEGRATION))
+
     return items
 
 

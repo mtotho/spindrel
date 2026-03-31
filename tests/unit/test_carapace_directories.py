@@ -218,6 +218,27 @@ class TestCollectSkillFiles:
         ids = [sid for _, sid, _ in items]
         assert not any(sid.startswith("carapaces/qa/") for sid in ids)
 
+    def test_integration_carapace_skills_discovered_at_startup(self, tmp_path, monkeypatch):
+        """Integration carapace skills must be found by _collect_skill_files (not just watcher)."""
+        monkeypatch.chdir(tmp_path)
+        carapaces = tmp_path / "carapaces"
+        carapaces.mkdir()
+
+        intg_skills = tmp_path / "integrations" / "myintg" / "carapaces" / "myc" / "skills"
+        intg_skills.mkdir(parents=True)
+        (intg_skills / "guide.md").write_text("# Guide")
+
+        from app.services.file_sync import _collect_skill_files
+
+        with patch("app.services.file_sync._integration_dirs", return_value=[tmp_path / "integrations"]):
+            items = _collect_skill_files()
+
+        ids = [sid for _, sid, _ in items]
+        assert "integrations/myintg/carapaces/myc/guide" in ids
+        # Verify source type is integration
+        matching = [(p, sid, st) for p, sid, st in items if sid == "integrations/myintg/carapaces/myc/guide"]
+        assert matching[0][2] == "integration"
+
 
 class TestViewAttachment:
     """Test view_attachment tool returns correct JSON structure."""
@@ -482,14 +503,16 @@ class TestContextMasterySkill:
         # Context map
         assert "Auto-Injected" in content
         assert "On Demand" in content
-        # Temperature hierarchy
+        # Temperature tiers
         assert "Hot" in content and "Warm" in content and "Cold" in content
-        # Self-improvement
-        assert "Self-Improvement" in content
+        # Reference file authoring (pseudo-skills)
         assert "Pseudo-Skill" in content or "pseudo-skill" in content or "Reference Files" in content
-        # Delegation
+        # Delegation with model override
         assert "Delegation" in content or "delegation" in content
         assert "model_override" in content
+        assert "schedule_task" in content
         # Context budget
         assert "MEMORY.md" in content
         assert "archive" in content.lower()
+        # Cold start
+        assert "Cold Start" in content

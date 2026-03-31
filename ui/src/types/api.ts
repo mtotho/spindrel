@@ -646,6 +646,22 @@ export interface CronEntry {
   user: string;
 }
 
+// Heartbeat types
+export interface HeartbeatHistoryRun {
+  id: string;
+  status: string;
+  run_at: string;
+  completed_at?: string | null;
+  result?: string | null;
+  error?: string | null;
+  correlation_id?: string | null;
+  repetition_detected?: boolean | null;
+  tool_calls: { tool_name: string; tool_type: string; iteration?: number | null; duration_ms?: number | null; error?: string | null }[];
+  total_tokens: number;
+  iterations: number;
+  duration_ms?: number | null;
+}
+
 // Admin types
 export interface AdminStats {
   sessions: number;

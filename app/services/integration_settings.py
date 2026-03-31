@@ -35,10 +35,15 @@ async def load_from_db() -> None:
     async with async_session() as db:
         rows = (await db.execute(select(IntegrationSetting))).scalars().all()
 
+    from app.services.encryption import decrypt
+
     _cache.clear()
     _secret_keys.clear()
     for row in rows:
-        _cache[(row.integration_id, row.key)] = row.value
+        value = row.value
+        if row.is_secret and value:
+            value = decrypt(value)
+        _cache[(row.integration_id, row.key)] = value
         _secret_keys[(row.integration_id, row.key)] = row.is_secret
 
     if rows:
@@ -112,6 +117,8 @@ async def update_settings(
     db: AsyncSession,
 ) -> dict[str, str]:
     """Upsert settings to DB and update cache. Empty string = delete."""
+    from app.services.encryption import encrypt
+
     # Build a lookup for secret flag from setup_vars
     secret_lookup = {v["key"]: v.get("secret", False) for v in setup_vars}
     applied: dict[str, str] = {}
@@ -125,19 +132,20 @@ async def update_settings(
             continue
 
         is_secret = secret_lookup.get(key, False)
+        db_value = encrypt(value) if is_secret else value
         stmt = pg_insert(IntegrationSetting).values(
             integration_id=integration_id,
             key=key,
-            value=value,
+            value=db_value,
             is_secret=is_secret,
             updated_at=now,
         ).on_conflict_do_update(
             index_elements=["integration_id", "key"],
-            set_={"value": value, "is_secret": is_secret, "updated_at": now},
+            set_={"value": db_value, "is_secret": is_secret, "updated_at": now},
         )
         await db.execute(stmt)
 
-        # Update cache
+        # Update cache with plaintext (decrypted) value
         _cache[(integration_id, key)] = value
         _secret_keys[(integration_id, key)] = is_secret
         applied[key] = value

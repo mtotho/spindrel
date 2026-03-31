@@ -257,7 +257,7 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: boolean }) {
+function HeartbeatHistoryList({ history, isWide }: { history: import("@/src/types/api").HeartbeatHistoryRun[]; isWide?: boolean }) {
   const t = useThemeTokens();
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -268,7 +268,7 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
         Recent Runs
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {history.map((hb: any) => {
+        {history.map((hb) => {
           const isExpanded = expandedId === hb.id;
           const hasContent = hb.result || hb.error || hb.correlation_id;
           return (
@@ -362,8 +362,8 @@ function HeartbeatHistoryList({ history, isWide }: { history: any[]; isWide?: bo
                     </div>
                   )}
                   {/* Tool calls */}
-                  {hb.tool_calls?.length > 0 && (
-                    <ToolCallsList toolCalls={hb.tool_calls} isWide={isWide} />
+                  {hb.tool_calls.length > 0 && (
+                    <ToolCallsList toolCalls={hb.tool_calls as any} isWide={isWide} />
                   )}
                   {hb.correlation_id && (
                     <div

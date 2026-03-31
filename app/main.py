@@ -172,6 +172,15 @@ async def lifespan(app: FastAPI):
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()
+    # Warn if secrets exist but encryption is not configured
+    from app.services.encryption import is_encryption_enabled
+    if not is_encryption_enabled():
+        from app.services.providers import list_providers as _list_providers
+        if any(p.api_key for p in _list_providers()):
+            logger.warning(
+                "ENCRYPTION_KEY is not set — provider API keys are stored as plaintext in the database. "
+                "Set ENCRYPTION_KEY in .env to enable encryption at rest."
+            )
     logger.info("Loading usage limits...")
     from app.services.usage_limits import load_limits, start_refresh_task
     await load_limits()
@@ -226,9 +235,8 @@ async def lifespan(app: FastAPI):
     await file_sync.sync_all_files()
     logger.info("Loading skills from DB...")
     await load_skills()
-    logger.info("Seeding carapaces from YAML (seed-once)...")
-    from app.agent.carapaces import seed_carapaces_from_yaml, load_carapaces
-    await seed_carapaces_from_yaml()
+    # Carapace YAML seeding is handled by sync_all_files() above; just load registry.
+    from app.agent.carapaces import load_carapaces
     logger.info("Loading carapaces from DB...")
     await load_carapaces()
     logger.info("Starting file watcher...")

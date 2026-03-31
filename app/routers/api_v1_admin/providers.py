@@ -238,16 +238,22 @@ async def admin_create_provider(
     if existing:
         raise HTTPException(status_code=409, detail=f"Provider '{pid}' already exists")
 
+    from app.services.encryption import encrypt
+
     config: dict = {}
     if body.provider_type == "litellm" and body.management_key:
-        config["management_key"] = body.management_key.strip()
+        config["management_key"] = encrypt(body.management_key.strip())
+
+    api_key_value = body.api_key.strip() if body.api_key else None
+    if api_key_value:
+        api_key_value = encrypt(api_key_value)
 
     now = datetime.now(timezone.utc)
     row = ProviderConfigRow(
         id=pid,
         provider_type=body.provider_type,
         display_name=body.display_name.strip(),
-        api_key=body.api_key.strip() if body.api_key else None,
+        api_key=api_key_value,
         base_url=body.base_url.strip() if body.base_url else None,
         is_enabled=body.is_enabled,
         tpm_limit=body.tpm_limit,
@@ -278,6 +284,8 @@ async def admin_update_provider(
     if not row:
         raise HTTPException(status_code=404, detail="Provider not found")
 
+    from app.services.encryption import encrypt
+
     if body.provider_type is not None:
         if body.provider_type not in PROVIDER_TYPES:
             raise HTTPException(status_code=422, detail=f"Invalid provider_type")
@@ -285,7 +293,8 @@ async def admin_update_provider(
     if body.display_name is not None:
         row.display_name = body.display_name.strip()
     if body.api_key is not None:
-        row.api_key = body.api_key.strip() or None
+        raw_key = body.api_key.strip() or None
+        row.api_key = encrypt(raw_key) if raw_key else None
     if body.base_url is not None:
         row.base_url = body.base_url.strip() or None
     if body.is_enabled is not None:
@@ -302,7 +311,7 @@ async def admin_update_provider(
     config = dict(row.config or {})
     if body.management_key is not None:
         if body.management_key.strip():
-            config["management_key"] = body.management_key.strip()
+            config["management_key"] = encrypt(body.management_key.strip())
         else:
             config.pop("management_key", None)
     row.config = config
