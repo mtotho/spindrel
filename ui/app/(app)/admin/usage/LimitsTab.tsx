@@ -9,9 +9,9 @@ import {
   useUpdateUsageLimit,
   useDeleteUsageLimit,
   type UsageLimitStatus,
-  type UsageLimit,
 } from "@/src/api/hooks/useUsageLimits";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
 function fmtCost(v: number | null | undefined): string {
   if (v == null) return "--";
@@ -25,17 +25,19 @@ function progressColor(pct: number, t: ReturnType<typeof useThemeTokens>): strin
   return t.success;
 }
 
-// Matches useSelectStyle() from the parent page
-function useSelectStyle(): React.CSSProperties {
+/** Shared input style matching LlmModelDropdown's trigger (7px 12px, border-radius 8). */
+function useInputStyle(): React.CSSProperties {
   const t = useThemeTokens();
   return {
-    background: t.surfaceRaised,
-    color: t.textMuted,
-    border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: 6,
-    padding: "5px 10px",
-    fontSize: 12,
+    background: t.inputBg,
+    color: t.text,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 8,
+    padding: "7px 12px",
+    fontSize: 13,
     outline: "none",
+    height: 36,
+    boxSizing: "border-box" as const,
   };
 }
 
@@ -98,7 +100,7 @@ function LimitStatusCard({ s }: { s: UsageLimitStatus }) {
 
 function AddLimitForm({ knownModels }: { knownModels: string[] }) {
   const t = useThemeTokens();
-  const selectStyle = useSelectStyle();
+  const inputStyle = useInputStyle();
   const { data: bots } = useBots();
   const createMutation = useCreateUsageLimit();
 
@@ -116,11 +118,7 @@ function AddLimitForm({ knownModels }: { knownModels: string[] }) {
     );
   };
 
-  const scopeOptions =
-    scopeType === "model"
-      ? knownModels
-      : (bots ?? []).map((b: any) => b.id);
-
+  const botOptions = (bots ?? []).map((b: any) => b.id as string);
   const canSubmit = !!scopeValue && !!limitUsd && !createMutation.isPending;
 
   return (
@@ -129,77 +127,107 @@ function AddLimitForm({ knownModels }: { knownModels: string[] }) {
         display: "flex",
         flexWrap: "wrap",
         gap: 8,
-        alignItems: "center",
+        alignItems: "flex-end",
       }}
     >
-      <select
-        value={scopeType}
-        onChange={(e) => { setScopeType(e.target.value as any); setScopeValue(""); }}
-        style={selectStyle}
-      >
-        <option value="model">Model</option>
-        <option value="bot">Bot</option>
-      </select>
-
-      {scopeOptions.length > 0 ? (
-        <select value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} style={selectStyle}>
-          <option value="">Select {scopeType}...</option>
-          {scopeOptions.map((v: string) => (
-            <option key={v} value={v}>{v}</option>
-          ))}
+      {/* Scope type */}
+      <div style={{ minWidth: 90 }}>
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Type</div>
+        <select
+          value={scopeType}
+          onChange={(e) => { setScopeType(e.target.value as any); setScopeValue(""); }}
+          style={inputStyle}
+        >
+          <option value="model">Model</option>
+          <option value="bot">Bot</option>
         </select>
-      ) : (
+      </div>
+
+      {/* Scope value — LlmModelDropdown for models, select for bots */}
+      <div style={{ minWidth: 200, flex: 1 }}>
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+          {scopeType === "model" ? "Model" : "Bot"}
+        </div>
+        {scopeType === "model" ? (
+          <LlmModelDropdown
+            value={scopeValue}
+            onChange={setScopeValue}
+            placeholder="Select model..."
+            allowClear={false}
+          />
+        ) : botOptions.length > 0 ? (
+          <select value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
+            <option value="">Select bot...</option>
+            {botOptions.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={scopeValue}
+            onChange={(e) => setScopeValue(e.target.value)}
+            placeholder="Bot ID"
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        )}
+      </div>
+
+      {/* Period */}
+      <div style={{ minWidth: 90 }}>
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Period</div>
+        <select value={period} onChange={(e) => setPeriod(e.target.value as any)} style={inputStyle}>
+          <option value="daily">Daily</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+
+      {/* Limit USD */}
+      <div style={{ minWidth: 80 }}>
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Limit ($)</div>
         <input
-          value={scopeValue}
-          onChange={(e) => setScopeValue(e.target.value)}
-          placeholder={`${scopeType} name`}
-          style={{ ...selectStyle, width: 160 }}
+          type="number"
+          min="0"
+          step="0.01"
+          value={limitUsd}
+          onChange={(e) => setLimitUsd(e.target.value)}
+          placeholder="0.00"
+          style={{ ...inputStyle, width: "100%" }}
         />
-      )}
+      </div>
 
-      <select value={period} onChange={(e) => setPeriod(e.target.value as any)} style={selectStyle}>
-        <option value="daily">Daily</option>
-        <option value="monthly">Monthly</option>
-      </select>
-
-      <input
-        type="number"
-        min="0"
-        step="0.01"
-        value={limitUsd}
-        onChange={(e) => setLimitUsd(e.target.value)}
-        placeholder="$ limit"
-        style={{ ...selectStyle, width: 80 }}
-      />
-
-      <button
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-        style={{
-          padding: "5px 14px",
-          fontSize: 12,
-          fontWeight: 600,
-          background: canSubmit ? t.accent : t.surfaceRaised,
-          color: canSubmit ? "#fff" : t.textDim,
-          border: `1px solid ${canSubmit ? t.accent : t.surfaceBorder}`,
-          borderRadius: 6,
-          cursor: canSubmit ? "pointer" : "default",
-        }}
-      >
-        {createMutation.isPending ? "Adding..." : "Add"}
-      </button>
+      {/* Submit */}
+      <div>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={{
+            height: 36,
+            padding: "0 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            background: canSubmit ? t.accent : t.surfaceRaised,
+            color: canSubmit ? "#fff" : t.textDim,
+            border: `1px solid ${canSubmit ? t.accent : t.surfaceBorder}`,
+            borderRadius: 8,
+            cursor: canSubmit ? "pointer" : "default",
+            boxSizing: "border-box" as const,
+          }}
+        >
+          {createMutation.isPending ? "Adding..." : "Add Limit"}
+        </button>
+      </div>
 
       {createMutation.isError && (
-        <span style={{ color: t.danger, fontSize: 12 }}>
+        <div style={{ width: "100%", color: t.danger, fontSize: 12 }}>
           {(createMutation.error as any)?.message || "Failed to create"}
-        </span>
+        </div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Limits list (matches CostTable layout from Overview)
+// Limits list
 // ---------------------------------------------------------------------------
 
 function LimitsTable() {
@@ -219,7 +247,7 @@ function LimitsTable() {
 
   return (
     <div style={{ border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8, overflow: "hidden" }}>
-      {/* Header — matches CostTable */}
+      {/* Header */}
       <div
         style={{
           display: "flex",

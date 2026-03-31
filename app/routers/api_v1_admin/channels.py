@@ -113,7 +113,7 @@ class ChannelOut(BaseModel):
     heartbeat_enabled: bool = False
     heartbeat_in_quiet_hours: bool = False
     channel_workspace_enabled: Optional[bool] = None
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
@@ -377,7 +377,7 @@ class ChannelSettingsOut(BaseModel):
     # Resolved defaults for index segment fields (computed, not stored)
     index_segment_defaults: Optional[dict] = None
     # Workspace scope
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
     tags: list[str] = []
@@ -586,9 +586,8 @@ async def admin_channel_settings(
         raise HTTPException(status_code=404, detail="Channel not found")
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    ws_id = str(channel.workspace_id) if channel.workspace_id else None
-    out.workspace_id = ws_id
-    out.resolved_workspace_id = ws_id or _resolve_workspace_id(channel.bot_id)
+    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
+    out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -657,9 +656,8 @@ async def admin_channel_settings_update(
     await db.refresh(channel)
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    ws_id = str(channel.workspace_id) if channel.workspace_id else None
-    out.workspace_id = ws_id
-    out.resolved_workspace_id = ws_id or _resolve_workspace_id(channel.bot_id)
+    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
+    out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -1890,9 +1888,8 @@ async def admin_channels_enriched(
     for ch in channels:
         out = ChannelOut.model_validate(ch)
         out.display_name = display_names.get(ch.id)
-        ws_id = str(ch.workspace_id) if ch.workspace_id else None
-        out.workspace_id = ws_id
-        out.resolved_workspace_id = ws_id or _resolve_workspace_id(ch.bot_id)
+        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
+        out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(ch.bot_id)
         out.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:
