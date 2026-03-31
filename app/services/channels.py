@@ -369,20 +369,108 @@ async def resolve_integration_user(
     return result.scalar_one_or_none()
 
 
-async def ensure_orchestrator_channel() -> None:
-    """Create the orchestrator landing channel if the orchestrator bot exists.
+async def _ensure_orchestrator_bot_exists() -> bool:
+    """Ensure the orchestrator bot exists in DB, creating it if needed.
 
-    Called from lifespan after load_bots(). Idempotent — skips if the channel
-    already exists or the orchestrator bot isn't seeded.
+    Returns True if the bot exists (or was just created), False on failure.
     """
-    from app.agent.bots import _registry
+    from app.db.models import Bot as BotModel
+
+    async with async_session() as db:
+        existing = (await db.execute(
+            select(BotModel).where(BotModel.id == "orchestrator")
+        )).scalar_one_or_none()
+        if existing:
+            return True
+
+        # Try YAML seeding first (preferred — keeps system_prompt in sync with file)
+        from app.agent.bots import SYSTEM_BOTS_DIR
+        yaml_path = SYSTEM_BOTS_DIR / "orchestrator.yaml"
+        if yaml_path.exists():
+            try:
+                import yaml as _yaml
+                from app.agent.bots import _yaml_data_to_row_dict
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                with open(yaml_path) as f:
+                    data = _yaml.safe_load(f)
+                if data and "id" in data:
+                    row_dict = _yaml_data_to_row_dict(data)
+                    stmt = pg_insert(BotModel).values(**row_dict).on_conflict_do_nothing(
+                        index_elements=["id"]
+                    )
+                    await db.execute(stmt)
+                    await db.commit()
+                    logger.info("Seeded orchestrator bot from YAML: %s", yaml_path)
+                    return True
+            except Exception:
+                logger.warning("YAML seeding failed for orchestrator, falling back to inline", exc_info=True)
+                await db.rollback()
+
+        # Inline fallback — create directly
+        bot = BotModel(
+            id="orchestrator",
+            name="Orchestrator",
+            model="gemini/gemini-2.5-flash",
+            system_prompt=(
+                "You are the Orchestrator — the central hub for this Spindrel instance.\n\n"
+                "On EVERY first message, call `get_system_status` before responding.\n"
+                "If `is_fresh_install: true`, walk the user through setup (provider, first bot, "
+                "integrations, first channel). Otherwise, offer management.\n\n"
+                "## Guidelines\n"
+                "- Be concise and direct — just use tools, don't explain them.\n"
+                "- Use sensible defaults. Don't ask questions you can answer yourself.\n"
+                "- Never suggest editing YAML or .env — do everything through tools.\n"
+                "- When creating bots, enable workspace + workspace-files memory by default.\n"
+                "- If an LLM error occurs, use `manage_bot` to update your model."
+            ),
+            local_tools=["get_system_status", "manage_bot", "manage_channel",
+                          "manage_integration", "web_search", "get_skill"],
+            skills=[
+                {"id": "integration-builder", "mode": "on_demand"},
+                {"id": "project-management", "mode": "on_demand"},
+            ],
+            tool_retrieval=True,
+            context_compaction=True,
+            workspace={"enabled": True},
+            memory_scheme="workspace-files",
+            history_mode="file",
+            delegation_config={
+                "delegate_bots": ["*"],
+                "harness_access": [],
+                "cross_workspace_access": True,
+            },
+        )
+        try:
+            db.add(bot)
+            await db.commit()
+            logger.info("Created orchestrator bot via inline fallback")
+            return True
+        except Exception:
+            logger.error("Failed to create orchestrator bot", exc_info=True)
+            return False
+
+
+async def ensure_orchestrator_channel() -> None:
+    """Create the orchestrator bot (if needed) and its landing channel.
+
+    Called from lifespan after load_bots(). Idempotent.
+    """
+    from app.agent.bots import _registry, load_bots
+
+    if "orchestrator" not in _registry:
+        # Bot not in registry — try to ensure it exists in DB and reload
+        created = await _ensure_orchestrator_bot_exists()
+        if created:
+            await load_bots()
+
     if "orchestrator" not in _registry:
         logger.warning(
-            "Orchestrator bot not found in registry — skipping orchestrator channel. "
+            "Orchestrator bot could not be created — skipping orchestrator channel. "
             "Available bots: %s",
             list(_registry.keys()),
         )
         return
+
     async with async_session() as db:
         ch = await get_or_create_channel(
             db,

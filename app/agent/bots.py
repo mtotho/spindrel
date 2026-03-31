@@ -542,9 +542,14 @@ async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
     yaml_files: list[Path] = []
     for d in source_dirs:
         if d.exists():
-            yaml_files.extend(d.glob("*.yaml"))
+            found = list(d.glob("*.yaml"))
+            logger.info("Bot seed scan: %s → %d YAML file(s)", d, len(found))
+            yaml_files.extend(found)
+        else:
+            logger.warning("Bot seed scan: directory does not exist: %s", d)
 
     if not yaml_files:
+        logger.warning("No bot YAML files found in any source directory")
         return
 
     async with async_session() as db:

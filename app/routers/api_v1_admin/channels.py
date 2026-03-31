@@ -456,22 +456,12 @@ async def ensure_orchestrator(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """Manually trigger orchestrator bot seeding + channel creation.
+    """Create orchestrator bot + channel if they don't exist.
 
-    Useful if the automatic startup seeding failed for any reason.
+    Creates the bot directly in DB if needed (no YAML dependency),
+    reloads the bot registry, then ensures the orchestrator channel exists.
     """
-    from app.agent.bots import seed_bots_from_yaml, load_bots, _registry
     from app.services.channels import ensure_orchestrator_channel
-
-    # Re-run seeding in case the orchestrator bot wasn't inserted
-    await seed_bots_from_yaml()
-    await load_bots()
-
-    if "orchestrator" not in _registry:
-        raise HTTPException(
-            status_code=500,
-            detail="Orchestrator bot failed to load into registry after seeding",
-        )
 
     await ensure_orchestrator_channel()
 
@@ -481,7 +471,7 @@ async def ensure_orchestrator(
         select(ChannelModel).where(ChannelModel.client_id == "orchestrator:home")
     )).scalar_one_or_none()
     if not ch:
-        raise HTTPException(status_code=500, detail="Orchestrator channel was not created")
+        raise HTTPException(status_code=500, detail="Orchestrator channel could not be created")
 
     return {"id": str(ch.id), "name": ch.name, "client_id": ch.client_id}
 
