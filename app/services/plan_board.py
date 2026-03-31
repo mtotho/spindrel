@@ -28,8 +28,8 @@ import uuid
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"draft", "approved", "executing", "complete", "abandoned"}
-STEP_MARKERS = {"[ ]": "pending", "[x]": "done", "[~]": "in_progress", "[-]": "skipped"}
-STEP_MARKERS_REV = {"pending": "[ ]", "done": "[x]", "in_progress": "[~]", "skipped": "[-]"}
+STEP_MARKERS = {"[ ]": "pending", "[x]": "done", "[~]": "in_progress", "[-]": "skipped", "[!]": "failed"}
+STEP_MARKERS_REV = {"pending": "[ ]", "done": "[x]", "in_progress": "[~]", "skipped": "[-]", "failed": "[!]"}
 
 
 def generate_plan_id() -> str:
@@ -45,7 +45,7 @@ def parse_step_status(marker: str) -> str:
 def _parse_steps(text: str) -> list[dict]:
     """Parse numbered step lines from a text block."""
     steps: list[dict] = []
-    step_re = re.compile(r"^(\d+)\.\s+\[([ x~-])\]\s+(.+)$")
+    step_re = re.compile(r"^(\d+)\.\s+\[([ x~!-])\]\s+(.+)$")
     for line in text.splitlines():
         m = step_re.match(line.strip())
         if m:

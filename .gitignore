@@ -64,7 +64,6 @@ rclone.conf
 tools/*.py
 
 # Personal/private integrations (only slack/ and example/ ship with the repo)
-integrations/arr/
 integrations/bennieloggins/
 
 

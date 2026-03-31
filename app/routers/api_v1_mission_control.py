@@ -94,6 +94,24 @@ def _get_bot(bot_id: str):
     return get_bot(bot_id)
 
 
+def _plan_step_summary(plan: dict) -> str:
+    """Build a concise summary of plan step states for task prompts."""
+    steps = plan.get("steps", [])
+    if not steps:
+        return "No steps defined."
+    lines = []
+    next_step = None
+    for s in steps:
+        marker = {"pending": "[ ]", "in_progress": "[~]", "done": "[x]", "skipped": "[-]", "failed": "[!]"}.get(s["status"], "[ ]")
+        lines.append(f"  {s['position']}. {marker} {s['content']}")
+        if next_step is None and s["status"] in ("pending", "in_progress"):
+            next_step = s
+    summary = "\n".join(lines)
+    if next_step:
+        summary += f"\n\nNext step: #{next_step['position']} — {next_step['content']}"
+    return summary
+
+
 async def _tracked_channels(
     db: AsyncSession,
     user: User | None,
@@ -1458,7 +1476,7 @@ async def approve_plan(
     except Exception:
         logger.debug("Failed to log timeline for plan approval", exc_info=True)
 
-    # Send message to channel to trigger bot execution
+    # Create execution task with plan-aware context for self-continuation
     task_created = False
     try:
         from app.db.models import Task as TaskModel
@@ -1468,7 +1486,12 @@ async def approve_plan(
         session_id = await ensure_active_session(db, channel)
         await db.commit()
 
-        prompt = f"Plan '{plan['title']}' has been approved. Begin executing the plan steps in order."
+        step_summary = _plan_step_summary(plan)
+        prompt = (
+            f"Plan '{plan['title']}' ({plan_id}) has been approved. "
+            f"Execute the next pending step.\n\n"
+            f"Current step status:\n{step_summary}"
+        )
         await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
         await db.commit()
 
@@ -1482,6 +1505,23 @@ async def approve_plan(
             task_type="api",
             dispatch_type=channel.integration or "none",
             dispatch_config=channel.dispatch_config or {},
+            execution_config={
+                "system_preamble": (
+                    f"You are executing approved plan '{plan['title']}' ({plan_id}). "
+                    "Work through ONE step at a time. For each step: "
+                    "1) call update_plan_step to mark it in_progress, "
+                    "2) do the work, "
+                    "3) call update_plan_step to mark it done (or failed if it cannot be completed). "
+                    "Write intermediate results to workspace files. "
+                    "After completing a step, if more steps remain, call schedule_task() "
+                    "to continue with the next step — use this exact prompt pattern: "
+                    f"\"Continue executing plan '{plan['title']}' ({plan_id}). "
+                    f"Pick up from the next pending step.\""
+                ),
+            },
+            callback_config={
+                "trigger_rag_loop": True,
+            },
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)
@@ -1619,7 +1659,12 @@ async def resume_plan(
         session_id = await ensure_active_session(db, channel)
         await db.commit()
 
-        prompt = f"Continue executing plan '{plan['title']}'. Pick up from the next pending step."
+        step_summary = _plan_step_summary(plan)
+        prompt = (
+            f"Continue executing plan '{plan['title']}' ({plan_id}). "
+            f"Pick up from the next pending step.\n\n"
+            f"Current step status:\n{step_summary}"
+        )
         await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
         await db.commit()
 
@@ -1633,6 +1678,21 @@ async def resume_plan(
             task_type="api",
             dispatch_type=channel.integration or "none",
             dispatch_config=channel.dispatch_config or {},
+            execution_config={
+                "system_preamble": (
+                    f"You are resuming execution of plan '{plan['title']}' ({plan_id}). "
+                    "Work through ONE step at a time. For each step: "
+                    "1) call update_plan_step to mark it in_progress, "
+                    "2) do the work, "
+                    "3) call update_plan_step to mark it done (or failed if it cannot be completed). "
+                    "Write intermediate results to workspace files. "
+                    "After completing a step, if more steps remain, call schedule_task() "
+                    "to continue with the next step."
+                ),
+            },
+            callback_config={
+                "trigger_rag_loop": True,
+            },
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

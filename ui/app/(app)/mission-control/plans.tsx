@@ -20,11 +20,12 @@ import {
   CheckCircle2,
   Loader2,
   MinusCircle,
+  AlertCircle,
   ChevronDown,
   ChevronRight,
   Play,
   X,
-  RotateCw,
+  StepForward,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,8 @@ function StepIcon({ status }: { status: string }) {
       return <Loader2 size={14} color="#3b82f6" />;
     case "skipped":
       return <MinusCircle size={14} color="#9ca3af" />;
+    case "failed":
+      return <AlertCircle size={14} color="#ef4444" />;
     default:
       return <Circle size={14} color="#d1d5db" />;
   }
@@ -63,7 +66,7 @@ function ProgressBar({ steps }: { steps: MCPlan["steps"] }) {
   const t = useThemeTokens();
   const total = steps.length;
   if (total === 0) return null;
-  const done = steps.filter((s) => s.status === "done" || s.status === "skipped").length;
+  const done = steps.filter((s) => s.status === "done" || s.status === "skipped" || s.status === "failed").length;
   const pct = Math.round((done / total) * 100);
 
   return (
@@ -207,32 +210,47 @@ function PlanCard({ plan }: { plan: MCPlan }) {
           style={{ gap: 10 }}
         >
           {/* Steps */}
-          {plan.steps.length > 0 && (
-            <View style={{ gap: 4 }}>
-              {plan.steps.map((step) => (
-                <View
-                  key={step.position}
-                  className="flex-row items-start gap-2"
-                  style={{ paddingVertical: 2 }}
-                >
-                  <View style={{ marginTop: 1 }}>
-                    <StepIcon status={step.status} />
-                  </View>
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: step.status === "done" || step.status === "skipped" ? t.textDim : t.text,
-                      flex: 1,
-                      lineHeight: 18,
-                      textDecorationLine: step.status === "skipped" ? "line-through" : "none",
-                    }}
-                  >
-                    {step.position}. {step.content}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
+          {plan.steps.length > 0 && (() => {
+            const nextIdx = plan.steps.findIndex(
+              (s) => s.status === "pending" || s.status === "in_progress"
+            );
+            return (
+              <View style={{ gap: 4 }}>
+                {plan.steps.map((step, i) => {
+                  const isNext = plan.status === "executing" && i === nextIdx;
+                  const isTerminal = step.status === "done" || step.status === "skipped" || step.status === "failed";
+                  return (
+                    <View
+                      key={step.position}
+                      className="flex-row items-start gap-2"
+                      style={{
+                        paddingVertical: 2,
+                        paddingHorizontal: isNext ? 4 : 0,
+                        backgroundColor: isNext ? "rgba(59,130,246,0.06)" : "transparent",
+                        borderRadius: isNext ? 6 : 0,
+                      }}
+                    >
+                      <View style={{ marginTop: 1 }}>
+                        <StepIcon status={step.status} />
+                      </View>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: step.status === "failed" ? "#ef4444" : isTerminal ? t.textDim : t.text,
+                          flex: 1,
+                          lineHeight: 18,
+                          fontWeight: isNext ? "600" : "400",
+                          textDecorationLine: step.status === "skipped" ? "line-through" : "none",
+                        }}
+                      >
+                        {step.position}. {step.content}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })()}
 
           {/* Notes */}
           {plan.notes ? (
@@ -308,24 +326,29 @@ function PlanCard({ plan }: { plan: MCPlan }) {
                 )}
               </>
             )}
-            {plan.status === "executing" && (
-              <Pressable
-                onPress={handleResume}
-                disabled={resume.isPending}
-                className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-                style={{
-                  backgroundColor: "rgba(59,130,246,0.12)",
-                  borderWidth: 1,
-                  borderColor: "rgba(59,130,246,0.35)",
-                  opacity: resume.isPending ? 0.5 : 1,
-                }}
-              >
-                <RotateCw size={12} color="#3b82f6" />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: "#3b82f6" }}>
-                  Resume
-                </Text>
-              </Pressable>
-            )}
+            {plan.status === "executing" && (() => {
+              const nextStep = plan.steps.find(
+                (s) => s.status === "pending" || s.status === "in_progress"
+              );
+              return (
+                <Pressable
+                  onPress={handleResume}
+                  disabled={resume.isPending || !nextStep}
+                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
+                  style={{
+                    backgroundColor: "rgba(59,130,246,0.12)",
+                    borderWidth: 1,
+                    borderColor: "rgba(59,130,246,0.35)",
+                    opacity: resume.isPending || !nextStep ? 0.5 : 1,
+                  }}
+                >
+                  <StepForward size={12} color="#3b82f6" />
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: "#3b82f6" }}>
+                    {nextStep ? `Next Step (#${nextStep.position})` : "All steps done"}
+                  </Text>
+                </Pressable>
+              );
+            })()}
           </View>
         </View>
       )}
