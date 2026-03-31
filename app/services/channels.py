@@ -484,5 +484,26 @@ async def ensure_orchestrator_channel() -> None:
         if "orchestrator" not in existing:
             ch.carapaces_extra = existing + ["orchestrator"]
             ch.updated_at = datetime.now(timezone.utc)
+
+        # Ensure orchestrator has an allow-all tool policy rule
+        from app.db.models import ToolPolicyRule
+        has_rule = (await db.execute(
+            select(ToolPolicyRule).where(
+                ToolPolicyRule.bot_id == "orchestrator",
+                ToolPolicyRule.tool_name == "*",
+                ToolPolicyRule.action == "allow",
+            )
+        )).scalar_one_or_none()
+        if not has_rule:
+            db.add(ToolPolicyRule(
+                bot_id="orchestrator",
+                tool_name="*",
+                action="allow",
+                priority=0,
+                reason="Orchestrator needs full tool access for system management",
+                enabled=True,
+            ))
+            logger.info("Created allow-all tool policy rule for orchestrator bot")
+
         await db.commit()
     logger.info("Orchestrator landing channel ready (orchestrator:home)")

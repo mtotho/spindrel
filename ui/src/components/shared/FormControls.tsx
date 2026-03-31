@@ -20,9 +20,9 @@ export function Section({ title, description, action, children }: {
     <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: t.surfaceOverlay, paddingTop: 16 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <View>
-          <Text className="text-text text-sm font-semibold">{title}</Text>
+          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>{title}</Text>
           {description && (
-            <Text className="text-text-dim text-xs mt-0.5">{description}</Text>
+            <Text style={{ color: t.textDim, fontSize: 12, marginTop: 2 }}>{description}</Text>
           )}
         </View>
         {action}

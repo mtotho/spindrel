@@ -883,13 +883,13 @@ function CarapacesSection({
                 style={{
                   display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
                   borderRadius: 6, cursor: "pointer", fontSize: 12,
-                  background: on ? "rgba(59,130,246,0.08)" : "transparent",
+                  background: on ? t.accentSubtle : "transparent",
                 }}
               >
                 <input
                   type="checkbox"
                   checked={on}
-                  style={{ accentColor: "#3b82f6" }}
+                  style={{ accentColor: t.accent }}
                   onChange={() => {
                     const next = on
                       ? selected.filter((x) => x !== c.id)
@@ -897,8 +897,8 @@ function CarapacesSection({
                     update({ carapaces: next });
                   }}
                 />
-                <span style={{ fontWeight: 500, color: on ? "#3b82f6" : t.text }}>{c.name}</span>
-                <span style={{ color: t.surfaceBorder, fontFamily: "monospace", fontSize: 10 }}>{c.id}</span>
+                <span style={{ fontWeight: 500, color: on ? t.accent : t.text }}>{c.name}</span>
+                <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{c.id}</span>
                 {c.description && (
                   <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>{c.description}</span>
                 )}

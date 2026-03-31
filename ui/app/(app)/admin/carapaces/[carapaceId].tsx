@@ -1,18 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { View, Text, Pressable, ActivityIndicator, Alert, Platform } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import {
   useCarapace,
   useCreateCarapace,
   useUpdateCarapace,
   useDeleteCarapace,
   useResolveCarapace,
+  useCarapaceUsage,
 } from "@/src/api/hooks/useCarapaces";
+import type { CarapaceUsageItem } from "@/src/api/hooks/useCarapaces";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Save, Trash2, ArrowLeft, ChevronDown, ChevronRight,
-  Layers, HelpCircle, Info,
+  Layers, HelpCircle, Info, Bot, Hash, Home, Zap,
 } from "lucide-react";
 import { CarapaceHelpModal } from "./CarapaceHelpModal";
 import { Section, FormRow } from "@/src/components/shared/FormControls";
@@ -30,6 +32,7 @@ export default function CarapaceDetailPage() {
 
   const { data: existing, isLoading } = useCarapace(isNew ? undefined : carapaceId);
   const { data: resolved } = useResolveCarapace(isNew ? undefined : carapaceId);
+  const { data: usage } = useCarapaceUsage(isNew ? undefined : carapaceId);
   const createMut = useCreateCarapace();
   const updateMut = useUpdateCarapace(carapaceId || "");
   const deleteMut = useDeleteCarapace();
@@ -470,6 +473,17 @@ export default function CarapaceDetailPage() {
           </FormRow>
         </Section>
 
+        {/* ─── Used By ─────────────────────────────────── */}
+        {!isNew && usage && usage.length > 0 && (
+          <Section title="Used By" description="Bots and channels that reference this carapace">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {usage.map((item, i) => (
+                <UsageRow key={`${item.type}-${item.id}-${i}`} item={item} t={t} />
+              ))}
+            </div>
+          </Section>
+        )}
+
         {/* ─── Resolved Preview ─────────────────────────── */}
         {!isNew && resolved && (hasIncludes || resolved.local_tools.length > 0) && (
           <div style={{ marginTop: 16 }}>
@@ -567,6 +581,56 @@ export default function CarapaceDetailPage() {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function UsageRow({ item, t }: { item: CarapaceUsageItem; t: ThemeTokens }) {
+  const Icon = item.type === "bot" ? Bot : item.auto_injected ? Home : Hash;
+  const label = item.type === "bot" ? "Bot" : "Channel";
+  const href = item.type === "bot"
+    ? `/admin/bots/${item.id}`
+    : `/channels/${item.id}`;
+
+  return (
+    <Link href={href as any} asChild>
+      <Pressable
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          padding: 8,
+          borderRadius: 6,
+          backgroundColor: t.surface,
+          borderWidth: 1,
+          borderColor: t.surfaceBorder,
+        }}
+      >
+        <Icon size={14} color={item.auto_injected ? t.accent : t.textDim} />
+        <Text style={{ fontSize: 13, color: t.text, flex: 1 }} numberOfLines={1}>
+          {item.name || item.id}
+        </Text>
+        <Text style={{ fontSize: 11, color: t.textDim }}>{label}</Text>
+        {item.auto_injected && (
+          <View style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 3,
+            backgroundColor: t.accentSubtle,
+            borderWidth: 1,
+            borderColor: t.accentBorder,
+            paddingHorizontal: 5,
+            paddingVertical: 1,
+            borderRadius: 4,
+          }}>
+            <Zap size={9} color={t.accent} />
+            <Text style={{ fontSize: 10, color: t.accent }}>auto-injected</Text>
+          </View>
+        )}
+        {item.type === "channel_inherited" && (
+          <Text style={{ fontSize: 10, color: t.textDim }}>via bot</Text>
+        )}
+      </Pressable>
+    </Link>
+  );
+}
 
 function ResolvedRow({
   label,

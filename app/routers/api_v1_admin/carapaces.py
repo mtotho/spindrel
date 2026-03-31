@@ -196,6 +196,66 @@ async def admin_resolve_carapace(
     )
 
 
+class CarapaceUsageItem(BaseModel):
+    type: str  # "bot" | "channel_extra" | "channel_inherited"
+    id: str
+    name: str | None = None
+    auto_injected: bool = False  # True for the orchestrator:home auto-injection
+
+
+@router.get("/carapaces/{carapace_id}/usage", response_model=list[CarapaceUsageItem])
+async def admin_carapace_usage(
+    carapace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Return bots and channels that reference this carapace."""
+    from app.db.models import Bot as BotModel, Channel as ChannelModel
+
+    row = await db.get(CarapaceRow, carapace_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Carapace not found")
+
+    items: list[CarapaceUsageItem] = []
+
+    # Bots with this carapace in their config
+    bots = (await db.execute(select(BotModel))).scalars().all()
+    for bot in bots:
+        if carapace_id in (bot.carapaces or []):
+            items.append(CarapaceUsageItem(type="bot", id=bot.id, name=bot.name))
+
+    # Channels with this carapace in carapaces_extra
+    channels = (await db.execute(
+        select(ChannelModel).where(ChannelModel.carapaces_extra.isnot(None))
+    )).scalars().all()
+    for ch in channels:
+        if carapace_id in (ch.carapaces_extra or []):
+            auto = ch.client_id == "orchestrator:home" and carapace_id == "orchestrator"
+            items.append(CarapaceUsageItem(
+                type="channel_extra",
+                id=str(ch.id),
+                name=ch.name or ch.client_id,
+                auto_injected=auto,
+            ))
+
+    # Channels that inherit via their bot's carapaces list
+    bot_ids_with_carapace = {b.id for b in bots if carapace_id in (b.carapaces or [])}
+    if bot_ids_with_carapace:
+        inherited_chs = (await db.execute(
+            select(ChannelModel).where(ChannelModel.bot_id.in_(bot_ids_with_carapace))
+        )).scalars().all()
+        extra_ch_ids = {str(ch.id) for ch in channels if carapace_id in (ch.carapaces_extra or [])}
+        for ch in inherited_chs:
+            if str(ch.id) not in extra_ch_ids:
+                items.append(CarapaceUsageItem(
+                    type="channel_inherited",
+                    id=str(ch.id),
+                    name=ch.name or ch.client_id,
+                ))
+
+    return items
+
+
 @router.post("/carapaces/{carapace_id}/export")
 async def admin_export_carapace(
     carapace_id: str,
