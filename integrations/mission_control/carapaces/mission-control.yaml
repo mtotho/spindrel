@@ -1,0 +1,13 @@
+id: mission-control
+name: Mission Control
+description: >
+  Structured task tracking and project status using kanban boards in workspace files.
+  Auto-injected for channels with workspace enabled.
+
+skills:
+  - id: integrations/mission_control/mission_control
+    mode: on_demand
+
+local_tools:
+  - create_task_card
+  - move_task_card

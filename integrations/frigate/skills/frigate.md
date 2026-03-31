@@ -15,16 +15,16 @@ Camera monitoring and detection event handling for Frigate NVR. Tools query the 
 - `frigate_get_snapshot_url` — direct URL for a camera's latest frame (for linking, not downloading)
 - `frigate_get_stats` — system health: per-camera FPS, detector inference speed, CPU/memory
 
-### Media Download Tools (return attachment_id — use post_attachment to display)
+### Media Download Tools (return attachment_id — use send_file to display)
 - `frigate_snapshot` — download latest camera snapshot as image attachment
 - `frigate_event_snapshot` — download snapshot from a specific detection event
 - `frigate_event_clip` — download video clip from a detection event (max 50MB)
 - `frigate_recording_clip` — download recording for a time range (max 10 min, max 50MB)
 
 ### Posting & Analysis
-- `post_attachment` — post any attachment (image, video, file) into chat by attachment_id
+- `send_file(attachment_id="...")` — post any attachment (image, video, file) into chat by attachment_id
 - `list_attachments` — list recent attachments with auto-generated descriptions (useful for reviewing multiple snapshots)
-- `describe_attachment` — answer a specific question about an image (makes a vision call) if you are unable to do so yourself; without a prompt returns 
+- `describe_attachment` — answer a specific question about an image (makes a vision call) if you are unable to do so yourself; without a prompt returns
 
 ## Handling MQTT Push Events
 
@@ -74,8 +74,8 @@ When you receive a `[Frigate event]` message:
 ### "What happened on the driveway in the last hour?"
 1. `frigate_get_events(camera="driveway", after=<unix_timestamp_1h_ago>)`
 2. For interesting events: `frigate_event_snapshot(event_id="...")` → get attachment_id
-3. `post_attachment(attachment_id="...")` to show each snapshot
-4. If user wants video: `frigate_event_clip(event_id="...")` → `post_attachment(...)`
+3. `send_file(attachment_id="...")` to show each snapshot
+4. If user wants video: `frigate_event_clip(event_id="...")` → `send_file(attachment_id="...")`
 
 ### "Is there a package on the front porch?"
 1. `frigate_snapshot(camera="front_porch")` → get attachment_id
@@ -84,7 +84,7 @@ When you receive a `[Frigate event]` message:
 ### "Show me the driveway from 2pm to 2:05pm"
 1. Convert times to Unix timestamps
 2. `frigate_recording_clip(camera="driveway", start_time=..., end_time=...)` → get attachment_id
-3. `post_attachment(attachment_id="...")`
+3. `send_file(attachment_id="...")`
 
 ## Common Patterns
 - **Event IDs**: Get from `frigate_get_events` results, pass to `frigate_event_snapshot` / `frigate_event_clip`

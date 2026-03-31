@@ -35,4 +35,19 @@ SETUP = {
     ],
     "webhook": None,
     "instructions_url": None,
+    "sidebar_section": {
+        "id": "mission-control",
+        "title": "MISSION CONTROL",
+        "icon": "LayoutDashboard",
+        "items": [
+            {"label": "Dashboard", "href": "/mission-control", "icon": "LayoutDashboard"},
+            {"label": "Kanban", "href": "/mission-control/kanban", "icon": "Columns"},
+            {"label": "Journal", "href": "/mission-control/journal", "icon": "BookOpen"},
+            {"label": "Memory", "href": "/mission-control/memory", "icon": "Brain"},
+            {"label": "Setup", "href": "/mission-control/setup", "icon": "HelpCircle"},
+            {"label": "Settings", "href": "/mission-control/settings", "icon": "Settings"},
+        ],
+        "readiness_endpoint": "/api/v1/mission-control/readiness",
+        "readiness_field": "dashboard",
+    },
 }

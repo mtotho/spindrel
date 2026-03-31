@@ -333,7 +333,7 @@ async def _download_media(
     timeout: float = 30.0,
 ) -> str:
     """Download binary from Frigate → persist as attachment → return attachment_id."""
-    from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
+    from app.agent.context import current_bot_id, current_dispatch_type
     from app.services.attachments import create_attachment
 
     data = await _get_bytes(path, params=params, timeout=timeout)
@@ -342,14 +342,16 @@ async def _download_media(
         mb = max_bytes / 1_048_576
         return _error(f"File too large ({len(data)} bytes). Max allowed: {mb:.0f} MB.")
 
-    channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     source = current_dispatch_type.get() or "web"
     is_image = mime_type.startswith("image/")
 
+    # channel_id intentionally omitted — these are intermediate downloads
+    # for analysis (describe_attachment, view_attachment, etc.).  Only
+    # send_file creates a channel-linked attachment meant for display.
     att = await create_attachment(
         message_id=None,
-        channel_id=channel_id,
+        channel_id=None,
         filename=filename,
         mime_type=mime_type,
         size_bytes=len(data),
@@ -368,7 +370,7 @@ async def _download_media(
 
 
 # ---------------------------------------------------------------------------
-# Media download tools (return attachment_id — use post_attachment to display)
+# Media download tools (return attachment_id — use send_file to display)
 # ---------------------------------------------------------------------------
 
 
@@ -378,7 +380,7 @@ async def _download_media(
         "name": "frigate_snapshot",
         "description": (
             "Download the latest snapshot from a Frigate camera and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat."
+            "Returns an attachment_id. Use send_file(attachment_id=...) to display it in chat."
         ),
         "parameters": {
             "type": "object",
@@ -432,7 +434,7 @@ async def frigate_snapshot(
         "name": "frigate_event_snapshot",
         "description": (
             "Download the snapshot image from a Frigate detection event and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat."
+            "Returns an attachment_id. Use send_file(attachment_id=...) to display it in chat."
         ),
         "parameters": {
             "type": "object",
@@ -468,7 +470,7 @@ async def frigate_event_snapshot(event_id: str) -> str:
         "name": "frigate_event_clip",
         "description": (
             "Download the video clip from a Frigate detection event and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat. "
+            "Returns an attachment_id. Use send_file(attachment_id=...) to display it in chat. "
             "Max file size: 50 MB."
         ),
         "parameters": {
@@ -507,7 +509,7 @@ async def frigate_event_clip(event_id: str) -> str:
         "name": "frigate_recording_clip",
         "description": (
             "Download a recording clip from a Frigate camera for a specific time range "
-            "and save it as an attachment. Returns an attachment_id. Use post_attachment "
+            "and save it as an attachment. Returns an attachment_id. Use send_file(attachment_id=...) "
             "to display it in chat. Max duration: 10 minutes. Max file size: 50 MB. "
             "Timestamps are Unix epoch seconds."
         ),

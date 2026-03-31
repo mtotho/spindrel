@@ -94,6 +94,7 @@ class AssemblyResult:
     channel_provider_id_override: str | None = None
     channel_max_iterations: int | None = None
     channel_fallback_models: list[dict] = field(default_factory=list)
+    channel_model_tier_overrides: dict | None = None
 
 
 async def _inject_workspace_skills(
@@ -290,6 +291,20 @@ async def assemble_context(
             result.channel_max_iterations = _ch_row.max_iterations
         if _ch_row.fallback_models:
             result.channel_fallback_models = _ch_row.fallback_models
+        if _ch_row.model_tier_overrides:
+            result.channel_model_tier_overrides = _ch_row.model_tier_overrides
+
+    # --- auto-inject mission-control carapace for workspace-enabled channels ---
+    if _ch_row is not None and getattr(_ch_row, "channel_workspace_enabled", False):
+        _MC_CARAPACE_ID = "mission-control"
+        _ch_carapaces_disabled = set(getattr(_ch_row, "carapaces_disabled", None) or [])
+        from app.agent.carapaces import get_carapace as _get_mc_carapace
+        if (
+            _MC_CARAPACE_ID not in (bot.carapaces or [])
+            and _MC_CARAPACE_ID not in _ch_carapaces_disabled
+            and _get_mc_carapace(_MC_CARAPACE_ID)
+        ):
+            bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + [_MC_CARAPACE_ID])
 
     # --- carapace resolution ---
     _carapace_ids = list(bot.carapaces or [])
@@ -904,6 +919,8 @@ async def assemble_context(
                 _label = f"  [{_cd.type}] {_cd.id}"
                 if _cd.description:
                     _label += f" — {_cd.description}"
+                if _cd.model_tier:
+                    _label += f" (tier: {_cd.model_tier})"
                 _delegate_lines.append(_label)
 
     if _delegate_lines:

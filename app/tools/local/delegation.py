@@ -68,6 +68,17 @@ logger = logging.getLogger(__name__)
                         "need to react."
                     ),
                 },
+                "model_tier": {
+                    "type": "string",
+                    "enum": ["free", "fast", "standard", "capable", "frontier"],
+                    "description": (
+                        "Model tier for the delegate. Overrides the default tier from the "
+                        "delegate entry. Tiers map to concrete models via admin settings. "
+                        "free = zero-cost/rate-limited, fast = trivial extraction, "
+                        "standard = routine work, capable = multi-step reasoning, "
+                        "frontier = complex/high-stakes."
+                    ),
+                },
             },
             "required": ["bot_id", "prompt"],
         },
@@ -79,10 +90,14 @@ async def delegate_to_agent(
     scheduled_at: str | None = None,
     reply_in_thread: bool = False,
     notify_parent: bool = True,
+    model_tier: str | None = None,
 ) -> str:
     # LLMs sometimes pass "true"/"false" strings instead of booleans
     if isinstance(reply_in_thread, str):
         reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")
+    # Normalize model_tier (LLMs may add whitespace)
+    if model_tier:
+        model_tier = model_tier.strip().lower() or None
 
     from app.agent.bots import get_bot, resolve_bot_id, list_bots
     from app.agent.carapaces import get_carapace, resolve_carapaces
@@ -143,6 +158,17 @@ async def delegate_to_agent(
         except ValueError as exc:
             return json.dumps({"error": str(exc)})
 
+    # Resolve model tier: explicit param > delegate entry default > none
+    effective_tier = model_tier
+    if not effective_tier and parent_bot.carapaces:
+        # Check if the target has a default model_tier in a carapace delegate entry
+        lookup_id = target_carapace_id if carapace_delegate else bot_id
+        resolved_parent = resolve_carapaces(parent_bot.carapaces)
+        for d in resolved_parent.delegates:
+            if d.id == lookup_id and d.model_tier:
+                effective_tier = d.model_tier
+                break
+
     try:
         task_id = await delegation_service.run_deferred(
             parent_bot=parent_bot,
@@ -157,6 +183,7 @@ async def delegate_to_agent(
             reply_in_thread=reply_in_thread,
             notify_parent=notify_parent,
             carapace_ids=[target_carapace_id] if carapace_delegate else None,
+            model_tier=effective_tier,
         )
         if carapace_delegate:
             return f"Carapace delegation task created: {task_id} (carapace: {target_carapace_id})"

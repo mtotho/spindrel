@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Save, Search, X } from "lucide-react";
+import { ArrowLeft, Save, Search, X, Zap } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
 import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useGoBack } from "@/src/hooks/useGoBack";
@@ -877,13 +877,15 @@ function CarapacesSection({
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
           {allCarapaces.map((c) => {
             const on = selected.includes(c.id);
+            const isAutoInjected = c.id === "mission-control";
             return (
               <label
                 key={c.id}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
                   borderRadius: 6, cursor: "pointer", fontSize: 12,
-                  background: on ? t.accentSubtle : "transparent",
+                  background: on ? t.accentSubtle : isAutoInjected ? `${t.surfaceOverlay}` : "transparent",
+                  opacity: isAutoInjected && !on ? 0.7 : 1,
                 }}
               >
                 <input
@@ -899,9 +901,23 @@ function CarapacesSection({
                 />
                 <span style={{ fontWeight: 500, color: on ? t.accent : t.text }}>{c.name}</span>
                 <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{c.id}</span>
-                {c.description && (
-                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>{c.description}</span>
+                {isAutoInjected && !on && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    fontSize: 9, fontWeight: 600, color: t.accent,
+                    background: `${t.accent}15`, borderRadius: 4, padding: "1px 5px",
+                  }}>
+                    <Zap size={8} />
+                    AUTO
+                  </span>
                 )}
+                {isAutoInjected && !on ? (
+                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>
+                    Auto-injected for workspace-enabled channels
+                  </span>
+                ) : c.description ? (
+                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>{c.description}</span>
+                ) : null}
               </label>
             );
           })}

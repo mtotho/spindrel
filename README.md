@@ -71,7 +71,7 @@ Orchestrator bots delegate to specialist bots — synchronously or as background
 ### Integration Framework
 Pluggable integrations with auto-discovery. Each integration can provide routers, dispatchers, lifecycle hooks, background processes, tools, and skills.
 
-**Shipped integrations:** Slack, GitHub, Frigate (NVR), Mission Control
+**Shipped integrations:** Slack, GitHub, Frigate (NVR), Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion
 
 **External integrations:** Point `INTEGRATION_DIRS` to your own directories.
 
@@ -120,7 +120,7 @@ When using a LiteLLM proxy, Spindrel can pull model pricing data for accurate co
 
 **Integrations** — Slack, GitHub, and Frigate connect via the integration framework. Each provides webhooks, dispatchers, and lifecycle hooks.
 
-**Agent Client** (`client/`) — Planned remote client for devices like a Raspberry Pi or a local workstation. Voice assistant (wake word, STT, TTS) + local tool executor (the server delegates shell commands and file operations to the client's machine). A legacy version exists and works for basic chat; a future rebuild will use the v1 API with full channel, workspace, and carapace support. See [docs/clients.md](docs/clients.md).
+**Agent Client** (`client/`) — Planned remote client for devices like a Raspberry Pi or a local workstation. Voice assistant (wake word, STT, TTS) + local tool executor (the server delegates shell commands and file operations to the client's machine). A legacy version exists and works for basic chat; a future rebuild will use the v1 API with full channel, workspace, and carapace support. See [docs/guides/clients.md](docs/guides/clients.md).
 
 **Request flow:** `run_stream()` → `assemble_context()` → `run_agent_tool_loop()` → LLM ↔ tools → final response
 
@@ -152,28 +152,18 @@ context_compaction: true
 
 See [CLAUDE.md](CLAUDE.md) for the full field reference.
 
-## Upcoming: Workspace-Scoped Channels
-
-Channels will get a direct `workspace_id` FK, enabling:
-- **Sidebar workspace switcher** — filter channels, tasks, heartbeats, and usage by workspace
-- **Auto-assignment** — new channels inherit their bot's workspace
-- **Workspace-grouped analytics** — usage, costs, and activity scoped per workspace
-- **Orchestrator stays global** — the Home channel sees everything regardless of filter
-
-See [PLANS/workspace-scoped-channels.md](PLANS/workspace-scoped-channels.md) for the full design.
-
 ## Documentation
 
 | Doc | Description |
 |-----|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations, troubleshooting |
-| [Slack Integration](docs/slack.md) | Slack bot setup, slash commands, channel config |
-| [Delegation](docs/delegation.md) | Bot-to-bot delegation (immediate + deferred) |
-| [Harnesses](docs/harness.md) | External CLI tools (Claude Code, Cursor) |
-| [Integration Framework](docs/integrations/README.md) | Building custom integrations |
-| [Backup & Restore](docs/BACKUP.md) | Automated Postgres + config backups to S3 |
+| [Slack Integration](docs/guides/slack.md) | Slack bot setup, slash commands, channel config |
+| [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation (immediate + deferred) |
+| [Harnesses](docs/guides/harnesses.md) | External CLI tools (Claude Code, Cursor) |
+| [Integration Framework](docs/integrations/index.md) | Building custom integrations |
+| [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |
-| [Agent Client](docs/clients.md) | Remote voice assistant + local tool executor (Python CLI, Android) |
+| [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor (Python CLI, Android) |
 
 ## Directory Structure
 
@@ -193,6 +183,9 @@ integrations/       Integration packages (auto-discovered)
   github/           GitHub webhook handler
   frigate/          Frigate NVR integration
   mission_control/  Dashboard + task board
+  arr/              Sonarr/Radarr media management
+  claude_code/      Claude Code CLI harness
+  ingestion/        Document ingestion pipeline
   example/          Template for new integrations
 client/             Agent client (remote voice assistant + local tool executor)
 ui/                 React Native/Expo web UI
@@ -223,7 +216,7 @@ The server exposes REST + SSE endpoints. All require `Authorization: Bearer <API
 ./scripts/restore.sh             # pull latest from S3 and restore
 ```
 
-See [docs/BACKUP.md](docs/BACKUP.md) for setup and cron scheduling.
+See [docs/backup.md](docs/backup.md) for setup and cron scheduling.
 
 ## Development
 

@@ -124,8 +124,8 @@ async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str):
         # Same bot or couldn't resolve — use caller's workspace
         return ws_root, bot
 
-    from app.services.workspace import workspace_service
-    owner_ws_root = workspace_service.get_workspace_root(owner_bot.id, owner_bot)
+    from app.services.channel_workspace import _get_ws_root
+    owner_ws_root = _get_ws_root(owner_bot)
     return owner_ws_root, owner_bot
 
 

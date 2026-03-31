@@ -3,6 +3,7 @@ import { ActivityIndicator } from "react-native";
 import { Plus } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,13 +27,13 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
 
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
 
-  const statusColors: Record<string, { bg: string; fg: string }> = {
-    pending: { bg: t.surfaceBorder, fg: t.textMuted },
-    running: { bg: t.accentMuted, fg: t.accent },
-    complete: { bg: t.successSubtle, fg: t.success },
-    failed: { bg: t.dangerSubtle, fg: t.danger },
-    active: { bg: t.warningSubtle, fg: t.warningMuted },
-    cancelled: { bg: t.surfaceBorder, fg: t.textDim },
+  const statusVariants: Record<string, "neutral" | "info" | "success" | "danger" | "warning"> = {
+    pending: "neutral",
+    running: "info",
+    complete: "success",
+    failed: "danger",
+    active: "warning",
+    cancelled: "neutral",
   };
 
   const handleEditorSaved = () => {
@@ -46,18 +47,12 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
   return (
     <>
       <Section title={`Tasks (${tasks.length})`} action={
-        <button
-          onClick={() => setEditorState({ mode: "create" })}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "4px 12px", fontSize: 11, fontWeight: 600,
-            border: "none", cursor: "pointer", borderRadius: 6,
-            background: t.accent, color: "#fff",
-          }}
-        >
-          <Plus size={12} />
-          New Task
-        </button>
+        <ActionButton
+          label="New Task"
+          onPress={() => setEditorState({ mode: "create" })}
+          size="small"
+          icon={<Plus size={12} />}
+        />
       }>
         {isLoading ? (
           <ActivityIndicator color={t.accent} />
@@ -66,7 +61,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {tasks.map((task: any) => {
-              const sc = statusColors[task.status] || statusColors.pending;
+              const sv = statusVariants[task.status] || "neutral";
               return (
                 <div
                   key={task.id}
@@ -82,7 +77,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
                       {task.id?.substring(0, 12)}...
                     </div>
                     <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
-                      {task.dispatch_type || "none"} \u00b7 {new Date(task.created_at).toLocaleString()}
+                      {task.dispatch_type || "none"} {"\u00b7"} {new Date(task.created_at).toLocaleString()}
                     </div>
                     {task.prompt && (
                       <div style={{ fontSize: 11, color: t.textMuted, marginTop: 4, maxWidth: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -90,12 +85,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
                       </div>
                     )}
                   </div>
-                  <span style={{
-                    fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                    background: sc.bg, color: sc.fg,
-                  }}>
-                    {task.status}
-                  </span>
+                  <StatusBadge label={task.status} variant={sv} />
                 </div>
               );
             })}

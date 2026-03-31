@@ -6,6 +6,7 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { ArrowLeft, Check, ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -54,6 +55,7 @@ const TABS = [
 // ---------------------------------------------------------------------------
 export default function ChannelSettingsScreen() {
   const t = useThemeTokens();
+  const isMobile = useIsMobile();
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const insets = useSafeAreaInsets();
   const goBack = useGoBack(`/channels/${channelId}`);
@@ -210,6 +212,19 @@ export default function ChannelSettingsScreen() {
         <View className="px-3 pt-2 pb-1">
           <TabBar tabs={TABS} active={tab} onChange={setTab} />
         </View>
+        {/* Left fade to hint at scrollable tabs */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 32,
+            background: `linear-gradient(to left, transparent, ${t.surface})`,
+            pointerEvents: "none",
+            zIndex: 1,
+          }}
+        />
         {/* Right fade to hint at scrollable tabs */}
         <div
           style={{
@@ -229,7 +244,7 @@ export default function ChannelSettingsScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: 20, maxWidth: 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
+        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (

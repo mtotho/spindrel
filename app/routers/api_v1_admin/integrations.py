@@ -46,6 +46,14 @@ async def list_integrations():
     return {"integrations": discover_setup_status(base_url)}
 
 
+@router.get("/integrations/sidebar-sections")
+async def list_sidebar_sections():
+    """Return sidebar sections declared by integrations via their SETUP manifests."""
+    from integrations import discover_sidebar_sections
+
+    return {"sections": discover_sidebar_sections()}
+
+
 @router.get("/integrations/{integration_id}/settings")
 async def get_integration_settings(integration_id: str):
     from app.services.integration_settings import get_all_for_integration

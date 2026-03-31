@@ -240,7 +240,7 @@ export default function MCJournal() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16, gap: 20, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading journal...</Text>
@@ -252,8 +252,8 @@ export default function MCJournal() {
           </MCEmptyState>
         ) : (
           Array.from(grouped.entries()).map(([key, groupEntries]) => (
-            <View key={key}>
-              <Text className="text-text-dim text-xs font-semibold tracking-wider mb-2">
+            <View key={key} style={{ gap: 10 }}>
+              <Text className="text-text-dim text-xs font-semibold tracking-wider">
                 {groupLabel(key)}
               </Text>
               <View style={{ gap: 10 }}>

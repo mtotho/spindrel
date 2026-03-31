@@ -134,7 +134,7 @@ export function Toggle({ value, onChange, label, description }: {
         display: "flex",
         alignItems: "flex-start",
         gap: 10,
-        padding: "4px 0",
+        padding: "8px 0",
         cursor: "pointer",
         userSelect: "none",
       }}
@@ -225,15 +225,15 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
 // ---------------------------------------------------------------------------
 // Row layout helpers
 // ---------------------------------------------------------------------------
-export function Row({ children, gap = 12 }: { children: React.ReactNode; gap?: number }) {
+export function Row({ children, gap = 12, stack }: { children: React.ReactNode; gap?: number; stack?: boolean }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap }}>{children}</div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap, flexDirection: stack ? "column" : "row" }}>{children}</div>
   );
 }
 
-export function Col({ children, flex = 1 }: { children: React.ReactNode; flex?: number }) {
+export function Col({ children, flex = 1, minWidth = 200 }: { children: React.ReactNode; flex?: number; minWidth?: number }) {
   return (
-    <div style={{ flex, minWidth: 200 }}>{children}</div>
+    <div style={{ flex, minWidth }}>{children}</div>
   );
 }
 
@@ -281,7 +281,7 @@ export function TabBar({ tabs, active, onChange }: {
               flexShrink: 0,
               scrollSnapAlign: "start",
               // Touch-friendly min tap target
-              minHeight: 32,
+              minHeight: 36,
             }}
           >
             {tab.label}

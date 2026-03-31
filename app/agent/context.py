@@ -50,6 +50,12 @@ current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
 current_ephemeral_skills: ContextVar[list] = ContextVar("current_ephemeral_skills", default=[])
 
+# Channel-level model tier overrides (sparse dict, e.g. {"fast": {"model": "...", "provider_id": null}}).
+# Set from context_assembly; read by delegation tools.
+current_channel_model_tier_overrides: ContextVar[dict | None] = ContextVar(
+    "current_channel_model_tier_overrides", default=None
+)
+
 # Accumulates child-bot Slack posts from immediate delegation so run_stream() can
 # emit them as delegation_post events BEFORE the parent's response event.
 # Set to a list by the outermost run_stream(); None means post immediately.
@@ -90,6 +96,7 @@ def set_agent_context(
         current_memory_cross_bot.set(memory_cross_bot)
     current_dispatch_type.set(dispatch_type)
     current_dispatch_config.set(dispatch_config)
+    current_channel_model_tier_overrides.set(None)
     if session_depth is not None:
         current_session_depth.set(session_depth)
     if root_session_id is not None:
@@ -128,6 +135,7 @@ class AgentContextSnapshot:
     ephemeral_skills: list
     model_override: str | None
     provider_id_override: str | None
+    channel_model_tier_overrides: dict | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -150,6 +158,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         ephemeral_skills=list(current_ephemeral_skills.get() or []),
         model_override=current_model_override.get(),
         provider_id_override=current_provider_id_override.get(),
+        channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
     )
 
 
@@ -172,3 +181,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_ephemeral_skills.set(list(snap.ephemeral_skills))
     current_model_override.set(snap.model_override)
     current_provider_id_override.set(snap.provider_id_override)
+    current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)

@@ -34,6 +34,7 @@ class DelegateEntry:
     type: str  # "carapace" or "bot"
     description: str = ""
     source_carapace: str = ""  # which carapace declared this delegate
+    model_tier: str | None = None  # default tier for this delegate
 
 
 @dataclass
@@ -146,6 +147,7 @@ def resolve_carapaces(ids: list[str], *, max_depth: int = 5) -> ResolvedCarapace
                     type=d.get("type", "carapace") if isinstance(d, dict) else "carapace",
                     description=d.get("description", "") if isinstance(d, dict) else "",
                     source_carapace=cid,
+                    model_tier=d.get("model_tier") if isinstance(d, dict) else None,
                 ))
 
     for cid in ids:

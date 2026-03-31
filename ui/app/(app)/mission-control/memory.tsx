@@ -93,7 +93,7 @@ function MemorySectionView({ section }: { section: MCMemorySection }) {
       {/* Header — collapsible */}
       <Pressable
         onPress={() => setExpanded(!expanded)}
-        className="flex-row items-center gap-2 px-4 py-3 border-b border-surface-border hover:bg-surface-overlay"
+        className="flex-row items-center gap-3 px-4 py-3.5 border-b border-surface-border hover:bg-surface-overlay"
         style={{ backgroundColor: `${color}08` }}
       >
         {expanded ? (
@@ -242,7 +242,7 @@ export default function MCMemory() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16, gap: 20, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading memory...</Text>

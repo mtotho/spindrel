@@ -38,6 +38,7 @@ export interface IntegrationItem {
   has_hooks: boolean;
   has_tools: boolean;
   has_skills: boolean;
+  has_carapaces: boolean;
   has_process: boolean;
   process_status: ProcessStatus | null;
   env_vars: IntegrationEnvVar[];
@@ -198,5 +199,36 @@ export function useSetAutoStart(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-integration-autostart", id] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar sections declared by integrations
+// ---------------------------------------------------------------------------
+
+export interface SidebarSectionItem {
+  label: string;
+  href: string;
+  icon: string;
+}
+
+export interface SidebarSection {
+  integration_id: string;
+  id: string;
+  title: string;
+  icon: string;
+  items: SidebarSectionItem[];
+  readiness_endpoint: string | null;
+  readiness_field: string | null;
+}
+
+export function useSidebarSections() {
+  return useQuery({
+    queryKey: ["admin-sidebar-sections"],
+    queryFn: () =>
+      apiFetch<{ sections: SidebarSection[] }>(
+        "/api/v1/admin/integrations/sidebar-sections"
+      ),
+    staleTime: 300_000, // 5 min — sidebar sections rarely change
   });
 }

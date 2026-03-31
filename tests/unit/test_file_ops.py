@@ -604,8 +604,7 @@ class TestCrossWorkspaceAccess:
 
         with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
             mock_resolve.return_value = baking_bot
-            with patch("app.services.workspace.workspace_service") as mock_ws:
-                mock_ws.get_workspace_root.return_value = baking_root
+            with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
 
                 effective_root, effective_bot = await _maybe_resolve_cross_channel(
                     f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
@@ -669,8 +668,7 @@ class TestCrossWorkspaceAccess:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
-                with patch("app.services.workspace.workspace_service") as mock_ws:
-                    mock_ws.get_workspace_root.return_value = baking_root
+                with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
 
                     result = await file_tool(
                         operation="read",
@@ -691,8 +689,7 @@ class TestCrossWorkspaceAccess:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
-                with patch("app.services.workspace.workspace_service") as mock_ws:
-                    mock_ws.get_workspace_root.return_value = baking_root
+                with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
 
                     result = await file_tool(
                         operation="list",
@@ -716,8 +713,7 @@ class TestCrossWorkspaceAccess:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
-                with patch("app.services.workspace.workspace_service") as mock_ws:
-                    mock_ws.get_workspace_root.return_value = baking_root
+                with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
 
                     result = await file_tool(
                         operation="write",

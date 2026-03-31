@@ -66,8 +66,8 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": (
                         'JSON array of delegate configs, e.g. '
-                        '\'[{"id": "qa", "type": "carapace", "description": "Run QA"}]\'. '
-                        'Each entry has id, type (carapace or bot), and description.'
+                        '\'[{"id": "qa", "type": "carapace", "description": "Run QA", "model_tier": "standard"}]\'. '
+                        'Each entry has id, type (carapace or bot), description, and optional model_tier (free/fast/standard/capable/frontier).'
                     ),
                 },
                 "tags": {

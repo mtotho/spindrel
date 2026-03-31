@@ -12,12 +12,15 @@ interface UIState {
   mobileSidebarOpen: boolean;
   detailPanel: DetailPanelState;
   activeWorkspaceId: string | null;
+  hiddenSidebarSections: string[];
   toggleSidebar: () => void;
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
   openDetail: (type: string, id: string, data?: unknown) => void;
   closeDetail: () => void;
   setActiveWorkspace: (id: string | null) => void;
+  toggleSidebarSection: (sectionId: string) => void;
+  isSidebarSectionHidden: (sectionId: string) => boolean;
 }
 
 export const useUIStore = create<UIState>()(
@@ -27,6 +30,7 @@ export const useUIStore = create<UIState>()(
       mobileSidebarOpen: false,
       detailPanel: { type: null, id: null },
       activeWorkspaceId: null,
+      hiddenSidebarSections: [],
       toggleSidebar: () =>
         set((s) => ({
           sidebarCollapsed: !s.sidebarCollapsed,
@@ -39,12 +43,20 @@ export const useUIStore = create<UIState>()(
         set({ detailPanel: { type, id, data } }),
       closeDetail: () => set({ detailPanel: { type: null, id: null } }),
       setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
+      toggleSidebarSection: (sectionId) =>
+        set((s) => ({
+          hiddenSidebarSections: s.hiddenSidebarSections.includes(sectionId)
+            ? s.hiddenSidebarSections.filter((id) => id !== sectionId)
+            : [...s.hiddenSidebarSections, sectionId],
+        })),
+      isSidebarSectionHidden: (sectionId) => false, // selector helper, use the selector pattern below
     }),
     {
       name: "spindrel-ui",
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
         activeWorkspaceId: state.activeWorkspaceId,
+        hiddenSidebarSections: state.hiddenSidebarSections,
       }),
     },
   ),

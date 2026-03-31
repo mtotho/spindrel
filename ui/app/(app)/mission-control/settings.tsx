@@ -9,7 +9,8 @@ import {
   useMCOverview,
   useUpdateMCPrefs,
 } from "@/src/api/hooks/useMissionControl";
-import { Check, Hash, Bot, Settings } from "lucide-react";
+import { Check, Hash, Bot, Settings, EyeOff, Eye } from "lucide-react";
+import { useUIStore } from "@/src/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Toggle row
@@ -49,6 +50,37 @@ function ToggleRow({
         )}
       </View>
     </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar Visibility (uses generic Zustand store)
+// ---------------------------------------------------------------------------
+function SidebarVisibilitySection() {
+  const t = useThemeTokens();
+  const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
+  const toggleSection = useUIStore((s) => s.toggleSidebarSection);
+  const isHidden = hiddenSections.includes("mission-control");
+
+  return (
+    <View>
+      <View className="flex-row items-center gap-2 mb-3">
+        {isHidden ? (
+          <EyeOff size={14} color={t.textDim} />
+        ) : (
+          <Eye size={14} color={t.textDim} />
+        )}
+        <Text className="text-text-dim text-xs font-semibold tracking-wider">
+          SIDEBAR
+        </Text>
+      </View>
+      <ToggleRow
+        label="Show in sidebar"
+        sublabel="Display Mission Control navigation in the sidebar"
+        active={!isHidden}
+        onToggle={() => toggleSection("mission-control")}
+      />
+    </View>
   );
 }
 
@@ -174,6 +206,9 @@ export default function MCSettings() {
           <Text className="text-text-muted text-sm">Loading...</Text>
         ) : (
           <>
+            {/* Sidebar visibility */}
+            <SidebarVisibilitySection />
+
             {/* Channel tracking */}
             <View>
               <View className="flex-row items-center gap-2 mb-3">

@@ -39,6 +39,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useMCModules } from "../../api/hooks/useMissionControl";
+import { useSidebarSections, type SidebarSection } from "../../api/hooks/useIntegrations";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
 import { useThemeStore } from "../../stores/theme";
@@ -50,11 +51,23 @@ import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useThemeTokens } from "../../theme/tokens";
 import { UsageHudBadge } from "./UsageHudBadge";
 import { SpindrelLogo } from "./SpindrelLogo";
+import { useVersion } from "../../api/hooks/useVersion";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ size: number; color: string }>;
+}
+
+/** Resolve a lucide icon name string to a component. Falls back to Plug. */
+const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+  LayoutDashboard, Columns, BookOpen, Brain, HelpCircle, Settings, Zap, Plug,
+  Bot, Layers, FileText, Paperclip, ClipboardList, Key, Shield, ShieldCheck,
+  Activity, Server, Wrench, BarChart3, Users, HardDrive, Code2, Hash, Home,
+  MessageSquare, Container, Clock, Heart, Lock, Sun, Moon,
+};
+function resolveIcon(name: string): React.ComponentType<{ size: number; color: string }> {
+  return ICON_MAP[name] || Plug;
 }
 
 const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
@@ -102,15 +115,6 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },
-];
-
-const MC_NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/mission-control", icon: LayoutDashboard },
-  { label: "Kanban", href: "/mission-control/kanban", icon: Columns },
-  { label: "Journal", href: "/mission-control/journal", icon: BookOpen },
-  { label: "Memory", href: "/mission-control/memory", icon: Brain },
-  { label: "Setup", href: "/mission-control/setup", icon: HelpCircle },
-  { label: "Settings", href: "/mission-control/settings", icon: Settings },
 ];
 
 const ALL_NAV_ITEMS: NavItem[] = ADMIN_SECTIONS.flatMap((s) => s.items);
@@ -257,21 +261,46 @@ function botDotColor(botId: string): string {
   return BOT_DOT_COLORS[Math.abs(hash) % BOT_DOT_COLORS.length];
 }
 
-/** MC nav section with dynamic integration modules */
-function MCNavSection({ pathname, mobile }: { pathname: string; mobile?: boolean }) {
+/** Generic integration sidebar section — renders items declared in SETUP manifests */
+function IntegrationSidebarSection({
+  section,
+  pathname,
+  mobile,
+}: {
+  section: SidebarSection;
+  pathname: string;
+  mobile?: boolean;
+}) {
+  const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
   const { data: modulesData } = useMCModules();
-  const modules = modulesData?.modules || [];
+  const t = useThemeTokens();
+
+  if (hiddenSections.includes(section.id)) return null;
+
+  // Resolve items from the API-declared section
+  const items: NavItem[] = section.items.map((item) => ({
+    label: item.label,
+    href: item.href,
+    icon: resolveIcon(item.icon),
+  }));
+
+  // Append MC dashboard modules if this is the mission-control section
+  const modules = section.integration_id === "mission_control" ? (modulesData?.modules || []) : [];
+
+  // Determine the "home" href for this section (first item)
+  const sectionHome = items[0]?.href || "/";
+  const isInSection = pathname.startsWith(sectionHome.replace(/\/$/, "").split("/").slice(0, 2).join("/") || "/");
 
   return (
     <View className="px-2 py-1.5">
       <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
-        MISSION CONTROL
+        {section.title}
       </Text>
-      {MC_NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.href}
           item={item}
-          active={pathname === item.href || (item.href !== "/mission-control" && pathname.startsWith(item.href))}
+          active={pathname === item.href || (item.href !== sectionHome && pathname.startsWith(item.href))}
           mobile={mobile}
         />
       ))}
@@ -281,13 +310,54 @@ function MCNavSection({ pathname, mobile }: { pathname: string; mobile?: boolean
           item={{
             label: mod.label,
             href: `/mission-control/module/${mod.module_id}`,
-            icon: Zap,
+            icon: resolveIcon(mod.icon),
           }}
           active={pathname === `/mission-control/module/${mod.module_id}`}
           mobile={mobile}
         />
       ))}
     </View>
+  );
+}
+
+/** Integration rail icons for collapsed sidebar */
+function IntegrationRailIcons({
+  sections,
+  pathname,
+  closeMobile,
+  t,
+}: {
+  sections: SidebarSection[];
+  pathname: string;
+  closeMobile: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
+  return (
+    <>
+      {sections
+        .filter((s) => !hiddenSections.includes(s.id))
+        .map((section) => {
+          const Icon = resolveIcon(section.icon);
+          const homeHref = section.items[0]?.href || "/";
+          const prefix = homeHref.replace(/\/$/, "").split("/").slice(0, 2).join("/") || "/";
+          const active = pathname.startsWith(prefix);
+          return (
+            <Link key={section.id} href={homeHref as any} asChild>
+              <Pressable
+                onPress={closeMobile}
+                className={`items-center justify-center rounded-lg ${
+                  active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                }`}
+                style={{ width: 44, height: 44 }}
+                accessibilityLabel={section.title}
+              >
+                <Icon size={18} color={active ? t.accent : t.textDim} />
+              </Pressable>
+            </Link>
+          );
+        })}
+    </>
   );
 }
 
@@ -305,6 +375,9 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { data: bots } = useBots();
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
   const { data: upcomingItems, isLoading: upcomingLoading } = useUpcomingActivity(3);
+  const { data: version } = useVersion();
+  const { data: sidebarSectionsData } = useSidebarSections();
+  const sidebarSections = sidebarSectionsData?.sections || [];
   const t = useThemeTokens();
   // Auto-clear stale workspace filter if workspace no longer exists
   useEffect(() => {
@@ -422,19 +495,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             </Pressable>
           </Link>
 
-          {/* Mission Control icon */}
-          <Link href={"/mission-control" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className={`items-center justify-center rounded-lg ${
-                pathname.startsWith("/mission-control") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-              }`}
-              style={{ width: 44, height: 44 }}
-              accessibilityLabel="Mission Control"
-            >
-              <LayoutDashboard size={18} color={pathname.startsWith("/mission-control") ? t.accent : t.textDim} />
-            </Pressable>
-          </Link>
+          {/* Integration sidebar section icons */}
+          <IntegrationRailIcons sections={sidebarSections} pathname={pathname} closeMobile={closeMobile} t={t} />
 
           {/* Divider */}
           <View className="bg-surface-border my-1.5" style={{ height: 1, width: 32 }} />
@@ -467,6 +529,11 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               </View>
             </Pressable>
           </Link>
+          {version && (
+            <Text className="text-text-dim" style={{ fontSize: 9, opacity: 0.6 }}>
+              v{version}
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -539,60 +606,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           );
         })()}
 
-        {/* Workspace switcher + Channels */}
+        {/* Channels */}
         <View className="px-2 py-1.5">
-          {/* Workspace filter chips */}
-          {workspaces && workspaces.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mb-1.5 px-1"
-              contentContainerStyle={{ gap: 4 }}
-            >
-              <Pressable
-                onPress={() => setActiveWorkspace(null)}
-                className="rounded-md px-2.5 py-1"
-                style={{
-                  backgroundColor: !activeWorkspaceId ? t.accent + "18" : "transparent",
-                  borderWidth: 1,
-                  borderColor: !activeWorkspaceId ? t.accent + "40" : t.surfaceBorder,
-                }}
-              >
-                <Text
-                  className={`text-[11px] ${!activeWorkspaceId ? "text-accent font-medium" : "text-text-dim"}`}
-                >
-                  All
-                </Text>
-              </Pressable>
-              {workspaces.map((ws) => {
-                const isActive = activeWorkspaceId === ws.id;
-                return (
-                  <Pressable
-                    key={ws.id}
-                    onPress={() => setActiveWorkspace(isActive ? null : ws.id)}
-                    className="flex-row items-center gap-1.5 rounded-md px-2.5 py-1"
-                    style={{
-                      backgroundColor: isActive ? t.accent + "18" : "transparent",
-                      borderWidth: 1,
-                      borderColor: isActive ? t.accent + "40" : t.surfaceBorder,
-                    }}
-                  >
-                    <View style={{
-                      width: 5, height: 5, borderRadius: 3,
-                      backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
-                    }} />
-                    <Text
-                      className={`text-[11px] ${isActive ? "text-accent font-medium" : "text-text-dim"}`}
-                      numberOfLines={1}
-                    >
-                      {ws.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-
           <View className="flex-row items-center justify-between px-3 mb-1">
             <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
               CHANNELS
@@ -698,6 +713,55 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           )}
         </View>
 
+        {/* Workspaces */}
+        {workspaces && workspaces.length > 0 && (
+          <View className="px-2 py-1.5">
+            <View className="flex-row items-center justify-between px-3 mb-1">
+              <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider py-1.5`}>
+                WORKSPACES
+              </Text>
+              <Link href={"/admin/workspaces" as any} asChild>
+                <Pressable
+                  onPress={closeMobile}
+                  className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
+                  style={{ width: 28, height: 28 }}
+                >
+                  <Settings size={12} color={t.textDim} />
+                </Pressable>
+              </Link>
+            </View>
+            {workspaces.map((ws) => {
+              const isFiltering = activeWorkspaceId === ws.id;
+              return (
+                <Pressable
+                  key={ws.id}
+                  onPress={() => setActiveWorkspace(isFiltering ? null : ws.id)}
+                  className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
+                    isFiltering ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                  }`}
+                >
+                  <View style={{
+                    width: 7, height: 7, borderRadius: 4,
+                    backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
+                  }} />
+                  <Text
+                    style={mobile ? { fontSize: 15 } : undefined}
+                    className={`flex-1 ${mobile ? "" : "text-sm"} ${
+                      isFiltering ? "text-accent font-medium" : "text-text-muted"
+                    }`}
+                    numberOfLines={1}
+                  >
+                    {ws.name}
+                  </Text>
+                  {isFiltering && (
+                    <Text className="text-[10px] text-accent" style={{ opacity: 0.7 }}>filtered</Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
         {/* Upcoming activity */}
         <View className="px-2 py-1.5">
           <Link href={"/admin/upcoming" as any} asChild>
@@ -769,8 +833,15 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           )}
         </View>
 
-        {/* Mission Control */}
-        <MCNavSection pathname={pathname} mobile={mobile} />
+        {/* Integration sidebar sections (e.g. Mission Control) */}
+        {sidebarSections.map((section) => (
+          <IntegrationSidebarSection
+            key={section.id}
+            section={section}
+            pathname={pathname}
+            mobile={mobile}
+          />
+        ))}
 
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
@@ -817,6 +888,11 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             </Text>
           </Pressable>
         </Link>
+        {version && (
+          <Text className="text-text-dim text-center" style={{ fontSize: 10, opacity: 0.5 }}>
+            v{version}
+          </Text>
+        )}
       </View>
     </View>
   );

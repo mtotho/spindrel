@@ -150,10 +150,15 @@ agent-server/
 ├── bots/                   # Bot YAML configs (gitignored, user-created)
 ├── skills/                 # Skill markdown files (gitignored, user-created)
 ├── tools/                  # Custom tool scripts (gitignored, user-created)
+├── carapaces/              # Carapace YAML definitions (composable expertise bundles)
 ├── integrations/           # Integration packages
 │   ├── slack/             # Slack integration
 │   ├── github/            # GitHub webhooks
 │   ├── frigate/           # Frigate NVR
+│   ├── mission_control/   # Dashboard + task board
+│   ├── arr/               # Sonarr/Radarr media management
+│   ├── claude_code/       # Claude Code CLI harness
+│   ├── ingestion/         # Document ingestion pipeline
 │   └── example/           # Template for new integrations
 ├── migrations/             # Alembic database migrations
 ├── scripts/                # Dev and setup scripts

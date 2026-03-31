@@ -970,14 +970,20 @@ This creates a `memory/` directory with:
 - `memory/reference/` — reference documents
 
 ### 3. Task Board (Kanban)
-The Kanban page reads `tasks.md` from each channel's workspace. Tasks are created automatically when bots use task management skills, or you can create them manually from the Kanban page.
+The Kanban page reads `tasks.md` from each channel's workspace.
+
+**Automatic**: When a channel has workspace enabled, the **mission-control** carapace is auto-injected. This gives the bot the `create_task_card` and `move_task_card` tools, plus the Mission Control skill documenting the `tasks.md` format, `status.md`, and card metadata conventions. No per-bot configuration needed.
+
+You can also create and move cards directly from the Kanban page in the UI.
+
+> **Note**: If a bot already has the Mission Control skill or tools configured manually, the auto-injection is a no-op (deduplication is built in). You can also disable the auto-injection per channel by adding `mission-control` to the channel's `carapaces_disabled` list.
 
 ## Feature Reference
 
 | Feature | Requires | What it shows |
 |---------|----------|---------------|
 | **Dashboard** | Workspace-enabled channels | Channel list, bot list, stats |
-| **Kanban** | `tasks.md` in channel workspace | Aggregated task board across channels |
+| **Kanban** | Workspace-enabled channels (tools auto-injected) | Aggregated task board across channels |
 | **Journal** | `memory_scheme: workspace-files` | Daily logs from all tracked bots |
 | **Memory** | `memory_scheme: workspace-files` | MEMORY.md + reference files per bot |
 
@@ -991,7 +997,7 @@ Integrations can register custom dashboard modules. These appear as additional p
 
 ## Troubleshooting
 - **Empty dashboard?** Check that at least one channel has workspace enabled
-- **Empty kanban?** Bots need to create `tasks.md` — try asking a bot to "create a task board"
+- **Empty kanban?** Make sure the channel has workspace enabled — the mission-control carapace (skill + tools) is auto-injected. Ask the bot to create a task, or create cards from the Kanban page UI.
 - **Empty journal?** Set `memory_scheme: workspace-files` in bot YAML and wait for the next interaction
 - **Empty memory?** Same as journal — MEMORY.md is created on the bot's first run
 """

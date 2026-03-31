@@ -7,15 +7,41 @@ description: >-
 tags: [admin, delegation, orchestration]
 
 delegates:
+  # Cheap workers — use liberally
+  - id: scanner
+    type: carapace
+    model_tier: fast
+    description: "Fast file scanning and pattern extraction. Use for bulk file reading: 'find all usages of X', 'list all API endpoints', 'extract config values'. Cheap — use for any grunt-work reading."
+  - id: summarizer
+    type: carapace
+    model_tier: fast
+    description: "Compress large inputs into concise digests. Use when there's too much text: conversation history, long docs, multi-channel updates, verbose tool output. Cheap — use freely."
+  # Standard workers
+  - id: researcher
+    type: carapace
+    model_tier: standard
+    description: "Multi-angle web research with source cross-referencing. Use when you need current web information: technical research, competitive analysis, documentation lookups, fact-checking."
+  - id: presenter
+    type: carapace
+    model_tier: standard
+    description: "Create polished Marp slide decks (HTML/PDF/PPTX). Use when information needs visual presentation: status updates, proposals, onboarding materials."
   - id: qa
     type: carapace
-    description: "Run QA and test planning. Includes code review."
+    model_tier: standard
+    description: "QA workflow: test planning, execution, coverage analysis, bug reporting. Use after code changes for quality validation. Includes code review via composition."
   - id: code-review
     type: carapace
-    description: "Structured code review with severity ratings."
+    model_tier: standard
+    description: "Structured code review with severity ratings (critical/warning/suggestion/nit). Use when specific code needs human-quality review."
+  # Capable workers
+  - id: writer
+    type: carapace
+    model_tier: capable
+    description: "Long-form writing: docs, reports, proposals, READMEs. Use when output quality matters and humans will read it carefully."
   - id: bug-fix
     type: carapace
-    description: "Systematic debugging and bug resolution."
+    model_tier: capable
+    description: "Systematic debugging: reproduce, isolate, blast radius, test, fix, verify, document. Use when a specific bug needs resolution."
 
 skills:
   - id: carapaces/orchestrator/workspace-orchestrator
@@ -55,6 +81,8 @@ local_tools:
   - web_search
   - file
   - exec_command
+  - create_slides
+  - read_conversation_history
 
 pinned_tools:
   - get_system_status
