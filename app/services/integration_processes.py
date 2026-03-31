@@ -204,7 +204,7 @@ class IntegrationProcessManager:
                 break
             text = line.decode("utf-8", errors="replace").rstrip()
             if text:
-                logger.debug("[%s] %s", state.integration_id, text)
+                logger.info("[%s] %s", state.integration_id, text)
 
         # Process exited
         await proc.wait()
