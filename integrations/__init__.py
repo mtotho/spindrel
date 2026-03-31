@@ -304,14 +304,20 @@ def discover_binding_metadata() -> dict[str, dict]:
     return results
 
 
-def _wrap_with_watchfiles(cmd: list[str], watch_paths: list[str] | None) -> list[str]:
-    """Wrap cmd with watchfiles for auto-reload if available and watch_paths given."""
-    if not watch_paths:
-        return cmd
+def _resolve_cmd(cmd: list[str], watch_paths: list[str] | None) -> list[str]:
+    """Resolve python path and optionally wrap with watchfiles for auto-reload."""
     import shutil
+    import sys
+
+    resolved = list(cmd)
+    if resolved and resolved[0] == "python":
+        resolved[0] = sys.executable
+
+    if not watch_paths:
+        return resolved
     if not shutil.which("watchfiles"):
-        return cmd
-    return ["watchfiles", "--filter", "python", " ".join(cmd)] + watch_paths
+        return resolved
+    return ["watchfiles", "--filter", "python", " ".join(resolved)] + watch_paths
 
 
 def discover_processes() -> list[dict]:
@@ -336,7 +342,7 @@ def discover_processes() -> list[dict]:
             if not cmd:
                 continue
             watch_paths = getattr(module, "WATCH_PATHS", None)
-            cmd = _wrap_with_watchfiles(cmd, watch_paths)
+            cmd = _resolve_cmd(cmd, watch_paths)
             if all(os.environ.get(v) for v in required_env):
                 results.append({
                     "id": integration_id,
