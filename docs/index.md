@@ -47,7 +47,7 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     ---
 
-    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Frigate, Mission Control. Extend with your own via `INTEGRATION_DIRS`.
+    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion. Extend with your own via `INTEGRATION_DIRS`.
 
 </div>
 

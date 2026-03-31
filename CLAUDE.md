@@ -203,6 +203,33 @@ Pluggable integration architecture for connecting to external services.
 - **Background processes**: Each integration can declare auto-start processes (`process.py`)
 - **Settings**: `IntegrationSetting` table (DB cache > env var fallback)
 - **Tools**: Auto-discovered from `integrations/*/tools/*.py`
+- **Skills**: Auto-synced from `integrations/*/skills/*.md`
+- **Carapaces**: Auto-seeded from `integrations/*/carapaces/*.yaml`
+- **Sidebar sections**: Declared via `sidebar_section` in `setup.py` SETUP dict
+- **Dashboard modules**: Declared via `dashboard_modules` in `setup.py` SETUP dict
+
+#### setup.py SETUP Manifest Fields
+```python
+SETUP = {
+    "env_vars": [...],                      # Environment variable declarations
+    "webhook": {"path": str, "description": str} | None,
+    "python_dependencies": [{"package": str, "import_name": str}] | None,
+    "binding": {...} | None,                # Channel binding config (client_id format, etc.)
+    "dashboard_modules": [                  # Custom MC dashboard sub-pages
+        {"id": str, "label": str, "icon": str, "description": str},
+    ],
+    "sidebar_section": {                    # Adds a navigation section to the main sidebar
+        "id": str,                          # Unique section ID (used for hide/show toggle)
+        "title": str,                       # Section header (e.g. "MISSION CONTROL")
+        "icon": str,                        # Lucide icon name for collapsed rail
+        "items": [                          # Nav items within the section
+            {"label": str, "href": str, "icon": str},
+        ],
+        "readiness_endpoint": str | None,   # Optional: API endpoint to check readiness
+        "readiness_field": str | None,      # Optional: field name in readiness response
+    },
+}
+```
 
 ### Delegation + Harness System
 

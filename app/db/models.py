@@ -76,6 +76,7 @@ class Channel(Base):
     skills_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     carapaces_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     carapaces_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    model_tier_overrides: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     workspace_skills_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     channel_workspace_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -1190,6 +1191,7 @@ class ServerConfig(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, server_default=text("'default'"))
     global_fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    model_tiers: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 

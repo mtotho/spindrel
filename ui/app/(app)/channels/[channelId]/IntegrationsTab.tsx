@@ -12,6 +12,7 @@ import {
 import {
   Section, FormRow, TextInput, SelectInput, EmptyState,
 } from "@/src/components/shared/FormControls";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
 
 // ---------------------------------------------------------------------------
 // Event filter multi-select
@@ -162,26 +163,18 @@ function BindingForm({
         </FormRow>
       )}
       <View className="flex-row gap-2">
-        <Pressable
+        <ActionButton
+          label={isPending ? "Saving..." : submitLabel}
           onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), eventFilter)}
           disabled={!type || !clientId.trim() || isPending}
-          style={{
-            backgroundColor: type && clientId.trim() ? t.accent : t.surfaceBorder,
-            paddingHorizontal: 14,
-            paddingVertical: 7,
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-            {isPending ? "Saving..." : submitLabel}
-          </Text>
-        </Pressable>
-        <Pressable
+          size="small"
+        />
+        <ActionButton
+          label="Cancel"
           onPress={onCancel}
-          className="px-3 py-1.5 rounded-lg hover:bg-surface-overlay"
-        >
-          <Text className="text-text-muted text-sm">Cancel</Text>
-        </Pressable>
+          variant="ghost"
+          size="small"
+        />
       </View>
       {isError && (
         <Text className="text-red-400 text-xs">
@@ -293,7 +286,11 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
                     <Pencil size={13} color={t.textDim} />
                   </Pressable>
                   <Pressable
-                    onPress={() => unbindMutation.mutate(b.id)}
+                    onPress={() => {
+                      if (confirm(`Unbind "${b.integration_type}" integration (${b.client_id})?`)) {
+                        unbindMutation.mutate(b.id);
+                      }
+                    }}
                     className="p-1 rounded hover:bg-surface-overlay"
                   >
                     <X size={14} color={t.danger} />
@@ -306,13 +303,13 @@ export function IntegrationsTab({ channelId }: { channelId: string }) {
       </Section>
 
       {!showAdd ? (
-        <Pressable
+        <ActionButton
+          label="Add Integration"
           onPress={() => setShowAdd(true)}
-          className="flex-row items-center gap-2 px-3 py-2"
-        >
-          <Plus size={14} color={t.accent} />
-          <Text className="text-accent text-sm font-medium">Add Integration</Text>
-        </Pressable>
+          variant="secondary"
+          size="small"
+          icon={<Plus size={12} />}
+        />
       ) : (
         <Section title="Add Integration">
           <BindingForm

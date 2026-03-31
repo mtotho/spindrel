@@ -2,12 +2,15 @@ import { useState, useRef } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Trash2, Upload, Paperclip, FileText, Image, Music, Video, File } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
   useChannelAttachments,
   useChannelAttachmentStats,
   useUploadAttachment,
   useDeleteAttachment,
 } from "@/src/api/hooks/useAttachments";
+import { SelectInput } from "@/src/components/shared/FormControls";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
 import { formatBytes } from "@/src/utils/format";
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ size: number; color: string }>> = {
@@ -20,6 +23,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ size: number; color: stri
 
 export function AttachmentsTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
+  const isMobile = useIsMobile();
   const { data: stats } = useChannelAttachmentStats(channelId);
   const { data: attachments, isLoading } = useChannelAttachments(channelId);
   const upload = useUploadAttachment();
@@ -64,41 +68,36 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
       )}
 
       {/* Upload + filter */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <Pressable
-          onPress={() => fileRef.current?.click()}
-          disabled={upload.isPending}
-          style={{
-            flexDirection: "row", alignItems: "center", gap: 6,
-            paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
-            backgroundColor: t.accent, opacity: upload.isPending ? 0.6 : 1,
-          }}
-        >
-          <Upload size={14} color="#fff" />
-          <Text style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>
-            {upload.isPending ? "Uploading..." : "Upload"}
-          </Text>
-        </Pressable>
-        <input
-          ref={fileRef}
-          type="file"
-          onChange={handleUpload}
-          style={{ display: "none" }}
-        />
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          style={{
-            padding: "6px 10px", borderRadius: 6,
-            border: `1px solid ${t.surfaceRaised}`,
-            background: t.inputBg, color: t.text, fontSize: 12,
-          }}
-        >
-          <option value="">All types</option>
-          {["image", "text", "audio", "video", "file"].map((tp) => (
-            <option key={tp} value={tp}>{tp}</option>
-          ))}
-        </select>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flexDirection: isMobile ? "column" as any : "row" as any }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <ActionButton
+            label={upload.isPending ? "Uploading..." : "Upload"}
+            onPress={() => fileRef.current?.click()}
+            disabled={upload.isPending}
+            size="small"
+            icon={<Upload size={13} color="#fff" />}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            onChange={handleUpload}
+            style={{ display: "none" }}
+          />
+          <div style={{ minWidth: 120 }}>
+            <SelectInput
+              value={filterType}
+              onChange={setFilterType}
+              options={[
+                { label: "All types", value: "" },
+                { label: "Image", value: "image" },
+                { label: "Text", value: "text" },
+                { label: "Audio", value: "audio" },
+                { label: "Video", value: "video" },
+                { label: "File", value: "file" },
+              ]}
+            />
+          </div>
+        </div>
         {upload.isError && (
           <span style={{ fontSize: 11, color: t.danger }}>{(upload.error as Error).message}</span>
         )}
@@ -150,7 +149,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                 <Pressable
                   onPress={() => handleDelete(att.id, att.filename)}
                   disabled={deletingId === att.id}
-                  style={{ padding: 6, borderRadius: 6, opacity: deletingId === att.id ? 0.4 : 0.7 }}
+                  style={{ padding: 10, borderRadius: 6, opacity: deletingId === att.id ? 0.4 : 0.7 }}
                   className="hover:bg-surface-overlay"
                 >
                   <Trash2 size={13} color={t.danger} />

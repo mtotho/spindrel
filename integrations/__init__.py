@@ -187,6 +187,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": (candidate / "tools").is_dir(),
             "has_skills": (candidate / "skills").is_dir(),
+            "has_carapaces": (candidate / "carapaces").is_dir(),
             "has_process": has_process,
             "process_status": None,
             "env_vars": [],
@@ -267,7 +268,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         deps_ok = entry.get("deps_installed", True)  # True if no deps declared
         if not required_vars:
             # No required vars declared — "ready" if has any capability file AND deps installed
-            if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"]:
+            if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:
                 entry["status"] = "ready" if deps_ok else "partial"
         else:
             set_count = sum(1 for v in required_vars if v["is_set"])
@@ -308,6 +309,52 @@ def discover_dashboard_modules() -> list[dict]:
                 })
         except Exception:
             logger.exception("Failed to load dashboard modules for integration %r", integration_id)
+
+    return results
+
+
+def discover_sidebar_sections() -> list[dict]:
+    """Discover sidebar sections from integration setup.py manifests.
+
+    Integrations declare a ``sidebar_section`` in their ``SETUP`` dict to add
+    a navigation section to the main sidebar.  Format::
+
+        "sidebar_section": {
+            "id": "mission-control",       # unique section ID
+            "title": "MISSION CONTROL",    # sidebar header text
+            "icon": "LayoutDashboard",     # lucide icon for collapsed rail
+            "items": [
+                {"label": "Dashboard", "href": "/mission-control", "icon": "LayoutDashboard"},
+                {"label": "Kanban",    "href": "/mission-control/kanban", "icon": "Columns"},
+            ],
+            "readiness_endpoint": "/api/v1/mission-control/readiness",  # optional
+            "readiness_field": "dashboard",                              # optional
+        }
+
+    Returns list of dicts with the above fields plus ``integration_id``.
+    """
+    results: list[dict] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            section = setup.get("sidebar_section")
+            if section:
+                results.append({
+                    "integration_id": integration_id,
+                    "id": section["id"],
+                    "title": section.get("title", section["id"].upper()),
+                    "icon": section.get("icon", "Plug"),
+                    "items": section.get("items", []),
+                    "readiness_endpoint": section.get("readiness_endpoint"),
+                    "readiness_field": section.get("readiness_field"),
+                })
+        except Exception:
+            logger.exception("Failed to load sidebar section for integration %r", integration_id)
 
     return results
 

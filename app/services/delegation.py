@@ -44,6 +44,7 @@ class DelegationService:
         ephemeral_delegate: bool = False,
         reply_in_thread: bool = False,
         carapace_ids: list[str] | None = None,
+        model_tier: str | None = None,
     ) -> str:
         """Run a child agent immediately and return its final response.
 
@@ -88,6 +89,21 @@ class DelegationService:
         if carapace_ids:
             import dataclasses
             delegate_bot = dataclasses.replace(delegate_bot, carapaces=list(carapace_ids))
+
+        # Resolve model tier → concrete model override
+        _tier_model: str | None = None
+        _tier_provider: str | None = None
+        if model_tier:
+            from app.agent.context import current_channel_model_tier_overrides
+            from app.services.server_config import resolve_model_tier
+            channel_overrides = current_channel_model_tier_overrides.get()
+            resolved = resolve_model_tier(model_tier, channel_overrides)
+            if resolved:
+                _tier_model, _tier_provider = resolved
+                logger.info(
+                    "Immediate delegation: resolved tier %r → model=%s provider=%s",
+                    model_tier, _tier_model, _tier_provider,
+                )
 
         child_depth = depth + 1
 
@@ -137,6 +153,8 @@ class DelegationService:
                 channel_id=channel_id,
                 dispatch_type=dispatch_type,
                 dispatch_config=dispatch_config,
+                model_override=_tier_model,
+                provider_id_override=_tier_provider,
             ):
                 if event.get("type") == "response":
                     final_response = event.get("text", "")
@@ -192,11 +210,15 @@ class DelegationService:
         reply_in_thread: bool = False,
         notify_parent: bool = True,
         carapace_ids: list[str] | None = None,
+        model_tier: str | None = None,
     ) -> str:
         """Create a Task for deferred execution. Returns task_id string.
 
         When carapace_ids is set, they are stored in execution_config.carapaces
         so the task worker injects them at execution time.
+
+        When model_tier is set, it is resolved to a concrete model+provider and
+        stored in execution_config.model_override / model_provider_id_override.
         """
         delivery_config = dict(dispatch_config or {})
         delivery_config["reply_in_thread"] = reply_in_thread
@@ -210,6 +232,25 @@ class DelegationService:
         execution_cfg: dict | None = None
         if carapace_ids:
             execution_cfg = {"carapaces": carapace_ids}
+
+        # Resolve model tier → concrete model override
+        if model_tier:
+            from app.agent.context import current_channel_model_tier_overrides
+            from app.services.server_config import resolve_model_tier
+            channel_overrides = current_channel_model_tier_overrides.get()
+            resolved = resolve_model_tier(model_tier, channel_overrides)
+            if resolved:
+                model, provider_id = resolved
+                if execution_cfg is None:
+                    execution_cfg = {}
+                execution_cfg["model_override"] = model
+                if provider_id:
+                    execution_cfg["model_provider_id_override"] = provider_id
+                logger.info(
+                    "Resolved model tier %r → model=%s provider=%s",
+                    model_tier, model, provider_id,
+                )
+
         task = Task(
             bot_id=delegate_bot_id,
             client_id=client_id,

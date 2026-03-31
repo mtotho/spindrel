@@ -374,6 +374,8 @@ class ChannelSettingsOut(BaseModel):
     # Carapace overrides
     carapaces_extra: Optional[list[str]] = None
     carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides (sparse — only override tiers you want to change)
+    model_tier_overrides: dict = {}
     # Resolved defaults for index segment fields (computed, not stored)
     index_segment_defaults: Optional[dict] = None
     # Workspace scope
@@ -447,6 +449,8 @@ class ChannelSettingsUpdate(BaseModel):
     # Carapace overrides
     carapaces_extra: Optional[list[str]] = None
     carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides
+    model_tier_overrides: Optional[dict] = None
     # Workspace scope
     workspace_id: Optional[str] = None
     tags: Optional[list[str]] = None
@@ -622,6 +626,13 @@ async def admin_channel_settings_update(
     if "workspace_id" in updates:
         ws_val = updates.pop("workspace_id")
         channel.workspace_id = uuid.UUID(ws_val) if ws_val else None
+
+    # Validate model tier override names
+    if updates.get("model_tier_overrides"):
+        from app.services.server_config import VALID_TIER_NAMES
+        invalid = set(updates["model_tier_overrides"].keys()) - VALID_TIER_NAMES
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Invalid tier names: {sorted(invalid)}. Valid: {sorted(VALID_TIER_NAMES)}")
 
     for field, value in updates.items():
         setattr(channel, field, value)

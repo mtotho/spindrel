@@ -381,6 +381,17 @@ export default function ChatScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Auto-load older pages when content doesn't fill the viewport
+  const listHeightRef = useRef(0);
+  const handleListLayout = useCallback((e: any) => {
+    listHeightRef.current = e.nativeEvent.layout.height;
+  }, []);
+  const handleContentSizeChange = useCallback((_w: number, h: number) => {
+    if (h < listHeightRef.current && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
     setShowScrollBtn(y > 300);
@@ -532,8 +543,10 @@ export default function ChatScreen() {
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
             scrollEventThrottle={100}
             onScroll={handleScroll}
+            onLayout={handleListLayout}
+            onContentSizeChange={handleContentSizeChange}
             onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
+            onEndReachedThreshold={1.5}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustContentInsets={false}
@@ -553,10 +566,6 @@ export default function ChatScreen() {
                 <View className="items-center py-3">
                   <ActivityIndicator size="small" color="#666666" />
                 </View>
-              ) : hasNextPage ? (
-                <Pressable onPress={handleLoadMore} className="items-center py-3">
-                  <Text className="text-text-muted text-xs">Load older messages</Text>
-                </Pressable>
               ) : null
             }
             ListEmptyComponent={

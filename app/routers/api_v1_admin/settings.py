@@ -1,13 +1,19 @@
 """Server settings CRUD: /settings."""
 from __future__ import annotations
 
+import asyncio
+import logging
+from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, verify_auth_or_user
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,6 +24,10 @@ class SettingsUpdateIn(BaseModel):
 
 class GlobalFallbackModelsIn(BaseModel):
     models: list[dict]
+
+
+class GlobalModelTiersIn(BaseModel):
+    tiers: dict[str, dict]
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +134,69 @@ async def memory_scheme_defaults(_auth: str = Depends(verify_auth_or_user)):
     }
 
 
+@router.get("/version/check-update")
+async def check_update(_auth=Depends(verify_auth_or_user)):
+    """Check GitHub for the latest release and compare to current version."""
+    from app.config import VERSION
+
+    # Get git hash
+    git_hash: str | None = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "log", "-1", "--format=%h",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(Path(__file__).resolve().parents[2]),
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            git_hash = stdout.decode().strip() or None
+    except Exception:
+        pass
+
+    result: dict[str, Any] = {
+        "current": VERSION,
+        "git_hash": git_hash,
+        "latest": None,
+        "latest_url": None,
+        "published_at": None,
+        "update_available": False,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Try releases/latest first
+            resp = await client.get(
+                "https://api.github.com/repos/mtotho/spindrel/releases/latest",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest = data.get("tag_name", "").lstrip("v")
+                result["latest"] = latest
+                result["latest_url"] = data.get("html_url")
+                result["published_at"] = data.get("published_at")
+                result["update_available"] = latest != VERSION
+            else:
+                # Fallback to tags
+                resp = await client.get(
+                    "https://api.github.com/repos/mtotho/spindrel/tags?per_page=1",
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                if resp.status_code == 200:
+                    tags = resp.json()
+                    if tags:
+                        latest = tags[0]["name"].lstrip("v")
+                        result["latest"] = latest
+                        result["latest_url"] = f"https://github.com/mtotho/spindrel/releases/tag/{tags[0]['name']}"
+                        result["update_available"] = latest != VERSION
+    except Exception as exc:
+        log.warning("Failed to check for updates: %s", exc)
+        result["error"] = str(exc)
+
+    return result
+
+
 @router.get("/global-fallback-models")
 async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
     from app.services.server_config import get_global_fallback_models
@@ -138,3 +211,22 @@ async def update_global_fallback_models(
     from app.services.server_config import update_global_fallback_models
     await update_global_fallback_models(body.models)
     return {"ok": True, "models": body.models}
+
+
+@router.get("/global-model-tiers")
+async def get_global_model_tiers(_auth: str = Depends(verify_auth_or_user)):
+    from app.services.server_config import get_model_tiers
+    return {"tiers": get_model_tiers()}
+
+
+@router.put("/global-model-tiers")
+async def update_global_model_tiers(
+    body: GlobalModelTiersIn,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    from app.services.server_config import VALID_TIER_NAMES, update_model_tiers
+    invalid = set(body.tiers.keys()) - VALID_TIER_NAMES
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid tier names: {sorted(invalid)}. Valid: {sorted(VALID_TIER_NAMES)}")
+    await update_model_tiers(body.tiers)
+    return {"ok": True, "tiers": body.tiers}

@@ -158,6 +158,7 @@ class ResolvedCarapaceOut(BaseModel):
     mcp_tools: list[str] = []
     pinned_tools: list[str] = []
     system_prompt_fragments: list[str] = []
+    delegates: list[dict] = []
     resolved_ids: list[str] = []  # All carapace IDs that contributed
 
 
@@ -195,6 +196,10 @@ async def admin_resolve_carapace(
         mcp_tools=resolved.mcp_tools,
         pinned_tools=resolved.pinned_tools,
         system_prompt_fragments=resolved.system_prompt_fragments,
+        delegates=[
+            {"id": d.id, "type": d.type, "description": d.description, "model_tier": d.model_tier, "source_carapace": d.source_carapace}
+            for d in resolved.delegates
+        ],
         resolved_ids=contributing,
     )
 

@@ -1,4 +1,4 @@
-"""Local tools: get_attachment, list_attachments, post_attachment, save_attachment — attachment access for the agent."""
+"""Local tools: get_attachment, list_attachments, save_attachment — attachment access for the agent."""
 
 import base64
 import json

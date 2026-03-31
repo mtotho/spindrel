@@ -196,6 +196,8 @@ class ChannelConfigOut(BaseModel):
     # Carapace overrides
     carapaces_extra: Optional[list[str]] = None
     carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides
+    model_tier_overrides: dict = {}
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -266,6 +268,8 @@ class ChannelConfigUpdate(BaseModel):
     # Carapace overrides
     carapaces_extra: Optional[list[str]] = None
     carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides
+    model_tier_overrides: Optional[dict] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -461,6 +465,13 @@ async def update_channel_config(
             if not has_scope(_auth.scopes, "channels.heartbeat:write"):
                 raise HTTPException(status_code=403, detail="Missing required scope: channels.heartbeat:write")
 
+    # Validate model tier override names
+    if ch_updates.get("model_tier_overrides"):
+        from app.services.server_config import VALID_TIER_NAMES
+        invalid = set(ch_updates["model_tier_overrides"].keys()) - VALID_TIER_NAMES
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Invalid tier names: {sorted(invalid)}. Valid: {sorted(VALID_TIER_NAMES)}")
+
     # Apply channel updates
     if ch_updates:
         for field, value in ch_updates.items():
@@ -564,6 +575,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "index_segments": channel.index_segments or [],
         "carapaces_extra": channel.carapaces_extra,
         "carapaces_disabled": channel.carapaces_disabled,
+        "model_tier_overrides": channel.model_tier_overrides or {},
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }

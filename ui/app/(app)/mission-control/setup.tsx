@@ -98,7 +98,7 @@ function ReadinessRow({
       </Pressable>
 
       {expanded && (
-        <View className="px-4 pb-3 pt-1 border-t border-surface-border" style={{ gap: 6 }}>
+        <View className="px-4 pb-3 pt-3 border-t border-surface-border" style={{ gap: 6 }}>
           {readiness.issues.length > 0 ? (
             readiness.issues.map((issue, i) => (
               <Text key={i} className="text-text-muted text-xs" style={{ lineHeight: 18 }}>
@@ -146,14 +146,15 @@ export default function MCSetup() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          padding: 16,
-          gap: 24,
+          paddingHorizontal: 16,
+          paddingTop: 24,
+          gap: 32,
           paddingBottom: 40,
           maxWidth: 960,
         }}
       >
         {/* Feature readiness checklist */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 12 }}>
           <Text
             className="text-text-dim"
             style={{
@@ -161,6 +162,7 @@ export default function MCSetup() {
               fontWeight: "700",
               letterSpacing: 0.8,
               textTransform: "uppercase",
+              marginBottom: 2,
             }}
           >
             FEATURE READINESS
@@ -169,7 +171,7 @@ export default function MCSetup() {
           {readinessLoading ? (
             <Text className="text-text-muted text-sm">Checking...</Text>
           ) : readiness ? (
-            <View style={{ gap: 8 }}>
+            <View style={{ gap: 10 }}>
               <ReadinessRow
                 label="Dashboard"
                 feature="dashboard"
@@ -195,7 +197,7 @@ export default function MCSetup() {
         </View>
 
         {/* Setup guide documentation */}
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 12 }}>
           <View className="flex-row items-center gap-2">
             <BookOpen size={14} color={t.textDim} />
             <Text
@@ -211,7 +213,7 @@ export default function MCSetup() {
             </Text>
           </View>
 
-          <View className="rounded-xl border border-surface-border p-4">
+          <View className="rounded-xl border border-surface-border p-5">
             {guideLoading ? (
               <Text className="text-text-muted text-sm">Loading guide...</Text>
             ) : guide?.content && MarkdownViewer ? (

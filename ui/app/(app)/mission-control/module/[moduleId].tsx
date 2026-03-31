@@ -179,8 +179,9 @@ export default function MCModulePage() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          padding: 16,
-          gap: 16,
+          paddingHorizontal: 16,
+          paddingTop: 24,
+          gap: 20,
           paddingBottom: 40,
           maxWidth: 960,
         }}

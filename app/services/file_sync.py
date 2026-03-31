@@ -10,6 +10,8 @@ Supported directories:
   bots/{id}/knowledge/*.md           → bot_knowledge (bot_id=id, source_type='file')
   integrations/{id}/skills/*.md      → skills (source_type='integration')
   integrations/{id}/knowledge/*.md   → bot_knowledge (bot_id=NULL, source_type='integration')
+  prompts/*.md                       → prompt_templates (source_type='file')
+  integrations/{id}/prompts/*.md     → prompt_templates (source_type='integration')
 """
 from __future__ import annotations
 
@@ -210,13 +212,25 @@ def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
 def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
     """Return (path, name, source_type) for all discoverable prompt template .md files.
 
-    Scans prompts/*.md (global templates).
+    Scans prompts/*.md (global) and integrations/*/prompts/*.md (integration-shipped).
     """
     items: list[tuple[Path, str, str]] = []
+    # prompts/*.md (global)
     prompts_dir = Path("prompts")
     if prompts_dir.is_dir():
         for p in sorted(prompts_dir.glob("*.md")):
             items.append((p, p.stem, SOURCE_FILE))
+    # integrations/*/prompts/*.md (in-repo + external)
+    for base_dir in _integration_dirs():
+        if not base_dir.is_dir():
+            continue
+        for intg_dir in sorted(base_dir.iterdir()):
+            if not intg_dir.is_dir():
+                continue
+            intg_prompts = intg_dir / "prompts"
+            if intg_prompts.is_dir():
+                for p in sorted(intg_prompts.glob("*.md")):
+                    items.append((p, p.stem, SOURCE_INTEGRATION))
     return items
 
 
@@ -432,7 +446,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
                 PromptTemplate.source_path == source_path,
-                PromptTemplate.source_type == SOURCE_FILE,
+                PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
             )
             existing = (await session.execute(stmt)).scalar_one_or_none()
 
@@ -459,15 +473,16 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 existing.tags = tags if tags else []
                 existing.content_hash = content_hash
                 existing.source_path = source_path
+                existing.source_type = source_type
                 existing.updated_at = datetime.now(timezone.utc)
                 await session.commit()
                 counts["updated"] += 1
                 logger.info("file_sync: updated prompt template '%s' from %s", display_name, path)
 
-    # Delete orphaned file-managed prompt templates
+    # Delete orphaned file/integration-managed prompt templates
     async with async_session() as session:
         stmt = select(PromptTemplate).where(
-            PromptTemplate.source_type == SOURCE_FILE
+            PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
         )
         all_file_templates = list((await session.execute(stmt)).scalars().all())
         for row in all_file_templates:
@@ -727,7 +742,7 @@ async def sync_changed_file(path: Path) -> None:
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
                 PromptTemplate.source_path == path_str,
-                PromptTemplate.source_type == SOURCE_FILE,
+                PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
             )
             existing = (await session.execute(stmt)).scalar_one_or_none()
             if existing is None:
@@ -845,6 +860,10 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     # prompts/*.md
     if len(parts) == 2 and parts[0] == "prompts" and parts[1].endswith(".md"):
         return ("prompt_template", Path(parts[1]).stem, None, SOURCE_FILE)
+
+    # integrations/{id}/prompts/*.md
+    if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "prompts" and parts[3].endswith(".md"):
+        return ("prompt_template", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
 
     # carapaces/*.yaml
     if len(parts) == 2 and parts[0] == "carapaces" and parts[1].endswith(".yaml"):

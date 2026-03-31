@@ -666,6 +666,7 @@ function IntegrationCard({ item, isWide }: { item: IntegrationItem; isWide: bool
         <CapBadge label="hooks" active={item.has_hooks} />
         <CapBadge label="tools" active={item.has_tools} />
         <CapBadge label="skills" active={item.has_skills} />
+        <CapBadge label="carapaces" active={item.has_carapaces} />
         <CapBadge label="process" active={item.has_process} />
       </div>
 

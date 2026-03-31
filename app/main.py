@@ -408,4 +408,5 @@ for _integration_id, _integration_router in _discover_integrations():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from app.config import VERSION
+    return {"status": "ok", "version": VERSION}

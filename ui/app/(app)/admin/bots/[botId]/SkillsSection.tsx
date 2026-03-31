@@ -1,7 +1,12 @@
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
+
+const AUTO_INJECTED_SKILLS: Record<string, string> = {
+  "integrations/mission_control/mission_control":
+    "Auto-injected via mission-control carapace for workspace-enabled channels",
+};
 
 export function SkillsSection({
   editorData, draft, update,
@@ -56,24 +61,40 @@ export function SkillsSection({
         {filtered.map((skill) => {
           const sel = isSelected(skill.id);
           const entry = getEntry(skill.id);
+          const autoNote = AUTO_INJECTED_SKILLS[skill.id];
           return (
             <div key={skill.id} style={{
               padding: 8, borderRadius: 6,
-              background: sel ? t.accentSubtle : t.surface,
+              background: sel ? t.accentSubtle : autoNote && !sel ? `${t.surfaceOverlay}` : t.surface,
               border: `1px solid ${sel ? t.accentBorder : t.surfaceRaised}`,
+              opacity: autoNote && !sel ? 0.7 : 1,
             }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                 <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 12, fontWeight: 500, color: sel ? t.accent : t.textMuted }}>{skill.name}</span>
                     <span style={{ fontSize: 10, color: t.surfaceBorder, fontFamily: "monospace" }}>{skill.id}</span>
+                    {autoNote && !sel && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 3,
+                        fontSize: 9, fontWeight: 600, color: t.accent,
+                        background: `${t.accent}15`, borderRadius: 4, padding: "1px 5px",
+                      }}>
+                        <Zap size={8} />
+                        AUTO
+                      </span>
+                    )}
                   </div>
-                  {skill.description && (
+                  {autoNote && !sel ? (
+                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
+                      {autoNote}
+                    </div>
+                  ) : skill.description ? (
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {skill.description}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </label>
               {sel && entry && (

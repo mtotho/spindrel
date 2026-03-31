@@ -2,6 +2,7 @@ import { ActivityIndicator } from "react-native";
 import { RotateCw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { EmptyState } from "@/src/components/shared/FormControls";
+import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -47,19 +48,12 @@ export function SessionsTab({ channelId }: { channelId: string }) {
     <>
       {/* Actions bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <button
-          onClick={() => resetMutation.mutate()}
+        <ActionButton
+          label={resetMutation.isPending ? "Resetting..." : "New Session"}
+          onPress={() => resetMutation.mutate()}
           disabled={resetMutation.isPending}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "6px 14px", fontSize: 12, fontWeight: 600,
-            border: "none", cursor: "pointer", borderRadius: 6,
-            background: t.accent, color: "#fff",
-          }}
-        >
-          <RotateCw size={12} />
-          {resetMutation.isPending ? "Resetting..." : "New Session"}
-        </button>
+          icon={<RotateCw size={12} />}
+        />
         <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
           {data?.length ?? 0} session{data?.length !== 1 ? "s" : ""}
         </span>
@@ -85,16 +79,8 @@ export function SessionsTab({ channelId }: { channelId: string }) {
                       {s.title}
                     </span>
                   )}
-                  {s.is_active && (
-                    <span style={{ fontSize: 9, background: t.successSubtle, color: t.success, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
-                      ACTIVE
-                    </span>
-                  )}
-                  {s.locked && (
-                    <span style={{ fontSize: 9, background: t.dangerSubtle, color: t.danger, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>
-                      LOCKED
-                    </span>
-                  )}
+                  {s.is_active && <StatusBadge label="ACTIVE" variant="success" />}
+                  {s.locked && <StatusBadge label="LOCKED" variant="danger" />}
                   {s.depth > 0 && (
                     <span style={{ fontSize: 9, background: t.surfaceBorder, color: t.textMuted, padding: "1px 6px", borderRadius: 3 }}>
                       depth {s.depth}
@@ -109,18 +95,13 @@ export function SessionsTab({ channelId }: { channelId: string }) {
               </div>
               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                 {!s.is_active && (
-                  <button
-                    onClick={() => switchMutation.mutate(s.id)}
+                  <ActionButton
+                    label="Activate"
+                    onPress={() => switchMutation.mutate(s.id)}
                     disabled={switchMutation.isPending}
-                    style={{
-                      padding: "4px 10px", fontSize: 10, fontWeight: 600,
-                      border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, cursor: "pointer",
-                      background: "transparent", color: t.success,
-                    }}
-                    title="Switch to this session"
-                  >
-                    Activate
-                  </button>
+                    variant="secondary"
+                    size="small"
+                  />
                 )}
               </div>
             </div>

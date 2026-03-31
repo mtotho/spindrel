@@ -1,13 +1,15 @@
 import { useCallback, useState } from "react";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { Trash2, AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel } from "@/src/api/hooks/useChannels";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
+import { AdvancedSection, InfoBanner } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -111,7 +113,7 @@ function TagEditor({
 // ---------------------------------------------------------------------------
 // Advanced — collapsible section for rarely-changed settings
 // ---------------------------------------------------------------------------
-function AdvancedSection({
+function GeneralAdvancedSection({
   form,
   patch,
   settings,
@@ -121,110 +123,92 @@ function AdvancedSection({
   settings: ChannelSettings;
 }) {
   const t = useThemeTokens();
-  const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   return (
-    <div style={{ marginTop: 8 }}>
-      <Pressable
-        onPress={() => setOpen(!open)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingVertical: 10,
-          paddingHorizontal: 4,
-        }}
-      >
-        {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
-        <Text style={{ color: t.textMuted, fontSize: 13, fontWeight: "600" }}>Advanced Settings</Text>
-      </Pressable>
-
-      {open && (
-        <>
-          <Section title="Behavior">
-            <Toggle
-              value={form.require_mention ?? true}
-              onChange={(v) => patch("require_mention", v)}
-              label="Require @mention"
-              description="Only @mentions trigger the bot; other messages stored as context."
-            />
-            <Toggle
-              value={form.passive_memory ?? true}
-              onChange={(v) => patch("passive_memory", v)}
-              label="Passive memory"
-              description="Include passive messages in memory compaction."
-            />
-            <Toggle
-              value={form.allow_bot_messages ?? false}
-              onChange={(v) => patch("allow_bot_messages", v)}
-              label="Allow bot messages"
-              description="Process messages from other bots (e.g. GitHub) and trigger the agent."
-            />
-            <Toggle
-              value={form.workspace_rag ?? true}
-              onChange={(v) => patch("workspace_rag", v)}
-              label="Workspace RAG"
-              description="Auto-inject relevant workspace files into context each turn."
-            />
-            <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
-              <SelectInput
-                value={form.thinking_display ?? "append"}
-                onChange={(v) => patch("thinking_display", v)}
-                options={[
-                  { label: "Hidden (just 'thinking...')", value: "hidden" },
-                  { label: "Replace (single updating message)", value: "replace" },
-                  { label: "Append all", value: "append" },
-                ]}
+    <AdvancedSection>
+      <Section title="Behavior">
+        <Toggle
+          value={form.require_mention ?? true}
+          onChange={(v) => patch("require_mention", v)}
+          label="Require @mention"
+          description="Only @mentions trigger the bot; other messages stored as context."
+        />
+        <Toggle
+          value={form.passive_memory ?? true}
+          onChange={(v) => patch("passive_memory", v)}
+          label="Passive memory"
+          description="Include passive messages in memory compaction."
+        />
+        <Toggle
+          value={form.allow_bot_messages ?? false}
+          onChange={(v) => patch("allow_bot_messages", v)}
+          label="Allow bot messages"
+          description="Process messages from other bots (e.g. GitHub) and trigger the agent."
+        />
+        <Toggle
+          value={form.workspace_rag ?? true}
+          onChange={(v) => patch("workspace_rag", v)}
+          label="Workspace RAG"
+          description="Auto-inject relevant workspace files into context each turn."
+        />
+        <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
+          <SelectInput
+            value={form.thinking_display ?? "append"}
+            onChange={(v) => patch("thinking_display", v)}
+            options={[
+              { label: "Hidden (just 'thinking...')", value: "hidden" },
+              { label: "Replace (single updating message)", value: "replace" },
+              { label: "Append all", value: "append" },
+            ]}
+          />
+        </FormRow>
+        <Row stack={isMobile}>
+          <Col minWidth={isMobile ? 0 : 200}>
+            <FormRow label="Max iterations">
+              <TextInput
+                value={form.max_iterations?.toString() ?? ""}
+                onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
+                placeholder="default"
+                type="number"
               />
             </FormRow>
-            <Row>
-              <Col>
-                <FormRow label="Max iterations">
-                  <TextInput
-                    value={form.max_iterations?.toString() ?? ""}
-                    onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="default"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Max task run time (seconds)">
-                  <TextInput
-                    value={form.task_max_run_seconds?.toString() ?? ""}
-                    onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
-                    placeholder="1200 (default)"
-                    type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-          </Section>
-
-          <Section title="Privacy">
-            <Toggle
-              value={form.private ?? false}
-              onChange={(v) => patch("private", v)}
-              label="Private channel"
-              description="Private channels are only visible to the assigned user."
-            />
-            <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
-              <ChannelOwnerSelect
-                value={form.user_id ?? null}
-                onChange={(v) => patch("user_id", v || undefined)}
+          </Col>
+          <Col minWidth={isMobile ? 0 : 200}>
+            <FormRow label="Max task run time (seconds)">
+              <TextInput
+                value={form.task_max_run_seconds?.toString() ?? ""}
+                onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
+                placeholder="1200 (default)"
+                type="number"
               />
             </FormRow>
-          </Section>
+          </Col>
+        </Row>
+      </Section>
 
-          {/* Metadata */}
-          <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span>ID: {settings.id}</span>
-            {settings.client_id && <span>client_id: {settings.client_id}</span>}
-            {settings.integration && <span>integration: {settings.integration}</span>}
-          </div>
-        </>
-      )}
-    </div>
+      <Section title="Privacy">
+        <Toggle
+          value={form.private ?? false}
+          onChange={(v) => patch("private", v)}
+          label="Private channel"
+          description="Private channels are only visible to the assigned user."
+        />
+        <FormRow label="Owner" description="User who owns this channel. Private channels require an owner.">
+          <ChannelOwnerSelect
+            value={form.user_id ?? null}
+            onChange={(v) => patch("user_id", v || undefined)}
+          />
+        </FormRow>
+      </Section>
+
+      {/* Metadata */}
+      <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <span>ID: {settings.id}</span>
+        {settings.client_id && <span>client_id: {settings.client_id}</span>}
+        {settings.integration && <span>integration: {settings.integration}</span>}
+      </div>
+    </AdvancedSection>
   );
 }
 
@@ -240,6 +224,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
   channelId: string;
 }) {
   const t = useThemeTokens();
+  const isMobile = useIsMobile();
   const router = useRouter();
   const deleteMutation = useDeleteChannel();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -253,8 +238,8 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
   return (
     <>
       <Section title="General">
-        <Row>
-          <Col>
+        <Row stack={isMobile}>
+          <Col minWidth={isMobile ? 0 : 200}>
             <FormRow label="Display Name" description="Label shown in sidebar. Does not affect routing.">
               <TextInput
                 value={form.name ?? ""}
@@ -263,7 +248,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
               />
             </FormRow>
           </Col>
-          <Col>
+          <Col minWidth={isMobile ? 0 : 200}>
             <FormRow label="Bot">
               <SelectInput
                 value={form.bot_id ?? ""}
@@ -280,19 +265,12 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
           />
         </FormRow>
         {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
-          <div style={{
-            padding: "10px 14px", background: t.warningSubtle, border: `1px solid ${t.warningMuted}`,
-            borderRadius: 8, fontSize: 11, color: t.warningMuted, lineHeight: "1.5",
-            display: "flex", gap: 8, alignItems: "flex-start",
-          }}>
-            <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <strong>Switching bots.</strong> Existing conversation history sections (transcripts on disk)
-              belong to the previous bot's workspace and won't be accessible to the new bot. The new bot
-              will only see recent messages still in the context window. To rebuild history for the new bot,
-              go to the <strong>History</strong> tab and re-run <strong>Backfill Sections</strong> after saving.
-            </div>
-          </div>
+          <InfoBanner variant="warning" icon={<AlertTriangle size={14} color="#f59e0b" />}>
+            <strong>Switching bots.</strong> Existing conversation history sections (transcripts on disk)
+            belong to the previous bot's workspace and won't be accessible to the new bot. The new bot
+            will only see recent messages still in the context window. To rebuild history for the new bot,
+            go to the <strong>History</strong> tab and re-run <strong>Backfill Sections</strong> after saving.
+          </InfoBanner>
         )}
       </Section>
 
@@ -345,7 +323,7 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
       </Section>
 
       {/* Collapsible advanced section */}
-      <AdvancedSection form={form} patch={patch} settings={settings} />
+      <GeneralAdvancedSection form={form} patch={patch} settings={settings} />
 
       {/* Danger Zone */}
       <div style={{

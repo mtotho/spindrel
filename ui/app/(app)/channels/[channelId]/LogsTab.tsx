@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
 
 // ---------------------------------------------------------------------------
@@ -56,12 +57,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-                    background: c.bg, color: c.fg, whiteSpace: "nowrap", flexShrink: 0,
-                  }}>
-                    {evType}
-                  </span>
+                  <StatusBadge label={evType} customColors={{ bg: c.bg, fg: c.fg }} />
                   <span style={{ fontSize: 12, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {name || "\u2014"}
                   </span>

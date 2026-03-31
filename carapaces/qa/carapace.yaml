@@ -8,7 +8,12 @@ tags: [testing, quality]
 delegates:
   - id: bug-fix
     type: carapace
+    model_tier: capable
     description: "When QA finds a bug, delegate to bug-fix for resolution."
+  - id: scanner
+    type: carapace
+    model_tier: fast
+    description: "Scan source files for test coverage gaps, untested code paths, or missing error handlers."
 
 skills:
   - id: channel_workspaces

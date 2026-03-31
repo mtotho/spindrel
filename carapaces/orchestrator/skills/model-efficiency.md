@@ -1,135 +1,117 @@
 ---
 name: Model Efficiency
 description: >
-  Guide for selecting cost-effective models when delegating tasks, scheduling work,
-  or configuring channels. Load when the user asks about model costs, optimization,
-  or when the orchestrator needs to choose between models for a task.
+  Guide for cost-effective delegation using model tiers. Load when the orchestrator
+  needs to choose between tiers for delegation, or when the user asks about model
+  costs and optimization.
 ---
 
-# Model Efficiency — Choosing the Right Model for the Job
+# Model Efficiency — Tier-Based Delegation
 
 ## Core Principle
 
-Not every task needs the most capable model. Match model capability to task complexity:
-- **Reasoning, architecture, ambiguous requirements** → top-tier (Opus, o3, GPT-4o)
-- **Code generation, structured tasks, clear prompts** → mid-tier (Sonnet, Flash, GPT-4o-mini)
-- **Summarization, classification, simple extraction** → economy (Haiku, Flash-Lite, GPT-4o-mini)
+Every delegate has a **model tier** that controls cost. Use the cheapest tier that
+can handle the task. Tiers are resolved automatically — you rarely need to override.
 
-## Discovering Available Models
+## Available Tiers
 
-Use the admin API to list models with cost information:
+| Tier | Cost | Use For |
+|------|------|---------|
+| `free` | $0 | Trivial routing, no-op tasks |
+| `fast` | Lowest | Scanning, summarization, extraction, classification |
+| `standard` | Moderate | Code generation, research, reviews, structured tasks |
+| `capable` | Higher | Complex debugging, architecture, polished writing |
+| `frontier` | Highest | Novel reasoning, ambiguous multi-step problems |
 
-```
-GET /api/v1/admin/models
-```
+## How Tier Resolution Works
 
-Returns models grouped by provider, each with:
-- `model_id` — the LiteLLM model alias to use in overrides
-- `input_cost_per_1m` / `output_cost_per_1m` — cost per million tokens
-- `max_tokens` — context window size
+When you call `delegate_to_agent`, the model is resolved in this order:
 
-Check this on cold start (via `get_system_status` or direct API call) and note
-the cheapest capable models in your workspace MEMORY.md for quick reference.
+1. **Explicit `model_tier` param** on the `delegate_to_agent` call (highest priority)
+2. **Delegate entry default** — the `model_tier` set in your carapace's `delegates` list
+3. **Bot's configured model** — the target bot's default model (fallback)
 
-## Using Model Overrides
-
-### In Task Delegation
-
-When delegating via `schedule_task` or `delegate_to_agent`, set `execution_config`
-to override the model:
+Most of the time, the delegate entry default is correct — you defined it when setting up
+the carapace. Only override explicitly when a specific task is unusually complex or simple
+for its delegate type.
 
 ```python
-schedule_task(
-    prompt="Summarize these 5 channel updates into a digest",
-    bot_id="helper",
-    execution_config={
-        "model_override": "gemini/gemini-2.5-flash",  # cheap + fast for summaries
-    }
+# Uses the delegate entry's default tier (standard for researcher)
+delegate_to_agent(
+    bot_id="researcher",
+    prompt="Research current best practices for WebSocket authentication"
+)
+
+# Override to capable for an unusually complex research task
+delegate_to_agent(
+    bot_id="researcher",
+    prompt="Compare 5 auth frameworks across security, performance, and DX",
+    model_tier="capable"
 )
 ```
 
-For important tasks, set a fallback chain:
+## Your Delegate Toolkit
 
-```python
-schedule_task(
-    prompt="Design the integration architecture",
-    bot_id="architect",
-    execution_config={
-        "model_override": "anthropic/claude-sonnet-4-6",
-        "fallback_models": [
-            {"model": "gemini/gemini-2.5-pro"},
-            {"model": "openai/gpt-4o"},
-        ],
-    }
-)
-```
+### Cheap Workers (fast tier) — Use Liberally
+- **scanner** — Bulk file reading, pattern extraction, usage searches. Delegate freely
+  for any grunt-work: "find all usages of X", "list all API endpoints", "scan for TODO comments".
+- **summarizer** — Compress large inputs. Use when there's too much text to process
+  efficiently: conversation history, long docs, multi-channel status updates.
 
-### In Channel Configuration
+### Standard Workers — The Workhorses
+- **researcher** — Web research with citations. Use for anything requiring current info.
+- **presenter** — Slide deck creation. Use when content needs visual presentation.
+- **qa** — Test planning and execution. Use after code changes.
+- **code-review** — Structured review. Use when code needs careful human-quality review.
 
-For channels with heartbeats or recurring tasks, set the channel model override
-via `manage_channel` to control cost for ALL messages in that channel:
-
-```python
-manage_channel(
-    action="update",
-    channel_id="...",
-    model_override="gemini/gemini-2.5-flash",  # heartbeat channels rarely need top-tier
-)
-```
-
-## Task-to-Model Matching Guide
-
-| Task Type | Recommended Tier | Why |
-|-----------|-----------------|-----|
-| Heartbeat status checks | Economy | Routine, template-like output |
-| Summarization / digests | Economy | Extractive, low reasoning |
-| Classification / routing | Economy | Simple decision boundary |
-| Data extraction / parsing | Economy-Mid | Structured output, some edge cases |
-| Code generation (clear spec) | Mid | Needs correctness but prompt is specific |
-| Code review | Mid | Pattern matching + reasoning |
-| Research / analysis | Mid-Top | Open-ended reasoning required |
-| Architecture / design | Top | Ambiguity resolution, tradeoff analysis |
-| Debugging complex issues | Top | Multi-step reasoning, hypothesis testing |
-| Creative writing / personas | Mid | Quality matters but reasoning load is moderate |
+### Capable Workers — Use When Quality Matters
+- **writer** — Long-form docs, reports, proposals. The output will be read carefully by humans.
+- **bug-fix** — Systematic debugging. The problem requires multi-step reasoning.
 
 ## Cost Optimization Patterns
 
-### 1. Tiered Delegation
-For multi-step workflows, use cheap models for early stages and expensive ones
-for the final synthesis:
+### 1. Cheap Scan → Expensive Synthesis
+Use fast-tier workers to gather and compress, then hand the distilled input to a
+capable-tier worker for the final output:
 
 ```
-1. schedule_task(model="flash") → gather raw data from 5 channels
-2. schedule_task(model="flash") → extract key points from each
-3. schedule_task(model="sonnet") → synthesize into strategic report
+1. scanner (fast)    → read 50 files, extract relevant snippets
+2. summarizer (fast) → compress findings to key points
+3. writer (capable)  → produce polished report from the digest
 ```
 
 ### 2. Heartbeat Economy
-Heartbeats run frequently. Use the cheapest model that can handle the channel's
-needs. Most heartbeats do status checks or simple monitoring — Flash-tier is fine.
-
-### 3. Smart Fallbacks
-Set fallback_models so tasks don't fail if a provider is down, but pick
-fallbacks at similar or lower cost tiers:
-
+Heartbeats run frequently. Set channel model overrides to cheap tiers:
 ```python
-"fallback_models": [
-    {"model": "gemini/gemini-2.5-flash"},      # same tier, different provider
-    {"model": "openai/gpt-4o-mini"},            # similar tier fallback
-]
+manage_channel(action="update", channel_id="...", model_override="gemini/gemini-2.5-flash")
 ```
 
-### 4. Context Window Awareness
-Large context = more tokens = more cost. When delegating tasks that involve
-reading large codebases or documents:
-- Pre-summarize inputs with a cheap model before feeding to an expensive one
-- Use `max_tokens` from model info to avoid tasks that exceed context limits
-- Prefer models with large context windows for search/RAG-heavy tasks
+### 3. Fan-Out at the Right Tier
+When breaking a task into parallel subtasks, match each subtask to its tier:
+```
+Task: "Audit the project and write a report"
+  → scanner (fast): scan all source files for patterns
+  → researcher (standard): look up best practices
+  → writer (capable): synthesize findings into report
+```
 
-## Decision Framework
+### 4. Escalation Pattern
+Start cheap. If the result is insufficient, retry at a higher tier:
+```python
+# First try cheap
+delegate_to_agent(bot_id="scanner", prompt="...", model_tier="fast")
+# If result is too shallow, escalate
+delegate_to_agent(bot_id="researcher", prompt="...", model_tier="standard")
+```
 
-When choosing a model for a task, ask:
-1. **How complex is the reasoning?** Simple → economy, complex → top
-2. **How important is the output?** User-facing → invest more, internal → economize
-3. **How often does this run?** Hourly heartbeat → economy, one-off analysis → top is fine
-4. **Is this retriable?** If you can retry on failure, start cheap and escalate
+## Discovering Available Models
+
+Use `GET /api/v1/admin/models` to see models with cost info. Check on cold start
+and note the cheapest models per tier in workspace MEMORY.md for quick reference.
+
+## Decision Heuristic
+
+1. **How complex is the reasoning?** Simple extraction → fast. Multi-step analysis → capable.
+2. **Who reads the output?** Internal/transient → economize. User-facing → invest.
+3. **How often does this run?** Hourly heartbeat → fast. One-off report → capable is fine.
+4. **Is this retriable?** If you can retry on failure, start cheap and escalate.

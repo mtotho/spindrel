@@ -125,12 +125,12 @@ function QuickNav() {
     { href: "/mission-control/memory", icon: Brain, label: "Memory", feature: "memory" },
   ];
   return (
-    <View className="flex-row gap-2">
+    <View className="flex-row gap-3">
       {links.map((l) => (
         <Link key={l.href} href={l.href as any} asChild>
           <Pressable
-            className="rounded-lg border border-surface-border px-3 py-2 hover:bg-surface-overlay"
-            style={{ flex: 1, gap: 4 }}
+            className="rounded-lg border border-surface-border px-3 py-2.5 hover:bg-surface-overlay"
+            style={{ flex: 1, gap: 6 }}
           >
             <View className="flex-row items-center gap-2">
               <l.icon size={14} color={t.accent} />
@@ -244,8 +244,8 @@ function BotsSection({ bots }: { bots: MCBotOverview[] }) {
   const inactive = bots.filter((b) => b.channel_count === 0);
 
   return (
-    <View style={{ gap: 8 }}>
-      <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
+    <View style={{ gap: 10 }}>
+      <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
         BOTS
       </Text>
       {/* Active bots — compact inline rows */}
@@ -343,7 +343,7 @@ export default function MCDashboard() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ padding: isWide ? 20 : 14, gap: 20, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: isWide ? 20 : 14, paddingTop: 24, gap: 24, paddingBottom: 40, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading...</Text>
@@ -367,7 +367,7 @@ export default function MCDashboard() {
             <IntegrationBanner />
 
             {/* Stats row */}
-            <View className="flex-row flex-wrap gap-2">
+            <View className="flex-row flex-wrap gap-3">
               <StatCard label="Channels" value={data.total_channels} icon={Hash} />
               <StatCard label="Bots" value={data.total_bots} icon={Bot} />
               <StatCard label="Tasks" value={data.total_tasks} icon={ClipboardList} />
@@ -377,12 +377,12 @@ export default function MCDashboard() {
             <QuickNav />
 
             {/* Channels */}
-            <View style={{ gap: 8 }}>
-              <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginTop: 4 }}>
+            <View style={{ gap: 10 }}>
+              <Text className="text-text-dim" style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
                 CHANNELS
               </Text>
               {data.channels.length > 0 ? (
-                <View style={isWide ? { flexDirection: "row", flexWrap: "wrap", gap: 8 } : { gap: 6 }}>
+                <View style={isWide ? { flexDirection: "row", flexWrap: "wrap", gap: 10 } : { gap: 8 }}>
                   {data.channels.map((ch) => (
                     <View key={ch.id} style={isWide ? { width: "48%" } : undefined}>
                       <ChannelCard channel={ch} />

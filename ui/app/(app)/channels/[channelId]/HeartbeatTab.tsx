@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { ActivityIndicator, useWindowDimensions } from "react-native";
+import { ActivityIndicator } from "react-native";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
+import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, RotateCcw, AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
+import { AdvancedSection, ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -111,7 +113,7 @@ function QuietHoursPicker({ start, end, timezone, onChangeStart, onChangeEnd, on
               onClick={() => applyPreset(p)}
               style={{
                 padding: "5px 12px", borderRadius: 6, cursor: "pointer",
-                fontSize: 12, fontWeight: isActive ? 700 : 500,
+                fontSize: 12, fontWeight: isActive ? 700 : 500, minHeight: 36,
                 border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
                 background: isActive ? `${t.accent}18` : t.inputBg,
                 color: isActive ? t.accent : t.textMuted,
@@ -299,13 +301,10 @@ function HeartbeatHistoryList({ history, isWide }: { history: import("@/src/type
                     </span>
                   )}
                 </div>
-                <span style={{
-                  fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                  background: hb.status === "complete" ? t.successSubtle : hb.status === "failed" ? t.dangerSubtle : t.surfaceBorder,
-                  color: hb.status === "complete" ? t.success : hb.status === "failed" ? t.danger : t.textMuted,
-                }}>
-                  {hb.status}
-                </span>
+                <StatusBadge
+                  label={hb.status}
+                  variant={hb.status === "complete" ? "success" : hb.status === "failed" ? "danger" : "neutral"}
+                />
                 {hb.repetition_detected && (
                   <span style={{
                     fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
@@ -501,8 +500,7 @@ function ContextPreview({ form, data }: { form: any; data: any }) {
 // ---------------------------------------------------------------------------
 export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: string; workspaceId?: string | null; botModel?: string }) {
   const t = useThemeTokens();
-  const { width } = useWindowDimensions();
-  const isWide = width >= 768;
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-heartbeat", channelId],
@@ -587,28 +585,6 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
     },
   });
 
-  const inferMutation = useMutation({
-    mutationFn: () =>
-      apiFetch<{ prompt: string; workspace_file_path: string | null; workspace_id: string | null }>(
-        `/api/v1/admin/channels/${channelId}/heartbeat/infer`,
-        { method: "POST" },
-      ),
-    onSuccess: (result) => {
-      if (result.workspace_file_path) {
-        setHbForm((f: any) => ({
-          ...f,
-          prompt: result.prompt,
-          workspace_file_path: result.workspace_file_path,
-          workspace_id: result.workspace_id,
-          prompt_template_id: null,
-        }));
-      } else {
-        setHbForm((f: any) => ({ ...f, prompt: result.prompt }));
-      }
-      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
-    },
-  });
-
   if (isLoading || !hbForm) return <ActivityIndicator color={t.accent} />;
 
   const enabled = data?.config?.enabled ?? false;
@@ -642,8 +618,8 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
       <div style={{ opacity: enabled ? 1 : 0.5 }}>
         {/* ---- Schedule Section ---- */}
         <Section title="Schedule">
-          <Row>
-            <Col>
+          <Row stack={isMobile}>
+            <Col minWidth={isMobile ? 0 : 200}>
               <FormRow label="Interval">
                 <SelectInput
                   value={hbForm.interval_minutes?.toString() ?? "60"}
@@ -653,45 +629,10 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               </FormRow>
             </Col>
           </Row>
-
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 8, letterSpacing: "0.03em" }}>
-              Quiet Hours
-            </div>
-            <QuietHoursPicker
-              start={hbForm.quiet_start ?? ""}
-              end={hbForm.quiet_end ?? ""}
-              timezone={hbForm.timezone ?? ""}
-              onChangeStart={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
-              onChangeEnd={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
-              onChangeTimezone={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
-              inheritedRange={data?.default_quiet_hours}
-              defaultTimezone={data?.default_timezone}
-            />
-          </div>
         </Section>
 
         {/* ---- Prompt Section ---- */}
         <Section title="Prompt">
-          <button
-            onClick={() => inferMutation.mutate()}
-            disabled={inferMutation.isPending}
-            style={{
-              display: "flex", alignItems: "center", gap: 6, marginBottom: 12,
-              padding: "7px 14px", borderRadius: 6, border: `1px solid ${t.accent}40`,
-              background: `${t.accent}12`, cursor: inferMutation.isPending ? "wait" : "pointer",
-              fontSize: 12, fontWeight: 600, color: t.accent,
-              opacity: inferMutation.isPending ? 0.6 : 1,
-            }}
-          >
-            <Sparkles size={13} />
-            {inferMutation.isPending ? "Inferring..." : "Infer Project Heartbeat"}
-          </button>
-          {inferMutation.isError && (
-            <div style={{ fontSize: 11, color: t.danger, marginBottom: 8 }}>
-              Failed to infer heartbeat: {(inferMutation.error as any)?.message || "Unknown error"}
-            </div>
-          )}
           <WorkspaceFilePrompt
             workspaceId={hbForm.workspace_id ?? workspaceId}
             filePath={hbForm.workspace_file_path}
@@ -745,6 +686,40 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               label="Trigger agent response after posting"
               description="After posting the heartbeat result, the bot will process it and respond again."
             />
+          </div>
+        </Section>
+
+        {/* Save + Fire */}
+        <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
+          <ActionButton
+            label={hbSaved ? "Saved!" : saveMutation.isPending ? "Saving..." : "Save Heartbeat"}
+            onPress={() => saveMutation.mutate(hbForm)}
+            variant={hbSaved ? "secondary" : "primary"}
+          />
+          <ActionButton
+            label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
+            onPress={() => fireMutation.mutate()}
+            variant="secondary"
+            disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
+            icon={<Play size={12} />}
+          />
+        </div>
+
+        {/* ---- Advanced Section ---- */}
+        <AdvancedSection>
+          <Section title="Quiet Hours">
+            <QuietHoursPicker
+              start={hbForm.quiet_start ?? ""}
+              end={hbForm.quiet_end ?? ""}
+              timezone={hbForm.timezone ?? ""}
+              onChangeStart={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
+              onChangeEnd={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
+              onChangeTimezone={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
+              inheritedRange={data?.default_quiet_hours}
+              defaultTimezone={data?.default_timezone}
+            />
+          </Section>
+          <Section title="Detection">
             <Toggle
               value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
               onChange={(v) => {
@@ -754,79 +729,49 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               label="Repetition detection"
               description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
             />
-          </div>
-        </Section>
-
-        {/* ---- Advanced Section ---- */}
-        <Section title="Advanced">
-          <Row>
-            <Col>
-              <LlmModelDropdown
-                label="Model"
-                value={hbForm.model ?? ""}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
-                placeholder={`inherit (${botModel ?? "bot default"})`}
-                allowClear
-              />
-            </Col>
-          </Row>
-          <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
-            <FallbackModelList
-              value={hbForm.fallback_models ?? []}
-              onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
-            />
-          </FormRow>
-          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 12 }}>
-            <FormRow label="Max run time (seconds)">
-              <TextInput
-                value={hbForm.max_run_seconds?.toString() ?? ""}
-                onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
-                placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
-                type="number"
+          </Section>
+          <Section title="Model">
+            <Row stack={isMobile}>
+              <Col minWidth={isMobile ? 0 : 200}>
+                <LlmModelDropdown
+                  label="Model"
+                  value={hbForm.model ?? ""}
+                  onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
+                  placeholder={`inherit (${botModel ?? "bot default"})`}
+                  allowClear
+                />
+              </Col>
+            </Row>
+            <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
+              <FallbackModelList
+                value={hbForm.fallback_models ?? []}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
               />
             </FormRow>
-            <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
-              <TextInput
-                value={hbForm.previous_result_max_chars?.toString() ?? ""}
-                onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
-                placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
-                type="number"
-              />
-            </FormRow>
-          </div>
-        </Section>
-
-        <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
-          <button
-            onClick={() => saveMutation.mutate(hbForm)}
-            style={{
-              padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: hbSaved ? t.successSubtle : t.accent,
-              color: hbSaved ? t.success : "#fff",
-              fontSize: 13, fontWeight: 600,
-            }}
-          >
-            {hbSaved ? "Saved!" : saveMutation.isPending ? "Saving..." : "Save Heartbeat"}
-          </button>
-          <button
-            onClick={() => fireMutation.mutate()}
-            disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
-            style={{
-              padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: hbFired ? t.successSubtle : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningSubtle : t.surfaceBorder,
-              color: hbFired ? t.success : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningMuted : t.textDim,
-              fontSize: 13, fontWeight: 500,
-              display: "flex", alignItems: "center", gap: 6,
-            }}
-          >
-            <Play size={12} color={hbFired ? t.success : (hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path) ? t.warningMuted : t.textDim} />
-            {hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
-          </button>
-        </div>
+          </Section>
+          <Section title="Limits">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <FormRow label="Max run time (seconds)">
+                <TextInput
+                  value={hbForm.max_run_seconds?.toString() ?? ""}
+                  onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
+                  placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
+                  type="number"
+                />
+              </FormRow>
+              <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
+                <TextInput
+                  value={hbForm.previous_result_max_chars?.toString() ?? ""}
+                  onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
+                  placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
+                  type="number"
+                />
+              </FormRow>
+            </div>
+          </Section>
+          <ContextPreview form={hbForm} data={data} />
+        </AdvancedSection>
       </div>
-
-      {/* Context Preview */}
-      <ContextPreview form={hbForm} data={data} />
 
       {/* Status + History */}
       {data?.config && (
@@ -841,7 +786,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
           </div>
 
           {data.history?.length > 0 && (
-            <HeartbeatHistoryList history={data.history} isWide={isWide} />
+            <HeartbeatHistoryList history={data.history} isWide={!isMobile} />
           )}
         </div>
       )}

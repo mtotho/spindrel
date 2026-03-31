@@ -208,7 +208,7 @@ export default function MCKanban() {
           <Text className="text-text-muted text-sm">Loading board...</Text>
         </View>
       ) : columns.length === 0 ? (
-        <View className="p-4">
+        <View style={{ padding: 16, paddingTop: 24 }}>
           <MCEmptyState feature="kanban">
             <Text className="text-text-muted text-sm">
               No task columns found. Create tasks in your channels to see them here.
@@ -220,7 +220,7 @@ export default function MCKanban() {
         <RefreshableScrollView
           refreshing={refreshing}
           onRefresh={onRefresh}
-          contentContainerStyle={{ padding: 12, gap: 12, paddingBottom: 40 }}
+          contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}
           className="flex-1"
         >
           {columns.map((col) => (

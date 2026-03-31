@@ -1,9 +1,15 @@
 import ast
 import json
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
 from typing import Annotated
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode
+
+try:
+    VERSION = _pkg_version("agent-server")
+except PackageNotFoundError:
+    VERSION = "0.1.0"
 
 
 # ---------------------------------------------------------------------------

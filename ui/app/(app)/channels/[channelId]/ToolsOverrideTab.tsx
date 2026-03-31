@@ -138,7 +138,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
               alignItems: "center",
               gap: 4,
               paddingHorizontal: 8,
-              paddingVertical: 3,
+              paddingVertical: 6,
               borderRadius: 4,
               borderWidth: 1,
               borderColor: t.surfaceBorder,

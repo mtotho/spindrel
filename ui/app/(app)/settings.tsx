@@ -12,17 +12,15 @@ import {
 } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { Link, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Eye, ChevronRight, Server, KeyRound, Sun, Moon, AlertTriangle } from "lucide-react";
+import { Save, RotateCcw, Check, Sun, Moon } from "lucide-react";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
-import { useAdminBots } from "@/src/api/hooks/useBots";
 import { apiFetch } from "@/src/api/client";
 import { useThemeStore } from "@/src/stores/theme";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { FallbackModelList, type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
+import { type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
 import { Section } from "@/src/components/shared/FormControls";
 import {
   useSettings,
@@ -31,6 +29,12 @@ import {
   SettingItem,
   SettingsGroup,
 } from "@/src/api/hooks/useSettings";
+import { ServerStatusBar } from "@/src/components/settings/ServerStatusBar";
+import { GlobalSection } from "@/src/components/settings/GlobalSection";
+import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
+import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
+import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
+import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
 
 // ---------------------------------------------------------------------------
 // Field renderers
@@ -393,104 +397,10 @@ function useUpdateGlobalFallbackModels() {
 }
 
 // ---------------------------------------------------------------------------
-// Global Fallback Models section
+// Appearance section
 // ---------------------------------------------------------------------------
 
 const GLOBAL_GROUP = "Global";
-
-function GlobalSection({
-  fbModels,
-  onFbChange,
-  onFbSave,
-  fbDirty,
-  fbSaving,
-  fbSaved,
-  fbError,
-  fbLoading,
-}: {
-  fbModels: FallbackModelEntry[];
-  onFbChange: (v: FallbackModelEntry[]) => void;
-  onFbSave: () => void;
-  fbDirty: boolean;
-  fbSaving: boolean;
-  fbSaved: boolean;
-  fbError: boolean;
-  fbLoading: boolean;
-}) {
-  const t = useThemeTokens();
-  return (
-    <View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        <Link href={"/admin/providers" as any} asChild>
-          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <Server size={14} color={t.accent} />
-            <Text className="text-accent" style={{ fontSize: 13 }}>Providers</Text>
-          </Pressable>
-        </Link>
-        <Link href={"/admin/api-keys" as any} asChild>
-          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <KeyRound size={14} color={t.accent} />
-            <Text className="text-accent" style={{ fontSize: 13 }}>API Keys</Text>
-          </Pressable>
-        </Link>
-        <Link href={"/admin/config-state" as any} asChild>
-          <Pressable className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay border border-surface-border">
-            <Eye size={14} color={t.accent} />
-            <Text className="text-accent" style={{ fontSize: 13 }}>Config State</Text>
-          </Pressable>
-        </Link>
-      </View>
-
-      <Section title="Global Fallback Models">
-        <Text className="text-text-dim text-xs" style={{ marginBottom: 12 }}>
-          Catch-all fallback chain appended after channel/bot fallbacks. When all per-channel
-          and per-bot fallbacks are exhausted, these models are tried in order.
-        </Text>
-
-        {fbLoading ? (
-          <ActivityIndicator color={t.accent} />
-        ) : (
-          <FallbackModelList value={fbModels} onChange={onFbChange} />
-        )}
-      </Section>
-
-      <View style={{ marginTop: 20, flexDirection: "row", gap: 12, alignItems: "center" }}>
-        <Pressable
-          onPress={onFbSave}
-          disabled={!fbDirty || fbSaving}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: fbDirty ? t.accent : "rgba(128,128,128,0.3)",
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 8,
-            opacity: fbDirty ? 1 : 0.5,
-          }}
-        >
-          {fbSaving ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : fbSaved ? (
-            <Check size={14} color="#fff" />
-          ) : (
-            <Save size={14} color="#fff" />
-          )}
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-            {fbSaved ? "Saved" : "Save"}
-          </Text>
-        </Pressable>
-        {fbError && (
-          <Text style={{ color: t.danger, fontSize: 12 }}>Failed to save</Text>
-        )}
-      </View>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Appearance section
-// ---------------------------------------------------------------------------
 
 function AppearanceSection() {
   const mode = useThemeStore((s) => s.mode);
@@ -525,317 +435,6 @@ function AppearanceSection() {
         />
       </View>
     </Section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Chat History extras (section index preview + deviations)
-// ---------------------------------------------------------------------------
-
-const SECTION_INDEX_HEADER = `Archived conversation history — use read_conversation_history with:
-  - A section number (e.g. '3') to read a full transcript
-  - 'search:<query>' to find sections by topic
-  - 'messages:<query>' to grep raw messages across ALL history
-  - 'tool:<id>' to retrieve full output of a summarized tool call`;
-
-const SECTION_INDEX_PREVIEW: Record<string, string> = {
-  compact: `${SECTION_INDEX_HEADER}
-- #3: Deploy Pipeline (Mar 5) [deploy, ci-cd]
-- #2: API Design (Mar 3) [api, design]
-- #1: Database Migration (Mar 1) [database, migration]`,
-  standard: `${SECTION_INDEX_HEADER}
-
-#3: Deploy Pipeline (Mar 5) [deploy, ci-cd]
-  Set up GitHub Actions workflow with staging and production targets.
-
-#2: API Design (Mar 3) [api, design]
-  Discussed REST endpoint structure for v2 and auth middleware.
-
-#1: Database Migration (Mar 1) [database, migration]
-  Fixed PostgreSQL schema issues and updated indexes for vector search.`,
-  detailed: `${SECTION_INDEX_HEADER}
-
-#3: Deploy Pipeline (12 msgs, mar 5, 8:30am — 11:15am) [deploy, ci-cd]
-  Set up GitHub Actions workflow with staging and production targets.
-
-#2: API Design (18 msgs, mar 3, 10:00am — 2:45pm) [api, design]
-  Discussed REST endpoint structure for v2 and auth middleware.
-
-#1: Database Migration (32 msgs, mar 1, 9:15am — 4:30pm) [database, migration]
-  Fixed PostgreSQL schema issues and updated indexes for vector search.`,
-};
-
-interface ChatHistoryDeviation {
-  channel_id: string;
-  channel_name: string;
-  deviations: { field: string; global_value: any; channel_value: any }[];
-}
-
-function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
-  const router = useRouter();
-  const t = useThemeTokens();
-  const [showDeviations, setShowDeviations] = useState(false);
-  const { data, isLoading } = useQuery({
-    queryKey: ["chat-history-deviations"],
-    queryFn: () => apiFetch<{ channels: ChatHistoryDeviation[] }>("/api/v1/admin/settings/chat-history-deviations"),
-    enabled: showDeviations,
-  });
-
-  const preview = SECTION_INDEX_PREVIEW[verbosity] || SECTION_INDEX_PREVIEW.standard;
-
-  return (
-    <View style={{ marginTop: 16, gap: 16 }}>
-      {/* Section Index Preview */}
-      <Section title="Section Index Preview" description={`System message injected into the bot's context each turn ("${verbosity}" verbosity)`}>
-        <View style={{
-          backgroundColor: t.surface,
-          borderRadius: 8,
-          border: `1px solid ${t.surfaceOverlay}`,
-          padding: 14,
-        }}>
-          <Text style={{
-            fontFamily: "monospace",
-            fontSize: 11,
-            lineHeight: 18,
-            color: t.textMuted,
-            whiteSpace: "pre-wrap",
-          }}>
-            {preview}
-          </Text>
-        </View>
-      </Section>
-
-      {/* Show Deviations */}
-      <Section title="Channel Deviations" description="Channels with chat history settings that differ from these global defaults">
-        {!showDeviations ? (
-          <Pressable
-            onPress={() => setShowDeviations(true)}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              backgroundColor: t.surfaceRaised,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 8,
-              border: `1px solid ${t.surfaceBorder}`,
-              alignSelf: "flex-start",
-            }}
-          >
-            <Eye size={14} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 13 }}>Show Deviations</Text>
-          </Pressable>
-        ) : isLoading ? (
-          <ActivityIndicator color={t.accent} />
-        ) : !data?.channels?.length ? (
-          <Text style={{ color: t.textDim, fontSize: 12 }}>All channels use global defaults.</Text>
-        ) : (
-          <View style={{ gap: 8 }}>
-            {data.channels.map((ch) => (
-              <Pressable
-                key={ch.channel_id}
-                onPress={() => router.push(`/channels/${ch.channel_id}/settings` as any)}
-                style={{
-                  backgroundColor: t.surfaceRaised,
-                  borderRadius: 8,
-                  border: `1px solid ${t.surfaceOverlay}`,
-                  padding: 12,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: t.text, fontSize: 13, fontWeight: "500", marginBottom: 4 }}>
-                    {ch.channel_name}
-                  </Text>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                    {ch.deviations.map((d) => (
-                      <Text key={d.field} style={{ fontSize: 11, color: t.textMuted }}>
-                        {d.field}: <Text style={{ color: "#f59e0b" }}>{String(d.channel_value)}</Text>
-                        {" "}(global: {String(d.global_value)})
-                      </Text>
-                    ))}
-                  </View>
-                </View>
-                <ChevronRight size={14} color={t.textDim} />
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </Section>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// File-mode-only indicator for section index settings
-// ---------------------------------------------------------------------------
-
-function FileModeOnlyBanner({ historyMode }: { historyMode: string }) {
-  const t = useThemeTokens();
-  const isFileMode = historyMode === "file";
-
-  return (
-    <View style={{ marginTop: 8, marginBottom: 4 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
-          Section Index
-        </Text>
-        <View
-          style={{
-            backgroundColor: isFileMode ? t.accentSubtle : "rgba(100,100,100,0.15)",
-            paddingHorizontal: 7,
-            paddingVertical: 2,
-            borderRadius: 4,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 9,
-              fontWeight: "700",
-              color: isFileMode ? t.accent : t.textDim,
-            }}
-          >
-            file mode only
-          </Text>
-        </View>
-      </View>
-      {!isFileMode && (
-        <Text style={{ fontSize: 11, color: t.textDim, lineHeight: 17 }}>
-          These settings only apply when History Mode is "file". Current mode: "{historyMode}".
-        </Text>
-      )}
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Flush prompt override warning (workspace-files bots ignore this setting)
-// ---------------------------------------------------------------------------
-
-function FlushPromptOverrideWarning() {
-  const t = useThemeTokens();
-  const { data: bots } = useAdminBots();
-  const wsFileBots = bots?.filter((b) => b.memory_scheme === "workspace-files") ?? [];
-  if (!wsFileBots.length) return null;
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        gap: 10,
-        backgroundColor: "rgba(245,158,11,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(245,158,11,0.25)",
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 4,
-      }}
-    >
-      <AlertTriangle size={15} color="#f59e0b" style={{ marginTop: 1, flexShrink: 0 } as any} />
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>
-          Ignored by workspace-files bots
-        </Text>
-        <Text style={{ fontSize: 11, color: t.textMuted, lineHeight: 17 }}>
-          {wsFileBots.length === bots?.length
-            ? "All bots use workspace-files memory — this prompt is never used. "
-            : `This prompt is ignored for ${wsFileBots.length} bot${wsFileBots.length > 1 ? "s" : ""} using workspace-files memory. `}
-          Those bots use a built-in flush prompt that writes to disk instead.
-        </Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
-          {wsFileBots.map((b) => (
-            <View
-              key={b.id}
-              style={{
-                backgroundColor: "rgba(245,158,11,0.1)",
-                paddingHorizontal: 7,
-                paddingVertical: 2,
-                borderRadius: 4,
-              }}
-            >
-              <Text style={{ fontSize: 10, fontWeight: "600", color: "#f59e0b" }}>{b.name}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bot overrides list (shown in Attachments / Model Elevation groups)
-// ---------------------------------------------------------------------------
-
-function BotOverridesList({ group }: { group: string }) {
-  const t = useThemeTokens();
-  const router = useRouter();
-  const { data: bots } = useAdminBots();
-
-  const overrides = useMemo(() => {
-    if (!bots) return [];
-    if (group === "Attachments") {
-      return bots.filter(
-        (b) =>
-          b.attachment_summarization_enabled != null ||
-          b.attachment_summary_model ||
-          b.attachment_text_max_chars != null ||
-          b.attachment_vision_concurrency != null,
-      );
-    }
-    if (group === "Model Elevation") {
-      return bots.filter(
-        (b) =>
-          b.elevation_enabled != null ||
-          b.elevation_threshold != null ||
-          b.elevated_model,
-      );
-    }
-    return [];
-  }, [bots, group]);
-
-  if (!overrides.length) return null;
-
-  const sectionHash = group === "Attachments" ? "attachments" : "elevation";
-
-  return (
-    <View style={{ marginTop: 20, gap: 8 }}>
-      <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
-        Bots with Overrides
-      </Text>
-      <Text style={{ fontSize: 11, color: t.textDim, lineHeight: 17 }}>
-        These bots override one or more {group.toLowerCase()} settings.
-      </Text>
-      <View style={{ gap: 6 }}>
-        {overrides.map((bot) => (
-          <Pressable
-            key={bot.id}
-            onPress={() => router.push(`/admin/bots/${bot.id}#${sectionHash}` as any)}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              backgroundColor: t.surfaceRaised,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: t.surfaceOverlay,
-              padding: 12,
-            }}
-          >
-            <View>
-              <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }}>
-                {bot.name}
-              </Text>
-              <Text style={{ color: t.textDim, fontSize: 10, fontFamily: "monospace", marginTop: 2 }}>
-                {bot.id}
-              </Text>
-            </View>
-            <ChevronRight size={14} color={t.textDim} />
-          </Pressable>
-        ))}
-      </View>
-    </View>
   );
 }
 
@@ -1015,6 +614,11 @@ export default function SettingsScreen() {
           </View>
         }
       />
+
+      {/* Server Status Bar */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
+        <ServerStatusBar />
+      </View>
 
       <View className="flex-1 flex-row">
         {/* Desktop group nav */}
