@@ -1,6 +1,7 @@
 """GitHub integration setup manifest."""
 
 SETUP = {
+    "icon": "Code2",
     "env_vars": [
         {"key": "GITHUB_TOKEN", "required": True, "description": "PAT with repo scope", "secret": True},
         {"key": "GITHUB_WEBHOOK_SECRET", "required": True, "description": "Webhook signature secret", "secret": True},

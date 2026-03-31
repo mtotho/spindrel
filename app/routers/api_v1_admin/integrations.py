@@ -46,6 +46,16 @@ async def list_integrations():
     return {"integrations": discover_setup_status(base_url)}
 
 
+@router.get("/integrations/icons")
+async def list_integration_icons():
+    """Return a lightweight mapping of integration_id -> lucide icon name."""
+    from integrations import discover_setup_status
+
+    statuses = discover_setup_status()
+    icons = {s["id"]: s.get("icon", "Plug") for s in statuses}
+    return {"icons": icons}
+
+
 @router.get("/integrations/sidebar-sections")
 async def list_sidebar_sections():
     """Return sidebar sections declared by integrations via their SETUP manifests."""

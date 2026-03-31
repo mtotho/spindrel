@@ -13,6 +13,8 @@ interface UIState {
   detailPanel: DetailPanelState;
   activeWorkspaceId: string | null;
   hiddenSidebarSections: string[];
+  fileExplorerOpen: boolean;
+  fileExplorerSplit: boolean;
   toggleSidebar: () => void;
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
@@ -20,6 +22,9 @@ interface UIState {
   closeDetail: () => void;
   setActiveWorkspace: (id: string | null) => void;
   toggleSidebarSection: (sectionId: string) => void;
+  toggleFileExplorer: () => void;
+  setFileExplorerOpen: (open: boolean) => void;
+  toggleFileExplorerSplit: () => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -30,6 +35,8 @@ export const useUIStore = create<UIState>()(
       detailPanel: { type: null, id: null },
       activeWorkspaceId: null,
       hiddenSidebarSections: [],
+      fileExplorerOpen: false,
+      fileExplorerSplit: false,
       toggleSidebar: () =>
         set((s) => ({
           sidebarCollapsed: !s.sidebarCollapsed,
@@ -48,6 +55,9 @@ export const useUIStore = create<UIState>()(
             ? s.hiddenSidebarSections.filter((id) => id !== sectionId)
             : [...s.hiddenSidebarSections, sectionId],
         })),
+      toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
+      setFileExplorerOpen: (open) => set({ fileExplorerOpen: open }),
+      toggleFileExplorerSplit: () => set((s) => ({ fileExplorerSplit: !s.fileExplorerSplit })),
     }),
     {
       name: "spindrel-ui",
@@ -55,6 +65,8 @@ export const useUIStore = create<UIState>()(
         sidebarCollapsed: state.sidebarCollapsed,
         activeWorkspaceId: state.activeWorkspaceId,
         hiddenSidebarSections: state.hiddenSidebarSections,
+        fileExplorerOpen: state.fileExplorerOpen,
+        fileExplorerSplit: state.fileExplorerSplit,
       }),
     },
   ),

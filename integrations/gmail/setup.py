@@ -1,6 +1,7 @@
 """Gmail integration manifest."""
 
 SETUP = {
+    "icon": "Mail",
     "env_vars": [
         {
             "key": "GMAIL_EMAIL",
@@ -44,18 +45,13 @@ SETUP = {
             "default": "INBOX",
         },
         {
-            "key": "AGENT_API_KEY",
-            "required": True,
-            "description": "API key for calling back to the agent server",
-            "secret": True,
-        },
-        {
             "key": "AGENT_BASE_URL",
             "required": False,
             "description": "Agent server base URL",
             "default": "http://localhost:8000",
         },
     ],
+    "api_permissions": "slack_integration",
     "webhook": None,
     "instructions_url": None,
     "binding": {

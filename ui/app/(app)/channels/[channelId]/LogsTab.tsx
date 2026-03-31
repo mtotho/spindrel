@@ -1,88 +1,163 @@
-import { Text, Pressable, ActivityIndicator } from "react-native";
+import { useState, useMemo, useCallback } from "react";
+import { Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Search, AlertTriangle, Wrench, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Section, EmptyState } from "@/src/components/shared/FormControls";
-import { StatusBadge } from "@/src/components/shared/SettingsControls";
-import { useLogs, type LogRow } from "@/src/api/hooks/useLogs";
+import { EmptyState } from "@/src/components/shared/FormControls";
+import { TurnCard } from "@/src/components/shared/TurnCard";
+import { useTurns } from "@/src/api/hooks/useTurns";
 
-// ---------------------------------------------------------------------------
-// Log type colors (only used by this tab)
-// ---------------------------------------------------------------------------
-// Moved inside component — needs theme tokens for some values
-// (non-token colors like teal and indigo are domain-specific and kept as-is)
+const PAGE_SIZE = 20;
 
-// ---------------------------------------------------------------------------
-// Logs Tab
-// ---------------------------------------------------------------------------
 export function LogsTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
   const router = useRouter();
-  const { data, isLoading } = useLogs({ channel_id: channelId, page_size: 20 });
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
 
-  const LOG_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
-    tool_call:            { bg: "#312e81", fg: "#4f46e5" },
-    memory_injection:     { bg: t.purpleSubtle, fg: t.purple },
-    skill_context:        { bg: "#134e4a", fg: "#0d9488" },
-    knowledge_context:    { bg: t.accentMuted, fg: t.accent },
-    tool_retrieval:       { bg: t.warningSubtle, fg: t.warningMuted },
-    context_compressed:   { bg: "#365314", fg: "#65a30d" },
-    context_breakdown:    { bg: "#164e63", fg: "#0891b2" },
-    token_usage:          { bg: t.surfaceBorder, fg: t.textMuted },
-    error:                { bg: t.dangerSubtle, fg: t.danger },
-    harness:              { bg: t.warningSubtle, fg: t.warningMuted },
-    response:             { bg: t.successSubtle, fg: t.success },
-    model_fallback:       { bg: t.warningSubtle, fg: t.warningMuted },
-  };
+  const [searchText, setSearchText] = useState("");
+  const [errorOnly, setErrorOnly] = useState(false);
+  const [toolCallsOnly, setToolCallsOnly] = useState(false);
+  const [beforeCursor, setBeforeCursor] = useState<string | undefined>(undefined);
 
-  if (isLoading) return <ActivityIndicator color={t.accent} />;
-  if (!data?.rows?.length) return <EmptyState message="No log entries yet." />;
+  const params = useMemo(() => ({
+    count: PAGE_SIZE,
+    channel_id: channelId,
+    ...(searchText ? { search: searchText } : {}),
+    ...(errorOnly ? { has_error: true as const } : {}),
+    ...(toolCallsOnly ? { has_tool_calls: true as const } : {}),
+    ...(beforeCursor ? { before: beforeCursor } : {}),
+  }), [channelId, searchText, errorOnly, toolCallsOnly, beforeCursor]);
+
+  const { data, isLoading } = useTurns(params);
+
+  const hasFilters = !!(searchText || errorOnly || toolCallsOnly);
+
+  const clearFilters = useCallback(() => {
+    setSearchText("");
+    setErrorOnly(false);
+    setToolCallsOnly(false);
+    setBeforeCursor(undefined);
+  }, []);
+
+  const handleLoadMore = useCallback(() => {
+    if (data?.turns.length) {
+      const lastTurn = data.turns[data.turns.length - 1];
+      setBeforeCursor(lastTurn.created_at);
+    }
+  }, [data]);
+
+  if (isLoading && !data) return <ActivityIndicator color={t.accent} />;
 
   return (
     <>
-      <Section title={`Recent Logs (${data.rows.length} of ${data.total})`}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {data.rows.map((row: LogRow) => {
-            const evType = row.kind === "tool_call" ? "tool_call" : row.event_type || "trace_event";
-            const name = row.kind === "tool_call" ? row.tool_name : row.event_name || row.event_type;
-            const c = LOG_TYPE_COLORS[evType] ?? { bg: t.surfaceBorder, fg: t.textMuted };
-            return (
-              <div
-                key={row.id}
-                onClick={() => row.correlation_id && router.push(`/admin/logs/${row.correlation_id}` as any)}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "8px 12px", background: t.surfaceRaised, borderRadius: 6, border: `1px solid ${t.surfaceOverlay}`,
-                  cursor: row.correlation_id ? "pointer" : "default",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <StatusBadge label={evType} customColors={{ bg: c.bg, fg: c.fg }} />
-                  <span style={{ fontSize: 12, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {name || "\u2014"}
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <span style={{ fontSize: 10, color: t.textDim }}>
-                    {row.created_at ? new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "\u2014"}
-                  </span>
-                  {row.correlation_id && (
-                    <span style={{ fontSize: 10, color: t.surfaceBorder, fontFamily: "monospace" }}>
-                      {row.correlation_id.substring(0, 8)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+      {/* Compact filter bar */}
+      <div style={{
+        display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+        marginBottom: 12,
+      }}>
+        <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 0 auto" }}>
+          <Search size={12} style={{ position: "absolute", left: 8, top: 8, color: t.textDim }} />
+          <input
+            value={searchText}
+            onChange={(e) => { setSearchText(e.target.value); setBeforeCursor(undefined); }}
+            placeholder="Search messages..."
+            style={{
+              background: t.surfaceRaised, color: t.text, border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 6, padding: "5px 10px 5px 26px", fontSize: 12, outline: "none",
+              width: isMobile ? "100%" : 200,
+            }}
+          />
         </div>
-      </Section>
 
+        <button
+          onClick={() => { setErrorOnly(!errorOnly); setBeforeCursor(undefined); }}
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            background: errorOnly ? t.dangerSubtle : t.surfaceRaised,
+            border: `1px solid ${errorOnly ? t.danger : t.surfaceBorder}`,
+            borderRadius: 6, padding: "5px 10px", fontSize: 12,
+            color: errorOnly ? t.danger : t.textMuted, cursor: "pointer",
+          }}
+        >
+          <AlertTriangle size={11} /> Errors
+        </button>
+
+        <button
+          onClick={() => { setToolCallsOnly(!toolCallsOnly); setBeforeCursor(undefined); }}
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            background: toolCallsOnly ? t.purpleSubtle : t.surfaceRaised,
+            border: `1px solid ${toolCallsOnly ? t.purple : t.surfaceBorder}`,
+            borderRadius: 6, padding: "5px 10px", fontSize: 12,
+            color: toolCallsOnly ? t.purple : t.textMuted, cursor: "pointer",
+          }}
+        >
+          <Wrench size={11} /> Tools
+        </button>
+
+        {hasFilters && (
+          <button
+            onClick={clearFilters}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              background: "none", border: "none", color: t.textDim, cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            <X size={12} /> Clear
+          </button>
+        )}
+      </div>
+
+      {/* Turns list */}
+      {data && data.turns.length > 0 && (
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6 }}>
+          {data.turns.length}{data.turns.length >= PAGE_SIZE ? "+" : ""} turns
+        </div>
+      )}
+      <div style={{
+        display: "flex", flexDirection: "column",
+        borderRadius: 8, overflow: "hidden",
+        border: `1px solid ${t.surfaceRaised}`,
+      }}>
+        {data?.turns.map((turn) => (
+          <TurnCard
+            key={turn.correlation_id}
+            turn={turn}
+            isMobile={isMobile}
+            onPress={(cid) => router.push(`/admin/logs/${cid}` as any)}
+            showBotBadge={false}
+            showChannelBadge={false}
+          />
+        ))}
+        {data?.turns.length === 0 && (
+          <EmptyState message="No turns found." />
+        )}
+      </div>
+
+      {/* Load more */}
+      {data && data.turns.length >= PAGE_SIZE && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
+          <button
+            onClick={handleLoadMore}
+            style={{
+              background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 6, padding: "8px 24px", fontSize: 12, color: t.textMuted,
+              cursor: "pointer",
+            }}
+          >
+            Load older turns
+          </button>
+        </div>
+      )}
+
+      {/* Link to admin logs */}
       <Pressable
         onPress={() => router.push(`/admin/logs?channel_id=${channelId}` as any)}
         style={{
           display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-          alignSelf: "flex-start",
+          alignSelf: "flex-start", marginTop: 4,
         }}
       >
         <Text style={{ fontSize: 13, color: t.accent }}>View all in Logs</Text>

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 import sys
 
@@ -18,87 +17,87 @@ logging.basicConfig(
 )
 logger = logging.getLogger("gmail.poller")
 
+_shutdown_event = asyncio.Event()
+
 
 async def _run() -> None:
-    from integrations.ingestion.config import IngestionConfig
-    from integrations.ingestion.pipeline import IngestionPipeline
-    from integrations.ingestion.store import IngestionStore
-
     from integrations.gmail import agent_client
     from integrations.gmail.config import settings
-    from integrations.gmail.feed import GmailFeed
+    from integrations.gmail.factory import create_feed
 
-    # Store lives alongside workspaces
-    db_dir = os.path.expanduser("~/.agent-workspaces/.ingestion")
-    os.makedirs(db_dir, exist_ok=True)
-    store = IngestionStore(os.path.join(db_dir, "gmail.db"))
-
-    config = IngestionConfig(
-        agent_base_url=settings.AGENT_BASE_URL,
-        agent_api_key=settings.AGENT_API_KEY,
-    )
-    pipeline = IngestionPipeline(config=config, store=store)
-
-    feed = GmailFeed(
-        pipeline=pipeline,
-        store=store,
-        host=settings.GMAIL_IMAP_HOST,
-        port=settings.GMAIL_IMAP_PORT,
-        email_addr=settings.GMAIL_EMAIL,
-        password=settings.GMAIL_APP_PASSWORD,
-        folders=settings.GMAIL_FOLDERS,
-        max_per_poll=settings.GMAIL_MAX_PER_POLL,
-    )
+    feed, store = create_feed()
+    email_addr = settings.GMAIL_EMAIL
+    binding_prefix = f"gmail:{email_addr}"
 
     poll_interval = settings.GMAIL_POLL_INTERVAL
     backoff = poll_interval
+    max_backoff = max(poll_interval * 8, 300)
 
     # Initial delay for server startup
-    logger.info("Gmail poller starting (waiting 5s for server)...")
+    logger.info("Gmail poller starting for %s (waiting 5s for server)...", email_addr)
     await asyncio.sleep(5)
 
-    while True:
-        try:
-            result = await feed.run_cycle()
-            logger.info(
-                "Cycle: fetched=%d passed=%d quarantined=%d skipped=%d errors=%d",
-                result.fetched, result.passed, result.quarantined,
-                result.skipped, len(result.errors),
-            )
+    try:
+        while not _shutdown_event.is_set():
+            try:
+                result = await feed.run_cycle()
+                logger.info(
+                    "Cycle: fetched=%d passed=%d quarantined=%d skipped=%d errors=%d",
+                    result.fetched, result.passed, result.quarantined,
+                    result.skipped, len(result.errors),
+                )
 
-            if result.errors:
-                for err in result.errors:
-                    logger.warning("Cycle error: %s", err)
+                if result.errors:
+                    for err in result.errors:
+                        logger.warning("Cycle error: %s", err)
 
-            # Deliver items to bound channels
-            if result.items:
-                channels = await agent_client.resolve_channels_for_binding("gmail:")
-                if not channels:
-                    logger.warning("No gmail-bound channels found; %d items not delivered", len(result.items))
-                else:
-                    for item in result.items:
-                        for ch in channels:
-                            channel_id = str(ch.get("id", ""))
-                            if not channel_id:
-                                continue
-                            path = item.suggested_path or f"data/gmail/{item.source_id}.md"
-                            ok = await agent_client.write_workspace_file(
-                                channel_id, path, item.body,
-                            )
-                            if ok:
-                                logger.info(
-                                    "Delivered %s to channel %s at %s",
-                                    item.source_id, channel_id, path,
+                # Deliver items to bound channels matching THIS email account
+                if result.items:
+                    channels = await agent_client.resolve_channels_for_binding(binding_prefix)
+                    if not channels:
+                        logger.warning(
+                            "No channels bound to %s; %d items not delivered",
+                            binding_prefix, len(result.items),
+                        )
+                    else:
+                        for item in result.items:
+                            for ch in channels:
+                                channel_id = str(ch.get("id", ""))
+                                if not channel_id:
+                                    continue
+                                path = item.suggested_path or f"data/gmail/{item.source_id}.md"
+                                ok = await agent_client.write_workspace_file(
+                                    channel_id, path, item.body,
                                 )
+                                if ok:
+                                    logger.info(
+                                        "Delivered %s to channel %s at %s",
+                                        item.source_id, channel_id, path,
+                                    )
+                                else:
+                                    logger.warning(
+                                        "Failed to deliver %s to channel %s at %s",
+                                        item.source_id, channel_id, path,
+                                    )
 
-            # Reset backoff on success
-            backoff = poll_interval
+                # Reset backoff on success
+                backoff = poll_interval
 
-        except Exception:
-            logger.exception("Poll cycle failed")
-            backoff = min(backoff * 2, 60)
+            except Exception:
+                logger.exception("Poll cycle failed")
+                backoff = min(backoff * 2, max_backoff)
 
-        await asyncio.sleep(backoff)
+            # Sleep but wake on shutdown
+            try:
+                await asyncio.wait_for(_shutdown_event.wait(), timeout=backoff)
+                break  # shutdown requested
+            except asyncio.TimeoutError:
+                pass  # normal timeout, continue polling
+    finally:
+        logger.info("Cleaning up...")
+        feed._disconnect()
+        store.close()
+        await agent_client._http.aclose()
 
 
 def main() -> None:
@@ -106,8 +105,7 @@ def main() -> None:
 
     def _shutdown(sig, frame):
         logger.info("Shutting down (signal %s)...", sig)
-        loop.stop()
-        sys.exit(0)
+        _shutdown_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)

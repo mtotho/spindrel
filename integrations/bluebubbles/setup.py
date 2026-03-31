@@ -1,6 +1,7 @@
 """BlueBubbles integration setup manifest."""
 
 SETUP = {
+    "icon": "MessageCircle",
     "env_vars": [
         {"key": "BLUEBUBBLES_SERVER_URL", "required": True, "description": "BlueBubbles server URL (e.g. http://192.168.1.50:1234)"},
         {"key": "BLUEBUBBLES_PASSWORD", "required": True, "description": "BlueBubbles server password", "secret": True},

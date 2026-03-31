@@ -170,6 +170,61 @@ class TestStreamAccumulator:
         msg = acc.build()
         assert msg.usage.total_tokens == 42
 
+    def test_cached_tokens_extraction(self):
+        """cached_tokens should be extracted from usage.prompt_tokens_details."""
+        acc = StreamAccumulator()
+        usage = MagicMock()
+        usage.prompt_tokens = 10_000
+        usage.completion_tokens = 500
+        usage.total_tokens = 10_500
+        usage.prompt_tokens_details = MagicMock()
+        usage.prompt_tokens_details.cached_tokens = 8_000
+        acc.feed(_make_chunk(content="Hi", finish_reason="stop", usage=usage))
+        msg = acc.build()
+        assert msg.cached_tokens == 8_000
+
+    def test_cached_tokens_none_when_no_details(self):
+        """cached_tokens should be None when prompt_tokens_details is absent."""
+        acc = StreamAccumulator()
+        usage = MagicMock()
+        usage.prompt_tokens = 100
+        usage.completion_tokens = 50
+        usage.total_tokens = 150
+        usage.prompt_tokens_details = None
+        acc.feed(_make_chunk(content="Hi", finish_reason="stop", usage=usage))
+        msg = acc.build()
+        assert msg.cached_tokens is None
+
+    def test_response_cost_from_hidden_params(self):
+        """response_cost should be extracted from chunk._hidden_params."""
+        acc = StreamAccumulator()
+        chunk = _make_chunk(content="Hi", finish_reason="stop")
+        chunk._hidden_params = {"response_cost": 0.042}
+        acc.feed(chunk)
+        msg = acc.build()
+        assert msg.response_cost == 0.042
+
+    def test_response_cost_from_model_extra(self):
+        """response_cost should be extracted from chunk.model_extra._hidden_params."""
+        acc = StreamAccumulator()
+        chunk = _make_chunk(content="Hi", finish_reason="stop")
+        # Remove _hidden_params attr to force model_extra path
+        del chunk._hidden_params
+        chunk.model_extra = {"_hidden_params": {"response_cost": 0.123}}
+        acc.feed(chunk)
+        msg = acc.build()
+        assert msg.response_cost == 0.123
+
+    def test_response_cost_from_usage_only_chunk(self):
+        """response_cost on usage-only chunk (no choices) should be captured."""
+        acc = StreamAccumulator()
+        acc.feed(_make_chunk(content="Hi", finish_reason="stop"))
+        usage_chunk = _make_chunk(usage=MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15, prompt_tokens_details=None))
+        usage_chunk._hidden_params = {"response_cost": 0.007}
+        acc.feed(usage_chunk)
+        msg = acc.build()
+        assert msg.response_cost == 0.007
+
 
 class TestConsumeStream:
     """Tests for _consume_stream — ensures usage from the final chunk is captured."""

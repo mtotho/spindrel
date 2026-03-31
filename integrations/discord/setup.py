@@ -1,6 +1,7 @@
 """Discord integration setup manifest."""
 
 SETUP = {
+    "icon": "MessageSquare",
     "env_vars": [
         {"key": "DISCORD_TOKEN", "required": True, "description": "Bot token from Discord Developer Portal > Bot > Token", "secret": True},
         {"key": "AGENT_API_KEY", "required": True, "description": "API key for the agent server", "secret": True},

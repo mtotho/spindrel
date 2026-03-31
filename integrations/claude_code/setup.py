@@ -1,6 +1,7 @@
 """Claude Code integration setup manifest."""
 
 SETUP = {
+    "icon": "Terminal",
     "env_vars": [
         {
             "key": "CLAUDE_CODE_MAX_TURNS",

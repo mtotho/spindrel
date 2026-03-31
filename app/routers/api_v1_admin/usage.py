@@ -47,18 +47,83 @@ def _compute_cost(
     completion_tokens: int,
     input_rate_str: str | None,
     output_rate_str: str | None,
+    cached_tokens: int = 0,
+    cache_discount: float = 0.0,
 ) -> float | None:
-    """Compute cost from token counts and per-1M-token rate strings."""
+    """Compute cost from token counts and per-1M-token rate strings.
+
+    cached_tokens: number of prompt tokens served from cache.
+    cache_discount: fraction to discount cached tokens (0.9 = 90% off, 0.5 = 50% off).
+    """
     input_rate = _parse_cost_str(input_rate_str)
     output_rate = _parse_cost_str(output_rate_str)
     if input_rate is None and output_rate is None:
         return None
     cost = 0.0
     if input_rate is not None:
-        cost += prompt_tokens * input_rate / 1_000_000
+        if cached_tokens > 0 and cache_discount > 0:
+            uncached = prompt_tokens - cached_tokens
+            cost += uncached * input_rate / 1_000_000
+            cost += cached_tokens * input_rate * (1 - cache_discount) / 1_000_000
+        else:
+            cost += prompt_tokens * input_rate / 1_000_000
     if output_rate is not None:
         cost += completion_tokens * output_rate / 1_000_000
     return cost
+
+
+# Cache discount by provider type — fraction off the input rate for cached tokens.
+# Anthropic: cache reads are 10% of input price (90% discount)
+# OpenAI: cached tokens are 50% off
+# Google/Gemini via LiteLLM: typically 75% off, but varies — use 50% as safe default
+_CACHE_DISCOUNT_BY_PROVIDER_TYPE: dict[str, float] = {
+    "anthropic": 0.9,
+    "anthropic-compatible": 0.9,
+    "openai": 0.5,
+    "openai-compatible": 0.5,
+    "litellm": 0.5,
+}
+_DEFAULT_CACHE_DISCOUNT = 0.5
+
+
+def _get_provider_type_map() -> dict[str | None, str]:
+    """Map provider_id → provider_type from the in-memory registry."""
+    from app.services.providers import _registry
+    result: dict[str | None, str] = {None: "litellm"}  # .env fallback
+    for pid, row in _registry.items():
+        result[pid] = row.provider_type
+    return result
+
+
+def _cache_discount_for_provider(
+    provider_id: str | None,
+    provider_type_map: dict[str | None, str],
+) -> float:
+    """Return cache discount fraction for a provider."""
+    ptype = provider_type_map.get(provider_id, "litellm")
+    return _CACHE_DISCOUNT_BY_PROVIDER_TYPE.get(ptype, _DEFAULT_CACHE_DISCOUNT)
+
+
+def _resolve_event_cost(
+    d: dict,
+    pricing: dict[tuple[str, str], tuple[str | None, str | None]],
+    provider_type_map: dict[str | None, str],
+) -> float | None:
+    """Resolve cost for a single trace event data dict.
+
+    Prefers response_cost (actual from provider) → computed with cache awareness.
+    """
+    cost = d.get("response_cost")
+    if cost is not None:
+        return float(cost)
+    pt = d.get("prompt_tokens", 0)
+    ct = d.get("completion_tokens", 0)
+    ev_provider = d.get("provider_id")
+    ev_model = d.get("model")
+    input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+    cached = d.get("cached_tokens", 0)
+    discount = _cache_discount_for_provider(ev_provider, provider_type_map) if cached else 0.0
+    return _compute_cost(pt, ct, input_rate, output_rate, cached, discount)
 
 
 async def _load_pricing_map(
@@ -298,6 +363,7 @@ async def usage_summary(
         bot_id=bot_id, model=model, provider_id=provider_id, channel_id=channel_id,
     )
     pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
 
     total_cost = 0.0
     total_tokens = 0
@@ -323,11 +389,7 @@ async def usage_summary(
         total_prompt += pt
         total_completion += ct
 
-        # Prefer LiteLLM's actual response_cost over our computed estimate
-        cost = d.get("response_cost")
-        if cost is None:
-            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = _resolve_event_cost(d, pricing, ptype_map)
 
         if cost is not None:
             total_cost += cost
@@ -410,6 +472,7 @@ async def usage_logs(
         limit=page_size, offset=(page - 1) * page_size, count_total=True,
     )
     pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
 
     # Load provider display names
     provider_names: dict[str, str] = {}
@@ -503,11 +566,7 @@ async def usage_logs(
         ev_provider = d.get("provider_id")
         ev_channel = d.get("channel_id") or session_channel_map.get(ev.session_id)
 
-        # Prefer LiteLLM's actual response_cost over computed estimate
-        cost = d.get("response_cost")
-        if cost is None:
-            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = _resolve_event_cost(d, pricing, ptype_map)
 
         entries.append(UsageLogEntry(
             id=str(ev.id),
@@ -556,6 +615,7 @@ async def usage_breakdown(
         bot_id=bot_id, model=model, provider_id=provider_id, channel_id=channel_id,
     )
     pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
 
     # Channel name lookup
     channel_name_map: dict[str, str] = {}
@@ -612,10 +672,7 @@ async def usage_breakdown(
         g.prompt_tokens += pt
         g.completion_tokens += ct
 
-        cost = d.get("response_cost")
-        if cost is None:
-            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = _resolve_event_cost(d, pricing, ptype_map)
         if cost is not None:
             g.cost = (g.cost or 0) + cost
 
@@ -644,6 +701,7 @@ async def usage_timeseries(
         bot_id=bot_id, model=model, provider_id=provider_id, channel_id=channel_id,
     )
     pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
 
     # Auto bucket selection
     if bucket == "auto":
@@ -688,10 +746,7 @@ async def usage_timeseries(
         point.calls += 1
         point.tokens += tt
 
-        cost = d.get("response_cost")
-        if cost is None:
-            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = _resolve_event_cost(d, pricing, ptype_map)
         if cost is not None:
             point.cost = (point.cost or 0) + cost
 
@@ -791,19 +846,15 @@ def _recurrence_runs_per_day(recurrence: str) -> float:
 def _compute_cost_for_events(
     events: list[TraceEvent],
     pricing: dict,
+    ptype_map: dict[str | None, str] | None = None,
 ) -> float:
     """Sum cost across a list of TraceEvent rows."""
+    if ptype_map is None:
+        ptype_map = _get_provider_type_map()
     total = 0.0
     for ev in events:
         d = ev.data or {}
-        cost = d.get("response_cost")
-        if cost is None:
-            pt = d.get("prompt_tokens", 0)
-            ct = d.get("completion_tokens", 0)
-            ev_model = d.get("model")
-            ev_provider = d.get("provider_id")
-            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        cost = _resolve_event_cost(d, pricing, ptype_map)
         if cost is not None:
             total += cost
     return total
@@ -824,13 +875,14 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
     days_elapsed = (now - month_start).total_seconds() / 86400
 
     pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
 
     # --- Actual spend today & this month ---
     today_events, _ = await _fetch_token_usage_events(db, after=today_start)
-    daily_spend = _compute_cost_for_events(today_events, pricing)
+    daily_spend = _compute_cost_for_events(today_events, pricing, ptype_map)
 
     month_events, _ = await _fetch_token_usage_events(db, after=month_start)
-    monthly_spend = _compute_cost_for_events(month_events, pricing)
+    monthly_spend = _compute_cost_for_events(month_events, pricing, ptype_map)
 
     components: list[ForecastComponent] = []
 
@@ -934,14 +986,7 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
                 if not sid:
                     continue
                 d = ev.data or {}
-                cost = d.get("response_cost")
-                if cost is None:
-                    pt = d.get("prompt_tokens", 0)
-                    ct = d.get("completion_tokens", 0)
-                    ev_model = d.get("model")
-                    ev_provider = d.get("provider_id")
-                    input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
-                    cost = _compute_cost(pt, ct, input_rate, output_rate)
+                cost = _resolve_event_cost(d, pricing, ptype_map)
                 if cost is not None:
                     session_costs[sid] += cost
                 if ev.bot_id:

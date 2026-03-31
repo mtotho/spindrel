@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelIntegration, Session
+from app.db.models import Channel, ChannelIntegration, ChannelMember, Session
 
 if TYPE_CHECKING:
     from app.db.models import User
@@ -162,6 +162,11 @@ async def get_or_create_channel(
         db.add(ch)
         await db.flush()
 
+        # Auto-join creator as channel member
+        if user_id:
+            db.add(ChannelMember(channel_id=ch.id, user_id=user_id))
+            await db.flush()
+
         # Also create a ChannelIntegration row for new integration channels
         if integration:
             binding = ChannelIntegration(
@@ -190,6 +195,12 @@ async def get_or_create_channel(
     _auto_set_workspace_id(ch)
     db.add(ch)
     await db.flush()
+
+    # Auto-join creator as channel member
+    if user_id:
+        db.add(ChannelMember(channel_id=ch.id, user_id=user_id))
+        await db.flush()
+
     return ch
 
 

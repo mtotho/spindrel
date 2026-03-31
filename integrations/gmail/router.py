@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import imaplib
 import logging
-import os
 
 from fastapi import APIRouter, Depends
 
@@ -22,7 +21,7 @@ async def ping():
 
 
 @router.get("/status")
-async def status(_auth=Depends(verify_auth)):
+async def gmail_status(_auth=Depends(verify_auth)):
     """Test IMAP connectivity and return account info."""
     from integrations.gmail.config import settings
 
@@ -34,8 +33,8 @@ async def status(_auth=Depends(verify_auth)):
         try:
             conn = imaplib.IMAP4_SSL(settings.GMAIL_IMAP_HOST, settings.GMAIL_IMAP_PORT)
             conn.login(email_addr, settings.GMAIL_APP_PASSWORD)
-            status, folders = conn.list()
-            folder_count = len(folders) if status == "OK" and folders else 0
+            ok, folders = conn.list()
+            folder_count = len(folders) if ok == "OK" and folders else 0
             conn.logout()
             return {"connected": True, "email": email_addr, "folder_count": folder_count}
         except Exception as exc:
@@ -45,37 +44,20 @@ async def status(_auth=Depends(verify_auth)):
 
 
 @router.post("/trigger")
-async def trigger(_auth=Depends(verify_auth)):
+async def gmail_trigger(_auth=Depends(verify_auth)):
     """Manually trigger a poll cycle and return results."""
-    from integrations.ingestion.config import IngestionConfig
-    from integrations.ingestion.pipeline import IngestionPipeline
-    from integrations.ingestion.store import IngestionStore
-
     from integrations.gmail.config import settings
-    from integrations.gmail.feed import GmailFeed
+    from integrations.gmail.factory import create_feed
 
-    db_dir = os.path.expanduser("~/.agent-workspaces/.ingestion")
-    os.makedirs(db_dir, exist_ok=True)
-    store = IngestionStore(os.path.join(db_dir, "gmail.db"))
+    if not settings.GMAIL_EMAIL:
+        return {"error": "GMAIL_EMAIL not configured", "fetched": 0}
 
-    config = IngestionConfig(
-        agent_base_url=settings.AGENT_BASE_URL,
-        agent_api_key=settings.AGENT_API_KEY,
-    )
-    pipeline = IngestionPipeline(config=config, store=store)
-
-    feed = GmailFeed(
-        pipeline=pipeline,
-        store=store,
-        host=settings.GMAIL_IMAP_HOST,
-        port=settings.GMAIL_IMAP_PORT,
-        email_addr=settings.GMAIL_EMAIL,
-        password=settings.GMAIL_APP_PASSWORD,
-        folders=settings.GMAIL_FOLDERS,
-        max_per_poll=settings.GMAIL_MAX_PER_POLL,
-    )
-
-    result = await feed.run_cycle()
+    feed, store = create_feed()
+    try:
+        result = await feed.run_cycle()
+    finally:
+        feed._disconnect()
+        store.close()
 
     return {
         "fetched": result.fetched,

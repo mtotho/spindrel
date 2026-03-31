@@ -387,6 +387,10 @@ async def run_agent_tool_loop(
                         "provider_id": provider_id,
                         "channel_id": str(channel_id) if channel_id else None,
                     }
+                    if accumulated_msg.cached_tokens is not None:
+                        _usage_data["cached_tokens"] = accumulated_msg.cached_tokens
+                    if accumulated_msg.response_cost is not None:
+                        _usage_data["response_cost"] = accumulated_msg.response_cost
                     asyncio.create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
@@ -767,6 +771,13 @@ async def run_agent_tool_loop(
                 "provider_id": provider_id,
                 "channel_id": str(channel_id) if channel_id else None,
             }
+            # Extract cached_tokens from usage details
+            _details2 = getattr(response.usage, 'prompt_tokens_details', None)
+            if _details2:
+                _cached2 = getattr(_details2, 'cached_tokens', None)
+                if _cached2 is not None:
+                    _usage_data2["cached_tokens"] = _cached2
+            # Extract response_cost from LiteLLM _hidden_params
             _resp_cost2 = getattr(response, '_hidden_params', {}).get('response_cost') if hasattr(response, '_hidden_params') else None
             if _resp_cost2 is None and hasattr(response, 'model_extra'):
                 _hidden2 = (response.model_extra or {}).get('_hidden_params', {})

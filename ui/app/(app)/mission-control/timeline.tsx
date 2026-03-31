@@ -46,7 +46,7 @@ function TimelineEventRow({ event, showChannel }: { event: MCTimelineEvent; show
   const cc = channelColor(event.channel_id);
 
   return (
-    <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 4 }}>
+    <View style={{ flexDirection: "row", gap: 12, paddingVertical: 8, paddingHorizontal: 2 }}>
       {/* Time badge */}
       <View style={{ width: 46, alignItems: "flex-end", paddingTop: 1 }}>
         <Text
@@ -149,8 +149,8 @@ function DayGroup({
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
-          marginBottom: 4,
-          paddingHorizontal: 4,
+          marginBottom: 8,
+          paddingHorizontal: 2,
         }}
       >
         <View
@@ -337,10 +337,10 @@ export default function MCTimeline() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          paddingHorizontal: isWide ? 20 : 14,
-          paddingTop: 24,
-          gap: 28,
-          paddingBottom: 40,
+          paddingHorizontal: 16,
+          paddingTop: 20,
+          gap: 24,
+          paddingBottom: 48,
           maxWidth: 720,
         }}
       >

@@ -276,7 +276,7 @@ export default function MCJournal() {
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, gap: 28, paddingBottom: 40, maxWidth: 960 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, gap: 24, paddingBottom: 48, maxWidth: 960 }}
       >
         {isLoading ? (
           <Text className="text-text-muted text-sm">Loading journal...</Text>
@@ -291,13 +291,14 @@ export default function MCJournal() {
             const gl = groupLabel(key);
             const isToday = gl.label === "Today";
             return (
-              <View key={key} style={{ gap: 12 }}>
+              <View key={key} style={{ gap: 14 }}>
                 {/* Group header */}
                 <View
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 8,
+                    paddingHorizontal: 2,
                   }}
                 >
                   <View

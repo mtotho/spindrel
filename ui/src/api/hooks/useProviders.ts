@@ -147,6 +147,7 @@ export interface ProviderModelItem {
   input_cost_per_1m?: string | null;
   output_cost_per_1m?: string | null;
   no_system_messages?: boolean;
+  supports_tools?: boolean;
   created_at: string;
 }
 
@@ -157,6 +158,7 @@ export interface ProviderModelCreatePayload {
   input_cost_per_1m?: string;
   output_cost_per_1m?: string;
   no_system_messages?: boolean;
+  supports_tools?: boolean;
 }
 
 export function useProviderModels(providerId: string | undefined) {

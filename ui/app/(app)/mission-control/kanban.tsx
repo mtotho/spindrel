@@ -220,7 +220,7 @@ export default function MCKanban() {
         <RefreshableScrollView
           refreshing={refreshing}
           onRefresh={onRefresh}
-          contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}
+          contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}
           className="flex-1"
         >
           {columns.map((col) => (

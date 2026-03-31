@@ -4,7 +4,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft } from "lucide-react";
+import { ChannelFileExplorer } from "./ChannelFileExplorer";
+import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -148,6 +150,117 @@ function ErrorBanner({ error, onDismiss }: { error: string; onDismiss: () => voi
     >
       <Text className="text-red-400 text-sm">{error}</Text>
     </Pressable>
+  );
+}
+
+/** Extracted chat message list + scroll-to-bottom FAB so it can be reused in both mobile and desktop layouts */
+function ChatMessageArea({
+  flatListRef,
+  invertedData,
+  renderMessage,
+  chatState,
+  bot,
+  isLoading,
+  isFetchingNextPage,
+  showScrollBtn,
+  scrollToBottom,
+  handleScroll,
+  handleListLayout,
+  handleContentSizeChange,
+  handleLoadMore,
+  t,
+}: {
+  flatListRef: React.RefObject<FlatList | null>;
+  invertedData: Message[];
+  renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
+  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string };
+  bot: { name?: string } | undefined;
+  isLoading: boolean;
+  isFetchingNextPage: boolean;
+  showScrollBtn: boolean;
+  scrollToBottom: () => void;
+  handleScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  handleListLayout: (e: any) => void;
+  handleContentSizeChange: (w: number, h: number) => void;
+  handleLoadMore: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <View style={{ flex: 1, position: "relative" }}>
+      <FlatList
+        ref={flatListRef}
+        inverted
+        style={{ flex: 1 }}
+        data={invertedData}
+        keyExtractor={(item) => item.id}
+        renderItem={renderMessage}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
+        scrollEventThrottle={100}
+        onScroll={handleScroll}
+        onLayout={handleListLayout}
+        onContentSizeChange={handleContentSizeChange}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={1.5}
+        initialNumToRender={20}
+        maxToRenderPerBatch={15}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        ListHeaderComponent={
+          chatState.isStreaming ? (
+            <StreamingIndicator
+              content={chatState.streamingContent}
+              toolCalls={chatState.toolCalls}
+              botName={bot?.name}
+              thinkingContent={chatState.thinkingContent}
+            />
+          ) : null
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View className="items-center py-3">
+              <ActivityIndicator size="small" color="#666666" />
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, transform: [{ scaleY: -1 }] }}>
+            {isLoading ? (
+              <ActivityIndicator color={t.textDim} />
+            ) : (
+              <Text style={{ color: t.textDim, fontSize: 14 }}>
+                Send a message to start the conversation
+              </Text>
+            )}
+          </View>
+        }
+      />
+      {showScrollBtn && (
+        <Pressable
+          onPress={scrollToBottom}
+          style={{
+            position: "absolute",
+            bottom: 16,
+            right: 24,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: t.surfaceRaised,
+            borderWidth: 1,
+            borderColor: t.surfaceBorder,
+            alignItems: "center",
+            justifyContent: "center",
+            ...Platform.select({
+              web: { boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" } as any,
+              default: { elevation: 4 },
+            }),
+          }}
+        >
+          <ChevronDown size={20} color={t.textMuted} />
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -320,6 +433,11 @@ export default function ChatScreen() {
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
+      // If viewing a file in non-split mode, auto-enable split so the user sees the response
+      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
+        useUIStore.getState().toggleFileExplorerSplit();
+      }
+
       addMessage(channelId, {
         id: `msg-${Date.now()}`,
         session_id: channel.active_session_id ?? "",
@@ -371,6 +489,10 @@ export default function ChatScreen() {
   const handleSendAudio = useCallback(
     (audioBase64: string, audioFormat: string, message?: string) => {
       if (!channelId || !channel) return;
+
+      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
+        useUIStore.getState().toggleFileExplorerSplit();
+      }
 
       addMessage(channelId, {
         id: `msg-${Date.now()}`,
@@ -454,6 +576,62 @@ export default function ChatScreen() {
   const enableEditorMutation = useEnableEditor(workspaceId ?? "");
   const expandDir = useFileBrowserStore((s) => s.expandDir);
 
+  // File explorer state
+  const explorerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const toggleExplorer = useUIStore((s) => s.toggleFileExplorer);
+  const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+  const splitMode = useUIStore((s) => s.fileExplorerSplit);
+  const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const fileDirtyRef = useRef(false);
+
+  // Reset file selection when switching channels
+  useEffect(() => {
+    setActiveFile(null);
+    fileDirtyRef.current = false;
+  }, [channelId]);
+
+  const showExplorer = workspaceEnabled && explorerOpen;
+  const showFileViewer = activeFile !== null;
+  const isMobile = columns === "single";
+
+  /** Gate navigation away from a dirty file with a confirm prompt */
+  const confirmIfDirty = useCallback((): boolean => {
+    if (!fileDirtyRef.current) return true;
+    return confirm("You have unsaved changes. Discard them?");
+  }, []);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    fileDirtyRef.current = dirty;
+  }, []);
+
+  const handleSelectFile = useCallback((path: string) => {
+    if (path === activeFile) return;
+    if (!confirmIfDirty()) return;
+    setActiveFile(path);
+  }, [activeFile, confirmIfDirty]);
+
+  const handleCloseFile = useCallback(() => {
+    if (!confirmIfDirty()) return;
+    setActiveFile(null);
+  }, [confirmIfDirty]);
+
+  const handleCloseExplorer = useCallback(() => {
+    if (!confirmIfDirty()) return;
+    setExplorerOpen(false);
+    setActiveFile(null);
+  }, [setExplorerOpen, confirmIfDirty]);
+
+  // Mobile: back from file viewer goes to explorer, back from explorer goes to chat
+  const handleMobileBack = useCallback(() => {
+    if (activeFile) {
+      // dirty guard is handled inside ChannelFileViewer's onBack
+      setActiveFile(null);
+    } else {
+      setExplorerOpen(false);
+    }
+  }, [activeFile, setExplorerOpen]);
+
   const handleBrowseWorkspace = useCallback(() => {
     if (!workspaceId || !channelId) return;
     const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
@@ -523,11 +701,25 @@ export default function ChatScreen() {
         </View>
         {workspaceEnabled && workspaceId && (
           <>
+            <Pressable
+              onPress={toggleExplorer}
+              className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+              style={{
+                width: 36,
+                height: 36,
+                backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
+                borderRadius: 6,
+              }}
+              {...(Platform.OS === "web" ? { title: explorerOpen ? "Hide file explorer" : "Show file explorer" } as any : {})}
+            >
+              <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+            </Pressable>
             <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
               <Pressable
                 onPress={handleBrowseWorkspace}
                 className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 36, height: 36 }}
+                {...(Platform.OS === "web" ? { title: "Browse workspace" } as any : {})}
               >
                 <FolderOpen size={16} color={t.textDim} />
               </Pressable>
@@ -537,6 +729,7 @@ export default function ChatScreen() {
                 onPress={handleOpenEditor}
                 className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
                 style={{ width: 36, height: 36 }}
+                {...{ title: "Open in VS Code" } as any}
               >
                 <Code size={16} color={t.textDim} />
               </Pressable>
@@ -555,102 +748,137 @@ export default function ChatScreen() {
         )}
       </View>
 
-      {/* Messages */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.textDim} />
-        </View>
-      ) : (
-        <View style={{ flex: 1, position: "relative" }}>
-          <FlatList
-            ref={flatListRef}
-            inverted
-            style={{ flex: 1 }}
-            data={invertedData}
-            keyExtractor={(item) => item.id}
-            renderItem={renderMessage}
-            contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
-            scrollEventThrottle={100}
-            onScroll={handleScroll}
-            onLayout={handleListLayout}
-            onContentSizeChange={handleContentSizeChange}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={1.5}
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-            automaticallyAdjustContentInsets={false}
-            contentInsetAdjustmentBehavior="never"
-            ListHeaderComponent={
-              chatState.isStreaming ? (
-                <StreamingIndicator
-                  content={chatState.streamingContent}
-                  toolCalls={chatState.toolCalls}
-                  botName={bot?.name}
-                  thinkingContent={chatState.thinkingContent}
-                />
-              ) : null
-            }
-            ListFooterComponent={
-              isFetchingNextPage ? (
-                <View className="items-center py-3">
-                  <ActivityIndicator size="small" color="#666666" />
-                </View>
-              ) : null
-            }
-            ListEmptyComponent={
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, transform: [{ scaleY: -1 }] }}>
-                <Text style={{ color: t.textDim, fontSize: 14 }}>
-                  Send a message to start the conversation
-                </Text>
-              </View>
-            }
+      {/* Content area — explorer + chat/file viewer */}
+      {isMobile ? (
+        /* ---- Mobile: full-screen modes ---- */
+        showExplorer && !showFileViewer ? (
+          /* Mobile explorer full-screen */
+          <ChannelFileExplorer
+            channelId={channelId!}
+            activeFile={activeFile}
+            onSelectFile={handleSelectFile}
+            onClose={handleCloseExplorer}
+            fullWidth
           />
-          {/* Scroll-to-bottom FAB */}
-          {showScrollBtn && (
-            <Pressable
-              onPress={scrollToBottom}
-              style={{
-                position: "absolute",
-                bottom: 16,
-                right: 24,
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: t.surfaceRaised,
-                borderWidth: 1,
-                borderColor: t.surfaceBorder,
-                alignItems: "center",
-                justifyContent: "center",
-                ...Platform.select({
-                  web: { boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" } as any,
-                  default: { elevation: 4 },
-                }),
-              }}
-            >
-              <ChevronDown size={20} color={t.textMuted} />
-            </Pressable>
+        ) : showFileViewer ? (
+          /* Mobile file viewer full-screen */
+          <ChannelFileViewer
+            channelId={channelId!}
+            filePath={activeFile!}
+            onBack={handleMobileBack}
+            onDirtyChange={handleDirtyChange}
+          />
+        ) : (
+          /* Mobile chat (default) */
+          <>
+            <ChatMessageArea
+              flatListRef={flatListRef}
+              invertedData={invertedData}
+              renderMessage={renderMessage}
+              chatState={chatState}
+              bot={bot}
+              isLoading={isLoading}
+              isFetchingNextPage={isFetchingNextPage}
+              showScrollBtn={showScrollBtn}
+              scrollToBottom={scrollToBottom}
+              handleScroll={handleScroll}
+              handleListLayout={handleListLayout}
+              handleContentSizeChange={handleContentSizeChange}
+              handleLoadMore={handleLoadMore}
+              t={t}
+            />
+            {chatState.error && (
+              <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+            )}
+            <MessageInput
+              onSend={handleSend}
+              onSendAudio={handleSendAudio}
+              disabled={isPaused}
+              isStreaming={chatState.isStreaming}
+              onCancel={handleCancel}
+              modelOverride={turnModelOverride}
+              onModelOverrideChange={setTurnModelOverride}
+              defaultModel={channel?.model_override || bot?.model}
+              currentBotId={channel?.bot_id}
+              channelId={channelId}
+            />
+          </>
+        )
+      ) : (
+        /* ---- Desktop/tablet: side-by-side layout ---- */
+        <>
+          <View style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}>
+            {/* Explorer panel */}
+            {showExplorer && channelId && (
+              <ChannelFileExplorer
+                channelId={channelId}
+                activeFile={activeFile}
+                onSelectFile={handleSelectFile}
+                onClose={handleCloseExplorer}
+              />
+            )}
+
+            {/* Chat area — visible when no file selected or in split mode */}
+            {(!showFileViewer || splitMode) && (
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <ChatMessageArea
+                  flatListRef={flatListRef}
+                  invertedData={invertedData}
+                  renderMessage={renderMessage}
+                  chatState={chatState}
+                  bot={bot}
+                  isLoading={isLoading}
+                  isFetchingNextPage={isFetchingNextPage}
+                  showScrollBtn={showScrollBtn}
+                  scrollToBottom={scrollToBottom}
+                  handleScroll={handleScroll}
+                  handleListLayout={handleListLayout}
+                  handleContentSizeChange={handleContentSizeChange}
+                  handleLoadMore={handleLoadMore}
+                  t={t}
+                />
+              </View>
+            )}
+
+            {/* File viewer — visible when a file is selected */}
+            {showFileViewer && channelId && (
+              <View style={{
+                flex: 1,
+                minWidth: 0,
+                borderLeftWidth: splitMode ? 1 : 0,
+                borderLeftColor: t.surfaceBorder,
+              }}>
+                {/* Split mode toggle in viewer header */}
+                <ChannelFileViewer
+                  channelId={channelId}
+                  filePath={activeFile!}
+                  onBack={handleCloseFile}
+                  splitMode={splitMode}
+                  onToggleSplit={toggleSplit}
+                  onDirtyChange={handleDirtyChange}
+                />
+              </View>
+            )}
+          </View>
+
+          {/* Error + Input — always visible on desktop */}
+          {chatState.error && (
+            <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
           )}
-        </View>
+          <MessageInput
+            onSend={handleSend}
+            onSendAudio={handleSendAudio}
+            disabled={isPaused}
+            isStreaming={chatState.isStreaming}
+            onCancel={handleCancel}
+            modelOverride={turnModelOverride}
+            onModelOverrideChange={setTurnModelOverride}
+            defaultModel={channel?.model_override || bot?.model}
+            currentBotId={channel?.bot_id}
+            channelId={channelId}
+          />
+        </>
       )}
-
-      {/* Error (tap to dismiss, auto-dismisses after 8s) */}
-      {chatState.error && (
-        <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
-      )}
-
-      {/* Input */}
-      <MessageInput
-        onSend={handleSend}
-        onSendAudio={handleSendAudio}
-        disabled={isPaused}
-        isStreaming={chatState.isStreaming}
-        onCancel={handleCancel}
-        modelOverride={turnModelOverride}
-        onModelOverrideChange={setTurnModelOverride}
-        defaultModel={channel?.model_override || bot?.model}
-        currentBotId={channel?.bot_id}
-        channelId={channelId}
-      />
     </SafeAreaView>
   );
 }
