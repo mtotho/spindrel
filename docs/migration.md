@@ -76,8 +76,8 @@ Before leaving the old machine, record:
 ### 2a. Clone the repo
 
 ```bash
-git clone https://github.com/spindrel/agent-server.git
-cd agent-server
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
 ```
 
 ### 2b. Set up rclone credentials
