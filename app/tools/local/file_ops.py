@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from app.agent.context import current_bot_id
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 MAX_CONTENT_BYTES = 1_048_576  # 1 MB
 MAX_READ_LINES = 2000
 DEFAULT_READ_LINES = 500
+
+_CHANNEL_PATH_RE = re.compile(r"^/workspace/channels/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:/|$)")
 
 
 def _get_bot_and_workspace_root() -> tuple:
@@ -101,6 +104,31 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
     return resolved
 
 
+async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str):
+    """If *path* targets another bot's channel and caller has cross_workspace_access,
+    return (effective_ws_root, effective_bot).  Otherwise return (ws_root, bot).
+    """
+    if not bot.cross_workspace_access:
+        return ws_root, bot
+
+    m = _CHANNEL_PATH_RE.match(path.strip())
+    if not m:
+        return ws_root, bot
+
+    channel_id = m.group(1)
+
+    from app.tools.local.channel_workspace import _resolve_channel_owner_bot
+    owner_bot = await _resolve_channel_owner_bot(channel_id, bot.id)
+
+    if owner_bot is None:
+        # Same bot or couldn't resolve — use caller's workspace
+        return ws_root, bot
+
+    from app.services.workspace import workspace_service
+    owner_ws_root = workspace_service.get_workspace_root(owner_bot.id, owner_bot)
+    return owner_ws_root, owner_bot
+
+
 def _error(msg: str) -> str:
     return json.dumps({"error": msg})
 
@@ -175,14 +203,21 @@ async def file(
     if not ws_root:
         return _error("No workspace configured for this bot.")
 
+    # Cross-workspace channel access: if the path targets another bot's
+    # channel and we have cross_workspace_access, switch to that bot's
+    # workspace root so the path resolves correctly.
+    effective_ws_root, effective_bot = await _maybe_resolve_cross_channel(
+        path, bot, ws_root,
+    )
+
     try:
-        resolved = _resolve_path(path, ws_root, bot)
+        resolved = _resolve_path(path, effective_ws_root, effective_bot)
     except ValueError as e:
         return _error(str(e))
 
     try:
         if operation == "read":
-            return _op_read(resolved, ws_root, offset, limit)
+            return _op_read(resolved, effective_ws_root, offset, limit)
         elif operation == "write":
             return _op_write(resolved, content)
         elif operation == "append":
@@ -190,7 +225,7 @@ async def file(
         elif operation == "edit":
             return _op_edit(resolved, find, replace, replace_all)
         elif operation == "list":
-            return _op_list(resolved, ws_root)
+            return _op_list(resolved, effective_ws_root)
         elif operation == "delete":
             return _op_delete(resolved)
         elif operation == "mkdir":

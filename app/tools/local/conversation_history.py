@@ -44,17 +44,32 @@ _SCHEMA = {
 }
 
 
-def _read_section_transcript(sec: ConversationSection) -> str:
-    """Read the transcript for a section from filesystem or return summary fallback."""
+def _read_section_transcript(sec: ConversationSection, owner_bot_id: str | None = None) -> str:
+    """Read the transcript for a section from filesystem or return summary fallback.
+
+    Supports both old format (.history/ch_slug/001.md relative to bot ws_root)
+    and new format (channels/{id}/.history/001.md relative to channel ws root).
+    When owner_bot_id is set, resolves paths against that bot's workspace instead
+    of the caller's.
+    """
     if sec.transcript_path:
         import os
         from app.agent.context import current_bot_id
         from app.agent.bots import get_bot
-        from app.services.workspace import workspace_service
 
         try:
-            bot = get_bot(current_bot_id.get())
-            ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            resolve_bot_id = owner_bot_id or current_bot_id.get()
+            bot = get_bot(resolve_bot_id)
+
+            if sec.transcript_path.startswith("channels/"):
+                # New format: relative to channel-workspace root
+                from app.services.channel_workspace import _get_ws_root
+                ws_root = _get_ws_root(bot)
+            else:
+                # Old format: relative to bot workspace root
+                from app.services.workspace import workspace_service
+                ws_root = workspace_service.get_workspace_root(bot.id, bot)
+
             filepath = os.path.join(ws_root, sec.transcript_path)
             with open(filepath) as f:
                 return f.read()
@@ -98,13 +113,19 @@ async def _track_view(section_id: uuid.UUID) -> None:
 async def read_conversation_history(section: str, channel_id: uuid.UUID | None = None) -> str:
     my_channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
+    owner_bot_id = None  # set when reading another bot's channel via cross_workspace_access
 
     if channel_id and channel_id != my_channel_id:
-        # Verify the bot is a member of the requested channel
+        # Verify the bot is a member of the requested channel or has cross_workspace_access
         async with async_session() as db:
             ch = await db.get(Channel, channel_id)
         if not ch or ch.bot_id != bot_id:
-            return "Access denied: this bot is not a member of the requested channel."
+            from app.agent.bots import get_bot
+            caller_bot = get_bot(bot_id)
+            if caller_bot and caller_bot.cross_workspace_access and ch:
+                owner_bot_id = ch.bot_id
+            else:
+                return "Access denied: this bot is not a member of the requested channel."
     else:
         channel_id = my_channel_id
 
@@ -246,7 +267,7 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         if not sec:
             return f"Section #{seq_num} not found."
         await _track_view(sec.id)
-        return _read_section_transcript(sec)
+        return _read_section_transcript(sec, owner_bot_id=owner_bot_id)
 
     # Try to parse as UUID
     try:
@@ -261,4 +282,4 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         return f"Section not found: {section}"
 
     await _track_view(sec.id)
-    return _read_section_transcript(sec)
+    return _read_section_transcript(sec, owner_bot_id=owner_bot_id)

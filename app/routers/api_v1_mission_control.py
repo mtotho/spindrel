@@ -10,7 +10,7 @@ import logging
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -57,14 +57,18 @@ async def _tracked_channels(
     db: AsyncSession,
     user: User | None,
     prefs: dict | None = None,
+    *,
+    scope: str = "fleet",
 ) -> list[Channel]:
     """Get channels tracked by MC.
 
-    Admins and API keys see all channels. Regular users see only their own.
+    Admins and API keys see all channels in fleet scope.
+    ``scope="personal"`` forces user-only filter even for admins.
+    Non-admin users always get personal scope.
     """
     q = select(Channel).where(Channel.channel_workspace_enabled == True)  # noqa: E712
 
-    if user and not user.is_admin:
+    if user and (not user.is_admin or scope == "personal"):
         q = q.where(Channel.user_id == user.id)
 
     result = await db.execute(q.order_by(Channel.name))
@@ -98,6 +102,17 @@ async def _read_tasks_for_channel(channel: Channel) -> list[dict]:
     except Exception:
         logger.debug("Could not read tasks.md for channel %s", channel.id, exc_info=True)
     return []
+
+
+def _has_tasks_file(channel: Channel) -> bool:
+    """Quick check whether a channel has a tasks.md on disk (no parsing)."""
+    from app.services.channel_workspace import get_channel_workspace_root
+    try:
+        bot = _get_bot(channel.bot_id)
+        ws_root = get_channel_workspace_root(str(channel.id), bot)
+        return os.path.isfile(os.path.join(ws_root, "tasks.md"))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +200,136 @@ class MemoryResponse(BaseModel):
     sections: list[MemoryBotSection]
 
 
+class FeatureReadiness(BaseModel):
+    ready: bool
+    detail: str
+    count: int = 0
+    total: int = 0
+    issues: list[str] = []
+
+
+class ReadinessResponse(BaseModel):
+    dashboard: FeatureReadiness
+    kanban: FeatureReadiness
+    journal: FeatureReadiness
+    memory: FeatureReadiness
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/readiness", dependencies=[Depends(require_scopes("mission_control:read"))])
+async def readiness(
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Check system readiness for each MC feature."""
+    from app.agent.bots import list_bots
+
+    user = _get_user(auth)
+    prefs = await _get_mc_prefs(db, user)
+    channels = await _tracked_channels(db, user, prefs)
+
+    # Dashboard: channels with workspace enabled
+    dashboard_issues: list[str] = []
+    if not channels:
+        dashboard_issues.append(
+            "No channels have workspace enabled. Enable it in channel settings."
+        )
+    dashboard = FeatureReadiness(
+        ready=len(channels) > 0,
+        detail=f"{len(channels)} workspace-enabled channel{'s' if len(channels) != 1 else ''}",
+        count=len(channels),
+        total=len(channels),
+        issues=dashboard_issues,
+    )
+
+    # Kanban: channels with tasks.md
+    tasks_count = 0
+    for ch in channels:
+        if await asyncio.to_thread(_has_tasks_file, ch):
+            tasks_count += 1
+    kanban_issues: list[str] = []
+    if channels and tasks_count == 0:
+        kanban_issues.append(
+            "No channels have tasks.md. The MC skill creates this automatically."
+        )
+    elif not channels:
+        kanban_issues.append(
+            "No workspace-enabled channels. Enable workspace in channel settings first."
+        )
+    kanban = FeatureReadiness(
+        ready=tasks_count > 0,
+        detail=f"{tasks_count} of {len(channels)} channels have tasks.md",
+        count=tasks_count,
+        total=len(channels),
+        issues=kanban_issues,
+    )
+
+    # Journal + Memory: bots with memory_scheme="workspace-files"
+    bots = list_bots()
+    bot_ids_in_channels = {ch.bot_id for ch in channels}
+    memory_bots = [b for b in bots if b.memory_scheme == "workspace-files" and b.id in bot_ids_in_channels]
+
+    journal_count = 0
+    memory_count = 0
+    for bot in memory_bots:
+        from app.services.memory_scheme import get_memory_root
+        try:
+            mem_root = get_memory_root(bot)
+        except Exception:
+            continue
+        if os.path.isdir(os.path.join(mem_root, "logs")):
+            journal_count += 1
+        if os.path.isfile(os.path.join(mem_root, "MEMORY.md")):
+            memory_count += 1
+
+    journal_issues: list[str] = []
+    if not memory_bots:
+        journal_issues.append(
+            "No bots have memory_scheme: workspace-files. Set this in bot YAML."
+        )
+    elif journal_count == 0:
+        journal_issues.append(
+            "No bots have memory/logs/ directory yet. Logs appear after the bot runs."
+        )
+    journal = FeatureReadiness(
+        ready=journal_count > 0,
+        detail=f"{journal_count} bot{'s' if journal_count != 1 else ''} with journal logs",
+        count=journal_count,
+        total=len(memory_bots),
+        issues=journal_issues,
+    )
+
+    memory_issues: list[str] = []
+    if not memory_bots:
+        memory_issues.append(
+            "No bots have memory_scheme: workspace-files. Set this in bot YAML."
+        )
+    elif memory_count == 0:
+        memory_issues.append(
+            "No bots have MEMORY.md yet. It's created after the bot's first run."
+        )
+    memory_feat = FeatureReadiness(
+        ready=memory_count > 0,
+        detail=f"{memory_count} bot{'s' if memory_count != 1 else ''} with MEMORY.md",
+        count=memory_count,
+        total=len(memory_bots),
+        issues=memory_issues,
+    )
+
+    return ReadinessResponse(
+        dashboard=dashboard,
+        kanban=kanban,
+        journal=journal,
+        memory=memory_feat,
+    )
+
+
 @router.get("/overview", dependencies=[Depends(require_scopes("mission_control:read"))])
 async def overview(
+    scope: Literal["fleet", "personal"] = "fleet",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
@@ -199,7 +338,7 @@ async def overview(
 
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
-    channels = await _tracked_channels(db, user, prefs)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     # Total channel count (regardless of workspace flag) for empty-state UX
     all_channels_q = select(func.count(Channel.id))
@@ -272,18 +411,20 @@ async def overview(
         "total_channels_all": total_channels_all,
         "total_bots": len(bots),
         "total_tasks": total_tasks,
+        "is_admin": user.is_admin if user else True,  # API keys are admin-level
     }
 
 
 @router.get("/kanban", dependencies=[Depends(require_scopes("mission_control:read"))])
 async def kanban(
+    scope: Literal["fleet", "personal"] = "fleet",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
     """Aggregated kanban: reads tasks.md from all tracked channels, merges columns."""
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
-    channels = await _tracked_channels(db, user, prefs)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     # Merge columns by name across all channels
     merged: dict[str, list[KanbanCard]] = {}
@@ -449,13 +590,14 @@ async def kanban_create(
 @router.get("/journal", response_model=JournalResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
 async def journal(
     days: int = Query(7, ge=1, le=90),
+    scope: Literal["fleet", "personal"] = "fleet",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
     """Aggregated daily logs from tracked bots."""
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
-    channels = await _tracked_channels(db, user, prefs)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     # Collect unique bot_ids from tracked channels
     bot_ids = list({ch.bot_id for ch in channels})
@@ -516,13 +658,14 @@ async def journal(
 
 @router.get("/memory", response_model=MemoryResponse, dependencies=[Depends(require_scopes("mission_control:read"))])
 async def memory(
+    scope: Literal["fleet", "personal"] = "fleet",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
     """MEMORY.md + reference files from tracked bots."""
     user = _get_user(auth)
     prefs = await _get_mc_prefs(db, user)
-    channels = await _tracked_channels(db, user, prefs)
+    channels = await _tracked_channels(db, user, prefs, scope=scope)
 
     bot_ids = list({ch.bot_id for ch in channels})
     if prefs.get("tracked_bot_ids"):
@@ -734,3 +877,118 @@ async def update_prefs(
     await db.commit()
 
     return mc_prefs
+
+
+@router.get(
+    "/memory/{bot_id}/reference/{filename}",
+    dependencies=[Depends(require_scopes("mission_control:read"))],
+)
+async def read_reference_file(
+    bot_id: str,
+    filename: str,
+    auth=Depends(verify_auth_or_user),
+):
+    """Read a specific reference file from a bot's memory/reference/ directory."""
+    # Validate filename — no path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "Invalid filename")
+
+    try:
+        bot = _get_bot(bot_id)
+    except Exception:
+        raise HTTPException(404, f"Bot '{bot_id}' not found")
+
+    if bot.memory_scheme != "workspace-files":
+        raise HTTPException(400, f"Bot '{bot_id}' does not use workspace-files memory scheme")
+
+    from app.services.memory_scheme import get_memory_root
+
+    try:
+        mem_root = get_memory_root(bot)
+    except Exception:
+        raise HTTPException(500, "Could not resolve memory root")
+
+    ref_path = os.path.join(mem_root, "reference", filename)
+
+    # Security: verify resolved path is within the reference directory
+    real_ref_dir = os.path.realpath(os.path.join(mem_root, "reference"))
+    real_path = os.path.realpath(ref_path)
+    if not real_path.startswith(real_ref_dir + os.sep) and real_path != real_ref_dir:
+        raise HTTPException(400, "Invalid filename")
+
+    if not os.path.isfile(ref_path):
+        raise HTTPException(404, "Reference file not found")
+
+    def _read():
+        with open(ref_path) as f:
+            return f.read()
+
+    content = await asyncio.to_thread(_read)
+    return {"content": content}
+
+
+@router.get(
+    "/setup-guide",
+    dependencies=[Depends(require_scopes("mission_control:read"))],
+)
+async def setup_guide():
+    """Return the Mission Control setup guide as markdown."""
+    content = """\
+# Mission Control Setup Guide
+
+Mission Control aggregates workspace data from your channels and bots into a unified fleet dashboard.
+
+## Prerequisites
+
+### 1. Enable Channel Workspaces
+Each channel you want to track needs **workspace enabled**:
+- Go to **Admin → Channels → [channel] → Settings**
+- Toggle **Channel Workspace** on
+- Optionally select a **workspace schema template** (e.g. Software Dev, Research)
+
+### 2. Configure Bot Memory
+For Journal and Memory pages, bots need the workspace-files memory scheme:
+```yaml
+# In your bot YAML (bots/my-bot.yaml)
+memory_scheme: workspace-files
+```
+This creates a `memory/` directory with:
+- `MEMORY.md` — curated facts and preferences
+- `memory/logs/` — daily activity logs (auto-generated)
+- `memory/reference/` — reference documents
+
+### 3. Task Board (Kanban)
+The Kanban page reads `tasks.md` from each channel's workspace. Tasks are created automatically when bots use task management skills, or you can create them manually from the Kanban page.
+
+## Feature Reference
+
+| Feature | Requires | What it shows |
+|---------|----------|---------------|
+| **Dashboard** | Workspace-enabled channels | Channel list, bot list, stats |
+| **Kanban** | `tasks.md` in channel workspace | Aggregated task board across channels |
+| **Journal** | `memory_scheme: workspace-files` | Daily logs from all tracked bots |
+| **Memory** | `memory_scheme: workspace-files` | MEMORY.md + reference files per bot |
+
+## Scope Toggle
+Admins see a **Fleet / Personal** toggle:
+- **Fleet**: All workspace-enabled channels (default)
+- **Personal**: Only channels you own
+
+## Integration Modules
+Integrations can register custom dashboard modules. These appear as additional pages under Mission Control. Check **Admin → Integrations** for available modules.
+
+## Troubleshooting
+- **Empty dashboard?** Check that at least one channel has workspace enabled
+- **Empty kanban?** Bots need to create `tasks.md` — try asking a bot to "create a task board"
+- **Empty journal?** Set `memory_scheme: workspace-files` in bot YAML and wait for the next interaction
+- **Empty memory?** Same as journal — MEMORY.md is created on the bot's first run
+"""
+    return {"content": content}
+
+
+@router.get("/modules", dependencies=[Depends(require_scopes("mission_control:read"))])
+async def list_modules():
+    """List dashboard modules registered by integrations."""
+    from integrations import discover_dashboard_modules
+
+    return {"modules": discover_dashboard_modules()}

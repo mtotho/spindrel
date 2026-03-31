@@ -9,6 +9,7 @@ import pytest
 
 from app.tools.local.file_ops import (
     _resolve_path,
+    _maybe_resolve_cross_channel,
     _op_read,
     _op_write,
     _op_append,
@@ -555,3 +556,176 @@ class TestFileTool:
         result = await file_tool(operation="foobar", path="hello.txt")
         parsed = json.loads(result)
         assert "error" in parsed
+
+
+# ---------------------------------------------------------------------------
+# Cross-workspace channel access
+# ---------------------------------------------------------------------------
+
+
+class TestCrossWorkspaceAccess:
+    """Test that bots with cross_workspace_access can read/write other bots' channel workspaces."""
+
+    CHANNEL_ID = "131f42b0-a7a4-5be5-848d-04fed708cd6a"
+
+    @pytest.fixture
+    def cross_ws(self, tmp_path):
+        """Build two separate bot workspace trees:
+        - orchestrator at {tmp}/orchestrator/
+        - baking-bot at {tmp}/baking-bot/channels/{CHANNEL_ID}/
+        """
+        orch_root = tmp_path / "orchestrator"
+        orch_root.mkdir()
+        (orch_root / "channels" / "orch-channel").mkdir(parents=True)
+
+        baking_root = tmp_path / "baking-bot"
+        (baking_root / "channels" / self.CHANNEL_ID).mkdir(parents=True)
+        (baking_root / "channels" / self.CHANNEL_ID / "recipe.md").write_text("# Sourdough\n")
+
+        return tmp_path
+
+    def _orch_bot(self):
+        bot = _mock_bot("", bot_id="orchestrator")
+        bot.cross_workspace_access = True
+        return bot
+
+    def _baking_bot(self, ws_root):
+        bot = _mock_bot(ws_root, bot_id="baking-bot")
+        bot.cross_workspace_access = False
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_resolve_cross_channel_switches_ws_root(self, cross_ws):
+        """_maybe_resolve_cross_channel should return the owning bot's ws_root."""
+        orch_root = str(cross_ws / "orchestrator")
+        baking_root = str(cross_ws / "baking-bot")
+        orch_bot = self._orch_bot()
+        baking_bot = self._baking_bot(baking_root)
+
+        with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
+            mock_resolve.return_value = baking_bot
+            with patch("app.services.workspace.workspace_service") as mock_ws:
+                mock_ws.get_workspace_root.return_value = baking_root
+
+                effective_root, effective_bot = await _maybe_resolve_cross_channel(
+                    f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
+                    orch_bot, orch_root,
+                )
+
+        assert effective_root == baking_root
+        assert effective_bot.id == "baking-bot"
+
+    @pytest.mark.asyncio
+    async def test_resolve_cross_channel_same_bot_no_switch(self, cross_ws):
+        """When channel belongs to the calling bot, no switch occurs."""
+        orch_root = str(cross_ws / "orchestrator")
+        orch_bot = self._orch_bot()
+
+        with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
+            mock_resolve.return_value = None  # same bot
+
+            effective_root, effective_bot = await _maybe_resolve_cross_channel(
+                f"/workspace/channels/{self.CHANNEL_ID}/file.md",
+                orch_bot, orch_root,
+            )
+
+        assert effective_root == orch_root
+        assert effective_bot.id == "orchestrator"
+
+    @pytest.mark.asyncio
+    async def test_resolve_cross_channel_no_flag(self, cross_ws):
+        """Bot without cross_workspace_access never switches."""
+        baking_root = str(cross_ws / "baking-bot")
+        bot = self._baking_bot(baking_root)
+
+        effective_root, effective_bot = await _maybe_resolve_cross_channel(
+            f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
+            bot, baking_root,
+        )
+
+        assert effective_root == baking_root
+        assert effective_bot.id == "baking-bot"
+
+    @pytest.mark.asyncio
+    async def test_resolve_non_channel_path_no_switch(self, cross_ws):
+        """Non-channel paths are never switched, even with cross_workspace_access."""
+        orch_root = str(cross_ws / "orchestrator")
+        orch_bot = self._orch_bot()
+
+        effective_root, _ = await _maybe_resolve_cross_channel(
+            "/workspace/memory/MEMORY.md", orch_bot, orch_root,
+        )
+        assert effective_root == orch_root
+
+    @pytest.mark.asyncio
+    async def test_file_tool_cross_channel_read(self, cross_ws):
+        """End-to-end: orchestrator reads a file in baking-bot's channel workspace."""
+        orch_root = str(cross_ws / "orchestrator")
+        baking_root = str(cross_ws / "baking-bot")
+        orch_bot = self._orch_bot()
+        baking_bot = self._baking_bot(baking_root)
+
+        with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
+            mock_get.return_value = (orch_bot, "orchestrator", orch_root)
+            with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
+                mock_resolve.return_value = baking_bot
+                with patch("app.services.workspace.workspace_service") as mock_ws:
+                    mock_ws.get_workspace_root.return_value = baking_root
+
+                    result = await file_tool(
+                        operation="read",
+                        path=f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
+                    )
+
+        assert "Sourdough" in result
+
+    @pytest.mark.asyncio
+    async def test_file_tool_cross_channel_list(self, cross_ws):
+        """End-to-end: orchestrator lists another bot's channel directory."""
+        orch_root = str(cross_ws / "orchestrator")
+        baking_root = str(cross_ws / "baking-bot")
+        orch_bot = self._orch_bot()
+        baking_bot = self._baking_bot(baking_root)
+
+        with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
+            mock_get.return_value = (orch_bot, "orchestrator", orch_root)
+            with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
+                mock_resolve.return_value = baking_bot
+                with patch("app.services.workspace.workspace_service") as mock_ws:
+                    mock_ws.get_workspace_root.return_value = baking_root
+
+                    result = await file_tool(
+                        operation="list",
+                        path=f"/workspace/channels/{self.CHANNEL_ID}",
+                    )
+
+        parsed = json.loads(result)
+        assert "entries" in parsed
+        names = [e["name"] for e in parsed["entries"]]
+        assert "recipe.md" in names
+
+    @pytest.mark.asyncio
+    async def test_file_tool_cross_channel_write(self, cross_ws):
+        """End-to-end: orchestrator writes to another bot's channel workspace."""
+        orch_root = str(cross_ws / "orchestrator")
+        baking_root = str(cross_ws / "baking-bot")
+        orch_bot = self._orch_bot()
+        baking_bot = self._baking_bot(baking_root)
+
+        with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
+            mock_get.return_value = (orch_bot, "orchestrator", orch_root)
+            with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
+                mock_resolve.return_value = baking_bot
+                with patch("app.services.workspace.workspace_service") as mock_ws:
+                    mock_ws.get_workspace_root.return_value = baking_root
+
+                    result = await file_tool(
+                        operation="write",
+                        path=f"/workspace/channels/{self.CHANNEL_ID}/notes.md",
+                        content="# Notes\nNew note from orchestrator",
+                    )
+
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        written = (cross_ws / "baking-bot" / "channels" / self.CHANNEL_ID / "notes.md").read_text()
+        assert "orchestrator" in written

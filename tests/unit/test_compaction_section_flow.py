@@ -3,6 +3,7 @@
 Tests the branching in run_compaction_stream for structured/file/summary modes.
 """
 import json
+import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch, call
@@ -165,70 +166,65 @@ class TestGetHistoryDir:
     """Test _get_history_dir path construction for different workspace roles."""
 
     def test_member_bot_history_dir(self, tmp_path):
-        """Member bot: .history goes directly under its workspace root."""
+        """Member bot with channel: .history inside channel workspace directory."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="member")
         ch = _make_channel(name="dev-channel")
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = str(tmp_path)
+        channel_root = str(tmp_path / "channels" / str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             result = _get_history_dir(bot, ch)
         assert result is not None
-        assert result.startswith(str(tmp_path))
-        assert "/.history/dev_channel" in result
-        # Should NOT have bots/<id> prefix — member root is already scoped
-        assert "/bots/test/" not in result
+        assert result == os.path.join(channel_root, ".history")
+        assert os.path.isdir(result)
 
     def test_orchestrator_bot_same_as_member(self, tmp_path):
-        """Orchestrator: workspace root is already bots/<bot_id>/, so .history goes directly under it."""
+        """Orchestrator with channel: .history inside channel workspace directory."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="dev-channel")
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = str(tmp_path)
+        channel_root = str(tmp_path / "channels" / str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             result = _get_history_dir(bot, ch)
         assert result is not None
-        assert result.startswith(str(tmp_path))
-        assert "/.history/dev_channel" in result
-        # No extra bots/<id> nesting — workspace root is already scoped
-        assert "/bots/test/" not in result
+        assert result == os.path.join(channel_root, ".history")
 
-    def test_two_orchestrators_different_dirs(self, tmp_path):
-        """Two orchestrators on the same workspace get separate .history dirs via distinct roots."""
+    def test_two_bots_same_channel_same_dir(self, tmp_path):
+        """Two bots on same shared workspace get the same history dir for the same channel."""
         from app.services.compaction import _get_history_dir
         bot_a = _make_bot(id="orch-a", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         bot_b = _make_bot(id="orch-b", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="same-channel")
-        root_a = str(tmp_path / "bots" / "orch-a")
-        root_b = str(tmp_path / "bots" / "orch-b")
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.side_effect = lambda bot_id, bot: root_a if bot_id == "orch-a" else root_b
+        # Both bots resolve to the same channel workspace root (shared workspace)
+        channel_root = str(tmp_path / "channels" / str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             dir_a = _get_history_dir(bot_a, ch)
             dir_b = _get_history_dir(bot_b, ch)
-        assert dir_a != dir_b
-        assert "/orch-a/" in dir_a
-        assert "/orch-b/" in dir_b
+        # Same channel = same history dir (channel-ID-based, not bot-scoped)
+        assert dir_a == dir_b
 
     def test_non_shared_bot_history_dir(self, tmp_path):
-        """Non-shared bot: .history goes under workspace root (no bots/ prefix)."""
+        """Non-shared bot with channel: .history inside channel workspace directory."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot()  # no shared_workspace_id
         ch = _make_channel(name="my-channel")
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = str(tmp_path)
+        channel_root = str(tmp_path / "channels" / str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             result = _get_history_dir(bot, ch)
         assert result is not None
-        assert result == str(tmp_path / ".history" / "my_channel")
+        assert result == os.path.join(channel_root, ".history")
 
-    def test_channel_name_slugified(self, tmp_path):
-        """Channel name with special chars gets slugified for the dir name."""
+    def test_channel_id_based_not_slug(self, tmp_path):
+        """History dir uses channel ID, not slugified channel name."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot()
         ch = _make_channel(name="My Channel — Special (Chars)!")
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = str(tmp_path)
+        channel_root = str(tmp_path / "channels" / str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             result = _get_history_dir(bot, ch)
         assert result is not None
-        assert "my_channel_special_chars" in result
+        # Should use channel ID, not slugified name
+        assert str(ch.id) in result
+        assert "my_channel" not in result
 
     def test_no_channel_falls_back(self, tmp_path):
         """No channel: .history at bot root (no channel subdir)."""
@@ -240,12 +236,21 @@ class TestGetHistoryDir:
         assert result == str(tmp_path / ".history")
 
     def test_workspace_failure_returns_none(self):
-        """If workspace_service throws, returns None and logs."""
+        """If workspace resolution throws, returns None and logs."""
         from app.services.compaction import _get_history_dir
         bot = _make_bot()
         with patch("app.services.workspace.workspace_service") as mock_ws:
             mock_ws.get_workspace_root.side_effect = RuntimeError("no workspace")
             result = _get_history_dir(bot, None)
+        assert result is None
+
+    def test_channel_workspace_failure_returns_none(self):
+        """If channel workspace resolution throws, returns None."""
+        from app.services.compaction import _get_history_dir
+        bot = _make_bot()
+        ch = _make_channel(name="test")
+        with patch("app.services.channel_workspace.get_channel_workspace_root", side_effect=RuntimeError("fail")):
+            result = _get_history_dir(bot, ch)
         assert result is None
 
 
@@ -347,6 +352,7 @@ class TestBackfillResume:
              patch("app.services.compaction._regenerate_executive_summary", new_callable=AsyncMock, return_value="exec summary"), \
              patch("app.services.compaction._get_history_dir", return_value=None), \
              patch("app.services.compaction._get_workspace_root", return_value=None), \
+             patch("app.services.compaction._get_channel_ws_root", return_value=None), \
              patch("app.agent.bots.get_bot", return_value=bot):
 
             events = []
@@ -449,44 +455,62 @@ class TestCountEligibleMessages:
 class TestWriteSectionFileRelpath:
     """Verify transcript_path stored in DB resolves correctly for reads."""
 
-    def test_member_bot_relpath(self, tmp_path):
-        """Member bot: transcript_path is relative to bot's ws_root."""
-        from app.services.compaction import _get_history_dir, _write_section_file, _get_workspace_root
+    def test_channel_relpath_new_format(self, tmp_path):
+        """With channel: transcript_path is channels/{id}/.history/001_title.md relative to channel ws root."""
+        from app.services.compaction import _get_history_dir, _write_section_file
         import os
         bot = _make_bot(shared_workspace_id="ws-123", shared_workspace_role="member")
         ch = _make_channel(name="test-ch")
-        ws_root = str(tmp_path)
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = ws_root
+        # Channel ws root is the parent of channels/ (e.g. shared workspace root)
+        channel_ws_root = str(tmp_path)
+        channel_root = os.path.join(channel_ws_root, "channels", str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             history_dir = _get_history_dir(bot, ch)
         rel = _write_section_file(
             history_dir, 1, "Title", "Summary", "transcript text",
-            None, None, 5, ["tag"], ws_root,
+            None, None, 5, ["tag"], channel_ws_root,
         )
-        # Verify the file exists at ws_root + rel
-        assert os.path.isfile(os.path.join(ws_root, rel))
-        assert rel.startswith(".history/")
+        # Verify the file exists at channel_ws_root + rel
+        assert os.path.isfile(os.path.join(channel_ws_root, rel))
+        assert rel.startswith("channels/")
+        assert "/.history/" in rel
 
     def test_orchestrator_relpath_resolves(self, tmp_path):
-        """Orchestrator: transcript_path relative to ws_root (now bots/{id}/) resolves correctly."""
+        """Orchestrator: transcript_path relative to channel ws root resolves correctly."""
         from app.services.compaction import _get_history_dir, _write_section_file
         import os
         bot = _make_bot(id="orch", shared_workspace_id="ws-123", shared_workspace_role="orchestrator")
         ch = _make_channel(name="test-ch")
-        ws_root = str(tmp_path)  # orchestrator's ws_root is already bots/{id}/
-        with patch("app.services.workspace.workspace_service") as mock_ws:
-            mock_ws.get_workspace_root.return_value = ws_root
+        channel_ws_root = str(tmp_path)
+        channel_root = os.path.join(channel_ws_root, "channels", str(ch.id))
+        with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=channel_root):
             history_dir = _get_history_dir(bot, ch)
         rel = _write_section_file(
             history_dir, 1, "Title", "Summary", "transcript text",
-            None, None, 5, ["tag"], ws_root,
+            None, None, 5, ["tag"], channel_ws_root,
         )
-        # Verify: os.path.join(ws_root, rel) reaches the actual file
-        full_path = os.path.join(ws_root, rel)
+        # Verify: os.path.join(channel_ws_root, rel) reaches the actual file
+        full_path = os.path.join(channel_ws_root, rel)
         assert os.path.isfile(full_path)
-        assert rel.startswith(".history/")
+        assert rel.startswith("channels/")
         # Simulate the read path
         with open(full_path) as f:
             content = f.read()
         assert "Title" in content
         assert "transcript text" in content
+
+    def test_no_channel_relpath_old_format(self, tmp_path):
+        """Without channel: transcript_path is .history/001_title.md (old format)."""
+        from app.services.compaction import _get_history_dir, _write_section_file
+        import os
+        bot = _make_bot()
+        ws_root = str(tmp_path)
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = ws_root
+            history_dir = _get_history_dir(bot, None)
+        rel = _write_section_file(
+            history_dir, 1, "Title", "Summary", "transcript text",
+            None, None, 5, ["tag"], ws_root,
+        )
+        assert os.path.isfile(os.path.join(ws_root, rel))
+        assert rel.startswith(".history/")

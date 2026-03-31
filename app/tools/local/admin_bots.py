@@ -81,6 +81,7 @@ async def manage_bot(
             "local_tools": bot.local_tools,
             "skills": [{"id": s.id, "mode": s.mode} for s in bot.skills],
             "workspace_enabled": bot.workspace.enabled,
+            "workspace_only": bot.workspace_only,
             "memory_scheme": bot.memory_scheme,
             "tool_retrieval": bot.tool_retrieval,
             "context_compaction": bot.context_compaction,
@@ -131,7 +132,7 @@ async def manage_bot(
                 "client_tools", "pinned_tools", "tool_retrieval",
                 "tool_similarity_threshold", "persona", "context_compaction",
                 "compaction_interval", "compaction_keep_turns", "compaction_model",
-                "audio_input", "memory_scheme", "history_mode",
+                "audio_input", "memory_scheme", "history_mode", "workspace_only",
             ]
             for field in simple_fields:
                 if field in config:

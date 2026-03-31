@@ -282,6 +282,36 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
     return results
 
 
+def discover_dashboard_modules() -> list[dict]:
+    """Discover dashboard modules from integration setup.py manifests.
+
+    Returns list of dicts:
+        {integration_id, module_id, label, icon, description, api_base}
+    """
+    results: list[dict] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            for mod in setup.get("dashboard_modules", []):
+                results.append({
+                    "integration_id": integration_id,
+                    "module_id": mod["id"],
+                    "label": mod.get("label", mod["id"]),
+                    "icon": mod.get("icon", "Zap"),
+                    "description": mod.get("description", ""),
+                    "api_base": f"/integrations/{integration_id}/mc/{mod['id']}",
+                })
+        except Exception:
+            logger.exception("Failed to load dashboard modules for integration %r", integration_id)
+
+    return results
+
+
 def discover_binding_metadata() -> dict[str, dict]:
     """Return binding metadata for all integrations that have it.
 

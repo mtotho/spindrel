@@ -113,6 +113,12 @@ class Channel(Base):
         nullable=True,
     )
     workspace_schema_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -777,6 +783,7 @@ class Bot(Base):
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    workspace_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

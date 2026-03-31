@@ -135,6 +135,22 @@ function DateSeparator({ label }: { label: string }) {
   );
 }
 
+function ErrorBanner({ error, onDismiss }: { error: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 8000);
+    return () => clearTimeout(timer);
+  }, [error, onDismiss]);
+
+  return (
+    <Pressable
+      onPress={onDismiss}
+      className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
+    >
+      <Text className="text-red-400 text-sm">{error}</Text>
+    </Pressable>
+  );
+}
+
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
@@ -233,11 +249,51 @@ export default function ChatScreen() {
     queryClient.invalidateQueries({ queryKey: ["session-messages"] });
   }, [channel, channelId]);
 
+  // Batch text/thinking deltas at animation-frame rate to avoid per-token rerenders
+  const pendingTextRef = useRef("");
+  const pendingThinkRef = useRef("");
+  const rafRef = useRef<number>(0);
+
+  const flushPending = useCallback(() => {
+    rafRef.current = 0;
+    if (!channelId) return;
+    if (pendingTextRef.current) {
+      handleSSEEvent(channelId, { event: "text_delta", data: { delta: pendingTextRef.current } });
+      pendingTextRef.current = "";
+    }
+    if (pendingThinkRef.current) {
+      handleSSEEvent(channelId, { event: "thinking", data: { delta: pendingThinkRef.current } });
+      pendingThinkRef.current = "";
+    }
+  }, [channelId, handleSSEEvent]);
+
   const chatStream = useChatStream({
     onEvent: (event) => {
-      if (channelId) handleSSEEvent(channelId, event);
+      if (!channelId) return;
+      // Batch text and thinking deltas — flush at ~60fps instead of per-token
+      if (event.event === "text_delta") {
+        pendingTextRef.current += (event.data as any).delta ?? "";
+        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        return;
+      }
+      if (event.event === "thinking") {
+        pendingThinkRef.current += (event.data as any).delta ?? "";
+        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        return;
+      }
+      // Flush pending text before processing other events (tool_start, response, etc.)
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
+      handleSSEEvent(channelId, event);
     },
     onError: (error) => {
+      // Flush any pending text
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
       // Finish streaming first so any partial content is preserved in messages
       if (channelId) finishStreaming(channelId);
       if (channelId) setError(channelId, error.message);
@@ -248,6 +304,11 @@ export default function ChatScreen() {
       }, 2000);
     },
     onComplete: () => {
+      // Flush any pending text
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
       if (channelId) finishStreaming(channelId);
       // Refetch messages to get real DB records (with attachments, full metadata, etc.)
       // persist_turn runs before the SSE connection closes, so data is ready.
@@ -534,14 +595,9 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* Error (tap to dismiss) */}
+      {/* Error (tap to dismiss, auto-dismisses after 8s) */}
       {chatState.error && (
-        <Pressable
-          onPress={() => channelId && setError(channelId, "")}
-          className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
-        >
-          <Text className="text-red-400 text-sm">{chatState.error}</Text>
-        </Pressable>
+        <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
       )}
 
       {/* Input */}
@@ -554,6 +610,7 @@ export default function ChatScreen() {
         onModelOverrideChange={setTurnModelOverride}
         defaultModel={channel?.model_override || bot?.model}
         currentBotId={channel?.bot_id}
+        channelId={channelId}
       />
     </SafeAreaView>
   );

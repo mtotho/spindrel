@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Square, Paperclip, X, Cpu } from "lucide-react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,6 +6,7 @@ import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import { useThemeTokens } from "../../theme/tokens";
+import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import type { CompletionItem } from "../../types/api";
 
 export interface PendingFile {
@@ -24,15 +25,63 @@ interface Props {
   defaultModel?: string;
   /** Current channel's bot ID — excluded from @-mention completions */
   currentBotId?: string;
+  /** Channel ID for persisting drafts across navigation */
+  channelId?: string;
 }
 
-export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId }: Props) {
+/** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
+function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
+  return draftFiles.map((df) => {
+    const byteString = atob(df.base64);
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+    const file = new File([bytes], df.name, { type: df.type });
+    const preview = df.type.startsWith("image/") ? `data:${df.type};base64,${df.base64}` : undefined;
+    return { file, base64: df.base64, preview };
+  });
+}
+
+export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
   const t = useThemeTokens();
-  const [text, setText] = useState("");
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+
+  // Persisted draft state (per-channel)
+  const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);
+  const setDraftText = useDraftsStore((s) => s.setDraftText);
+  const setDraftFiles = useDraftsStore((s) => s.setDraftFiles);
+  const clearDraft = useDraftsStore((s) => s.clearDraft);
+
+  // Fallback to local state when no channelId (shouldn't happen in practice)
+  const [localText, setLocalText] = useState("");
+  const [localFiles, setLocalFiles] = useState<PendingFile[]>([]);
+
+  const text = draft?.text ?? localText;
+  const setText = useCallback((t: string) => {
+    if (channelId) setDraftText(channelId, t);
+    else setLocalText(t);
+  }, [channelId, setDraftText]);
+
+  // Rebuild PendingFile objects from persisted draft files
+  const pendingFiles = useMemo(
+    () => draft?.files.length ? draftFilesToPending(draft.files) : localFiles,
+    [draft?.files, localFiles],
+  );
+  const setPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
+    // Resolve the new files array
+    const newFiles = typeof updater === "function" ? updater(pendingFiles) : updater;
+    if (channelId) {
+      setDraftFiles(channelId, newFiles.map((pf) => ({
+        name: pf.file.name,
+        type: pf.file.type,
+        size: pf.file.size,
+        base64: pf.base64,
+      })));
+    } else {
+      setLocalFiles(newFiles);
+    }
+  }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,12 +104,17 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
     ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
   }, []);
 
+  // Auto-resize textarea when draft text is restored on mount/channel switch
+  useEffect(() => {
+    if (text && Platform.OS === "web") requestAnimationFrame(autoResize);
+  }, [channelId]);
+
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
     onSend(trimmed, pendingFiles.length > 0 ? pendingFiles : undefined);
-    setText("");
-    setPendingFiles([]);
+    if (channelId) clearDraft(channelId);
+    else { setLocalText(""); setLocalFiles([]); }
     if (Platform.OS === "web") {
       const ta = textareaRef.current;
       if (ta) {
@@ -70,7 +124,7 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
     } else {
       inputRef.current?.focus();
     }
-  }, [text, pendingFiles, disabled, onSend]);
+  }, [text, pendingFiles, disabled, onSend, channelId, clearDraft]);
 
   // --- File handling ---
   const handleFileSelect = useCallback(async (files: FileList | null) => {
@@ -323,7 +377,7 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.pdf,.txt,.csv,.json,.md"
+            accept="image/*,.pdf,.txt,.csv,.json,.md,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.sh,.doc,.docx,.xlsx,.xls,.pptx"
             style={{ display: "none" }}
             onChange={(e) => {
               handleFileSelect(e.target.files);

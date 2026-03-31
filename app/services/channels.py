@@ -74,6 +74,17 @@ async def resolve_all_channels_by_client_id(
     return list(result.tuples().all())
 
 
+def _auto_set_workspace_id(channel: Channel) -> None:
+    """Set workspace_id on a newly created channel from the bot's shared workspace."""
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(channel.bot_id)
+        if bot.shared_workspace_id:
+            channel.workspace_id = uuid.UUID(bot.shared_workspace_id)
+    except Exception:
+        logger.debug("Could not auto-set workspace_id for channel bot_id=%s (bot not loaded yet?)", channel.bot_id)
+
+
 async def get_or_create_channel(
     db: AsyncSession,
     *,
@@ -147,6 +158,7 @@ async def get_or_create_channel(
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
+        _auto_set_workspace_id(ch)
         db.add(ch)
         await db.flush()
 
@@ -175,6 +187,7 @@ async def get_or_create_channel(
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+    _auto_set_workspace_id(ch)
     db.add(ch)
     await db.flush()
     return ch

@@ -113,6 +113,7 @@ class ChannelOut(BaseModel):
     heartbeat_enabled: bool = False
     heartbeat_in_quiet_hours: bool = False
     channel_workspace_enabled: Optional[bool] = None
+    workspace_id: Optional[str] = None
     resolved_workspace_id: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
@@ -375,6 +376,8 @@ class ChannelSettingsOut(BaseModel):
     carapaces_disabled: Optional[list[str]] = None
     # Resolved defaults for index segment fields (computed, not stored)
     index_segment_defaults: Optional[dict] = None
+    # Workspace scope
+    workspace_id: Optional[str] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
     tags: list[str] = []
@@ -444,6 +447,8 @@ class ChannelSettingsUpdate(BaseModel):
     # Carapace overrides
     carapaces_extra: Optional[list[str]] = None
     carapaces_disabled: Optional[list[str]] = None
+    # Workspace scope
+    workspace_id: Optional[str] = None
     tags: Optional[list[str]] = None
 
 
@@ -581,7 +586,9 @@ async def admin_channel_settings(
         raise HTTPException(status_code=404, detail="Channel not found")
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    ws_id = str(channel.workspace_id) if channel.workspace_id else None
+    out.workspace_id = ws_id
+    out.resolved_workspace_id = ws_id or _resolve_workspace_id(channel.bot_id)
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -611,6 +618,11 @@ async def admin_channel_settings_update(
         meta = dict(channel.metadata_ or {})
         meta["tags"] = tags_value or []
         channel.metadata_ = meta
+
+    # Handle workspace_id — convert string to UUID or clear
+    if "workspace_id" in updates:
+        ws_val = updates.pop("workspace_id")
+        channel.workspace_id = uuid.UUID(ws_val) if ws_val else None
 
     for field, value in updates.items():
         setattr(channel, field, value)
@@ -645,7 +657,9 @@ async def admin_channel_settings_update(
     await db.refresh(channel)
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    ws_id = str(channel.workspace_id) if channel.workspace_id else None
+    out.workspace_id = ws_id
+    out.resolved_workspace_id = ws_id or _resolve_workspace_id(channel.bot_id)
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -1399,17 +1413,22 @@ async def admin_channel_sections(
 
     # Resolve workspace root for file existence checks
     ws_root = None
+    channel_ws_root = None
     channel = await db.get(Channel, channel_id)
     if channel:
         try:
             bot = get_bot(channel.bot_id)
             ws_root = _get_workspace_root(bot)
+            from app.services.channel_workspace import _get_ws_root
+            channel_ws_root = _get_ws_root(bot)
         except Exception:
             pass
 
     def _file_exists(s) -> bool | None:
         if not s.transcript_path:
             return None
+        if s.transcript_path.startswith("channels/") and channel_ws_root:
+            return os.path.isfile(os.path.join(channel_ws_root, s.transcript_path))
         if not ws_root:
             return None
         return os.path.isfile(os.path.join(ws_root, s.transcript_path))
@@ -1817,6 +1836,7 @@ async def _resolve_display_names(channels: list) -> dict[uuid.UUID, str]:
 async def admin_channels_enriched(
     integration: Optional[str] = Query(None),
     bot_id: Optional[str] = Query(None),
+    workspace_id: Optional[str] = Query(None, description="Filter by workspace_id (use 'none' for unassigned)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -1829,6 +1849,14 @@ async def admin_channels_enriched(
         stmt_base = stmt_base.where(Channel.integration == integration)
     if bot_id:
         stmt_base = stmt_base.where(Channel.bot_id == bot_id)
+    if workspace_id is not None:
+        from sqlalchemy import or_
+        # Always include orchestrator channel regardless of workspace filter
+        orchestrator_clause = Channel.client_id == "orchestrator:home"
+        if workspace_id == "none":
+            stmt_base = stmt_base.where(or_(Channel.workspace_id.is_(None), orchestrator_clause))
+        else:
+            stmt_base = stmt_base.where(or_(Channel.workspace_id == workspace_id, orchestrator_clause))
 
     total = (await db.execute(
         select(func.count()).select_from(stmt_base.subquery())
@@ -1858,7 +1886,9 @@ async def admin_channels_enriched(
     for ch in channels:
         out = ChannelOut.model_validate(ch)
         out.display_name = display_names.get(ch.id)
-        out.resolved_workspace_id = _resolve_workspace_id(ch.bot_id)
+        ws_id = str(ch.workspace_id) if ch.workspace_id else None
+        out.workspace_id = ws_id
+        out.resolved_workspace_id = ws_id or _resolve_workspace_id(ch.bot_id)
         out.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:

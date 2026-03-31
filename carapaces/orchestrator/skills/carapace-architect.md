@@ -59,3 +59,12 @@ manage_carapace(
 - **Bot config**: Add `carapaces: [qa]` to bot YAML
 - **Delegation**: `execution_config.carapaces: ["qa"]`
 - **Channel override**: `carapaces_extra: ["qa"]` on channel
+
+## Multi-Workspace Considerations
+
+When managing multiple workspaces, carapaces help scope expertise:
+
+- **Workspace-scoped bots**: Mark bots with `workspace_only: true` when they serve a single workspace. Their channels won't appear in the global view — only when that workspace is selected.
+- **Cross-workspace carapaces**: Carapaces themselves are global — any channel can use `carapaces_extra` to apply them. Design carapaces as reusable building blocks that work across workspaces.
+- **Per-workspace specialization**: Create workspace-specific carapaces for domain expertise that only applies to one workspace's channels. Apply them via `carapaces_extra` on those channels.
+- **Channel workspace_id**: When creating channels for workspace bots, the `workspace_id` is auto-set. Use `manage_channel(action="configure", config={"workspace_id": "..."})` to reassign channels between workspaces.

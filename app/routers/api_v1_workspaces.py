@@ -662,6 +662,14 @@ async def add_bot_to_workspace(
     except Exception as exc:
         raise HTTPException(400, f"Failed to add bot: {exc}")
     shared_workspace_service.ensure_bot_dir(str(ws_id), body.bot_id)
+    # Cascade: set workspace_id on all existing channels for this bot
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(Channel)
+        .where(Channel.bot_id == body.bot_id, Channel.workspace_id.is_(None))
+        .values(workspace_id=ws_id)
+    )
+    await db.commit()
     await reload_bots()
     await db.refresh(ws)
     sw_bots = (await db.execute(
@@ -777,6 +785,13 @@ async def remove_bot_from_workspace(
     )
     if result.rowcount == 0:
         raise HTTPException(404, "Bot not in workspace")
+    # Cascade: clear workspace_id on channels that pointed to this workspace
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(Channel)
+        .where(Channel.bot_id == bot_id, Channel.workspace_id == ws_id)
+        .values(workspace_id=None)
+    )
     await db.commit()
     await reload_bots()
 

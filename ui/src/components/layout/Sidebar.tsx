@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
@@ -9,6 +10,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Settings,
   Users,
   Container,
@@ -34,7 +36,11 @@ import {
   Columns,
   Brain,
   Layers,
+  Check,
+  HelpCircle,
+  Zap,
 } from "lucide-react";
+import { useMCModules } from "../../api/hooks/useMissionControl";
 import { useUIStore } from "../../stores/ui";
 import { useAuthStore } from "../../stores/auth";
 import { useThemeStore } from "../../stores/theme";
@@ -105,6 +111,7 @@ const MC_NAV_ITEMS: NavItem[] = [
   { label: "Kanban", href: "/mission-control/kanban", icon: Columns },
   { label: "Journal", href: "/mission-control/journal", icon: BookOpen },
   { label: "Memory", href: "/mission-control/memory", icon: Brain },
+  { label: "Setup", href: "/mission-control/setup", icon: HelpCircle },
   { label: "Settings", href: "/mission-control/settings", icon: Settings },
 ];
 
@@ -252,20 +259,91 @@ function botDotColor(botId: string): string {
   return BOT_DOT_COLORS[Math.abs(hash) % BOT_DOT_COLORS.length];
 }
 
+/** MC nav section with dynamic integration modules */
+function MCNavSection({ pathname, mobile }: { pathname: string; mobile?: boolean }) {
+  const { data: modulesData } = useMCModules();
+  const modules = modulesData?.modules || [];
+
+  return (
+    <View className="px-2 py-1.5">
+      <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
+        MISSION CONTROL
+      </Text>
+      {MC_NAV_ITEMS.map((item) => (
+        <NavLink
+          key={item.href}
+          item={item}
+          active={pathname === item.href || (item.href !== "/mission-control" && pathname.startsWith(item.href))}
+          mobile={mobile}
+        />
+      ))}
+      {modules.map((mod) => (
+        <NavLink
+          key={mod.module_id}
+          item={{
+            label: mod.label,
+            href: `/mission-control/module/${mod.module_id}`,
+            icon: Zap,
+          }}
+          active={pathname === `/mission-control/module/${mod.module_id}`}
+          mobile={mobile}
+        />
+      ))}
+    </View>
+  );
+}
+
 export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
+  const setActiveWorkspace = useUIStore((s) => s.setActiveWorkspace);
   const user = useAuthStore((s) => s.user);
-  const { data: channels, isLoading: channelsLoading } = useChannels();
+  const { data: channels, isLoading: channelsLoading } = useChannels(
+    activeWorkspaceId ? { workspaceId: activeWorkspaceId } : undefined,
+  );
   const { data: bots } = useBots();
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
   const { data: upcomingItems, isLoading: upcomingLoading } = useUpcomingActivity(3);
   const t = useThemeTokens();
+  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const wsDropdownRef = useRef<View>(null);
+
+  // Close workspace dropdown on click outside
+  useEffect(() => {
+    if (!wsDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      const node = wsDropdownRef.current as unknown as HTMLElement | null;
+      if (node && !node.contains(e.target as Node)) {
+        setWsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [wsDropdownOpen]);
+
+  // Auto-clear stale workspace filter if workspace no longer exists
+  useEffect(() => {
+    if (activeWorkspaceId && workspaces && !workspacesLoading) {
+      const exists = workspaces.some((w) => w.id === activeWorkspaceId);
+      if (!exists) {
+        setActiveWorkspace(null);
+      }
+    }
+  }, [activeWorkspaceId, workspaces, workspacesLoading, setActiveWorkspace]);
 
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
   const isUnread = useChannelReadStore((s) => s.isUnread);
+
+  // Orchestrator channel — always included by server regardless of workspace filter
+  const orchestratorChannel = channels?.find((ch) => ch.client_id === "orchestrator:home");
+  // Regular channels exclude orchestrator
+  const regularChannels = channels?.filter((ch) => ch.client_id !== "orchestrator:home") ?? [];
+
+  // Active workspace name for display
+  const activeWorkspaceName = workspaces?.find((w) => w.id === activeWorkspaceId)?.name;
 
   // -----------------------------------------------------------------------
   // Collapsed: icon rail (56px)
@@ -290,12 +368,10 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           </Pressable>
 
           {/* Home (orchestrator) icon */}
-          {(() => {
-            const orch = channels?.find((ch) => ch.client_id === "orchestrator:home");
-            if (!orch) return null;
-            const orchActive = pathname.includes(orch.id);
+          {orchestratorChannel && (() => {
+            const orchActive = pathname.includes(orchestratorChannel.id);
             return (
-              <Link href={`/channels/${orch.id}` as any} asChild>
+              <Link href={`/channels/${orchestratorChannel.id}` as any} asChild>
                 <Pressable
                   onPress={closeMobile}
                   className={`items-center justify-center rounded-lg ${
@@ -442,51 +518,132 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           </Pressable>
         </View>
 
-        {/* Home (orchestrator) */}
-        {!channelsLoading && channels?.some((ch) => ch.client_id === "orchestrator:home") && (
-          <View className="px-2 pt-1.5 pb-0.5">
-            {channels.filter((ch) => ch.client_id === "orchestrator:home").map((channel) => {
-              const isActive = pathname.includes(channel.id);
-              const unread = !isActive && isUnread(channel.id, channel.updated_at);
-              return (
-                <Link key={channel.id} href={`/channels/${channel.id}` as any} asChild>
-                  <Pressable
-                    onPress={closeMobile}
-                    className={`flex-row items-center gap-2.5 rounded-lg px-3 ${channelPy} ${
-                      isActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+        {/* Home (orchestrator) — always visible */}
+        {!channelsLoading && orchestratorChannel && (() => {
+          const channel = orchestratorChannel;
+          const isActive = pathname.includes(channel.id);
+          const unread = !isActive && isUnread(channel.id, channel.updated_at);
+          return (
+            <View className="px-2 pt-1.5 pb-0.5">
+              <Link key={channel.id} href={`/channels/${channel.id}` as any} asChild>
+                <Pressable
+                  onPress={closeMobile}
+                  className={`flex-row items-center gap-2.5 rounded-lg px-3 ${channelPy} ${
+                    isActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
+                  }`}
+                  style={!isActive ? { backgroundColor: t.accent + "08" } : undefined}
+                >
+                  <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.text} />
+                  <Text
+                    style={mobile ? { fontSize: 15 } : undefined}
+                    className={`flex-1 ${mobile ? "" : "text-sm"} ${
+                      isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text font-medium"
                     }`}
-                    style={!isActive ? { backgroundColor: t.accent + "08" } : undefined}
+                    numberOfLines={1}
                   >
-                    <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.text} />
-                    <Text
-                      style={mobile ? { fontSize: 15 } : undefined}
-                      className={`flex-1 ${mobile ? "" : "text-sm"} ${
-                        isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text font-medium"
-                      }`}
-                      numberOfLines={1}
-                    >
-                      Home
-                    </Text>
-                    {unread && (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: t.accent,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                  </Pressable>
-                </Link>
-              );
-            })}
-          </View>
-        )}
+                    Home
+                  </Text>
+                  {unread && (
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: t.accent,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                </Pressable>
+              </Link>
+            </View>
+          );
+        })()}
 
-        {/* Channels */}
+        {/* Workspace switcher + Channels */}
         <View className="px-2 py-1.5">
+          {/* Workspace switcher dropdown */}
+          {workspaces && workspaces.length > 0 && (
+            <View ref={wsDropdownRef} className="px-1 mb-1.5" style={{ position: "relative", zIndex: 50 }}>
+              <Pressable
+                onPress={() => setWsDropdownOpen(!wsDropdownOpen)}
+                className="flex-row items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+              >
+                <Container size={14} color={activeWorkspaceId ? t.accent : t.textDim} />
+                <Text
+                  className={`text-xs flex-1 ${activeWorkspaceId ? "text-accent font-medium" : "text-text-dim font-semibold"}`}
+                  numberOfLines={1}
+                  style={{ letterSpacing: activeWorkspaceId ? 0 : 0.5 }}
+                >
+                  {activeWorkspaceId ? activeWorkspaceName || "Workspace" : "ALL WORKSPACES"}
+                </Text>
+                <ChevronDown size={12} color={t.textDim} style={wsDropdownOpen ? { transform: "rotate(180deg)" } as any : undefined} />
+              </Pressable>
+
+              {wsDropdownOpen && (
+                <View
+                  className="bg-surface-raised border border-surface-border rounded-lg"
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    marginTop: 2,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 8,
+                    elevation: 8,
+                    zIndex: 100,
+                  }}
+                >
+                  {/* All Workspaces */}
+                  <Pressable
+                    onPress={() => { setActiveWorkspace(null); setWsDropdownOpen(false); }}
+                    className="flex-row items-center gap-2 px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay rounded-t-lg"
+                  >
+                    <Text className={`text-xs flex-1 ${!activeWorkspaceId ? "text-accent font-medium" : "text-text-muted"}`}>
+                      All Workspaces
+                    </Text>
+                    {!activeWorkspaceId && <Check size={12} color={t.accent} />}
+                  </Pressable>
+
+                  {/* Each workspace */}
+                  {workspaces.map((ws) => (
+                    <Pressable
+                      key={ws.id}
+                      onPress={() => { setActiveWorkspace(ws.id); setWsDropdownOpen(false); }}
+                      className="flex-row items-center gap-2 px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
+                    >
+                      <View style={{
+                        width: 6, height: 6, borderRadius: 3,
+                        backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
+                      }} />
+                      <Text
+                        className={`text-xs flex-1 ${activeWorkspaceId === ws.id ? "text-accent font-medium" : "text-text-muted"}`}
+                        numberOfLines={1}
+                      >
+                        {ws.name}
+                      </Text>
+                      {activeWorkspaceId === ws.id && <Check size={12} color={t.accent} />}
+                    </Pressable>
+                  ))}
+
+                  {/* Manage link */}
+                  <Link href={"/admin/workspaces" as any} asChild>
+                    <Pressable
+                      onPress={() => { closeMobile(); setWsDropdownOpen(false); }}
+                      className="flex-row items-center gap-2 px-3 py-2 border-t border-surface-border hover:bg-surface-overlay active:bg-surface-overlay rounded-b-lg"
+                    >
+                      <Settings size={11} color={t.textDim} />
+                      <Text className="text-xs text-text-dim">Manage Workspaces</Text>
+                    </Pressable>
+                  </Link>
+                </View>
+              )}
+            </View>
+          )}
+
           <View className="flex-row items-center justify-between px-3 mb-1">
             <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
               CHANNELS
@@ -507,7 +664,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
           ) : (
             <>
               {/* Regular channels */}
-              {channels?.filter((ch) => ch.client_id !== "orchestrator:home").map((channel) => {
+              {regularChannels.map((channel) => {
                 const bot = botMap.get(channel.bot_id);
                 const isActive = pathname.includes(channel.id);
                 const unread = !isActive && isUnread(channel.id, channel.updated_at);
@@ -585,72 +742,10 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                   </Link>
                 );
               })}
+              {regularChannels.length === 0 && activeWorkspaceId && (
+                <Text className="text-text-dim text-xs px-3 py-2">No channels in this workspace</Text>
+              )}
             </>
-          )}
-        </View>
-
-        {/* Workspaces */}
-        <View className="px-2 py-1.5">
-          <View className="flex-row items-center justify-between px-3 mb-1">
-            <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
-              WORKSPACES
-            </Text>
-            <Link href={"/admin/workspaces/new" as any} asChild>
-              <Pressable
-                onPress={closeMobile}
-                className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
-                style={{ width: 28, height: 28 }}
-              >
-                <Plus size={14} color={t.textDim} />
-              </Pressable>
-            </Link>
-          </View>
-
-          {workspacesLoading ? (
-            <ChannelSkeletons />
-          ) : (
-            workspaces?.map((ws) => {
-              const isActive = pathname.includes(ws.id);
-              const statusColor =
-                ws.status === "running" ? "#22c55e" :
-                ws.status === "creating" ? t.accent : t.textDim;
-              return (
-                <Link
-                  key={ws.id}
-                  href={`/admin/workspaces/${ws.id}/files` as any}
-                  asChild
-                >
-                  <Pressable
-                    onPress={closeMobile}
-                    className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
-                      isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                    }`}
-                  >
-                    <Container
-                      size={mobile ? 20 : 16}
-                      color={isActive ? t.accent : t.textDim}
-                    />
-                    <View className="flex-1 min-w-0">
-                      <Text
-                        style={mobile ? { fontSize: 15 } : undefined}
-                        className={`${mobile ? "" : "text-sm"} ${
-                          isActive ? "text-accent font-medium" : "text-text-muted"
-                        }`}
-                        numberOfLines={1}
-                      >
-                        {ws.name}
-                      </Text>
-                      <View className="flex-row items-center gap-1">
-                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: statusColor }} />
-                        <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
-                          {ws.status}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                </Link>
-              );
-            })
           )}
         </View>
 
@@ -726,19 +821,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         </View>
 
         {/* Mission Control */}
-        <View className="px-2 py-1.5">
-          <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
-            MISSION CONTROL
-          </Text>
-          {MC_NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              active={pathname === item.href || (item.href !== "/mission-control" && pathname.startsWith(item.href))}
-              mobile={mobile}
-            />
-          ))}
-        </View>
+        <MCNavSection pathname={pathname} mobile={mobile} />
 
         {/* Admin sections */}
         {ADMIN_SECTIONS.map((section) => (
