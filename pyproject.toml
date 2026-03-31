@@ -26,6 +26,7 @@ dependencies = [
     "pathspec",
     "pyjwt",
     "bcrypt",
+    "cryptography",
     "tree-sitter>=0.23",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
@@ -44,6 +45,9 @@ dev = [
 setup = [
     "questionary",
     "pyyaml",
+]
+docs = [
+    "mkdocs-material",
 ]
 
 [tool.setuptools.packages.find]

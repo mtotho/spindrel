@@ -117,7 +117,16 @@ async def load_providers() -> None:
         ).scalars().all()
         _no_sys_msg_models = set(flagged)
 
+    from app.services.encryption import decrypt
+
     for row in rows:
+        # Decrypt secrets so in-memory registry holds usable values
+        if row.api_key:
+            row.api_key = decrypt(row.api_key)
+        if row.config and row.config.get("management_key"):
+            config = dict(row.config)
+            config["management_key"] = decrypt(config["management_key"])
+            row.config = config
         _registry[row.id] = row
         logger.info("Loaded provider: %s (%s)", row.id, row.provider_type)
 

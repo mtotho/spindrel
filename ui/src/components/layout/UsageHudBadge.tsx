@@ -57,6 +57,10 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<any>(null);
 
+  // This component uses raw HTML elements (div, button, span) for the popover —
+  // only render on web.
+  if (Platform.OS !== "web") return null;
+
   // Close popover on outside click (web only)
   useEffect(() => {
     if (!open || Platform.OS !== "web") return;
@@ -94,7 +98,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
           accessibilityLabel="Usage forecast"
         >
           <Text
-            style={{ fontSize: 10, fontWeight: "700", color, fontVariant: ["tabular-nums"] }}
+            style={{ fontSize: 10, fontWeight: "700", color, fontVariant: ["tabular-nums"] as any }}
             numberOfLines={1}
           >
             {fmt(data.daily_spend)}
@@ -115,7 +119,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
         <DollarSign size={14} color={color} />
         <View style={{ flex: 1, gap: 2 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={{ fontSize: 12, fontWeight: "600", color, fontVariant: ["tabular-nums"] }}>
+            <Text style={{ fontSize: 12, fontWeight: "600", color, fontVariant: ["tabular-nums"] as any }}>
               {fmt(data.daily_spend)}/day
             </Text>
             {worstLimit && (
@@ -259,7 +263,7 @@ function Popover({
               <span style={{ color: t.textDim, fontSize: 10 }}> ({c.count})</span>
             )}
           </span>
-          <span style={{ fontSize: 11, color: t.text, fontVariant: ["tabular-nums"] }}>
+          <span style={{ fontSize: 11, color: t.text, fontVariant: ["tabular-nums"] as any }}>
             {fmt(c.daily_cost)}/d
           </span>
         </div>
@@ -293,7 +297,7 @@ function Row({
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
       <span style={{ color: t.textDim, fontSize: 11 }}>{label}</span>
-      <span style={{ fontSize: 11, fontWeight: 600, color: valueColor, fontVariant: ["tabular-nums"] }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: valueColor, fontVariant: ["tabular-nums"] as any }}>
         {value}
       </span>
     </div>

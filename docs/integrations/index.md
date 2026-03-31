@@ -4,7 +4,7 @@ This guide explains how to create a new integration — a self-contained module 
 connects an external service (GitHub, Gmail, webhooks, etc.) to the agent server without
 touching core code.
 
-> **Architecture decisions and design philosophy** → see [DESIGN.md](DESIGN.md)
+> **Architecture decisions and design philosophy** → see [Design Philosophy](design.md)
 
 ---
 

@@ -22,7 +22,7 @@ integrations/example/
 | `dispatcher.py` | Deliver task results to your service — calls `register("example", ...)` |
 | `process.py` | Declare a background process auto-started by `dev-server.sh` |
 
-See [README.md](README.md) for full documentation on each file.
+See [Creating an Integration](index.md) for full documentation on each file.
 
 ## Removing this example
 
@@ -73,7 +73,7 @@ async def github_search(query: str) -> str:
 
 ### 4. Add config, router, skills as needed
 
-Follow the same structure as in-repo integrations. See [README.md](README.md).
+Follow the same structure as in-repo integrations. See [Creating an Integration](index.md).
 
 ### 5. Wire it up
 

@@ -57,7 +57,16 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       const next = current.includes(carapaceId)
         ? current.filter((c) => c !== carapaceId)
         : [...current, carapaceId];
-      save({ carapaces_extra: next.length > 0 ? next : null } as any);
+      // Remove from disabled if we're adding to extra (mutual exclusion)
+      const updates: any = { carapaces_extra: next.length > 0 ? next : null };
+      if (!current.includes(carapaceId)) {
+        const disabled = settings?.carapaces_disabled ?? [];
+        if (disabled.includes(carapaceId)) {
+          const nextDisabled = disabled.filter((c) => c !== carapaceId);
+          updates.carapaces_disabled = nextDisabled.length > 0 ? nextDisabled : null;
+        }
+      }
+      save(updates);
     },
     [settings, save],
   );
@@ -68,7 +77,16 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       const next = current.includes(carapaceId)
         ? current.filter((c) => c !== carapaceId)
         : [...current, carapaceId];
-      save({ carapaces_disabled: next.length > 0 ? next : null } as any);
+      // Remove from extra if we're adding to disabled (mutual exclusion)
+      const updates: any = { carapaces_disabled: next.length > 0 ? next : null };
+      if (!current.includes(carapaceId)) {
+        const extra = settings?.carapaces_extra ?? [];
+        if (extra.includes(carapaceId)) {
+          const nextExtra = extra.filter((c) => c !== carapaceId);
+          updates.carapaces_extra = nextExtra.length > 0 ? nextExtra : null;
+        }
+      }
+      save(updates);
     },
     [settings, save],
   );

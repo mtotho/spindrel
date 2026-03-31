@@ -206,6 +206,44 @@ class TestMCKanban:
 
         assert resp.status_code == 404
 
+    async def test_kanban_move_wrong_from_column(self, client, db_session):
+        """Moving a card with wrong from_column returns 409."""
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="move-conflict",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        tasks_content = (
+            "# Tasks\n\n"
+            "## Backlog\n\n"
+            "### Card\n"
+            "- **id**: mc-abc123\n\n"
+            "## In Progress\n\n"
+            "## Done\n\n"
+        )
+
+        with patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content):
+            resp = await client.post(
+                "/api/v1/mission-control/kanban/move",
+                json={
+                    "card_id": "mc-abc123",
+                    "from_column": "In Progress",  # card is actually in Backlog
+                    "to_column": "Done",
+                    "channel_id": str(ch.id),
+                },
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 409
+
 
 class TestMCJournal:
     async def test_journal_empty(self, client, db_session):

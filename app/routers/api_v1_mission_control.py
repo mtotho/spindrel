@@ -209,6 +209,16 @@ async def overview(
     for ch in channels:
         bot_channel_counts[ch.bot_id] = bot_channel_counts.get(ch.bot_id, 0) + 1
 
+    # Batch-load template names to avoid N+1
+    _template_ids = {ch.workspace_schema_template_id for ch in channels if ch.workspace_schema_template_id}
+    _template_names: dict[str, str] = {}
+    if _template_ids:
+        from app.db.models import PromptTemplate
+        _tpl_rows = (await db.execute(
+            select(PromptTemplate).where(PromptTemplate.id.in_(_template_ids))
+        )).scalars().all()
+        _template_names = {str(t.id): t.name for t in _tpl_rows}
+
     # Task counts per channel
     total_tasks = 0
     channel_overviews = []
@@ -218,13 +228,7 @@ async def overview(
         total_tasks += task_count
         bot = bot_map.get(ch.bot_id)
 
-        # Resolve template name
-        template_name = None
-        if ch.workspace_schema_template_id:
-            from app.db.models import PromptTemplate
-            tpl = await db.get(PromptTemplate, ch.workspace_schema_template_id)
-            if tpl:
-                template_name = tpl.name
+        template_name = _template_names.get(str(ch.workspace_schema_template_id)) if ch.workspace_schema_template_id else None
 
         channel_overviews.append(ChannelOverview(
             id=str(ch.id),
@@ -324,11 +328,16 @@ async def kanban_move(
 
     columns = parse_tasks_md(content)
 
-    # Find and remove card from source column
+    # Find and remove card from source column (verify from_column if provided)
     found_card = None
     for col in columns:
         for i, card in enumerate(col["cards"]):
             if card["meta"].get("id") == body.card_id:
+                if col["name"].lower() != body.from_column.lower():
+                    raise HTTPException(
+                        409,
+                        f"Card {body.card_id} is in '{col['name']}', not '{body.from_column}'",
+                    )
                 found_card = col["cards"].pop(i)
                 break
         if found_card:

@@ -82,5 +82,8 @@ data/
 carapaces/baking/
 carapaces/gardening/
 
+# MkDocs build output
+site/
+
 # Personal migration guide
 MIKE.md

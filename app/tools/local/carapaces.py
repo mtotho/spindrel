@@ -75,14 +75,14 @@ async def manage_carapace(
     action: str,
     id: str = "",
     name: str = "",
-    description: str = "",
-    skills: str = "",
-    local_tools: str = "",
-    pinned_tools: str = "",
-    mcp_tools: str = "",
-    includes: str = "",
-    system_prompt_fragment: str = "",
-    tags: str = "",
+    description: str | None = None,
+    skills: str | None = None,
+    local_tools: str | None = None,
+    pinned_tools: str | None = None,
+    mcp_tools: str | None = None,
+    includes: str | None = None,
+    system_prompt_fragment: str | None = None,
+    tags: str | None = None,
 ) -> str:
     from app.db.engine import async_session
     from app.db.models import Carapace as CarapaceRow
@@ -142,13 +142,13 @@ async def manage_carapace(
                 id=cid,
                 name=name.strip(),
                 description=description or None,
-                skills=_parse_skills(skills),
-                local_tools=_csv(local_tools),
-                mcp_tools=_csv(mcp_tools),
-                pinned_tools=_csv(pinned_tools),
+                skills=_parse_skills(skills or ""),
+                local_tools=_csv(local_tools or ""),
+                mcp_tools=_csv(mcp_tools or ""),
+                pinned_tools=_csv(pinned_tools or ""),
                 system_prompt_fragment=system_prompt_fragment or None,
-                includes=_csv(includes),
-                tags=_csv(tags),
+                includes=_csv(includes or ""),
+                tags=_csv(tags or ""),
                 source_type="tool",
                 created_at=now,
                 updated_at=now,
@@ -171,7 +171,7 @@ async def manage_carapace(
             if row.source_type in ("file", "integration"):
                 return json.dumps({"error": "Cannot edit a file-managed carapace."})
 
-            if name is not None and name != "":
+            if name:
                 row.name = name.strip()
             if description is not None:
                 row.description = description or None
