@@ -185,6 +185,7 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
     bindings table (used when integration was bound via the UI).
     """
     if channel.integration and channel.dispatch_config:
+        logger.debug("Mirror target from channel fields: %s", channel.integration)
         return channel.integration, channel.dispatch_config
 
     # Fallback: check ChannelIntegration bindings
@@ -205,10 +206,15 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
         return None, None
 
     if not binding:
+        logger.debug("No ChannelIntegration binding for channel %s", channel.id)
         return None, None
 
     integration = binding.integration_type
     dispatch_config = binding.dispatch_config
+    logger.info(
+        "Mirror: found binding type=%s client_id=%s has_dispatch_config=%s",
+        integration, binding.client_id, dispatch_config is not None,
+    )
 
     # If binding has no dispatch_config, try to construct one from client_id
     if not dispatch_config and binding.client_id:
@@ -217,6 +223,7 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
         meta = get_integration_meta(integration)
         if meta and meta.resolve_dispatch_config:
             dispatch_config = meta.resolve_dispatch_config(binding.client_id)
+            logger.info("Mirror: resolved dispatch_config via hook: %s", dispatch_config is not None)
         else:
             # Legacy fallback: Slack-style token lookup
             prefix = f"{integration}:"
@@ -240,7 +247,9 @@ async def _mirror_to_integration(
     """Fire-and-forget mirror to channel's integration dispatcher."""
     integration, dispatch_config = await _resolve_mirror_target(channel)
     if not integration or not dispatch_config:
+        logger.debug("Mirror skipped: no integration=%s or dispatch_config=%s", integration, dispatch_config is not None)
         return
+    logger.info("Mirroring %s message to %s (is_user=%s)", "user" if is_user_message else "bot", integration, is_user_message)
     from app.agent import dispatchers
     try:
         # For user messages with authenticated user: use their display name + icon
