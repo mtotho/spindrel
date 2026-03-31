@@ -16,7 +16,7 @@ from app.agent.tools import (
 from app.config import settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
-from app.tools.mcp import load_mcp_config
+from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +208,7 @@ async def lifespan(app: FastAPI):
             from app.services.server_config import load_server_config as _reload_sc
             await _reload_sc()
             await load_integration_settings()
+            await load_mcp_servers()
 
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
@@ -218,8 +219,10 @@ async def lifespan(app: FastAPI):
     await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
-    logger.info("Loading MCP server config...")
-    load_mcp_config()
+    logger.info("Seeding MCP servers from YAML (if empty)...")
+    await seed_mcp_from_yaml()
+    logger.info("Loading MCP servers from DB...")
+    await load_mcp_servers()
     extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]
     logger.info("Discovering extra tool directories...")
     discover_and_load_tools(extra_tool_dirs)
