@@ -16,7 +16,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from integrations.ingestion.envelope import RawMessage
+from integrations.ingestion.envelope import ExternalMessage, RawMessage
 from integrations.ingestion.feed import ContentFeed, FeedItem
 from integrations.ingestion.pipeline import IngestionPipeline
 from integrations.ingestion.store import IngestionStore
@@ -37,10 +37,21 @@ def _decode_header(raw: str | None) -> str:
     decoded: list[str] = []
     for data, charset in parts:
         if isinstance(data, bytes):
-            decoded.append(data.decode(charset or "utf-8", errors="replace"))
+            try:
+                decoded.append(data.decode(charset or "utf-8", errors="replace"))
+            except (LookupError, UnicodeDecodeError):
+                decoded.append(data.decode("utf-8", errors="replace"))
         else:
             decoded.append(data)
     return " ".join(decoded)
+
+
+def _safe_decode(data: bytes, charset: str | None) -> str:
+    """Decode bytes with charset, falling back to utf-8 on unknown codec."""
+    try:
+        return data.decode(charset or "utf-8", errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return data.decode("utf-8", errors="replace")
 
 
 def _extract_body(msg: email.message.Message) -> str:
@@ -56,13 +67,11 @@ def _extract_body(msg: email.message.Message) -> str:
             if ct == "text/plain":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    plain_parts.append(payload.decode(charset, errors="replace"))
+                    plain_parts.append(_safe_decode(payload, part.get_content_charset()))
             elif ct == "text/html":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    html_parts.append(payload.decode(charset, errors="replace"))
+                    html_parts.append(_safe_decode(payload, part.get_content_charset()))
         if plain_parts:
             return "\n\n".join(plain_parts)
         if html_parts:
@@ -71,8 +80,7 @@ def _extract_body(msg: email.message.Message) -> str:
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            charset = msg.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace")
+            return _safe_decode(payload, msg.get_content_charset())
         return ""
 
 
@@ -96,24 +104,35 @@ def _extract_attachments(msg: email.message.Message) -> list[dict]:
 
 
 def _safe_filename(text: str, max_len: int = 60) -> str:
-    """Convert text to a filesystem-safe slug."""
+    """Convert text to a filesystem-safe slug.
+
+    Falls back to a short hash for non-Latin text that produces no ASCII chars.
+    """
+    import hashlib
+
     # Normalize unicode
-    text = unicodedata.normalize("NFKD", text)
+    normalized = unicodedata.normalize("NFKD", text)
     # Lowercase and replace non-alphanumeric with hyphens
-    text = re.sub(r"[^a-z0-9]+", "-", text.lower())
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower())
     # Strip leading/trailing hyphens
-    text = text.strip("-")
+    slug = slug.strip("-")
     # Truncate
-    if len(text) > max_len:
-        text = text[:max_len].rstrip("-")
-    return text or "untitled"
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
+    # If nothing survived (e.g. CJK/Arabic subject), use a short hash
+    if not slug:
+        slug = hashlib.sha256(text.encode()).hexdigest()[:12]
+    return slug
 
 
 def _date_slug(date_str: str | None) -> str:
     """Extract YYYY-MM-DD from an email Date header, fallback to today."""
     if date_str:
-        parsed = email.utils.parsedate_to_datetime(date_str)
-        return parsed.strftime("%Y-%m-%d")
+        try:
+            parsed = email.utils.parsedate_to_datetime(date_str)
+            return parsed.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
@@ -258,7 +277,7 @@ class GmailFeed(ContentFeed):
 
         return items
 
-    def format_item(self, envelope) -> FeedItem:
+    def format_item(self, envelope: ExternalMessage) -> FeedItem:
         """Convert processed email envelope to a FeedItem with markdown formatting."""
         meta = envelope.metadata
         subject = meta.get("subject", "No Subject")
