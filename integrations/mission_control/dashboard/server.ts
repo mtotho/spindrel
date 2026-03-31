@@ -10,6 +10,7 @@ import express from "express";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -286,7 +287,8 @@ app.all("/api/proxy/*", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Serve React SPA (production)
 // ---------------------------------------------------------------------------
-const distPath = path.join(import.meta.dirname || __dirname, "dist");
+const __server_dir = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__server_dir, "dist");
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get("*", (_req, res) => {

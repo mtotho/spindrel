@@ -116,14 +116,37 @@ _MALFORMED_TOOL_CALL_RE = re.compile(
 
 
 def strip_malformed_tool_calls(text: str) -> str:
-    """Strip XML tool-call fragments some models emit as plain text.
+    """Strip tool-call fragments (XML or JSON) some models emit as plain text.
 
     When a model fails to use the OpenAI function-calling format and instead
-    returns tool invocations as XML in text content, this strips them so they
-    don't leak into user-facing messages.
+    returns tool invocations as XML or JSON in text content, this strips them
+    so they don't leak into user-facing messages.
     """
-    cleaned = _MALFORMED_TOOL_CALL_RE.sub("", text).strip()
-    return cleaned
+    cleaned = _MALFORMED_TOOL_CALL_RE.sub("", text)
+    # Also strip JSON objects that look like tool call attempts:
+    # {"name": "...", "arguments": ...}
+    cleaned = _strip_json_tool_call_fragments(cleaned)
+    return cleaned.strip()
+
+
+def _strip_json_tool_call_fragments(text: str) -> str:
+    """Strip JSON objects from text that look like tool call attempts.
+
+    Models sometimes emit {"name": "...", "arguments": {...}} as text
+    alongside (or instead of) proper function-calling format. These are
+    never useful user-facing content.
+    """
+    candidates = _find_top_level_json_objects(text)
+    if not candidates:
+        return text
+    # Strip in reverse to preserve indices
+    for start, end, obj in reversed(candidates):
+        if (
+            isinstance(obj.get("name"), str)
+            and "arguments" in obj
+        ):
+            text = text[:start] + text[end:]
+    return text
 
 
 # ---------------------------------------------------------------------------

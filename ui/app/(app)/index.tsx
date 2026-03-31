@@ -7,6 +7,7 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useAuthStore } from "@/src/stores/auth";
 import {
   Hash,
   Bot,
@@ -89,6 +90,7 @@ export default function HomeScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const t = useThemeTokens();
   const router = useRouter();
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const ensureOrchestrator = useEnsureOrchestrator();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
 
@@ -152,8 +154,8 @@ export default function HomeScreen() {
           </Link>
         )}
 
-        {/* Setup orchestrator prompt when it doesn't exist */}
-        {!channelsLoading && !orchestratorChannel && (
+        {/* Setup orchestrator prompt when it doesn't exist (admin only) */}
+        {!channelsLoading && !orchestratorChannel && isAdmin && (
           <Pressable
             onPress={() => {
               ensureOrchestrator.mutate(undefined, {

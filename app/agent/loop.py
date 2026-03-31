@@ -515,7 +515,9 @@ async def run_agent_tool_loop(
             # Emit intermediate text when the LLM returns content alongside tool calls.
             # Without this, the text is recorded in conversation history but never
             # surfaces to streaming consumers (Slack, UI, etc.).
-            _intermediate_text = (_acc_content or "").strip()
+            # Strip malformed tool calls (XML/JSON fragments) that local models
+            # sometimes emit as text alongside proper function calls.
+            _intermediate_text = strip_malformed_tool_calls(_acc_content or "")
             if _intermediate_text:
                 yield _event_with_compaction_tag(
                     {"type": "assistant_text", "text": _intermediate_text},
