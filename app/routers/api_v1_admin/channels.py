@@ -112,6 +112,9 @@ class ChannelOut(BaseModel):
     integrations: list[IntegrationBindingOut] = []
     heartbeat_enabled: bool = False
     heartbeat_in_quiet_hours: bool = False
+    channel_workspace_enabled: Optional[bool] = None
+    resolved_workspace_id: Optional[str] = None
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -211,6 +214,7 @@ class HeartbeatHistoryRunOut(BaseModel):
     result: Optional[str] = None
     error: Optional[str] = None
     correlation_id: Optional[uuid.UUID] = None
+    repetition_detected: Optional[bool] = None
     tool_calls: list[TurnToolCall] = []
     total_tokens: int = 0
     iterations: int = 0
@@ -364,11 +368,16 @@ class ChannelSettingsOut(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
     index_segments: list[dict] = []
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
     # Resolved defaults for index segment fields (computed, not stored)
     index_segment_defaults: Optional[dict] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
+    tags: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -430,7 +439,12 @@ class ChannelSettingsUpdate(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
     index_segments: Optional[list[dict]] = None
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +553,7 @@ async def admin_channel_settings(
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
 
@@ -560,6 +575,13 @@ async def admin_channel_settings_update(
             get_bot(updates["bot_id"])
         except HTTPException:
             raise HTTPException(status_code=400, detail=f"Unknown bot: {updates['bot_id']}")
+
+    # Handle tags separately — stored in metadata_ JSONB, not a column
+    if "tags" in updates:
+        tags_value = updates.pop("tags")
+        meta = dict(channel.metadata_ or {})
+        meta["tags"] = tags_value or []
+        channel.metadata_ = meta
 
     for field, value in updates.items():
         setattr(channel, field, value)
@@ -595,6 +617,7 @@ async def admin_channel_settings_update(
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     out.resolved_workspace_id = _resolve_workspace_id(channel.bot_id)
+    out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
 
@@ -611,6 +634,7 @@ class EffectiveToolsOut(BaseModel):
     mode: dict  # per-category mode: "inherit" | "override" | "disabled"
     disabled: dict = {}  # per-category disabled lists
     skills_extra: list[dict] = []  # channel-added skills
+    carapaces: list[str] = []  # resolved carapace IDs
 
 
 @router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
@@ -673,6 +697,7 @@ async def admin_channel_effective_tools(
             "skills": channel.skills_disabled or [],
         },
         skills_extra=skills_extra_list,
+        carapaces=eff.carapaces,
     )
 
 
@@ -778,6 +803,7 @@ async def admin_channel_heartbeat_get(
                     result=r.result[:500] if r.result else None,
                     error=r.error,
                     correlation_id=r.correlation_id,
+                    repetition_detected=r.repetition_detected,
                 )
                 for r in runs
             ]
@@ -1803,6 +1829,8 @@ async def admin_channels_enriched(
     for ch in channels:
         out = ChannelOut.model_validate(ch)
         out.display_name = display_names.get(ch.id)
+        out.resolved_workspace_id = _resolve_workspace_id(ch.bot_id)
+        out.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:
             out.heartbeat_enabled = True

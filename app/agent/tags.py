@@ -1,10 +1,11 @@
 """Parse and resolve @mention tags for explicit context/tool injection.
 
 Supported syntax:
-  @name             — auto-detect type: skill → tool → knowledge
+  @name             — auto-detect type: skill → tool → bot → knowledge
   @skill:name       — force inject skill by ID (bypasses similarity threshold)
   @knowledge:name   — force inject knowledge doc by name
   @tool:name        — force include tool in this request's tool list
+  @bot:name         — force ephemeral delegation to bot by ID
 
 Slack safety: Slack user mentions arrive as <@USERID> (angle-bracket format).
 The regex's negative lookbehind skips those, so @tags and Slack mentions never
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Names must start with a letter or underscore (not a digit).
 # Allows slashes for path-style IDs (e.g. packages/slides/slides).
 # tool-pack must appear before tool in the alternation to avoid partial matching.
-_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool):)?([A-Za-z_][\w\-\./]*)")
+_TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|knowledge|tool-pack|tool|bot):)?([A-Za-z_][\w\-\./]*)")
 
 
 @dataclass
@@ -97,6 +98,9 @@ async def resolve_tags(
                 if tool_name not in seen_names:
                     seen_names.add(tool_name)
                     resolved.append(ResolvedTag(raw=raw, name=tool_name, tag_type="tool"))
+        elif forced_type == "bot":
+            if name != bot_id:
+                resolved.append(ResolvedTag(raw=raw, name=name, tag_type="bot"))
         elif name in skill_set:
             resolved.append(ResolvedTag(raw=raw, name=name, tag_type="skill"))
         elif (full_id := _match_skill_short_name(name, skill_set)):

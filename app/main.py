@@ -226,6 +226,11 @@ async def lifespan(app: FastAPI):
     await file_sync.sync_all_files()
     logger.info("Loading skills from DB...")
     await load_skills()
+    logger.info("Seeding carapaces from YAML (seed-once)...")
+    from app.agent.carapaces import seed_carapaces_from_yaml, load_carapaces
+    await seed_carapaces_from_yaml()
+    logger.info("Loading carapaces from DB...")
+    await load_carapaces()
     logger.info("Starting file watcher...")
     asyncio.create_task(file_sync.watch_files())
 

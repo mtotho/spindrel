@@ -24,25 +24,40 @@ You are the coordinator, not the worker. Your job is to decompose objectives int
 
 ```
 /workspace/
-├── common/                      # Shared resources (you manage this)
-│   ├── skills/                  # Workspace skills (auto-discovered)
-│   │   ├── pinned/              # Injected every turn for all bots
-│   │   ├── rag/                 # Embedded for similarity retrieval
-│   │   └── on-demand/           # Index injected; bots fetch via get_workspace_skill()
-│   ├── prompts/
-│   │   └── base.md              # Workspace base prompt (replaces global base for all members)
-│   └── ...                      # Your specs, datasets, shared configs
+├── common/                          # Shared resources (you manage this)
+│   ├── skills/                      # Workspace skills (auto-discovered)
+│   │   ├── pinned/                  # Injected every turn for all bots
+│   │   ├── rag/                     # Embedded for similarity retrieval
+│   │   └── on-demand/               # Index injected; bots fetch via get_workspace_skill()
+│   ├── prompts/                     # Your prompt documents (not auto-injected by default)
+│   └── ...                          # Your specs, datasets, shared configs
 ├── bots/
-│   ├── {your_bot_id}/           # Your working directory
-│   │   ├── memory/              # Your memory files (MEMORY.md, daily logs, references)
-│   │   ├── prompts/
-│   │   │   └── base.md          # Your bot-specific base prompt layer (appended to common)
+│   ├── {your_bot_id}/               # Your working directory
+│   │   ├── memory/                  # Your memory files (MEMORY.md, daily logs, references)
+│   │   ├── prompts/                 # Reusable prompts for this bot (tasks, heartbeats, etc.)
+│   │   ├── persona.md               # File persona: Persona ON + bot in shared workspace (see below)
 │   │   └── ...
-│   └── {member_bot_id}/         # Each member bot's isolated directory
+│   └── {member_bot_id}/             # Each member bot's isolated directory
 │       ├── memory/
+│       ├── prompts/
+│       ├── persona.md               # Same: Persona ON for bot + bot in this shared workspace
 │       └── ...
-└── users/                       # User-contributed files (if applicable)
+├── channels/
+│   └── {channel_id}/                # Channel-specific workspace (important)
+│       ├── memory/                  # Channel memory files and logs (similar to bot memory)
+│       └── ...                      # Channel-shared documents or artifacts, scoped to the channel
+└── users/                           # User-contributed files (if applicable)
 ```
+
+- **/workspace/channels/{channel_id}/** is the channel-specific workspace directory.
+    - It functions as channel memory, persisting conversation and collaboration context, channel-shared reference files, and logs. Use this area to store and coordinate any information or resources that should be accessible to all bots working in a particular channel.
+    - Layout under each channel mirrors the bot workspace style with `/memory/` for persistent channel context (e.g., MEMORY.md, daily logs) and other channel-scoped files.
+
+**`prompts/` folders (common and per-bot)** — Use these as a conventional place to keep markdown (or text) you **reference by workspace path** when configuring **scheduled tasks**, **heartbeat** prompts, **channel prompt-from-file**, and similar features. Nothing under `prompts/` is automatically loaded into every chat turn unless you wire a path in the UI or API. Organize filenames however you like (e.g. `heartbeats/weekly-check.md`, `tasks/nightly-report.md`).
+
+**Workspace base prompt override (admin UI)** — A separate, **opt-in** setting (workspace and optional per-channel override). When **enabled** *and* `common/prompts/base.md` exists in the workspace, the server uses that file (plus optional `bots/<bot-id>/prompts/base.md` appended) **instead of** the host’s default universal base template (`prompts/base.md` in the server repo — the rendered “global base” layer). It does **not** replace the bot’s main **system prompt**, `GLOBAL_BASE_PROMPT`, memory scheme text, or other stacked system layers — only that one base template slot. When the toggle is **off**, `common/prompts/base.md` / `bots/.../prompts/base.md` are **ignored for system assembly**; your `prompts/` tree is still useful for tasks, heartbeats, and manual references.
+
+**`persona.md` (per bot)** — `bots/<bot-id>/persona.md` overrides the **database** persona text for that bot when **(1)** the bot has **Persona enabled** in admin (`persona: true`), **and (2)** the bot is a member of this **shared workspace** so the server can read the file from the workspace filesystem. If Persona is off for the bot, or the bot is not on a shared workspace, the file is not used. There is no extra workspace-level toggle for the file — the admin UI “workspace persona” copy means “store persona in this file instead of DB when the bot opts into Persona.”
 
 ---
 
@@ -385,11 +400,14 @@ agent api POST /api/v1/workspaces/{ws_id}/reindex-skills
 
 ---
 
-## Workspace Base Prompt
+## Optional workspace base template (`base.md`)
 
-Override the global system base prompt for all workspace bots:
+Only relevant if **workspace base prompt override** is turned **on** in workspace (or channel) settings. Then `common/prompts/base.md` supplies the workspace-wide base **template layer** (and `bots/<bot-id>/prompts/base.md` may be concatenated after it). If you do not want that behavior, leave the toggle **off** and treat `prompts/` purely as storage for paths you attach to tasks, heartbeats, etc.
+
+Example when you *do* enable the override:
 
 ```sh
+mkdir -p /workspace/common/prompts
 cat > /workspace/common/prompts/base.md << 'EOF'
 You are working on Project X. Follow these workspace-wide conventions:
 - Write output to your bot directory under output/
@@ -398,9 +416,10 @@ You are working on Project X. Follow these workspace-wide conventions:
 EOF
 ```
 
-Per-bot prompt layers (appended after the common base):
+Optional per-bot addition (same feature; appended after common when present):
 
 ```sh
+mkdir -p /workspace/bots/researcher-bot/prompts
 cat > /workspace/bots/researcher-bot/prompts/base.md << 'EOF'
 You are the research specialist. Focus on gathering evidence and citing sources.
 EOF

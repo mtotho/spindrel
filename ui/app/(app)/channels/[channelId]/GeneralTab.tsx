@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { Trash2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { Trash2, AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useDeleteChannel } from "@/src/api/hooks/useChannels";
 import {
@@ -34,6 +34,77 @@ function ChannelOwnerSelect({ value, onChange }: { value: string | null; onChang
       onChange={(v) => onChange(v || null)}
       options={options}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tag editor — chip input for channel tags
+// ---------------------------------------------------------------------------
+function TagEditor({
+  tags,
+  onChange,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const t = useThemeTokens();
+  const [input, setInput] = useState("");
+
+  const addTag = (raw: string) => {
+    const tag = raw.trim().toLowerCase();
+    if (tag && !tags.includes(tag)) onChange([...tags, tag]);
+    setInput("");
+  };
+
+  const handleKeyDown = (e: any) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(input);
+    }
+    if (e.key === "Backspace" && !input && tags.length > 0) {
+      onChange(tags.slice(0, -1));
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {tags.map((tag) => (
+        <div
+          key={tag}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "3px 8px",
+            borderRadius: 4,
+            backgroundColor: t.surfaceOverlay,
+            border: `1px solid ${t.surfaceBorder}`,
+          }}
+        >
+          <span style={{ fontSize: 11, color: t.textMuted }}>{tag}</span>
+          <Pressable onPress={() => onChange(tags.filter((x) => x !== tag))}>
+            <X size={11} color={t.textDim} />
+          </Pressable>
+        </div>
+      ))}
+      <input
+        value={input}
+        onChange={(e: any) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => { if (input.trim()) addTag(input); }}
+        placeholder={tags.length === 0 ? "Add tags..." : ""}
+        style={{
+          flex: 1,
+          minWidth: 80,
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          color: t.text,
+          fontSize: 12,
+          padding: "4px 0",
+        }}
+      />
+    </div>
   );
 }
 
@@ -202,6 +273,12 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             </FormRow>
           </Col>
         </Row>
+        <FormRow label="Tags" description="Categorize channels with tags. Press Enter or comma to add.">
+          <TagEditor
+            tags={(form.tags as string[]) ?? []}
+            onChange={(v) => patch("tags", v)}
+          />
+        </FormRow>
         {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
           <div style={{
             padding: "10px 14px", background: t.warningSubtle, border: `1px solid ${t.warningMuted}`,

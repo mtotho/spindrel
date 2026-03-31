@@ -512,14 +512,27 @@ function TaskCard({
 // ---------------------------------------------------------------------------
 const CARD_HEIGHT_PX = 70;
 const CARD_COMPACT_HEIGHT_PX = 46;
+const CARD_SUPER_COMPACT_HEIGHT_PX = 28;
 const CARD_MIN_GAP = 4;
+/** Max minutes a card can be pushed past its natural time-of-day position */
+const MAX_COLLISION_PUSH = 180;
 
 function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean }) {
   const t = useThemeTokens();
   const now = new Date();
   const showNow = isToday(date);
 
-  const cardHeight = compact ? CARD_COMPACT_HEIGHT_PX : CARD_HEIGHT_PX;
+  const baseCardHeight = compact ? CARD_COMPACT_HEIGHT_PX : CARD_HEIGHT_PX;
+
+  // Shrink cards dynamically when there are too many to fit in 1440px (24h)
+  const effectiveCardHeight = useMemo(() => {
+    if (tasks.length <= 1) return baseCardHeight;
+    const available = 1440 - CARD_MIN_GAP * (tasks.length - 1);
+    const fitHeight = Math.floor(available / tasks.length);
+    return Math.max(CARD_SUPER_COMPACT_HEIGHT_PX, Math.min(baseCardHeight, fitHeight));
+  }, [tasks.length, baseCardHeight]);
+
+  const autoCompact = effectiveCardHeight <= CARD_COMPACT_HEIGHT_PX;
 
   const positioned = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
@@ -527,19 +540,23 @@ function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: T
 
     for (const t of sorted) {
       const taskTime = getTaskTime(t);
-      const minutes = taskTime.getHours() * 60 + taskTime.getMinutes();
-      let topPx = minutes;
+      const naturalPos = taskTime.getHours() * 60 + taskTime.getMinutes();
+      let topPx = naturalPos;
 
       for (const prev of items) {
-        const prevBottom = prev.topPx + cardHeight + CARD_MIN_GAP;
+        const prevBottom = prev.topPx + effectiveCardHeight + CARD_MIN_GAP;
         if (topPx < prevBottom) {
           topPx = prevBottom;
         }
       }
+      // Don't push a card more than MAX_COLLISION_PUSH minutes past its real time
+      topPx = Math.min(topPx, naturalPos + MAX_COLLISION_PUSH);
+      // Stay within day bounds
+      topPx = Math.min(topPx, 1440 - effectiveCardHeight);
       items.push({ task: t, topPx });
     }
     return items;
-  }, [tasks, cardHeight]);
+  }, [tasks, effectiveCardHeight]);
 
   return (
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
@@ -567,12 +584,14 @@ function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: T
             task={t}
             isPast={getTaskTime(t) < now && t.status !== "running"}
             onPress={() => onTaskPress(t)}
-            compact={compact}
+            compact={autoCompact || compact}
             style={{
               position: "absolute",
               top: topPx,
               left: 52,
               right: 8,
+              maxHeight: effectiveCardHeight,
+              overflow: "hidden",
             }}
           />
         ))}

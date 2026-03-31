@@ -60,7 +60,8 @@ def _split_body(text: str, max_len: int) -> list[str]:
 
 
 class GitHubDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
         target = cfg.get("comment_target")
         if not target:
@@ -87,7 +88,8 @@ class GitHubDispatcher:
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         target = (dispatch_config or {}).get("comment_target")
         if not target:
             return False

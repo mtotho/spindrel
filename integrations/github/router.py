@@ -19,6 +19,64 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_execution_config(event_type: str, parsed) -> dict | None:
+    """Build webhook-specific execution_config with preamble and tools for the event."""
+    if not parsed.run_agent:
+        return None
+
+    preamble = None
+    tools = None
+
+    if event_type == "pull_request":
+        preamble = (
+            "You are responding to a GitHub pull request that was just opened.\n"
+            "Review the code changes, provide constructive feedback, and highlight "
+            "any issues or improvements. Use github_get_pr to fetch the full diff."
+        )
+        tools = ["github_get_pr"]
+
+    elif event_type == "issues":
+        preamble = (
+            "You are responding to a newly opened GitHub issue.\n"
+            "Triage the issue, suggest possible causes or solutions, "
+            "and ask clarifying questions if needed."
+        )
+
+    elif event_type == "issue_comment":
+        preamble = (
+            "You are responding to a comment on a GitHub issue or pull request.\n"
+            "Read the conversation context and respond relevantly. "
+            "Be helpful and concise."
+        )
+
+    elif event_type == "pull_request_review":
+        preamble = (
+            "You are responding to a pull request review that requested changes.\n"
+            "Address the reviewer's concerns and suggest specific fixes. "
+            "Use github_get_pr to review the current state of the PR."
+        )
+        tools = ["github_get_pr"]
+
+    elif event_type == "pull_request_review_comment":
+        preamble = (
+            "You are responding to an inline review comment on a pull request.\n"
+            "Focus on the specific code being discussed. "
+            "Use github_get_pr to see the full context of the change."
+        )
+        tools = ["github_get_pr"]
+
+    if preamble is None:
+        return None
+
+    config: dict = {
+        "system_preamble": preamble,
+        "skills": ["integrations/github/github"],
+    }
+    if tools:
+        config["tools"] = tools
+    return config
+
+
 @router.post("/webhook")
 async def github_webhook(
     request: Request,
@@ -75,6 +133,8 @@ async def github_webhook(
     if parsed.comment_target:
         dispatch_config["comment_target"] = parsed.comment_target
 
+    execution_config = _build_execution_config(event_type, parsed)
+
     # Fan-out to all channels bound to this client_id
     pairs = await resolve_all_channels_by_client_id(db, client_id)
 
@@ -86,7 +146,8 @@ async def github_webhook(
         result = await utils.inject_message(
             session_id, parsed.message, source="github",
             run_agent=parsed.run_agent, notify=False,
-            dispatch_config=dispatch_config, db=db,
+            dispatch_config=dispatch_config,
+            execution_config=execution_config, db=db,
         )
         return {
             "status": "processed",
@@ -108,7 +169,8 @@ async def github_webhook(
         result = await utils.inject_message(
             session_id, parsed.message, source="github",
             run_agent=parsed.run_agent, notify=False,
-            dispatch_config=dispatch_config, db=db,
+            dispatch_config=dispatch_config,
+            execution_config=execution_config, db=db,
         )
         results.append(result)
 

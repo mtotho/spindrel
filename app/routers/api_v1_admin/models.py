@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Skill as SkillRow, ToolEmbedding
+from app.db.models import Bot, Skill as SkillRow, ToolEmbedding
 from app.dependencies import get_db, verify_auth_or_user
 
 logger = logging.getLogger(__name__)
@@ -175,7 +175,7 @@ async def admin_completions(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """Get @-tag completions for skills, tools, and tool-packs."""
+    """Get @-tag completions for skills, tools, tool-packs, and bots."""
     from app.tools.packs import get_tool_packs
 
     all_skills = (await db.execute(
@@ -185,8 +185,13 @@ async def admin_completions(
         select(ToolEmbedding.tool_name).distinct().order_by(ToolEmbedding.tool_name)
     )).scalars().all()
     packs = get_tool_packs()
+    all_bots = (await db.execute(
+        select(Bot).order_by(Bot.name)
+    )).scalars().all()
 
     items: list[CompletionItem] = []
+    for b in all_bots:
+        items.append(CompletionItem(value=f"bot:{b.id}", label=f"bot:{b.id} — {b.name}"))
     for s in all_skills:
         items.append(CompletionItem(value=f"skill:{s.id}", label=f"skill:{s.id} — {s.name}"))
     for t in tool_names:

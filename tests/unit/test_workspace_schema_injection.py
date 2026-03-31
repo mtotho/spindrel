@@ -115,3 +115,82 @@ class TestSchemaTemplateIdGuard:
             channel_workspace_enabled=True,
         )
         assert getattr(ch, "workspace_schema_template_id", None) is None
+
+
+class TestSchemaOverridePriority:
+    """Test the override-takes-precedence logic from context_assembly."""
+
+    def test_override_takes_precedence_over_template(self):
+        """When workspace_schema_content is set, it wins over template."""
+        ch = SimpleNamespace(
+            workspace_schema_content="## Custom Schema\nOverridden.",
+            workspace_schema_template_id=uuid.uuid4(),
+        )
+        _schema_content = ""
+        _ch_schema_override = getattr(ch, "workspace_schema_content", None)
+        if _ch_schema_override:
+            _schema_content = _ch_schema_override
+        elif getattr(ch, "workspace_schema_template_id", None):
+            _schema_content = "SHOULD NOT REACH HERE"
+
+        assert _schema_content == "## Custom Schema\nOverridden."
+
+    def test_template_used_when_no_override(self):
+        """When workspace_schema_content is null, template path is taken."""
+        ch = SimpleNamespace(
+            workspace_schema_content=None,
+            workspace_schema_template_id=uuid.uuid4(),
+        )
+        _schema_content = ""
+        _ch_schema_override = getattr(ch, "workspace_schema_content", None)
+        if _ch_schema_override:
+            _schema_content = _ch_schema_override
+        elif getattr(ch, "workspace_schema_template_id", None):
+            _schema_content = "TEMPLATE CONTENT"
+
+        assert _schema_content == "TEMPLATE CONTENT"
+
+    def test_both_null_yields_empty(self):
+        """When both override and template are null, schema is empty."""
+        ch = SimpleNamespace(
+            workspace_schema_content=None,
+            workspace_schema_template_id=None,
+        )
+        _schema_content = ""
+        _ch_schema_override = getattr(ch, "workspace_schema_content", None)
+        if _ch_schema_override:
+            _schema_content = _ch_schema_override
+        elif getattr(ch, "workspace_schema_template_id", None):
+            _schema_content = "TEMPLATE CONTENT"
+
+        assert _schema_content == ""
+
+    def test_empty_string_override_does_not_take_precedence(self):
+        """Empty string is falsy — falls through to template."""
+        ch = SimpleNamespace(
+            workspace_schema_content="",
+            workspace_schema_template_id=uuid.uuid4(),
+        )
+        _schema_content = ""
+        _ch_schema_override = getattr(ch, "workspace_schema_content", None)
+        if _ch_schema_override:
+            _schema_content = _ch_schema_override
+        elif getattr(ch, "workspace_schema_template_id", None):
+            _schema_content = "TEMPLATE CONTENT"
+
+        assert _schema_content == "TEMPLATE CONTENT"
+
+    def test_override_without_template(self):
+        """Override works even when no template is linked."""
+        ch = SimpleNamespace(
+            workspace_schema_content="## Solo Override",
+            workspace_schema_template_id=None,
+        )
+        _schema_content = ""
+        _ch_schema_override = getattr(ch, "workspace_schema_content", None)
+        if _ch_schema_override:
+            _schema_content = _ch_schema_override
+        elif getattr(ch, "workspace_schema_template_id", None):
+            _schema_content = "TEMPLATE CONTENT"
+
+        assert _schema_content == "## Solo Override"

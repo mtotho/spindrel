@@ -41,6 +41,7 @@ const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   tool: { bg: "#14532d", fg: "#16a34a" },
   "tool-pack": { bg: "#14532d", fg: "#16a34a" },
   knowledge: { bg: "#3b0764", fg: "#7c3aed" },
+  bot: { bg: "#1e3a5f", fg: "#38bdf8" },
 };
 
 // ---------------------------------------------------------------------------

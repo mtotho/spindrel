@@ -22,9 +22,11 @@ interface Props {
   modelOverride?: string;
   onModelOverrideChange?: (m: string | undefined) => void;
   defaultModel?: string;
+  /** Current channel's bot ID — excluded from @-mention completions */
+  currentBotId?: string;
 }
 
-export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel }: Props) {
+export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
@@ -113,7 +115,9 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
         return;
       }
       setAtStart(atIdx);
+      const excludeValue = currentBotId ? `bot:${currentBotId}` : "";
       const scored = completions
+        .filter((c) => c.value !== excludeValue)
         .map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
         .filter((x) => x.s > 0)
         .sort((a, b) => b.s - a.s)
@@ -133,7 +137,7 @@ export function MessageInput({ onSend, disabled, isStreaming, onCancel, modelOve
         setShowMenu(false);
       }
     },
-    [completions]
+    [completions, currentBotId]
   );
 
   const selectItem = useCallback(

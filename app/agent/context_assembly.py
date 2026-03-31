@@ -281,6 +281,7 @@ async def assemble_context(
             client_tools=_eff.client_tools,
             pinned_tools=_eff.pinned_tools,
             skills=_eff.skills,
+            carapaces=_eff.carapaces,
         )
         if _ch_row.model_override:
             result.channel_model_override = _ch_row.model_override
@@ -289,6 +290,38 @@ async def assemble_context(
             result.channel_max_iterations = _ch_row.max_iterations
         if _ch_row.fallback_models:
             result.channel_fallback_models = _ch_row.fallback_models
+
+    # --- carapace resolution ---
+    _carapace_ids = list(bot.carapaces or [])
+    if _carapace_ids:
+        from app.agent.carapaces import resolve_carapaces as _resolve_carapaces
+        _resolved_c = _resolve_carapaces(_carapace_ids)
+        # Merge skills (deduplicate by id)
+        _existing_skill_ids = {s.id for s in bot.skills}
+        _new_skills = [s for s in _resolved_c.skills if s.id not in _existing_skill_ids]
+        # Merge tools (deduplicate)
+        _existing_tools = set(bot.local_tools)
+        _new_local = [t for t in _resolved_c.local_tools if t not in _existing_tools]
+        _existing_mcp = set(bot.mcp_servers)
+        _new_mcp = [t for t in _resolved_c.mcp_tools if t not in _existing_mcp]
+        _existing_pinned = set(bot.pinned_tools)
+        _new_pinned = [t for t in _resolved_c.pinned_tools if t not in _existing_pinned]
+        bot = _dc_replace(
+            bot,
+            skills=list(bot.skills) + _new_skills,
+            local_tools=list(bot.local_tools) + _new_local,
+            mcp_servers=list(bot.mcp_servers) + _new_mcp,
+            pinned_tools=list(bot.pinned_tools) + _new_pinned,
+        )
+        # Inject system prompt fragments
+        if _resolved_c.system_prompt_fragments:
+            _carapace_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)
+            _inject_chars["carapace_prompts"] = len(_carapace_prompt)
+            messages.append({
+                "role": "system",
+                "content": _carapace_prompt,
+            })
+            yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
 
     # --- memory scheme: tool hiding + tool injection ---
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
@@ -441,9 +474,12 @@ async def assemble_context(
                 if _data_entries:
                     _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"
 
-            # Resolve workspace schema template (if set)
+            # Resolve workspace schema: per-channel override takes precedence over template
             _schema_content = ""
-            if getattr(_ch_row, "workspace_schema_template_id", None):
+            _ch_schema_override = getattr(_ch_row, "workspace_schema_content", None)
+            if _ch_schema_override:
+                _schema_content = _ch_schema_override
+            elif getattr(_ch_row, "workspace_schema_template_id", None):
                 try:
                     from app.services.prompt_resolution import resolve_prompt_template
                     _schema_content = await resolve_prompt_template(
@@ -540,7 +576,11 @@ async def assemble_context(
     if _tagged_bot_names:
         set_ephemeral_delegates(_tagged_bot_names)
     if _tagged_skill_names:
-        set_ephemeral_skills(_tagged_skill_names)
+        # Merge with any pre-set ephemeral skills (e.g. from execution_config)
+        from app.agent.context import current_ephemeral_skills
+        _existing_skills = list(current_ephemeral_skills.get() or [])
+        _merged = list(dict.fromkeys(_existing_skills + _tagged_skill_names))
+        set_ephemeral_skills(_merged)
 
     if _tagged:
         # Inject tagged skill chunks (bypasses similarity threshold)
@@ -602,6 +642,21 @@ async def assemble_context(
                     "bots": _tagged_bot_names,
                 },
             ))
+
+    # --- execution_config ephemeral skills (not already @-tagged) ---
+    from app.agent.context import current_ephemeral_skills
+    _ephemeral_skill_ids = list(current_ephemeral_skills.get() or [])
+    _untagged_ephemeral = [s for s in _ephemeral_skill_ids if s not in _tagged_skill_names]
+    if _untagged_ephemeral:
+        _eph_chunks: list[str] = []
+        for _eph_id in _untagged_ephemeral:
+            _eph_chunks.extend(await fetch_skill_chunks_by_id(_eph_id))
+        if _eph_chunks:
+            messages.append({
+                "role": "system",
+                "content": "Webhook skill context:\n\n"
+                           + "\n\n---\n\n".join(_eph_chunks),
+            })
 
     # --- skills ---
     if bot.skills:

@@ -10,8 +10,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, Toggle, EmptyState, TextInput, FormRow, SelectInput,
 } from "@/src/components/shared/FormControls";
-import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
-import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
+import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFiles,
@@ -492,10 +491,6 @@ export function ChannelWorkspaceTab({
   const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  // Look up linked schema template for description display
-  const { data: schemaTemplates } = usePromptTemplates(undefined, "workspace_schema");
-  const linkedSchema = schemaTemplates?.find((tpl) => tpl.id === form.workspace_schema_template_id);
-
   const { data: filesData, isLoading } = useChannelWorkspaceFiles(
     enabled ? channelId : undefined,
     { includeArchive: true, includeData: true },
@@ -522,17 +517,16 @@ export function ChannelWorkspaceTab({
             title="Workspace Schema"
             description="Choose an organization template that defines how workspace files should be structured for this type of project."
           >
-            <PromptTemplateLink
+            <WorkspaceSchemaEditor
               templateId={form.workspace_schema_template_id ?? null}
-              onLink={(id) => patch("workspace_schema_template_id", id)}
-              onUnlink={() => patch("workspace_schema_template_id", null)}
-              category="workspace_schema"
+              schemaContent={form.workspace_schema_content ?? null}
+              onTemplateChange={(id) => {
+                patch("workspace_schema_template_id", id);
+              }}
+              onContentChange={(content) => {
+                patch("workspace_schema_content", content);
+              }}
             />
-            {linkedSchema?.description && (
-              <Text style={{ color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
-                {linkedSchema.description}
-              </Text>
-            )}
           </Section>
 
           {workspaceId && (

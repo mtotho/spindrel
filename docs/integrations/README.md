@@ -221,17 +221,31 @@ logger = logging.getLogger(__name__)
 
 
 class MyDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
         target_url = cfg.get("webhook_url")
         if not target_url:
             return
         # ... post result to your service ...
 
+    async def post_message(self, dispatch_config: dict, text: str, *,
+                           bot_id: str | None = None, reply_in_thread: bool = True,
+                           username: str | None = None, icon_emoji: str | None = None,
+                           icon_url: str | None = None,
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
+        # ... post a standalone message (used by delegation, heartbeat) ...
+        return False
+
 
 # Register at import time — this is what makes it pluggable
 register("mygithub", MyDispatcher())
 ```
+
+Both `deliver()` and `post_message()` must accept `extra_metadata` (used for delegation
+attribution). The `Dispatcher` protocol in `app/agent/dispatchers.py` defines the full
+signature — missing kwargs will cause `TypeError` at runtime.
 
 The dispatcher is called when a task has `dispatch_type="mygithub"`. To create such a
 task, set `dispatch_type` and `dispatch_config` when calling `utils.inject_message()`.
@@ -360,6 +374,11 @@ async with async_session() as db:
         source="github",
         run_agent=True,    # True → runs agent, creates a task, returns task_id
         notify=True,       # True → fans out result to dispatch_config target
+        execution_config={                     # optional: per-event agent config
+            "system_preamble": "Review this PR...",
+            "skills": ["integrations/github/github"],
+            "tools": ["github_get_pr"],
+        },
         db=db,
     )
     # result = {"message_id": "uuid", "session_id": "uuid", "task_id": "uuid-or-null"}
@@ -435,6 +454,82 @@ All endpoints require `Authorization: Bearer <API_KEY>`.
 | `GET` | `/api/v1/tasks/{id}` | Poll a task's status and result |
 
 Poll this after `run_agent=true` returns a `task_id`. Status: `pending`, `running`, `complete`, `failed`.
+
+---
+
+## Webhook Prompt Injection (execution_config)
+
+When a webhook fires, the bot often needs event-specific instructions, skills, and tools
+that aren't permanently assigned to it. Instead of bloating the bot's config with tools for
+every integration it *might* receive webhooks from, integrations inject them per-event via
+`execution_config`.
+
+### How it works
+
+Pass `execution_config` to `utils.inject_message()` when `run_agent=True`. It's stored on
+the `Task` and read by `run_task()` before calling the agent:
+
+```python
+result = await utils.inject_message(
+    session_id, content, source="myintegration",
+    run_agent=True,
+    execution_config={
+        "system_preamble": "You are responding to a detection event...",
+        "skills": ["integrations/frigate/frigate"],
+        "tools": ["frigate_event_snapshot"],
+    },
+    db=db,
+)
+```
+
+### Fields
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `system_preamble` | `str` | Injected as a system message before the agent runs. Use for event-specific instructions. |
+| `skills` | `list[str]` | Skill IDs (e.g. `"integrations/github/github"`) — their full content is fetched from the DB and injected into context. The bot does NOT need these skills assigned. |
+| `tools` | `list[str]` | Tool names (e.g. `"github_get_pr"`) — their schemas are added to the LLM's tool list for this request only. The bot does NOT need these tools in its config. |
+| `model_override` | `str` | Override the bot's model for this task (also supported via `callback_config`). |
+
+All fields are optional. Everything is per-task and one-shot — the bot's permanent config
+is not affected.
+
+### How skills and tools are resolved
+
+- **Skills** — looked up by ID in the `documents` table via `fetch_skill_chunks_by_id()`.
+  Any skill that has been synced from a `.md` file (including integration skills like
+  `integrations/github/skills/github.md`) is available regardless of bot assignment.
+  The skill ID is the path-based key: `integrations/<name>/<stem>`.
+
+- **Tools** — looked up by name in the global tool registry via `get_local_tool_schemas()`.
+  Any registered tool (from `tools/`, `app/tools/local/`, or `integrations/*/tools/`) is
+  available. They're passed as `injected_tools` to `run()`, which merges them into the
+  LLM's tool list via the `current_injected_tools` ContextVar.
+
+- **Ephemeral skills merge** — if the user's message also contains `@skill:name` tags,
+  the tagged skills are merged with execution_config skills (not replaced). Deduplication
+  is automatic.
+
+### Built-in webhook prompts
+
+The GitHub and Frigate integrations ship with `_build_execution_config()` functions that
+return event-specific preambles, skills, and tools:
+
+**GitHub** (`integrations/github/router.py`):
+
+| Event | Preamble | Tools | Skill |
+|-------|----------|-------|-------|
+| `pull_request` (opened) | Review code, provide feedback | `github_get_pr` | `integrations/github/github` |
+| `issues` (opened) | Triage, suggest solutions | — | `integrations/github/github` |
+| `issue_comment` | Read context, respond | — | `integrations/github/github` |
+| `pull_request_review` (changes_requested) | Address concerns | `github_get_pr` | `integrations/github/github` |
+| `pull_request_review_comment` | Focus on code discussed | `github_get_pr` | `integrations/github/github` |
+
+**Frigate** (`integrations/frigate/router.py`):
+
+| Event | Preamble | Tools | Skill |
+|-------|----------|-------|-------|
+| Detection (new) | Camera/label/score context, view snapshot | `frigate_event_snapshot` | `integrations/frigate/frigate` |
 
 ---
 

@@ -23,6 +23,21 @@ router = APIRouter()
 CLIENT_ID = "frigate:events"
 
 
+def _build_execution_config(event: "ParsedEvent") -> dict:
+    """Build webhook-specific execution_config for a Frigate detection event."""
+    preamble = (
+        "You are responding to a Frigate security camera detection event.\n"
+        f"Camera: {event.camera} | Detected: {event.label} (score: {event.score:.0%})\n"
+        "Use frigate_event_snapshot to view the detection image before responding.\n"
+        "Describe what you see and assess whether this requires attention."
+    )
+    return {
+        "system_preamble": preamble,
+        "skills": ["integrations/frigate/frigate"],
+        "tools": ["frigate_event_snapshot"],
+    }
+
+
 @dataclass
 class ParsedEvent:
     camera: str
@@ -118,6 +133,8 @@ async def frigate_webhook(
     # Fan-out to all channels bound to this client_id
     pairs = await resolve_all_channels_by_client_id(db, CLIENT_ID)
 
+    execution_config = _build_execution_config(event)
+
     if not pairs:
         # Backward compat: legacy single-session flow
         session_id = await utils.get_or_create_session(
@@ -125,7 +142,8 @@ async def frigate_webhook(
         )
         result = await utils.inject_message(
             session_id, event.message, source="frigate",
-            run_agent=True, notify=False, db=db,
+            run_agent=True, notify=False,
+            execution_config=execution_config, db=db,
         )
         return {
             "status": "processed",
@@ -141,7 +159,8 @@ async def frigate_webhook(
         session_id = await ensure_active_session(db, channel)
         result = await utils.inject_message(
             session_id, event.message, source="frigate",
-            run_agent=True, notify=False, db=db,
+            run_agent=True, notify=False,
+            execution_config=execution_config, db=db,
         )
         results.append(result)
 

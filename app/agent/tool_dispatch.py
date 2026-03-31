@@ -30,6 +30,7 @@ class ToolCallResult:
     result_for_llm: str = ""
     was_summarized: bool = False
     embedded_client_action: dict | None = None
+    injected_images: list[dict] | None = None  # [{"mime_type": str, "base64": str}]
     tool_event: dict[str, Any] = field(default_factory=dict)
     pre_events: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
@@ -234,13 +235,17 @@ async def dispatch_tool_call(
 
     result_obj.result = result
 
-    # Extract embedded client_action
+    # Extract embedded client_action or injected_images
     result_for_llm = result
     try:
         parsed_tool = json.loads(result_for_llm)
-        if isinstance(parsed_tool, dict) and "client_action" in parsed_tool:
-            result_obj.embedded_client_action = parsed_tool["client_action"]
-            result_for_llm = parsed_tool.get("message", "Done.")
+        if isinstance(parsed_tool, dict):
+            if "client_action" in parsed_tool:
+                result_obj.embedded_client_action = parsed_tool["client_action"]
+                result_for_llm = parsed_tool.get("message", "Done.")
+            elif "injected_images" in parsed_tool:
+                result_obj.injected_images = parsed_tool["injected_images"]
+                result_for_llm = parsed_tool.get("message", "Image loaded for analysis.")
     except (json.JSONDecodeError, TypeError):
         pass
 

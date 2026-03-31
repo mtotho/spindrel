@@ -212,6 +212,10 @@ The admin UI's bot edit page has a Slack subsection under Display for `icon_emoj
 - Harness execution config (`harness_name`, `working_directory`, `sandbox_instance_id`) —
   moved to `Task.callback_config` JSONB.
 
+- Webhook prompt injection (`system_preamble`, `skills`, `tools`) — lives in
+  `Task.execution_config` JSONB. Set by integrations via `inject_message(execution_config=...)`.
+  See [README.md](README.md#webhook-prompt-injection-execution_config) for details.
+
 ---
 
 ## Channel Config — Single Source of Truth

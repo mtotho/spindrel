@@ -70,6 +70,10 @@ cp "$RESTORE_DIR/.env"      "$REPO_DIR/.env"
 cp "$RESTORE_DIR/mcp.yaml"  "$REPO_DIR/mcp.yaml"
 cp -r "$RESTORE_DIR/bots/"*   "$REPO_DIR/bots/"
 cp -r "$RESTORE_DIR/skills/"* "$REPO_DIR/skills/"
+if [[ -d "$RESTORE_DIR/tools" ]] && ls "$RESTORE_DIR/tools/"* &>/dev/null; then
+  mkdir -p "$REPO_DIR/tools"
+  cp -r "$RESTORE_DIR/tools/"* "$REPO_DIR/tools/"
+fi
 mkdir -p "$REPO_DIR/config/searxng"
 cp "$RESTORE_DIR/config/searxng/settings.yml" "$REPO_DIR/config/searxng/settings.yml"
 

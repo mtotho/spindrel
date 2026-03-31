@@ -3,9 +3,10 @@
  *
  * Designed for extensibility: the sidebar nav is data-driven so future
  * sub-modules (per-user homepages, per-bot dashboards, project pages)
- * can register their own nav items.
+ * can register their own nav items via the NAV_ITEMS array.
  */
 
+import { useState, useMemo } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useOverview } from "../hooks/useOverview";
 import type { ChannelSummary } from "../lib/types";
@@ -14,12 +15,16 @@ interface NavItem {
   label: string;
   to: string;
   icon: string;
+  /** Optional: only show if this returns true */
+  show?: () => boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Overview", to: "/", icon: "◈" },
   { label: "Activity", to: "/activity", icon: "◉" },
-  // Future: dynamically injected items per-user, per-bot, per-project
+  // Future sub-module routes:
+  // { label: "My Board", to: "/users/me", icon: "◎" },
+  // { label: "Projects", to: "/projects", icon: "◆" },
 ];
 
 function SidebarLink({ item }: { item: NavItem }) {
@@ -42,6 +47,8 @@ function SidebarLink({ item }: { item: NavItem }) {
 }
 
 export default function Shell() {
+  const visibleItems = NAV_ITEMS.filter((item) => !item.show || item.show());
+
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
@@ -54,11 +61,11 @@ export default function Shell() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <SidebarLink key={item.to} item={item} />
           ))}
 
-          {/* Channels section — populated from data */}
+          {/* Channels section */}
           <div className="mt-4 pt-3 border-t border-surface-3">
             <p className="px-3 text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
               Channels
@@ -80,35 +87,81 @@ export default function Shell() {
   );
 }
 
-/** Dynamically loaded channel list in sidebar. */
+const INITIAL_SHOW = 10;
+
+/** Sidebar channel list with search and "show more". */
 function ChannelNavList() {
   const { data } = useOverview();
+  const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
-  if (!data?.channels?.length) return null;
+  const allChannels = useMemo(() => {
+    if (!data?.channels?.length) return [];
+    return data.channels.filter((ch: ChannelSummary) => ch.workspace_enabled);
+  }, [data]);
 
-  const channels = data.channels
-    .filter((ch: ChannelSummary) => ch.workspace_enabled)
-    .slice(0, 15);
+  if (allChannels.length === 0) {
+    return (
+      <p className="px-3 text-xs text-gray-600">
+        No workspace channels yet.
+      </p>
+    );
+  }
 
-  if (channels.length === 0) return null;
+  const filtered = search
+    ? allChannels.filter((ch: ChannelSummary) => {
+        const label = (ch.name || ch.id).toLowerCase();
+        return label.includes(search.toLowerCase());
+      })
+    : allChannels;
+
+  const visible = showAll ? filtered : filtered.slice(0, INITIAL_SHOW);
+  const hasMore = filtered.length > INITIAL_SHOW && !showAll;
 
   return (
-    <div className="space-y-0.5">
-      {channels.map((ch: ChannelSummary) => (
-        <NavLink
-          key={ch.id}
-          to={`/channels/${ch.id}`}
-          className={({ isActive }) =>
-            `block px-3 py-1.5 rounded text-sm truncate transition-colors ${
-              isActive
-                ? "bg-accent/15 text-accent-hover"
-                : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
-            }`
-          }
+    <div className="space-y-1">
+      {/* Search — only show if enough channels to warrant it */}
+      {allChannels.length > 5 && (
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setShowAll(false); }}
+          placeholder="Search..."
+          className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent/40 mb-1"
+        />
+      )}
+
+      <div className="space-y-0.5">
+        {visible.map((ch: ChannelSummary) => (
+          <NavLink
+            key={ch.id}
+            to={`/channels/${ch.id}`}
+            title={ch.name || ch.id}
+            className={({ isActive }) =>
+              `block px-3 py-1.5 rounded text-sm truncate transition-colors ${
+                isActive
+                  ? "bg-accent/15 text-accent-hover"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
+              }`
+            }
+          >
+            {ch.name || ch.id.slice(0, 8)}
+          </NavLink>
+        ))}
+      </div>
+
+      {hasMore && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full text-left px-3 py-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
         >
-          {ch.name || ch.id.slice(0, 8)}
-        </NavLink>
-      ))}
+          Show all {filtered.length} channels
+        </button>
+      )}
+
+      {search && filtered.length === 0 && (
+        <p className="px-3 text-xs text-gray-600">No matches</p>
+      )}
     </div>
   );
 }

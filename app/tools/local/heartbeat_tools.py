@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.agent.context import current_channel_id, current_dispatch_config, current_dispatch_type
 from app.db.engine import async_session
-from app.db.models import Task
+from app.db.models import ChannelHeartbeat, HeartbeatRun
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -42,33 +42,39 @@ async def get_last_heartbeat(limit: int = 1) -> str:
     limit = min(max(1, int(limit)), 10)
 
     async with async_session() as db:
+        # Find the heartbeat config for this channel, then fetch its runs
+        hb_stmt = select(ChannelHeartbeat.id).where(
+            ChannelHeartbeat.channel_id == channel_id
+        )
+        hb_id = (await db.execute(hb_stmt)).scalar()
+        if not hb_id:
+            return "No heartbeat configured for this channel."
+
         stmt = (
-            select(Task)
+            select(HeartbeatRun)
             .where(
-                Task.channel_id == channel_id,
-                Task.callback_config["source"].astext == "heartbeat",
-                Task.status.in_(["complete", "failed"]),
+                HeartbeatRun.heartbeat_id == hb_id,
+                HeartbeatRun.status.in_(["complete", "failed"]),
             )
-            .order_by(Task.completed_at.desc().nulls_last())
+            .order_by(HeartbeatRun.completed_at.desc().nulls_last())
             .limit(limit)
         )
-        tasks = list((await db.execute(stmt)).scalars().all())
+        runs = list((await db.execute(stmt)).scalars().all())
 
-    if not tasks:
+    if not runs:
         return "No completed heartbeat runs found for this channel."
 
     results = []
-    for t in tasks:
+    for r in runs:
         entry = {
-            "task_id": str(t.id),
-            "status": t.status,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-            "prompt": t.prompt[:300] + "…" if len(t.prompt or "") > 300 else t.prompt,
-            "result": t.result,
+            "run_id": str(r.id),
+            "status": r.status,
+            "run_at": r.run_at.isoformat() if r.run_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "result": r.result,
         }
-        if t.error:
-            entry["error"] = t.error
+        if r.error:
+            entry["error"] = r.error
         results.append(entry)
 
     if len(results) == 1:

@@ -825,6 +825,43 @@ async def run_task(task: Task) -> None:
         _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
         _fallback_models = _ecfg_pre.get("fallback_models") or None
 
+        # Webhook prompt injection: system_preamble, ephemeral skills, injected tools
+        _system_preamble = _ecfg_pre.get("system_preamble") or None
+        _ecfg_skills = _ecfg_pre.get("skills") or None
+        _ecfg_tool_names = _ecfg_pre.get("tools") or None
+
+        if _ecfg_skills:
+            from app.agent.context import set_ephemeral_skills
+            set_ephemeral_skills(_ecfg_skills)
+
+        _ecfg_injected_tools: list[dict] | None = None
+        if _ecfg_tool_names:
+            from app.tools.registry import get_local_tool_schemas
+            _ecfg_injected_tools = get_local_tool_schemas(_ecfg_tool_names) or None
+
+        # Carapaces from execution_config
+        _ecfg_carapaces = _ecfg_pre.get("carapaces") or None
+        if _ecfg_carapaces:
+            from app.agent.carapaces import resolve_carapaces as _resolve_carapaces
+            _resolved_c = _resolve_carapaces(_ecfg_carapaces)
+            # Merge resolved carapace tools into injected tools
+            if _resolved_c.local_tools:
+                from app.tools.registry import get_local_tool_schemas
+                _c_tool_schemas = get_local_tool_schemas(_resolved_c.local_tools) or []
+                if _c_tool_schemas:
+                    _ecfg_injected_tools = (_ecfg_injected_tools or []) + _c_tool_schemas
+            # Merge resolved carapace skills into ephemeral skills
+            if _resolved_c.skills:
+                from app.agent.context import set_ephemeral_skills, current_ephemeral_skills
+                _existing = list(current_ephemeral_skills.get() or [])
+                _new_skill_ids = [s.id for s in _resolved_c.skills]
+                _merged = list(dict.fromkeys(_existing + _new_skill_ids))
+                set_ephemeral_skills(_merged)
+            # Prepend system prompt fragments to preamble
+            if _resolved_c.system_prompt_fragments:
+                _c_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)
+                _system_preamble = (_system_preamble + "\n\n" + _c_prompt) if _system_preamble else _c_prompt
+
         _task_timeout = resolve_task_timeout(task, _task_channel)
 
         run_result = await asyncio.wait_for(
@@ -839,6 +876,8 @@ async def run_task(task: Task) -> None:
                 model_override=_model_override,
                 provider_id_override=_provider_id_override,
                 fallback_models=_fallback_models,
+                system_preamble=_system_preamble,
+                injected_tools=_ecfg_injected_tools,
             ),
             timeout=_task_timeout,
         )

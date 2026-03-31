@@ -6,7 +6,8 @@ with ProviderModel pricing data at read time.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -14,8 +15,11 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, ProviderConfig, ProviderModel, Session, TraceEvent
-from app.dependencies import get_db
+from app.db.models import (
+    Channel, ChannelHeartbeat, HeartbeatRun,
+    ProviderConfig, ProviderModel, Session, Task, TraceEvent,
+)
+from app.dependencies import get_db, require_scopes
 
 from ._helpers import _parse_time
 
@@ -731,3 +735,304 @@ async def debug_pricing(
         "pricing_map_size": len(pricing_map),
         "pricing_map": pricing_list,
     }
+
+
+# ---------------------------------------------------------------------------
+# Forecast
+# ---------------------------------------------------------------------------
+
+class ForecastComponent(BaseModel):
+    source: str          # "heartbeats" | "recurring_tasks" | "trajectory"
+    label: str
+    daily_cost: float
+    monthly_cost: float
+    count: int | None = None
+    avg_cost_per_run: float | None = None
+
+
+class LimitForecast(BaseModel):
+    scope_type: str
+    scope_value: str
+    period: str
+    limit_usd: float
+    current_spend: float
+    percentage: float
+    projected_spend: float
+    projected_percentage: float
+
+
+class UsageForecastOut(BaseModel):
+    daily_spend: float
+    monthly_spend: float
+    projected_daily: float
+    projected_monthly: float
+    components: list[ForecastComponent] = []
+    limits: list[LimitForecast] = []
+    computed_at: str
+    hours_elapsed_today: float
+
+
+_RECURRENCE_RE = re.compile(r"^\+(\d+)([smhdw])$")
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def _recurrence_runs_per_day(recurrence: str) -> float:
+    """Parse a recurrence string like '+30m' and return runs per day."""
+    m = _RECURRENCE_RE.match(recurrence.strip())
+    if not m:
+        return 0.0
+    n, unit = int(m.group(1)), m.group(2)
+    interval_secs = n * _UNIT_SECONDS[unit]
+    if interval_secs <= 0:
+        return 0.0
+    return 86400 / interval_secs
+
+
+def _compute_cost_for_events(
+    events: list[TraceEvent],
+    pricing: dict,
+) -> float:
+    """Sum cost across a list of TraceEvent rows."""
+    total = 0.0
+    for ev in events:
+        d = ev.data or {}
+        cost = d.get("response_cost")
+        if cost is None:
+            pt = d.get("prompt_tokens", 0)
+            ct = d.get("completion_tokens", 0)
+            ev_model = d.get("model")
+            ev_provider = d.get("provider_id")
+            input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+            cost = _compute_cost(pt, ct, input_rate, output_rate)
+        if cost is not None:
+            total += cost
+    return total
+
+
+@router.get(
+    "/forecast",
+    response_model=UsageForecastOut,
+    dependencies=[Depends(require_scopes("usage:read"))],
+)
+async def usage_forecast(db: AsyncSession = Depends(get_db)):
+    """Cost forecast: projected daily/monthly spend from heartbeats, recurring tasks, and current trajectory."""
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    seven_days_ago = now - timedelta(days=7)
+    hours_elapsed = (now - today_start).total_seconds() / 3600
+    days_elapsed = (now - month_start).total_seconds() / 86400
+
+    pricing = await _load_pricing_map(db)
+
+    # --- Actual spend today & this month ---
+    today_events, _ = await _fetch_token_usage_events(db, after=today_start)
+    daily_spend = _compute_cost_for_events(today_events, pricing)
+
+    month_events, _ = await _fetch_token_usage_events(db, after=month_start)
+    monthly_spend = _compute_cost_for_events(month_events, pricing)
+
+    components: list[ForecastComponent] = []
+
+    # --- Heartbeat forecast ---
+    heartbeats = (await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.enabled == True)  # noqa: E712
+    )).scalars().all()
+
+    if heartbeats:
+        hb_ids = [hb.id for hb in heartbeats]
+        # Fetch recent runs with correlation_ids for cost lookup
+        recent_runs = (await db.execute(
+            select(HeartbeatRun).where(
+                HeartbeatRun.heartbeat_id.in_(hb_ids),
+                HeartbeatRun.run_at >= seven_days_ago,
+                HeartbeatRun.correlation_id.isnot(None),
+            )
+        )).scalars().all()
+
+        correlation_ids = [r.correlation_id for r in recent_runs if r.correlation_id]
+
+        hb_cost_total = 0.0
+        hb_run_count = 0
+        if correlation_ids:
+            # Batch fetch trace events for heartbeat runs
+            hb_events = (await db.execute(
+                select(TraceEvent).where(
+                    TraceEvent.event_type == "token_usage",
+                    TraceEvent.correlation_id.in_(correlation_ids),
+                )
+            )).scalars().all()
+            hb_cost_total = _compute_cost_for_events(hb_events, pricing)
+            hb_run_count = len(correlation_ids)
+
+        avg_cost_per_hb = hb_cost_total / hb_run_count if hb_run_count > 0 else 0.0
+
+        # Compute total runs per day across all enabled heartbeats
+        from app.services.heartbeat import _resolve_quiet_range
+        total_runs_per_day = 0.0
+        for hb in heartbeats:
+            interval = hb.interval_minutes or 60
+            quiet = _resolve_quiet_range(hb)
+            if quiet:
+                qs, qe = quiet
+                quiet_mins = (qe.hour * 60 + qe.minute) - (qs.hour * 60 + qs.minute)
+                if quiet_mins < 0:
+                    quiet_mins += 24 * 60  # wraps midnight
+            else:
+                quiet_mins = 0
+            active_mins = max(24 * 60 - quiet_mins, 0)
+            total_runs_per_day += active_mins / interval if interval > 0 else 0
+
+        hb_daily = total_runs_per_day * avg_cost_per_hb
+        components.append(ForecastComponent(
+            source="heartbeats",
+            label="Scheduled heartbeats",
+            daily_cost=round(hb_daily, 4),
+            monthly_cost=round(hb_daily * 30, 4),
+            count=len(heartbeats),
+            avg_cost_per_run=round(avg_cost_per_hb, 6) if avg_cost_per_hb > 0 else None,
+        ))
+
+    # --- Recurring task forecast ---
+    recurring_tasks = (await db.execute(
+        select(Task).where(
+            Task.status == "active",
+            Task.recurrence.isnot(None),
+        )
+    )).scalars().all()
+
+    if recurring_tasks:
+        # Estimate avg cost per task run from recent completed task runs
+        # Scope to task-related correlation_ids (not all events for the bot)
+        recent_completed_tasks = (await db.execute(
+            select(Task).where(
+                Task.status.in_(["completed", "active"]),
+                Task.recurrence.isnot(None),
+                Task.correlation_id.isnot(None),
+                Task.updated_at >= seven_days_ago,
+            )
+        )).scalars().all()
+
+        task_correlation_ids = [t.correlation_id for t in recent_completed_tasks if t.correlation_id]
+
+        # Group costs by bot_id from task-scoped events only
+        bot_run_costs: dict[str, list[float]] = {}  # bot_id -> [cost_per_run, ...]
+        if task_correlation_ids:
+            task_events = (await db.execute(
+                select(TraceEvent).where(
+                    TraceEvent.event_type == "token_usage",
+                    TraceEvent.correlation_id.in_(task_correlation_ids),
+                )
+            )).scalars().all()
+
+            # Group events by correlation_id, then sum per-run cost
+            from collections import defaultdict
+            corr_costs: dict[str, float] = defaultdict(float)
+            corr_bot: dict[str, str] = {}
+            for ev in task_events:
+                cid = str(ev.correlation_id) if ev.correlation_id else None
+                if not cid:
+                    continue
+                d = ev.data or {}
+                cost = d.get("response_cost")
+                if cost is None:
+                    pt = d.get("prompt_tokens", 0)
+                    ct = d.get("completion_tokens", 0)
+                    ev_model = d.get("model")
+                    ev_provider = d.get("provider_id")
+                    input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+                    cost = _compute_cost(pt, ct, input_rate, output_rate)
+                if cost is not None:
+                    corr_costs[cid] += cost
+                if ev.bot_id:
+                    corr_bot[cid] = ev.bot_id
+
+            for cid, run_cost in corr_costs.items():
+                bid = corr_bot.get(cid)
+                if bid:
+                    bot_run_costs.setdefault(bid, []).append(run_cost)
+
+        task_daily = 0.0
+        for task in recurring_tasks:
+            runs_per_day = _recurrence_runs_per_day(task.recurrence or "")
+            costs = bot_run_costs.get(task.bot_id, [])
+            avg_cost = sum(costs) / len(costs) if costs else 0.0
+            task_daily += runs_per_day * avg_cost
+
+        components.append(ForecastComponent(
+            source="recurring_tasks",
+            label="Recurring tasks",
+            daily_cost=round(task_daily, 4),
+            monthly_cost=round(task_daily * 30, 4),
+            count=len(recurring_tasks),
+        ))
+
+    # --- Trajectory (extrapolation from current pace) ---
+    if hours_elapsed >= 1.0:
+        traj_daily = daily_spend / hours_elapsed * 24
+        traj_monthly = monthly_spend / days_elapsed * 30 if days_elapsed >= 1.0 else traj_daily * 30
+        components.append(ForecastComponent(
+            source="trajectory",
+            label="Current pace",
+            daily_cost=round(traj_daily, 4),
+            monthly_cost=round(traj_monthly, 4),
+        ))
+
+    # Projected = max(trajectory, scheduled_total) to avoid double-counting
+    # Trajectory already includes scheduled costs that ran today; scheduled components
+    # are the theoretical daily cost from heartbeats + recurring tasks.
+    scheduled_daily = sum(c.daily_cost for c in components if c.source != "trajectory")
+    scheduled_monthly = sum(c.monthly_cost for c in components if c.source != "trajectory")
+    trajectory_daily = next((c.daily_cost for c in components if c.source == "trajectory"), 0.0)
+    trajectory_monthly = next((c.monthly_cost for c in components if c.source == "trajectory"), 0.0)
+    projected_daily = max(trajectory_daily, scheduled_daily)
+    projected_monthly = max(trajectory_monthly, scheduled_monthly)
+
+    # --- Limit forecasts ---
+    from app.services.usage_limits import _limits, _period_start
+    limit_forecasts: list[LimitForecast] = []
+    for limit in _limits:
+        since = _period_start(limit.period)
+        # Compute current spend for this limit's scope
+        base_q = select(TraceEvent).where(
+            TraceEvent.event_type == "token_usage",
+            TraceEvent.created_at >= since,
+        )
+        if limit.scope_type == "bot":
+            base_q = base_q.where(TraceEvent.bot_id == limit.scope_value)
+        elif limit.scope_type == "model":
+            base_q = base_q.where(TraceEvent.data["model"].astext == limit.scope_value)
+
+        limit_events = (await db.execute(base_q)).scalars().all()
+        current = _compute_cost_for_events(limit_events, pricing)
+        pct = (current / limit.limit_usd * 100) if limit.limit_usd > 0 else 0
+
+        # Project spend to end of period
+        if limit.period == "daily":
+            projected = projected_daily
+        else:  # monthly
+            projected = projected_monthly
+
+        proj_pct = (projected / limit.limit_usd * 100) if limit.limit_usd > 0 else 0
+
+        limit_forecasts.append(LimitForecast(
+            scope_type=limit.scope_type,
+            scope_value=limit.scope_value,
+            period=limit.period,
+            limit_usd=limit.limit_usd,
+            current_spend=round(current, 4),
+            percentage=round(pct, 1),
+            projected_spend=round(projected, 4),
+            projected_percentage=round(proj_pct, 1),
+        ))
+
+    return UsageForecastOut(
+        daily_spend=round(daily_spend, 4),
+        monthly_spend=round(monthly_spend, 4),
+        projected_daily=round(projected_daily, 4),
+        projected_monthly=round(projected_monthly, 4),
+        components=components,
+        limits=limit_forecasts,
+        computed_at=now.isoformat(),
+        hours_elapsed_today=round(hours_elapsed, 2),
+    )

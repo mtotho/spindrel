@@ -74,6 +74,8 @@ class Channel(Base):
     skills_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    carapaces_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    carapaces_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     workspace_skills_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     channel_workspace_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -110,6 +112,7 @@ class Channel(Base):
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    workspace_schema_content: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
@@ -773,6 +776,27 @@ class Bot(Base):
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class Carapace(Base):
+    __tablename__ = "carapaces"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skills: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    local_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    mcp_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    system_prompt_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    includes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
@@ -935,6 +959,7 @@ class HeartbeatRun(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'running'"))
+    repetition_detected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class IntegrationChannelConfig(Base):

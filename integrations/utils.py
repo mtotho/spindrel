@@ -115,6 +115,7 @@ async def inject_message(
     run_agent: bool = False,
     notify: bool = True,
     dispatch_config: dict | None = None,
+    execution_config: dict | None = None,
     db: AsyncSession,
 ) -> dict[str, Any]:
     """
@@ -159,6 +160,7 @@ async def inject_message(
             task_type="api",
             dispatch_type=effective_dispatch.get("type") or "none",
             dispatch_config=effective_dispatch,
+            execution_config=execution_config,
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

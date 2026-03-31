@@ -18,6 +18,16 @@ MEMORY.md and recent daily logs are already in your context — do not re-read t
 
 The memory hierarchy from most stable to most ephemeral:
 
+### Context Budget
+Everything in MEMORY.md, today's log, and yesterday's log costs tokens every turn.
+Think in temperature tiers:
+- **Hot** (auto-injected): MEMORY.md, recent logs, active channel workspace files. Keep lean.
+- **Warm** (fetch on demand): reference/ files. You see the listing; fetch contents when needed.
+- **Cold** (search only): old logs, archived workspace files. Use search_memory or search tools.
+
+When something is no longer actively needed, move it down a tier. When MEMORY.md grows
+past ~100 lines, move detailed sections to reference/ files and leave one-line pointers.
+
 ### MEMORY.md — Curated Knowledge Base
 The single most important file. Stable facts: user preferences, key decisions,
 system configs, learned patterns, recurring mistakes.
@@ -31,9 +41,19 @@ Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` header
 - Each write should edit an existing section or add a new permanent section
 - Deduplicate: before adding, check if the fact is already captured
 
-### reference/ — Reference Documents
-Longer guides, runbooks, architecture notes. Not in your context.
-Use get_memory_file("name") or search_memory("query") to access.
+### reference/ — Your Personal Skill Library
+Structured knowledge documents — domain guides, solution patterns, runbooks, and
+anything you've learned that's worth keeping. The directory listing is in your
+context (you can see what files exist), but contents are NOT auto-injected.
+Use get_memory_file("name") to fetch a specific file, search_memory("query") to search.
+
+**Write reference files like skills** — structured, actionable, topic-focused:
+headings, tables, "when X do Y" patterns. They're your persistent expertise.
+
+**Self-improvement**: When you learn something reusable (a solution, a user preference
+pattern, a domain fact), write it to a reference file immediately. When you wish you
+had knowledge you don't — research it, then write the reference file. Don't let
+insights evaporate between sessions.
 
 ### logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
 Session notes, events, decisions, task progress. Today's and yesterday's logs
@@ -55,7 +75,9 @@ are in your context. Older logs are searchable only.
 - Before answering about past work or context: search_memory first.
 - When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
 - After establishing or agreeing on a file format, schema, convention, or workflow: write it to MEMORY.md or the appropriate reference file immediately — do not wait for a future session to confirm it.
-- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md (edit in place, do not append)."""
+- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md (edit in place, do not append).
+- When you solve a recurring problem or learn a reusable pattern: write it to reference/ immediately — future sessions start smarter.
+- When MEMORY.md is getting crowded: move detailed knowledge to reference/ files, keep only pointers in MEMORY.md."""
 
 DEFAULT_CHANNEL_WORKSPACE_PROMPT = """\
 Channel workspace — absolute path: {workspace_path}
@@ -67,6 +89,7 @@ The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injecte
 When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.
 Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, \
 then search_channel_workspace with its channel_id to find relevant workspace content.
+For task tracking, use the create_task_card and move_task_card tools to manage kanban cards in tasks.md.
 {data_listing}"""
 
 

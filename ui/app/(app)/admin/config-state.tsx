@@ -1,12 +1,82 @@
-import { useState, useCallback, useRef } from "react";
-import { View, Text, ActivityIndicator, Pressable, Platform } from "react-native";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { View, Text, ActivityIndicator, Pressable, Platform, Animated } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Check, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronRight, Download, Upload, ShieldAlert } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+
+const SENSITIVE_KEY_PATTERN = /api[_-]?key|secret|token|password|credential|auth[_-]?header/i;
+
+function redactSecrets(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(redactSecrets);
+  if (typeof obj === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (SENSITIVE_KEY_PATTERN.test(k) && v != null && v !== "" && typeof v !== "object") {
+        out[k] = "***REDACTED***";
+      } else {
+        out[k] = redactSecrets(v);
+      }
+    }
+    return out;
+  }
+  return obj;
+}
+
+function countRedacted(original: any, redacted: any): number {
+  if (original === null || original === undefined || typeof original !== "object") return 0;
+  if (Array.isArray(original)) {
+    return original.reduce((sum, item, i) => sum + countRedacted(item, redacted?.[i]), 0);
+  }
+  let count = 0;
+  for (const k of Object.keys(original)) {
+    if (redacted?.[k] === "***REDACTED***" && original[k] !== "***REDACTED***") {
+      count++;
+    } else {
+      count += countRedacted(original[k], redacted?.[k]);
+    }
+  }
+  return count;
+}
+
+function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  const t = useThemeTokens();
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    const timer = setTimeout(() => {
+      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => onDismiss());
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [onDismiss, opacity]);
+  return (
+    <Animated.View
+      style={{
+        position: "absolute",
+        bottom: 24,
+        left: 16,
+        right: 16,
+        maxWidth: 480,
+        alignSelf: "center",
+        opacity,
+        backgroundColor: t.warning,
+        borderRadius: 8,
+        padding: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        zIndex: 100,
+      }}
+    >
+      <ShieldAlert size={16} color="#000" />
+      <Text style={{ fontSize: 12, color: "#000", flex: 1 }}>{message}</Text>
+    </Animated.View>
+  );
+}
 
 function useConfigState() {
   return useQuery({
@@ -382,6 +452,7 @@ export default function ConfigStatePage() {
   const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePageRefresh();
   const [copied, setCopied] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{ status: string; summary: Record<string, any> } | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -391,9 +462,16 @@ export default function ConfigStatePage() {
   const handleCopy = useCallback(async () => {
     if (!data) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      const redacted = redactSecrets(data);
+      const n = countRedacted(data, redacted);
+      await navigator.clipboard.writeText(JSON.stringify(redacted, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      if (n > 0) {
+        setToastMessage(
+          `${n} secret${n > 1 ? "s" : ""} redacted from clipboard. Use Backup to export with secrets.`
+        );
+      }
     } catch {
       // fallback: noop
     }
@@ -706,6 +784,7 @@ export default function ConfigStatePage() {
           </View>
         ) : null}
       </RefreshableScrollView>
+      {toastMessage && <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </View>
   );
 }

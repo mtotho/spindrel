@@ -151,7 +151,7 @@ async def verify_admin_auth(
     try:
         payload = decode_access_token(token)
     except _jwt.InvalidTokenError:
-        raise HTTPException(status_code=403, detail="Admin access denied")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     user_id = UUID(payload["sub"])
     user = await get_user_by_id(db, user_id)

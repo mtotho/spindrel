@@ -11,6 +11,7 @@ from app.services.heartbeat import (
     get_effective_interval,
     next_aligned_time,
     _detect_repetition,
+    _build_repetition_preamble,
 )
 
 
@@ -343,3 +344,98 @@ class TestDetectRepetition:
         assert Settings.model_fields["HEARTBEAT_REPETITION_DETECTION"].default is True
         assert Settings.model_fields["HEARTBEAT_REPETITION_THRESHOLD"].default == 0.8
         assert "repetitive" in Settings.model_fields["HEARTBEAT_REPETITION_WARNING"].default.lower()
+
+    def test_short_similar_results_detected_with_adaptive_threshold(self):
+        """Short responses (~100 chars) with minor rephrasing should be caught."""
+        runs = [
+            _make_run(result="Phase 2 documentation setup remains overdue."),
+            _make_run(result="Phase 2 documentation setup is still overdue."),
+            _make_run(result="Phase 2 documentation setup remains overdue."),
+        ]
+        # With default 0.8 threshold this would fail; adaptive scaling catches it
+        assert _detect_repetition(runs, {}, threshold=0.8) is True
+
+    def test_short_different_results_not_flagged(self):
+        """Short but genuinely different results should not trigger."""
+        runs = [
+            _make_run(result="Phase 2 docs overdue."),
+            _make_run(result="Server backup completed OK."),
+            _make_run(result="No new alerts today."),
+        ]
+        assert _detect_repetition(runs, {}, threshold=0.8) is False
+
+    def test_very_short_identical_detected(self):
+        """Even very short identical strings should be caught."""
+        runs = [
+            _make_run(result="No updates."),
+            _make_run(result="No updates."),
+            _make_run(result="No updates."),
+        ]
+        assert _detect_repetition(runs, {}, threshold=0.8) is True
+
+    def test_medium_length_threshold_scales(self):
+        """200-char responses use the 0.7 multiplier."""
+        base = "The deployment pipeline completed successfully with all tests passing. " * 3
+        variant_a = base + " Minor variance A."
+        variant_b = base + " Minor variance B."
+        variant_c = base + " Minor variance C."
+        runs = [
+            _make_run(result=variant_a),
+            _make_run(result=variant_b),
+            _make_run(result=variant_c),
+        ]
+        assert _detect_repetition(runs, {}, threshold=0.8) is True
+
+    def test_long_different_no_false_positive(self):
+        """Long but genuinely different results should not false-positive."""
+        runs = [
+            _make_run(result="A" * 400),
+            _make_run(result="B" * 400),
+            _make_run(result="C" * 400),
+        ]
+        assert _detect_repetition(runs, {}, threshold=0.8) is False
+
+
+class TestBuildRepetitionPreamble:
+    """Tests for _build_repetition_preamble() helper."""
+
+    def test_includes_full_results(self):
+        runs = [
+            _make_run(result="Result one full text here."),
+            _make_run(result="Result two full text here."),
+            _make_run(result="Result three full text here."),
+        ]
+        preamble = _build_repetition_preamble(runs)
+        assert "Result one full text here." in preamble
+        assert "Result two full text here." in preamble
+        assert "Result three full text here." in preamble
+
+    def test_includes_warning_text(self):
+        runs = [
+            _make_run(result="Same."),
+            _make_run(result="Same."),
+            _make_run(result="Same."),
+        ]
+        preamble = _build_repetition_preamble(runs)
+        assert "MUST NOT" in preamble
+        assert "REPETITION ALERT" in preamble
+
+    def test_limits_to_three_results(self):
+        runs = [
+            _make_run(result=f"Result {i}") for i in range(5)
+        ]
+        preamble = _build_repetition_preamble(runs)
+        assert "Result 0" in preamble
+        assert "Result 1" in preamble
+        assert "Result 2" in preamble
+        assert "Result 3" not in preamble
+
+    def test_skips_none_results(self):
+        runs = [
+            _make_run(result="Has text."),
+            _make_run(result=None),
+            _make_run(result="Also text."),
+        ]
+        preamble = _build_repetition_preamble(runs)
+        assert "Has text." in preamble
+        assert "Also text." in preamble

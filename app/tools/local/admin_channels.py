@@ -47,7 +47,9 @@ logger = logging.getLogger(__name__)
                         "Channel configuration for configure. Keys: "
                         "workspace_schema_template_id, heartbeat_enabled, "
                         "channel_workspace_enabled, context_compaction, "
-                        "model_override, display_name, channel_prompt."
+                        "model_override, display_name, channel_prompt, "
+                        "carapaces_extra (list of carapace IDs to add), "
+                        "carapaces_disabled (list of carapace IDs to suppress)."
                     ),
                 },
             },
@@ -136,6 +138,7 @@ async def manage_channel(
                 "context_compaction", "compaction_interval", "compaction_keep_turns",
                 "channel_workspace_enabled", "require_mention",
                 "workspace_schema_template_id",
+                "carapaces_extra", "carapaces_disabled",
             ]
             for field in simple_fields:
                 if field in config:

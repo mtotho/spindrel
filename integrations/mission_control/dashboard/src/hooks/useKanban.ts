@@ -20,7 +20,20 @@ export function useKanban(channelId: string | undefined) {
       const content = serializeTasksMd(columns);
       await writeFileContent(channelId!, "tasks.md", content);
     },
-    onSuccess: () => {
+    onMutate: async (newColumns) => {
+      // Cancel outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["kanban", channelId] });
+      const previous = queryClient.getQueryData<KanbanColumn[]>(["kanban", channelId]);
+      queryClient.setQueryData(["kanban", channelId], newColumns);
+      return { previous };
+    },
+    onError: (_err, _newColumns, context) => {
+      // Roll back to previous state on error
+      if (context?.previous) {
+        queryClient.setQueryData(["kanban", channelId], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["kanban", channelId] });
     },
   });

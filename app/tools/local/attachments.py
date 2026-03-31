@@ -109,8 +109,8 @@ async def list_attachments(
     from app.db.engine import async_session
     from app.db.models import Attachment
 
-    limit = max(1, min(limit, 50))
-    page = max(1, page)
+    limit = max(1, min(int(limit), 50))
+    page = max(1, int(page))
     offset = (page - 1) * limit
 
     # Resolve channel_id
@@ -168,6 +168,56 @@ async def list_attachments(
         "total_pages": total_pages,
         "total_count": total,
         "showing": f"{offset + 1}-{offset + len(items)} of {total}",
+    })
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "view_attachment",
+        "description": (
+            "Load an image attachment into the conversation so YOU can see it directly. "
+            "Unlike describe_attachment (which uses a separate vision model call), this "
+            "injects the image into your own context — you see the actual pixels and can "
+            "analyze them with your full capabilities. Use this for detailed visual "
+            "assessment where your own judgment matters (e.g. dough assessment, plant "
+            "health, photo comparison). Works with image attachments only."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The UUID of the image attachment to view.",
+                },
+            },
+            "required": ["attachment_id"],
+        },
+    },
+})
+async def view_attachment(attachment_id: str) -> str:
+    from app.services.attachments import get_attachment_by_id
+
+    try:
+        att_uuid = uuid.UUID(attachment_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+    att = await get_attachment_by_id(att_uuid)
+    if att is None:
+        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+
+    mime = att.mime_type or ""
+    if not mime.startswith("image/"):
+        return json.dumps({"error": f"view_attachment only supports images, got {mime}"})
+
+    if not att.file_data:
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+    b64 = base64.b64encode(att.file_data).decode("ascii")
+    return json.dumps({
+        "injected_images": [{"mime_type": mime, "base64": b64}],
+        "message": f"Image '{att.filename}' loaded — analyze it and respond.",
     })
 
 

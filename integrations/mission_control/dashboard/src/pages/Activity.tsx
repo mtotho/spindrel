@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchFileChannels, fetchDailyLogs } from "../lib/api";
 import MarkdownViewer from "../components/MarkdownViewer";
+import EmptyState from "../components/EmptyState";
 import LoadingSpinner from "../components/LoadingSpinner";
 import type { DailyLog, FileChannel } from "../lib/types";
 
@@ -20,7 +21,6 @@ export default function Activity() {
       const channels = await fetchFileChannels();
       const allLogs: AggregatedLog[] = [];
 
-      // Fetch logs from each channel (limit concurrency)
       const batch = channels.slice(0, 10);
       const results = await Promise.allSettled(
         batch.map(async (ch: FileChannel) => {
@@ -39,7 +39,6 @@ export default function Activity() {
         }
       }
 
-      // Sort by date descending
       allLogs.sort((a, b) => b.date.localeCompare(a.date));
       return allLogs;
     },
@@ -56,12 +55,16 @@ export default function Activity() {
       </div>
 
       {!data?.length ? (
-        <p className="text-sm text-gray-500">No activity logs found.</p>
+        <EmptyState
+          icon="◉"
+          title="No activity yet"
+          description="Activity logs will appear here as bots work in channels. Each bot writes daily logs to memory/logs/ in its workspace."
+        />
       ) : (
         <div className="space-y-4">
-          {data.map((log, i) => (
+          {data.map((log) => (
             <div
-              key={`${log.channelId}-${log.date}-${i}`}
+              key={`${log.channelId}-${log.date}`}
               className="bg-surface-1 rounded-xl border border-surface-3 p-4"
             >
               <div className="flex items-center gap-2 mb-2">
