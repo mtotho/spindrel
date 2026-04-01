@@ -2,6 +2,8 @@
 name: "Restaurant / Small Business"
 description: "Workspace schema for restaurant or small business operations — daily ops, inventory, staff, vendors, and menu management."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - restaurant
   - small-business

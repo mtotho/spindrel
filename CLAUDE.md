@@ -207,6 +207,7 @@ Pluggable integration architecture for connecting to external services.
 - **Carapaces**: Auto-seeded from `integrations/*/carapaces/*.yaml`
 - **Sidebar sections**: Declared via `sidebar_section` in `setup.py` SETUP dict
 - **Dashboard modules**: Declared via `dashboard_modules` in `setup.py` SETUP dict
+- **Activation + template compatibility**: `activation` block in SETUP declares carapace injection and `compatible_templates` tags; templates declare `compatible_integrations` frontmatter. See `docs/integrations/activation-and-templates.md`
 
 #### setup.py SETUP Manifest Fields
 ```python

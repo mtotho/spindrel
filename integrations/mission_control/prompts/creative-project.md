@@ -2,6 +2,8 @@
 name: "Creative Project"
 description: "Workspace schema for creative projects — briefs, concepts, feedback, and timelines."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - creative
   - design

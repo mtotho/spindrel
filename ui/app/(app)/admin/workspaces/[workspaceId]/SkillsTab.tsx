@@ -38,7 +38,7 @@ export function SkillsTab({
       {/* Workspace Skills */}
       <Section title="Workspace Skills" description="Auto-discover skill .md files from workspace filesystem and inject into bot context.">
         <FormRow label="Enable workspace skills injection">
-          <Toggle value={skillsEnabled} onChange={setSkillsEnabled} label="Enable workspace skills" />
+          <Toggle value={skillsEnabled} onChange={setSkillsEnabled} />
         </FormRow>
         <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
           <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>Directory conventions:</div>
@@ -85,7 +85,7 @@ export function SkillsTab({
       {/* Workspace Base Prompt */}
       <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
         <FormRow label="Enable workspace base prompt override">
-          <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} label="Enable workspace base prompt" />
+          <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
         </FormRow>
         <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
           <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File conventions:</div>

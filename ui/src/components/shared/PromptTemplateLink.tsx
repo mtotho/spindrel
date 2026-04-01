@@ -18,9 +18,11 @@ interface Props {
   category?: string;
   /** When set, templates with this tag get a "Recommended" badge */
   highlightTag?: string;
+  /** Human-readable name for the highlighting integration */
+  highlightLabel?: string;
 }
 
-export function PromptTemplateLink({ templateId, onLink, onUnlink, category, highlightTag }: Props) {
+export function PromptTemplateLink({ templateId, onLink, onUnlink, category, highlightTag, highlightLabel }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -36,13 +38,26 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
           (tpl) =>
             tpl.name.toLowerCase().includes(q) ||
             (tpl.category || "").toLowerCase().includes(q) ||
-            (tpl.description || "").toLowerCase().includes(q)
+            (tpl.description || "").toLowerCase().includes(q) ||
+            (tpl.tags || []).some((tag: string) => tag.toLowerCase().includes(q))
         )
       : templates
     : [];
 
   // Only show manual templates (not workspace_file sourced)
-  const manual = filtered.filter((tpl) => tpl.source_type !== "workspace_file");
+  const allManual = filtered.filter((tpl) => tpl.source_type !== "workspace_file");
+
+  // Sort compatible templates first when highlightTag is set
+  const manual = highlightTag
+    ? [
+        ...allManual.filter((tpl) => tpl.tags?.includes(highlightTag)),
+        ...allManual.filter((tpl) => !tpl.tags?.includes(highlightTag)),
+      ]
+    : allManual;
+
+  const compatCount = highlightTag
+    ? manual.filter((tpl) => tpl.tags?.includes(highlightTag)).length
+    : 0;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
@@ -187,86 +202,120 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                           No templates found
                         </div>
                       )}
-                      {manual.map((tpl) => {
+                      {manual.map((tpl, idx) => {
                         const isHighlighted = highlightTag && tpl.tags?.includes(highlightTag);
+                        const badgeLabel = isHighlighted
+                          ? (highlightLabel || "Recommended")
+                          : undefined;
+                        // Section headers when highlightTag is set
+                        const showCompatHeader = highlightTag && compatCount > 0 && idx === 0 && isHighlighted;
+                        const showOtherHeader = highlightTag && compatCount > 0 && idx === compatCount;
                         return (
-                        <button
-                          key={tpl.id}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            onLink(tpl.id);
-                            setOpen(false);
-                            setSearch("");
-                          }}
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
-                            width: "100%",
-                            padding: "6px 12px",
-                            background: "transparent",
-                            border: "none",
-                            cursor: "pointer",
-                            textAlign: "left",
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <Pencil size={11} color={t.accent} />
-                            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
-                              {tpl.name}
-                            </span>
-                            {isHighlighted && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                  textTransform: "uppercase",
-                                  letterSpacing: 0.5,
-                                  padding: "1px 5px",
-                                  borderRadius: 3,
-                                  background: "rgba(34,197,94,0.12)",
-                                  color: "#22c55e",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                Recommended
-                              </span>
-                            )}
-                            {(tpl.source_type === "integration" || tpl.source_type === "file") && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                  textTransform: "uppercase",
-                                  letterSpacing: 0.5,
-                                  padding: "1px 5px",
-                                  borderRadius: 3,
-                                  background: t.surfaceOverlay,
-                                  color: t.textDim,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {(tpl.source_type === "integration" && getIntegrationLabel(tpl.source_path)) || "Built-in"}
-                              </span>
-                            )}
-                          </div>
-                          {tpl.description && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: t.textDim,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                paddingLeft: 17,
-                              }}
-                            >
-                              {tpl.description}
-                            </span>
+                        <div key={tpl.id}>
+                          {showCompatHeader && (
+                            <div style={{
+                              padding: "6px 12px 2px",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "#22c55e",
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                            }}>
+                              Compatible with {highlightLabel || "integration"}
+                            </div>
                           )}
-                        </button>
+                          {showOtherHeader && (
+                            <div style={{
+                              padding: "8px 12px 2px",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: t.textDim,
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                              borderTop: `1px solid ${t.surfaceBorder}`,
+                              marginTop: 4,
+                            }}>
+                              Other templates
+                            </div>
+                          )}
+                          <button
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              onLink(tpl.id);
+                              setOpen(false);
+                              setSearch("");
+                            }}
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 2,
+                              width: "100%",
+                              padding: "6px 12px",
+                              background: "transparent",
+                              border: "none",
+                              cursor: "pointer",
+                              textAlign: "left",
+                              opacity: highlightTag && !isHighlighted ? 0.7 : 1,
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <Pencil size={11} color={t.accent} />
+                              <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                                {tpl.name}
+                              </span>
+                              {badgeLabel && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    textTransform: "uppercase",
+                                    letterSpacing: 0.5,
+                                    padding: "1px 5px",
+                                    borderRadius: 3,
+                                    background: "rgba(34,197,94,0.12)",
+                                    color: "#22c55e",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {badgeLabel}
+                                </span>
+                              )}
+                              {(tpl.source_type === "integration" || tpl.source_type === "file") && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    textTransform: "uppercase",
+                                    letterSpacing: 0.5,
+                                    padding: "1px 5px",
+                                    borderRadius: 3,
+                                    background: t.surfaceOverlay,
+                                    color: t.textDim,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {(tpl.source_type === "integration" && getIntegrationLabel(tpl.source_path)) || "Built-in"}
+                                </span>
+                              )}
+                            </div>
+                            {tpl.description && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: t.textDim,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  paddingLeft: 17,
+                                }}
+                              >
+                                {tpl.description}
+                              </span>
+                            )}
+                          </button>
+                        </div>
                         );
                       })}
                     </div>

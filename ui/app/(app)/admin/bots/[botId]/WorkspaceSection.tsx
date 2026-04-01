@@ -191,6 +191,9 @@ export function WorkspaceSection({
                         if (newEnvKey.trim()) { setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } }); setNewEnvKey(""); setNewEnvVal(""); }
                       })}
                     </div>
+                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 6 }}>
+                      For sensitive values (API keys, tokens), use <a href="/admin/secret-values" style={{ color: t.accent }}>Secrets</a> instead — they are encrypted and redacted from LLM output.
+                    </div>
                   </div>
 
                   {/* Ports */}

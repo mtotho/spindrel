@@ -336,6 +336,13 @@ export default function SecretValuesScreen() {
           >
             Secret values are encrypted at rest and injected as environment variables into workspace
             containers. Their values are automatically redacted from tool results and LLM output.
+            <br /><br />
+            <strong>When to use Secrets vs. workspace env vars:</strong> Use Secrets for sensitive
+            values (API keys, tokens, passwords) that should never appear in tool results or
+            conversation history. Use the env vars in{" "}
+            <a href="/admin/bots" style={{ color: t.accent }}>Bot</a> or{" "}
+            <a href="/admin/workspaces" style={{ color: t.accent }}>Workspace</a> Docker settings
+            for non-sensitive configuration (feature flags, URLs, runtime options).
           </div>
 
           {isLoading ? (

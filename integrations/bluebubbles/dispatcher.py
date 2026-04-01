@@ -12,6 +12,7 @@ import httpx
 
 from app.agent.dispatchers import register
 from integrations.bluebubbles.bb_api import send_text
+from integrations.bluebubbles.echo_tracker import shared_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,11 @@ def _split_text(text: str, max_len: int = _MAX_MSG_LEN) -> list[str]:
 
 async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) -> bool:
     """Send a text message via BB API. Returns True on success."""
+    temp_guid = str(uuid.uuid4())
+    shared_tracker.track_sent(temp_guid, text)
     result = await send_text(
         _http, server_url, password, chat_guid, text,
-        temp_guid=str(uuid.uuid4()),
+        temp_guid=temp_guid,
     )
     return result is not None
 

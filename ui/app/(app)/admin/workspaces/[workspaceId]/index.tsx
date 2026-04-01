@@ -6,7 +6,6 @@ import {
   FileText, AlertCircle,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   useWorkspace, useCreateWorkspace, useUpdateWorkspace, useDeleteWorkspace,
   useStartWorkspace, useStopWorkspace, useRecreateWorkspace,
@@ -200,8 +199,6 @@ export default function WorkspaceDetailScreen() {
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const isNew = workspaceId === "new";
   const goBack = useGoBack("/admin/workspaces");
-  const qc = useQueryClient();
-
   const { data: workspace, isLoading } = useWorkspace(isNew ? undefined : workspaceId);
   const { data: liveStatus } = useWorkspaceStatus(
     !isNew && workspace ? workspaceId : undefined
@@ -448,7 +445,7 @@ export default function WorkspaceDetailScreen() {
       </div>
 
       {/* Validation warnings bar */}
-      {hasWarnings && activeTab === "docker" && (
+      {hasWarnings && (
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "6px 20px", background: t.warningSubtle,
@@ -603,7 +600,7 @@ export default function WorkspaceDetailScreen() {
 
         {/* ---- Editor Tab ---- */}
         {activeTab === "editor" && !isNew && workspace && (
-          <EditorTab workspace={workspace} />
+          <EditorTab workspace={workspace} currentStatus={currentStatus} />
         )}
       </ScrollView>
     </View>

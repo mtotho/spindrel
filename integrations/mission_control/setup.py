@@ -1,6 +1,7 @@
 """Mission Control integration setup manifest."""
 
 SETUP = {
+    "version": "1.0",
     "icon": "LayoutDashboard",
     "env_vars": [
         {
@@ -38,6 +39,7 @@ SETUP = {
         "carapaces": ["mission-control"],
         "requires_workspace": True,
         "description": "Project management with task boards, plans, and timelines",
+        "compatible_templates": ["mission-control"],
     },
     "webhook": None,
     "instructions_url": None,

@@ -40,9 +40,23 @@ pip install -r integrations/bluebubbles/requirements.txt
 
 ### 3. Start the Agent Server
 
-The BlueBubbles integration is auto-discovered. When `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` are set, the Socket.IO client process starts automatically alongside the server.
+The BlueBubbles integration is auto-discovered. When `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` are set, the integration activates automatically.
 
-### 4. Bind Channels
+### 4. Configure Webhook in BlueBubbles
+
+**This is the primary message delivery mechanism.** BlueBubbles delivers new-message events via HTTP webhooks (not Socket.IO).
+
+1. Open your BlueBubbles Server UI
+2. Navigate to **Settings → API & Webhooks**
+3. Click **Add Webhook**
+4. Set the URL to: `http://{agent-server-host}:8000/integrations/bluebubbles/webhook?token={BLUEBUBBLES_PASSWORD}`
+   - The `?token=` param authenticates the webhook using your BB server password. Without it, requests are rejected with 401.
+5. Subscribe to the `new-message` event (at minimum)
+6. Save
+
+> **Note:** The Socket.IO client (`bb_client.py`) is kept for connection status diagnostics only — it does NOT receive message events. All message delivery happens through this webhook.
+
+### 5. Bind Channels
 
 Create channel bindings in the admin UI or via API:
 
@@ -199,6 +213,7 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/integrations/bluebubbles/webhook` | POST | Webhook receiver for BB new-message events |
 | `/integrations/bluebubbles/config` | GET | Current configuration (bot map, wake words, channel settings) |
 | `/integrations/bluebubbles/config/chat-bot-map` | POST | Set per-chat bot mapping |
 | `/integrations/bluebubbles/config/chat-bot-map/{chat_guid}` | DELETE | Remove per-chat mapping |
@@ -214,21 +229,22 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
                     │  BlueBubbles │
                     │    Server    │
                     └──────┬───────┘
-                           │ Socket.IO (new-message)
+                           │ HTTP POST (webhook)
                            v
-                    ┌──────────────┐
-                    │  bb_client   │  Runs as separate process
-                    │   .py        │  - Echo detection
-                    │              │  - Wake word check
-                    │              │  - Active vs passive routing
-                    └──────┬───────┘
+                    ┌──────────────────────┐
+                    │  /integrations/      │  FastAPI endpoint
+                    │  bluebubbles/webhook │  - Echo detection
+                    │                      │  - Channel resolution
+                    │                      │  - Wake word check
+                    │                      │  - Active vs passive
+                    └──────┬───────────────┘
                            │
               ┌────────────┴────────────┐
               │                         │
               v                         v
      ┌────────────────┐       ┌─────────────────┐
-     │  /chat/stream   │       │  /chat (passive) │
-     │  (active msg)   │       │  (stored only)   │
+     │  Task (active)  │       │  Passive store   │
+     │  → Agent Loop   │       │  (context only)  │
      └───────┬────────┘       └─────────────────┘
              │
              v
@@ -238,9 +254,13 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
              │
              v
      ┌────────────────┐
-     │  BB REST API    │  send_text() → iMessage
+     │  BB Dispatcher  │  send_text() → iMessage
+     │  (echo tracked) │
      └────────────────┘
 ```
+
+> The Socket.IO client (`bb_client.py`) maintains a connection for status
+> diagnostics but is **not** used for message delivery.
 
 ## Troubleshooting
 

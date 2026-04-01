@@ -1,4 +1,6 @@
-"""Tests for BlueBubbles wake word + require_mention support."""
+"""Tests for BlueBubbles wake word + require_mention + webhook support."""
+import uuid
+
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -284,3 +286,278 @@ class TestPassiveStoreMemoryFlag:
             "include_in_memory": settings.get("passive_memory", True),
         }
         assert metadata["include_in_memory"] is False
+
+
+# ---------------------------------------------------------------------------
+# Webhook endpoint tests
+# ---------------------------------------------------------------------------
+
+def _bb_webhook_payload(
+    text: str = "hello",
+    chat_guid: str = "iMessage;-;+15551234567",
+    is_from_me: bool = False,
+    msg_guid: str = "msg-abc-123",
+    sender: str = "+15559999999",
+    event_type: str = "new-message",
+) -> dict:
+    """Build a BlueBubbles webhook payload."""
+    data = {
+        "guid": msg_guid,
+        "text": text,
+        "isFromMe": is_from_me,
+        "chats": [{"guid": chat_guid}],
+    }
+    if not is_from_me:
+        data["handle"] = {"address": sender}
+    return {"type": event_type, "data": data}
+
+
+def _make_channel(require_mention: bool = True, bot_id: str = "default"):
+    ch = MagicMock()
+    ch.id = uuid.uuid4()
+    ch.bot_id = bot_id
+    ch.require_mention = require_mention
+    ch.active_session_id = None
+    return ch
+
+
+def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567"):
+    b = MagicMock()
+    b.channel_id = channel_id
+    b.client_id = client_id
+    return b
+
+
+_AGENT_API_KEY = "test-agent-api-key"
+
+
+def _mock_bb_settings(wake_words="atlas", default_bot="atlas"):
+    s = MagicMock()
+    s.BLUEBUBBLES_SERVER_URL = "http://bb:1234"
+    s.BLUEBUBBLES_PASSWORD = "bb-server-password"
+    s.BB_DEFAULT_BOT = default_bot
+    s.BB_WAKE_WORDS = wake_words
+    return s
+
+
+def _mock_app_settings():
+    s = MagicMock()
+    s.API_KEY = _AGENT_API_KEY
+    return s
+
+
+def _webhook_request(payload: dict) -> AsyncMock:
+    """Build a mock Request with valid auth token and the given JSON payload."""
+    request = AsyncMock()
+    request.json.return_value = payload
+    request.query_params = {"token": _AGENT_API_KEY}
+    return request
+
+
+class TestWebhookEndpoint:
+    """Test the POST /webhook handler in router.py."""
+
+    @pytest.mark.asyncio
+    async def test_missing_token_rejected(self):
+        """Requests without a valid token are rejected with 401."""
+        from fastapi import HTTPException as _Exc
+        from integrations.bluebubbles.router import webhook
+
+        request = AsyncMock()
+        request.json.return_value = _bb_webhook_payload()
+        request.query_params = {}
+        db = AsyncMock()
+
+        with patch("app.config.settings", _mock_app_settings()):
+            with pytest.raises(_Exc) as exc_info:
+                await webhook(request, db)
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_wrong_token_rejected(self):
+        """Requests with wrong token are rejected with 401."""
+        from fastapi import HTTPException as _Exc
+        from integrations.bluebubbles.router import webhook
+
+        request = AsyncMock()
+        request.json.return_value = _bb_webhook_payload()
+        request.query_params = {"token": "wrong-key"}
+        db = AsyncMock()
+
+        with patch("app.config.settings", _mock_app_settings()):
+            with pytest.raises(_Exc) as exc_info:
+                await webhook(request, db)
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_non_new_message_event_ignored(self):
+        """Events other than new-message are ignored."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request({"type": "updated-message", "data": {}})
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            result = await webhook(request, db)
+        assert result["status"] == "ignored"
+        assert result["event"] == "updated-message"
+
+    @pytest.mark.asyncio
+    async def test_empty_text_ignored(self):
+        """Messages with empty text are ignored."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload(text=""))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            result = await webhook(request, db)
+        assert result["status"] == "ignored"
+        assert result["reason"] == "empty_text"
+
+    @pytest.mark.asyncio
+    async def test_unbound_chat_ignored(self):
+        """Messages from chats with no channel binding are ignored."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload(text="hello"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[]), \
+             patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
+            mock_tracker.is_echo.return_value = False
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "unbound"
+
+    @pytest.mark.asyncio
+    async def test_echo_detected_and_skipped(self):
+        """isFromMe + echo tracker match → skipped."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="bot reply", is_from_me=True, msg_guid="echo-guid",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
+            mock_tracker.is_echo.return_value = True
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "echo"
+
+    @pytest.mark.asyncio
+    async def test_from_me_not_echo_active(self):
+        """isFromMe + not echo → active (human texting from phone)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="do something", is_from_me=True,
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._parse_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        mock_utils.inject_message.assert_called_once()
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_external_with_wake_word_active(self):
+        """External message with wake word → active."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="atlas what's the weather"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_external_without_wake_word_passive(self):
+        """External message without wake word + require_mention → passive."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="random chatter", sender="+15559999999",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is False
+        # Passive content should have sender prefix
+        assert call_kwargs.args[1].startswith("[+15559999999]:")
+
+    @pytest.mark.asyncio
+    async def test_require_mention_false_always_active(self):
+        """Channel with require_mention=False → always active for external messages."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="no wake word here"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True

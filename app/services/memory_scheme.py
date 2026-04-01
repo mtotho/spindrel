@@ -47,11 +47,9 @@ def get_memory_rel_path(bot: BotConfig) -> str:
 def get_memory_index_prefix(bot: BotConfig) -> str:
     """Return the memory path prefix as stored in the filesystem index.
 
-    For shared workspace bots the indexing root is the workspace root
-    (not ``bots/{id}/``), so the prefix needs the full workspace-relative path.
-    For standalone bots it's the same as ``get_memory_rel_path``.
+    The indexing root is the shared workspace root (not ``bots/{id}/``),
+    so the prefix needs the full workspace-relative path.
     """
-    # All bots are in the shared workspace; prefix with bot-specific path
     return f"bots/{bot.id}/{MEMORY_DIR}"
 
 

@@ -20,6 +20,8 @@ interface Props {
   onContentChange: (content: string | null) => void;
   /** When set, templates with this tag get a "Recommended" badge in the picker */
   highlightTag?: string;
+  /** Human-readable name of the active integration (e.g. "Mission Control") */
+  activeIntegrationName?: string;
 }
 
 export function WorkspaceSchemaEditor({
@@ -28,6 +30,7 @@ export function WorkspaceSchemaEditor({
   onTemplateChange,
   onContentChange,
   highlightTag,
+  activeIntegrationName,
 }: Props) {
   const t = useThemeTokens();
   const [editing, setEditing] = useState(false);
@@ -99,9 +102,11 @@ export function WorkspaceSchemaEditor({
         {suggested.length > 0 && (
           <View style={{ marginBottom: 8 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
-              <Sparkles size={12} color={t.accent} />
+              <Sparkles size={12} color="#22c55e" />
               <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim }}>
-                Suggested schemas
+                {activeIntegrationName
+                  ? `Compatible with ${activeIntegrationName}`
+                  : "Suggested schemas"}
               </Text>
             </View>
             <View style={{ gap: 6 }}>
@@ -114,14 +119,35 @@ export function WorkspaceSchemaEditor({
                     style={{
                       borderWidth: 1,
                       borderColor: t.surfaceBorder,
+                      borderLeftWidth: 3,
+                      borderLeftColor: "#22c55e",
                       borderRadius: 6,
                       padding: 10,
                       backgroundColor: t.surfaceOverlay,
                     }}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: t.text }}>
-                      {tpl.name}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={{ fontSize: 12, fontWeight: "600", color: t.text, flex: 1 }}>
+                        {tpl.name}
+                      </Text>
+                      {activeIntegrationName && (
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            fontWeight: "700",
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
+                            paddingHorizontal: 5,
+                            paddingVertical: 1,
+                            borderRadius: 3,
+                            backgroundColor: "rgba(34,197,94,0.12)",
+                            color: "#22c55e",
+                          }}
+                        >
+                          {activeIntegrationName}
+                        </Text>
+                      )}
+                    </View>
                     {tpl.description && (
                       <Text
                         numberOfLines={2}
@@ -149,7 +175,17 @@ export function WorkspaceSchemaEditor({
                 );
               })}
             </View>
+            {/* Divider before other templates */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 2 }}>
+              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim }}>Other templates</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+            </View>
           </View>
+        )}
+        {suggested.length === 0 && activeIntegrationName && (
+          <Text style={{ fontSize: 11, color: t.textDim, marginBottom: 6, fontStyle: "italic" }}>
+            No templates found compatible with {activeIntegrationName}. You can link any template below.
+          </Text>
         )}
         <PromptTemplateLink
           templateId={null}
@@ -157,6 +193,7 @@ export function WorkspaceSchemaEditor({
           onUnlink={handleTemplateUnlink}
           category="workspace_schema"
           highlightTag={highlightTag}
+          highlightLabel={activeIntegrationName}
         />
       </View>
     );
@@ -171,7 +208,25 @@ export function WorkspaceSchemaEditor({
         onUnlink={handleTemplateUnlink}
         category="workspace_schema"
         highlightTag={highlightTag}
+        highlightLabel={activeIntegrationName}
       />
+
+      {/* Compatibility badge */}
+      {hasTemplate && activeIntegrationName && highlightTag && (
+        linkedTemplate.tags?.includes(highlightTag) ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <Text style={{ fontSize: 10, color: "#22c55e", fontWeight: "600" }}>
+              {"✓"} Compatible with {activeIntegrationName}
+            </Text>
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <Text style={{ fontSize: 10, color: t.warning, fontWeight: "600" }}>
+              {"⚠"} Not marked as compatible with {activeIntegrationName}
+            </Text>
+          </View>
+        )
+      )}
 
       {/* Template description */}
       {hasTemplate && linkedTemplate.description && !hasOverride && (

@@ -2,6 +2,8 @@
 name: "Mission Control"
 description: "Workspace schema with structured kanban task tracking, status reports, and decision logs."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - mission-control
   - kanban

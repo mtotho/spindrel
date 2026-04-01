@@ -357,7 +357,7 @@ async def create_workspace(
     # Single workspace mode: block creation if one already exists
     existing = (await db.execute(select(SharedWorkspace.id).limit(1))).scalar_one_or_none()
     if existing:
-        raise HTTPException(400, "Single workspace mode: a workspace already exists. Use PUT to update it.")
+        raise HTTPException(400, "Single workspace mode: a workspace already exists.")
     now = datetime.now(timezone.utc)
     ws = SharedWorkspace(
         name=body.name.strip(),

@@ -236,3 +236,106 @@ class TestEnsureAllBotsEnrolled:
         )
         row = result.scalar_one()
         assert row.role == "member"
+
+
+class TestLoadBotsAutoEnrollment:
+    """Verify that load_bots() auto-enrolls new bots into the default workspace."""
+
+    @pytest.mark.asyncio
+    async def test_load_bots_enrolls_new_bot(self, engine, db):
+        """A bot added to the DB should be auto-enrolled after load_bots()."""
+        from unittest.mock import patch
+        from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+        # Create the default workspace
+        ws = SharedWorkspace(name="Default Workspace")
+        db.add(ws)
+        await db.flush()
+
+        # Create a bot
+        db.add(_make_bot_row("new-bot"))
+        await db.flush()
+        await db.commit()
+
+        # Verify NOT enrolled yet
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "new-bot")
+        )
+        assert result.scalar_one_or_none() is None
+
+        # Patch async_session to use the test engine
+        test_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        with patch("app.agent.bots.async_session", test_session_factory):
+            from app.agent.bots import load_bots, _registry
+            await load_bots()
+
+        # Now the bot should be enrolled in the DB
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "new-bot")
+        )
+        row = result.scalar_one_or_none()
+        assert row is not None, "Bot should be auto-enrolled after load_bots()"
+        assert str(row.workspace_id) == str(ws.id)
+        assert row.role == "member"
+
+        # The in-memory registry should also reflect the enrollment
+        from app.agent.bots import _registry
+        bot_cfg = _registry.get("new-bot")
+        assert bot_cfg is not None
+        assert bot_cfg.shared_workspace_id == str(ws.id)
+        assert bot_cfg.shared_workspace_role == "member"
+
+    @pytest.mark.asyncio
+    async def test_load_bots_skips_when_no_workspace(self, engine, db):
+        """If no workspace exists, load_bots() should not crash."""
+        from unittest.mock import patch
+        from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+        # Create a bot but NO workspace
+        db.add(_make_bot_row("orphan-bot"))
+        await db.flush()
+        await db.commit()
+
+        test_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        with patch("app.agent.bots.async_session", test_session_factory):
+            from app.agent.bots import load_bots
+            # Should not raise
+            await load_bots()
+
+        # No enrollment rows
+        result = await db.execute(select(SharedWorkspaceBot))
+        assert result.scalars().all() == []
+
+    @pytest.mark.asyncio
+    async def test_load_bots_preserves_existing_enrollment(self, engine, db):
+        """Existing enrollments (e.g., orchestrator role) should not be overwritten."""
+        from unittest.mock import patch
+        from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+        ws = SharedWorkspace(name="Default Workspace")
+        db.add(ws)
+        await db.flush()
+
+        db.add(_make_bot_row("orch-bot"))
+        await db.flush()
+
+        # Pre-enroll with orchestrator role
+        db.add(SharedWorkspaceBot(
+            workspace_id=ws.id,
+            bot_id="orch-bot",
+            role="orchestrator",
+        ))
+        await db.flush()
+        await db.commit()
+
+        test_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        with patch("app.agent.bots.async_session", test_session_factory):
+            from app.agent.bots import load_bots
+            await load_bots()
+
+        # Role should still be orchestrator
+        result = await db.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "orch-bot")
+        )
+        row = result.scalar_one()
+        assert row.role == "orchestrator"

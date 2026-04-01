@@ -67,10 +67,11 @@ class PromptTemplateUpdateIn(BaseModel):
 async def list_prompt_templates(
     workspace_id: Optional[UUID] = None,
     category: Optional[str] = None,
+    tag: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("settings:read")),
 ):
-    """List prompt templates. Supports workspace_id and category filters."""
+    """List prompt templates. Supports workspace_id, category, and tag filters."""
     stmt = select(PromptTemplate).order_by(PromptTemplate.category, PromptTemplate.name)
     if workspace_id is not None:
         stmt = stmt.where(
@@ -79,6 +80,8 @@ async def list_prompt_templates(
         )
     if category is not None:
         stmt = stmt.where(PromptTemplate.category == category)
+    if tag is not None:
+        stmt = stmt.where(PromptTemplate.tags.contains([tag]))
     rows = (await db.execute(stmt)).scalars().all()
     return rows
 

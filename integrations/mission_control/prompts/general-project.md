@@ -2,6 +2,8 @@
 name: "General Project"
 description: "Generic workspace schema for any type of project."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - general
   - project

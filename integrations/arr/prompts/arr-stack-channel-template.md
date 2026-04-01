@@ -2,6 +2,8 @@
 name: "Arr Stack Channel Workspace Template"
 description: "Download monitoring, request tracking, and library health for Sonarr/Radarr/qBit/Jellyfin. Spindrel Mission Control compatible."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - media
   - arr

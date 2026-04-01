@@ -2,6 +2,8 @@
 name: "Software Development"
 description: "Workspace schema for software projects — architecture docs, task tracking, and decision logs."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - software
   - development

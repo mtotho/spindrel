@@ -990,6 +990,8 @@ class AvailableIntegrationOut(BaseModel):
     tools: list[str] = []
     skill_count: int = 0
     has_system_prompt: bool = False
+    version: Optional[str] = None
+    compatible_template_tag: Optional[str] = None
 
 
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
@@ -1140,6 +1142,7 @@ async def list_available_integrations(
             skill_count = len(resolved.skills)
             has_system_prompt = len(resolved.system_prompt_fragments) > 0
 
+        compat_tags = manifest.get("compatible_templates", [])
         result.append(AvailableIntegrationOut(
             integration_type=itype,
             description=manifest.get("description", ""),
@@ -1149,6 +1152,8 @@ async def list_available_integrations(
             tools=tool_names,
             skill_count=skill_count,
             has_system_prompt=has_system_prompt,
+            version=manifest.get("version"),
+            compatible_template_tag=compat_tags[0] if compat_tags else None,
         ))
 
     return result

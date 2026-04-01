@@ -49,6 +49,19 @@ The vault stores user-managed encrypted environment variables. These are:
 - **Registered with the redaction engine** so their values never appear in tool results or LLM output
 - **Never returned in plaintext** via the API — list/get endpoints only return metadata
 
+### Secrets vs. Workspace Environment Variables
+
+Both Secrets and workspace env vars (configured in **Bot > Workspace** or **Workspace > Docker** settings) are injected into containers. The difference is security:
+
+| | **Secret Values** | **Workspace Env Vars** |
+|---|---|---|
+| Storage | Encrypted at rest (Fernet) | Plaintext in database |
+| Redaction | Automatically redacted from tool results and LLM output | Visible to the LLM if a tool exposes them |
+| API access | Value never returned in API responses | Value visible in workspace config endpoints |
+| Use for | API keys, tokens, passwords, credentials | Feature flags, URLs, runtime configuration |
+
+**Rule of thumb:** If the value would be a problem if it appeared in a conversation log, it should be a Secret.
+
 ### Use Cases
 
 - Store API keys that bot tools need (e.g., a GitHub token for a deployment script)

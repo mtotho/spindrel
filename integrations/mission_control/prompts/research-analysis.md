@@ -2,6 +2,8 @@
 name: "Research / Analysis"
 description: "Workspace schema for research projects — question tracking, source management, and findings."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - research
   - analysis

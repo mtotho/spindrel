@@ -256,6 +256,7 @@ class Settings(BaseSettings):
     TASK_MAX_RUN_SECONDS: int = 1200         # 20 minutes
 
     # Web tools
+    WEB_SEARCH_ENABLED: bool = True  # built-in web_search tool (requires SearXNG container)
     SEARXNG_URL: str = "http://searxng:8080"
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
 
