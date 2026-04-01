@@ -12,14 +12,24 @@ Connect iMessage conversations to agent channels via [BlueBubbles](https://blueb
 
 ### 1. Configure Environment Variables
 
-Add to your `.env` file:
+Add to your `.env` file or set via the Integration Settings UI:
 
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BLUEBUBBLES_SERVER_URL` | Yes | BlueBubbles server URL (e.g. `http://192.168.1.50:1234`) |
+| `BLUEBUBBLES_PASSWORD` | Yes | BlueBubbles server password |
+| `AGENT_API_KEY` | Yes | API key for the agent server |
+| `AGENT_BASE_URL` | No | Agent server URL (default: `http://localhost:8000`) |
+| `BB_DEFAULT_BOT` | No | Default bot ID for all chats (default: `default`) |
+| `BB_WAKE_WORDS` | No | Comma-separated wake words (default: bot name). See [Wake Words](#wake-words). |
+
+Example `.env`:
 ```env
 BLUEBUBBLES_SERVER_URL=http://192.168.1.50:1234
 BLUEBUBBLES_PASSWORD=your-bb-server-password
 AGENT_API_KEY=your-agent-api-key
-AGENT_BASE_URL=http://localhost:8000  # optional, this is the default
-BB_DEFAULT_BOT=default                # optional, bot ID to use
+BB_DEFAULT_BOT=atlas
+BB_WAKE_WORDS=atlas, hey bot
 ```
 
 ### 2. Install Dependencies
@@ -54,15 +64,110 @@ curl -X POST http://localhost:8000/api/v1/channels \
 
 ### Client ID Format
 
-- **1:1 chats**: `bb:iMessage;-;+15551234567`
-- **Group chats**: `bb:iMessage;+;chat123456`
+| Chat Type | Format | Example |
+|-----------|--------|---------|
+| 1:1 chat | `bb:iMessage;-;{phone}` | `bb:iMessage;-;+15551234567` |
+| Group chat | `bb:iMessage;+;{chat_id}` | `bb:iMessage;+;chat123456` |
+| SMS 1:1 | `bb:SMS;-;{phone}` | `bb:SMS;-;+15551234567` |
+| SMS group | `bb:SMS;+;{chat_id}` | `bb:SMS;+;chat789` |
 
 The chat GUID comes directly from BlueBubbles. You can find it in the BB server UI or via the `/integrations/bluebubbles/chats` endpoint.
 
-### Message Flow
+### Channel Binding as Allowlist
 
-1. **Inbound**: BB Socket.IO → `bb_client.py` → agent server `/chat/stream` → agent response → BB REST API → iMessage
-2. **Outbound** (scheduled tasks): Task dispatcher → BB REST API → iMessage
+**The bot only responds to chats that have a pre-created Channel in the database.** Messages from unknown/unbound chats are silently dropped. This prevents the bot from accidentally responding to random contacts who text your number.
+
+To authorize a chat, create a channel binding first (via admin UI or API -- see [Bind Channels](#4-bind-channels) above). Until a channel exists for that chat GUID, the bot ignores all messages from it.
+
+### Message Routing
+
+Every incoming message goes through this decision flow:
+
+```
+Message arrives
+  |
+  +-- Empty text?  -------------------- skip (attachments-only, etc.)
+  |
+  +-- No channel binding for chat? ---- skip (unbound / unauthorized chat)
+  |
+  +-- isFromMe + echo tracker match? -- skip (bot's own reply bouncing back)
+  |
+  +-- isFromMe + NOT echo? ------------ ACTIVE (you texting from your phone)
+  |
+  +-- External message
+       |
+       +-- require_mention = false? ---- ACTIVE (respond to everything)
+       |
+       +-- Wake word detected? --------- ACTIVE (bot was addressed)
+       |
+       +-- No wake word --------------- PASSIVE (stored as context, no reply)
+```
+
+**Active** = the agent processes the message, generates a response, and sends it back to the chat.
+
+**Passive** = the message is stored in the channel's conversation history (so the bot has context if addressed later) but no response is generated.
+
+### Wake Words
+
+Since iMessage has no native @-mention system, wake words act as the mention trigger. When `require_mention` is enabled on a channel, the bot only responds if a wake word appears anywhere in the message text.
+
+**Configuration**: Set `BB_WAKE_WORDS` as a comma-separated list. If not set, the bot name (`BB_DEFAULT_BOT`) is used as the default wake word.
+
+```env
+BB_WAKE_WORDS=atlas, hey bot, yo assistant
+```
+
+**Matching rules**:
+- Case-insensitive: "Atlas", "ATLAS", "atlas" all match
+- Substring match: "hey atlas what's up" matches wake word `atlas`
+- Any wake word: only one needs to match
+- The full message (including the wake word) is sent to the agent — nothing is stripped
+
+**Examples** with `BB_WAKE_WORDS=atlas, hey bot`:
+
+| Message | Matches? | Why |
+|---------|----------|-----|
+| "atlas what's the weather" | Yes | "atlas" found |
+| "Hey Bot, help me" | Yes | "hey bot" found (case-insensitive) |
+| "can you help me atlas" | Yes | "atlas" found at end |
+| "what's for dinner" | No | no wake words present |
+| "hey everyone" | No | "hey" alone doesn't match "hey bot" |
+
+### Channel Configuration
+
+Each BB chat maps to a Channel in the agent database. Two key per-channel settings control message routing:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `require_mention` | `true` | When true, external messages need a wake word to trigger the bot. When false, every message triggers the bot. |
+| `passive_memory` | `true` | When true, passive messages are included in the bot's memory/context. When false, they're stored but excluded from memory. |
+
+These are standard Channel fields — configure them via the admin UI (Channel Settings) or the API:
+
+```bash
+# Make a channel respond to everything (no wake word needed)
+curl -X PUT http://localhost:8000/api/v1/admin/channels/{channel_id} \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"require_mention": false}'
+
+# Require wake word but don't store passive messages in memory
+curl -X PUT http://localhost:8000/api/v1/admin/channels/{channel_id} \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"require_mention": true, "passive_memory": false}'
+```
+
+**Common configurations**:
+
+| Use Case | `require_mention` | `passive_memory` | Behavior |
+|----------|-------------------|-------------------|----------|
+| Personal assistant (1:1) | `false` | `true` | Responds to every message |
+| Group chat (default) | `true` | `true` | Only responds when wake word used, remembers all messages |
+| Noisy group (save tokens) | `true` | `false` | Only responds when addressed, ignores passive messages |
+| Monitored channel | `true` | `true` | Silently observes, responds only when asked |
+
+**Channels not yet in the database** (first message from an unknown chat) default to `require_mention=true`, so the bot won't reply to random messages until you configure the channel.
 
 ### Bot/User Disambiguation
 
@@ -70,31 +175,83 @@ Since both bot and human messages appear as `isFromMe: true` in iMessage, the in
 - **GUID matching**: The `tempGuid` from our API call
 - **Text hash matching**: SHA-256 prefix fallback
 
-Untracked `isFromMe` messages are treated as human messages from your phone.
+Untracked `isFromMe` messages are treated as human messages from your phone and always trigger the bot (bypassing the wake word check — you're intentionally sending from your device).
 
 ## Per-Chat Bot Mapping
 
 By default, all chats use `BB_DEFAULT_BOT`. To assign specific bots to specific chats:
 
 ```bash
+# Assign a bot to a chat
 curl -X POST http://localhost:8000/integrations/bluebubbles/config/chat-bot-map \
   -H "Authorization: Bearer $AGENT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"chat_guid": "iMessage;-;+15551234567", "bot_id": "my-special-bot"}'
+
+# Remove the override (falls back to default)
+curl -X DELETE http://localhost:8000/integrations/bluebubbles/config/chat-bot-map/iMessage;-;+15551234567 \
+  -H "Authorization: Bearer $AGENT_API_KEY"
 ```
+
+Note: Chat bot mappings are in-memory and reset on server restart. For persistent bot assignment, set the `bot_id` on the Channel directly.
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/integrations/bluebubbles/config` | GET | Current configuration |
+| `/integrations/bluebubbles/config` | GET | Current configuration (bot map, wake words, channel settings) |
 | `/integrations/bluebubbles/config/chat-bot-map` | POST | Set per-chat bot mapping |
 | `/integrations/bluebubbles/config/chat-bot-map/{chat_guid}` | DELETE | Remove per-chat mapping |
-| `/integrations/bluebubbles/chats` | GET | List BB chats (proxied) |
+| `/integrations/bluebubbles/chats` | GET | List BB chats (proxied from BB server) |
 | `/integrations/bluebubbles/status` | GET | Check BB server connectivity |
+| `/integrations/bluebubbles/diagnose` | GET | Full diagnostic of the integration path |
+| `/integrations/bluebubbles/test-send` | POST | Send a test message to verify the send path |
+
+## Message Flow Diagram
+
+```
+                    ┌──────────────┐
+                    │  BlueBubbles │
+                    │    Server    │
+                    └──────┬───────┘
+                           │ Socket.IO (new-message)
+                           v
+                    ┌──────────────┐
+                    │  bb_client   │  Runs as separate process
+                    │   .py        │  - Echo detection
+                    │              │  - Wake word check
+                    │              │  - Active vs passive routing
+                    └──────┬───────┘
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+              v                         v
+     ┌────────────────┐       ┌─────────────────┐
+     │  /chat/stream   │       │  /chat (passive) │
+     │  (active msg)   │       │  (stored only)   │
+     └───────┬────────┘       └─────────────────┘
+             │
+             v
+     ┌────────────────┐
+     │  Agent Loop     │  LLM processing + tool calls
+     └───────┬────────┘
+             │
+             v
+     ┌────────────────┐
+     │  BB REST API    │  send_text() → iMessage
+     └────────────────┘
+```
 
 ## Troubleshooting
 
-- **No messages coming through**: Check that `BLUEBUBBLES_SERVER_URL` is reachable from the agent server. Use `/integrations/bluebubbles/status` to verify connectivity.
-- **Bot replies appearing as your messages**: This is expected — the bot sends from your iMessage account. The echo tracker ensures these aren't processed as new input.
-- **Duplicate responses after restart**: A few echoes may be misidentified as human messages right after restart (the echo tracker is in-memory). This is harmless and self-corrects within 30 seconds.
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| No messages coming through | BB server unreachable | Check `BLUEBUBBLES_SERVER_URL`. Use `/integrations/bluebubbles/status` to verify. |
+| Bot ignoring messages from a chat | No Channel binding exists for that chat | Create a channel binding first (admin UI or API). The bot only responds to bound chats. |
+| Bot not responding to messages | `require_mention=true` and no wake word | Either include a wake word in your message, or set `require_mention=false` on the channel. |
+| Bot not responding in group chats | Same as above -- groups default to requiring wake word | Say "atlas help me" (or whatever your wake word is). |
+| Bot replies appearing as your messages | Expected -- bot sends from your iMessage account | The echo tracker prevents these from being re-processed. |
+| Duplicate responses after restart | Echo tracker is in-memory, lost on restart | Self-corrects within ~30 seconds as new echoes are tracked. |
+| Bot responds to everything | `require_mention=false` on the channel | Set `require_mention=true` if you want wake word filtering. |
+| Wake words not working after config change | bb_client caches config on connect | Restart the server, or wait for the next Socket.IO reconnect. |
+| `/diagnose` shows issues | Various misconfigurations | Follow the specific issue messages in the diagnose output. |

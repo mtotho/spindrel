@@ -336,6 +336,13 @@ class SharedWorkspaceService:
                 exec_args += ["-e", f"AGENT_SERVER_API_KEY={bot_key}"]
         except Exception:
             pass  # Fall back to container-level env
+        # Inject secret values as env vars
+        try:
+            from app.services.secret_values import get_env_dict as _get_secret_env
+            for _sk, _sv in _get_secret_env().items():
+                exec_args += ["-e", f"{_sk}={_sv}"]
+        except Exception:
+            pass
         exec_args += [ws.container_name, "sh", "-c", full_cmd]
 
         import time

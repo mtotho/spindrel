@@ -469,6 +469,9 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Hook webhooks (comma-separated URLs that receive ALL hook events as POST)
     HOOK_WEBHOOK_URLS: str = ""
 
+    # Secret redaction (redact known secrets from tool results and LLM output)
+    SECRET_REDACTION_ENABLED: bool = True
+
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""
 

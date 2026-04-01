@@ -1,4 +1,5 @@
 """Provider registry: manages LLM provider configs and returns per-provider AsyncOpenAI clients."""
+import asyncio
 import logging
 import time
 from collections import deque
@@ -155,6 +156,13 @@ async def load_providers() -> None:
 
     # Pre-warm model info cache for all litellm providers + .env fallback
     await _warm_model_info_cache()
+
+    # Rebuild secret registry so new provider keys are tracked
+    try:
+        from app.services.secret_registry import rebuild as _rebuild_secrets
+        asyncio.create_task(_rebuild_secrets())
+    except Exception:
+        pass
 
 
 async def has_encrypted_secrets() -> bool:

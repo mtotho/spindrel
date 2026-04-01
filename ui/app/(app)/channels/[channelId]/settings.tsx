@@ -7,12 +7,13 @@ import { useLocalSearchParams, Link } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, Check, ExternalLink } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
   useChannel,
+  useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TabBar } from "@/src/components/shared/FormControls";
@@ -65,6 +66,7 @@ export default function ChannelSettingsScreen() {
   const { data: settings, isLoading } = useChannelSettings(channelId);
   const { data: bots } = useBots();
   const updateMutation = useUpdateChannelSettings(channelId!);
+  const { data: activatable } = useActivatableIntegrations(channelId);
 
   // Check if the channel's bot is in a workspace
   const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
@@ -174,6 +176,14 @@ export default function ChannelSettingsScreen() {
                   </Pressable>
                 </Link>
               )}
+              {activatable?.filter(ig => ig.activated).map(ig => (
+                <View key={ig.integration_type} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                  <Zap size={10} color={t.success} fill={t.success} />
+                  <Text style={{ fontSize: 11, color: t.success }}>
+                    {ig.integration_type.replace(/_/g, " ")}
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
           {showSave && (

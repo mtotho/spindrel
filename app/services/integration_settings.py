@@ -153,6 +153,15 @@ async def update_settings(
         applied[key] = value
 
     await db.commit()
+
+    # Rebuild secret registry so updated integration secrets are tracked
+    try:
+        import asyncio
+        from app.services.secret_registry import rebuild as _rebuild_secrets
+        asyncio.create_task(_rebuild_secrets())
+    except Exception:
+        pass
+
     return applied
 
 

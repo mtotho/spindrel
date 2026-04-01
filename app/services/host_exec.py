@@ -210,7 +210,14 @@ class HostExecService:
     def _build_env(self, cfg: "HostExecConfig") -> dict:  # noqa: F821
         """Build a sanitized environment dict from passthrough lists."""
         passthrough_keys = set(settings.HOST_EXEC_ENV_PASSTHROUGH) | set(cfg.env_passthrough)
-        return {k: v for k, v in os.environ.items() if k in passthrough_keys}
+        env = {k: v for k, v in os.environ.items() if k in passthrough_keys}
+        # Inject secret values (available in host exec even if not in os.environ)
+        try:
+            from app.services.secret_values import get_env_dict
+            env.update(get_env_dict())
+        except Exception:
+            pass
+        return env
 
 
 host_exec_service = HostExecService()

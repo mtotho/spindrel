@@ -84,10 +84,14 @@ class TestHandleMessageRouting:
     ) -> str:
         """Simulate the routing decision from _handle_message.
 
-        Returns: "skip" | "active" | "passive"
+        Returns: "skip" | "active" | "passive" | "unbound"
         """
         if not text:
             return "skip"
+
+        # Unbound chat — no Channel in DB
+        if chat_guid not in channel_settings:
+            return "unbound"
 
         if is_from_me:
             if is_echo:
@@ -109,13 +113,15 @@ class TestHandleMessageRouting:
         return "active" if mentioned else "passive"
 
     def test_echo_skipped(self):
+        settings = {"iMessage;-;+15551234567": {"require_mention": True}}
         assert self._route_decision("hello", is_from_me=True, is_echo=True,
-                                     wake_words=["atlas"], channel_settings={}) == "skip"
+                                     wake_words=["atlas"], channel_settings=settings) == "skip"
 
     def test_human_from_me_always_active(self):
         """isFromMe + not echo → always triggers agent (human texting from phone)."""
+        settings = {"iMessage;-;+15551234567": {"require_mention": True}}
         assert self._route_decision("random stuff", is_from_me=True, is_echo=False,
-                                     wake_words=["atlas"], channel_settings={}) == "active"
+                                     wake_words=["atlas"], channel_settings=settings) == "active"
 
     def test_active_with_wake_word(self):
         """Wake word present + require_mention=True → active."""
@@ -151,17 +157,17 @@ class TestHandleMessageRouting:
                                      channel_settings={chat: {"require_mention": True}},
                                      chat_guid=chat) == "passive"
 
-    def test_unknown_channel_defaults_require_mention_true(self):
-        """Channel not in settings → default require_mention=True → needs wake word."""
-        assert self._route_decision("random message", is_from_me=False, is_echo=False,
+    def test_unbound_channel_ignored(self):
+        """Chat with no Channel binding → silently dropped."""
+        assert self._route_decision("atlas help me", is_from_me=False, is_echo=False,
                                      wake_words=["atlas"],
-                                     channel_settings={}) == "passive"
+                                     channel_settings={}) == "unbound"
 
-    def test_unknown_channel_with_wake_word(self):
-        """Channel not in settings but wake word present → active."""
-        assert self._route_decision("atlas help", is_from_me=False, is_echo=False,
+    def test_unbound_channel_ignored_even_from_me(self):
+        """Even isFromMe messages from unbound chats are dropped."""
+        assert self._route_decision("do something", is_from_me=True, is_echo=False,
                                      wake_words=["atlas"],
-                                     channel_settings={}) == "active"
+                                     channel_settings={}) == "unbound"
 
     def test_empty_text_skipped(self):
         assert self._route_decision("", is_from_me=False, is_echo=False,

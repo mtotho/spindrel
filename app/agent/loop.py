@@ -179,6 +179,8 @@ async def run_agent_tool_loop(
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
 
     try:
+        from app.services.secret_registry import redact as _redact_secrets
+
         for iteration in range(effective_max_iterations):
             # Cancellation checkpoint: before LLM call
             if session_id and session_locks.is_cancel_requested(session_id):
@@ -422,6 +424,7 @@ async def run_agent_tool_loop(
 
             if not accumulated_msg.tool_calls:
                 text = strip_malformed_tool_calls(accumulated_msg.content or "")
+                text = _redact_secrets(text)
                 _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
@@ -473,6 +476,7 @@ async def run_agent_tool_loop(
                                 fallback_models=fallback_models,
                             )
                             text = strip_malformed_tool_calls(strip_think_tags(retry.choices[0].message.content or ""))
+                            text = _redact_secrets(text)
                             messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                         except Exception as exc:
                             logger.error("Forced-response retry failed: %s", exc)
@@ -556,6 +560,7 @@ async def run_agent_tool_loop(
             # Strip malformed tool calls (XML/JSON fragments) that local models
             # sometimes emit as text alongside proper function calls.
             _intermediate_text = strip_malformed_tool_calls(_acc_content or "")
+            _intermediate_text = _redact_secrets(_intermediate_text)
             if _intermediate_text:
                 yield _event_with_compaction_tag(
                     {"type": "assistant_text", "text": _intermediate_text},
@@ -795,6 +800,7 @@ async def run_agent_tool_loop(
             ))
 
         text = strip_think_tags(msg.content or "")
+        text = _redact_secrets(text)
         if native_audio and user_msg_index is not None and not transcript_emitted:
             transcript, text = _extract_transcript(text)
             messages[-1]["content"] = text

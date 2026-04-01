@@ -222,6 +222,12 @@ async def lifespan(app: FastAPI):
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+    logger.info("Loading secret values from DB...")
+    from app.services.secret_values import load_from_db as load_secret_values
+    await load_secret_values()
+    logger.info("Building secret registry...")
+    from app.services.secret_registry import rebuild as rebuild_secret_registry
+    await rebuild_secret_registry()
     logger.info("Ensuring orchestrator landing channel...")
     from app.services.channels import ensure_orchestrator_channel
     await ensure_orchestrator_channel()

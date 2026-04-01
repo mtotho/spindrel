@@ -328,22 +328,26 @@ export default function ProviderDetailScreen() {
             </Row>
           </Section>
 
-          <Section title="Billing" description="How this provider charges for usage">
+          <Section title="Billing" description={
+            billingType === "plan"
+              ? "Fixed-rate plan: per-call cost tracked as $0, flat cost added to forecast"
+              : "Per-token: cost computed from model pricing per request"
+          }>
             <FormRow label="Billing Type">
               <SelectInput
                 value={billingType}
                 onChange={setBillingType}
                 options={[
                   { label: "Per-token usage", value: "usage" },
-                  { label: "Fixed plan", value: "plan" },
+                  { label: "Fixed plan (e.g. subscription)", value: "plan" },
                 ]}
               />
             </FormRow>
             {billingType === "plan" && (
               <Row>
                 <Col>
-                  <FormRow label="Plan Cost" description="Flat cost amount (e.g. 40)">
-                    <TextInput value={planCost} onChangeText={setPlanCost} placeholder="e.g. 40" type="number" />
+                  <FormRow label="Plan Cost (USD)" description={!planCost ? "Required for forecast" : `$${parseFloat(planCost).toFixed(2)} / ${planPeriod}`}>
+                    <TextInput value={planCost} onChangeText={setPlanCost} placeholder="e.g. 40.00" type="number" />
                   </FormRow>
                 </Col>
                 <Col>

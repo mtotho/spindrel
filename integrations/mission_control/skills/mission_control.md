@@ -113,9 +113,11 @@ What the project is working on right now.
 - **yellow** — Minor issues or risks
 - **red** — Blocked or significantly behind
 
-## Activity Logs
+## Timeline (`timeline.md`)
 
-Daily activity logs at `memory/logs/YYYY-MM-DD.md` are automatically displayed in the Mission Control dashboard timeline. Continue using the standard daily log format — no changes needed.
+The `timeline.md` file is a reverse-chronological activity log. Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (deployments, decisions, meetings, milestones, incidents).
+
+Format: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers. New entries go at the top of the current day's section.
 
 ## Best Practices
 

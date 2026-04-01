@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, Link } from "expo-router";
+import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft } from "lucide-react";
@@ -23,6 +23,8 @@ import { apiFetch } from "@/src/api/client";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
+import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -290,6 +292,13 @@ export default function ChatScreen() {
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [secretWarning, setSecretWarning] = useState<{
+    result: SecretCheckResult;
+    text: string;
+    files?: PendingFile[];
+  } | null>(null);
+  const secretCheck = useSecretCheck();
+  const router = useRouter();
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -429,7 +438,7 @@ export default function ChatScreen() {
     },
   });
 
-  const handleSend = useCallback(
+  const doSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
@@ -484,6 +493,28 @@ export default function ChatScreen() {
       setTurnModelOverride(undefined);
     },
     [channelId, channel, turnModelOverride]
+  );
+
+  const handleSend = useCallback(
+    (text: string, files?: PendingFile[]) => {
+      if (!channelId || !channel) return;
+
+      // Pre-flight secret check — fail-open on error
+      secretCheck.mutate(text, {
+        onSuccess: (result) => {
+          if (result.has_secrets) {
+            setSecretWarning({ result, text, files });
+          } else {
+            doSend(text, files);
+          }
+        },
+        onError: () => {
+          // Fail open — send anyway if check fails
+          doSend(text, files);
+        },
+      });
+    },
+    [channelId, channel, doSend]
   );
 
   const handleSendAudio = useCallback(
@@ -880,6 +911,21 @@ export default function ChatScreen() {
             channelId={channelId}
           />
         </>
+      )}
+      {secretWarning && (
+        <SecretWarningDialog
+          result={secretWarning.result}
+          onSendAnyway={() => {
+            const { text, files } = secretWarning;
+            setSecretWarning(null);
+            doSend(text, files);
+          }}
+          onCancel={() => setSecretWarning(null)}
+          onAddToSecrets={() => {
+            setSecretWarning(null);
+            router.push("/admin/secret-values" as any);
+          }}
+        />
       )}
     </SafeAreaView>
   );
