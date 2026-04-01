@@ -382,9 +382,6 @@ class BotUpdateIn(BaseModel):
     docker_sandbox_profiles: Optional[list[str]] = None
     model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
@@ -523,9 +520,6 @@ class BotCreateIn(BaseModel):
     docker_sandbox_profiles: Optional[list[str]] = None
     model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None

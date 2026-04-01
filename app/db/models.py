@@ -45,9 +45,6 @@ class Channel(Base):
         ForeignKey("shared_workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
-    elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
-    elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     fallback_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
@@ -791,9 +788,6 @@ class Bot(Base):
     model_params: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     bot_sandbox: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     workspace: Mapped[dict] = mapped_column(JSONB, server_default=text("'{\"enabled\": false}'::jsonb"))
-    elevation_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    elevation_threshold: Mapped[float | None] = mapped_column(nullable=True)
-    elevated_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_summarization_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     attachment_summary_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_text_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -1121,29 +1115,6 @@ class Todo(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
-
-
-class ModelElevationLog(Base):
-    __tablename__ = "model_elevation_log"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    turn_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
-    channel_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
-    )
-    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    iteration: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    base_model: Mapped[str] = mapped_column(Text, nullable=False)
-    model_chosen: Mapped[str] = mapped_column(Text, nullable=False)
-    was_elevated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    classifier_score: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("0"))
-    elevation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rules_fired: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    signal_scores: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class User(Base):

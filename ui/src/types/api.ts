@@ -68,9 +68,6 @@ export interface BotConfig {
   user_id?: string | null;
   shared_workspace_id?: string | null;
   shared_workspace_role?: string | null;
-  elevation_enabled?: boolean | null;
-  elevation_threshold?: number | null;
-  elevated_model?: string | null;
   attachment_summarization_enabled?: boolean | null;
   attachment_summary_model?: string | null;
   attachment_text_max_chars?: number | null;
@@ -101,6 +98,66 @@ export interface Carapace {
   source_path?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Workflows
+export interface Workflow {
+  id: string;
+  name: string;
+  description?: string | null;
+  params: Record<string, any>;
+  secrets: string[];
+  defaults: Record<string, any>;
+  steps: WorkflowStep[];
+  triggers: Record<string, boolean>;
+  tags: string[];
+  session_mode: string;
+  source_type: string;
+  source_path?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  prompt: string;
+  when?: Record<string, any> | null;
+  requires_approval?: boolean;
+  on_failure?: string;
+  secrets?: string[];
+  tools?: string[];
+  carapaces?: string[];
+  model?: string | null;
+  timeout?: number | null;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  bot_id: string;
+  channel_id?: string | null;
+  session_id?: string | null;
+  params: Record<string, any>;
+  status: string;
+  current_step_index: number;
+  step_states: WorkflowStepState[];
+  dispatch_type: string;
+  dispatch_config?: Record<string, any> | null;
+  triggered_by?: string | null;
+  error?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface WorkflowStepState {
+  status: string;
+  task_id?: string | null;
+  result?: string | null;
+  error?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  correlation_id?: string | null;
+  retry_count?: number;
 }
 
 // Tool group from editor data
@@ -260,9 +317,6 @@ export interface ChannelSettings {
   memory_flush_workspace_id?: string | null;
   section_index_count?: number | null;
   section_index_verbosity?: string | null;
-  elevation_enabled?: boolean;
-  elevation_threshold?: number;
-  elevated_model?: string;
   model_override?: string;
   model_provider_id_override?: string;
   fallback_models?: Array<{ model: string; provider_id?: string | null }>;
@@ -310,46 +364,6 @@ export interface EffectiveTools {
   skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
   carapaces: string[];
   carapace_sources: Record<string, string>;
-}
-
-// Elevation types
-export interface ElevationLogEntry {
-  id: string;
-  turn_id?: string;
-  bot_id: string;
-  channel_id?: string;
-  iteration: number;
-  base_model: string;
-  model_chosen: string;
-  was_elevated: boolean;
-  classifier_score: number;
-  elevation_reason?: string;
-  rules_fired: string[];
-  signal_scores: Record<string, number>;
-  tokens_used?: number;
-  latency_ms?: number;
-  created_at: string;
-}
-
-export interface ElevationConfigOut {
-  enabled?: boolean;
-  threshold?: number;
-  elevated_model?: string;
-  effective_enabled: boolean;
-  effective_threshold: number;
-  effective_elevated_model: string;
-}
-
-export interface ElevationOverview {
-  config: ElevationConfigOut;
-  recent: ElevationLogEntry[];
-  stats: {
-    total_decisions: number;
-    elevated_count: number;
-    elevation_rate: number;
-    avg_score: number;
-    avg_latency_ms?: number;
-  };
 }
 
 // Model types

@@ -92,6 +92,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "AUTOMATION",
     items: [
       { label: "Tasks", href: "/admin/tasks", icon: ClipboardList },
+      { label: "Workflows", href: "/admin/workflows", icon: Zap },
     ],
   },
   {

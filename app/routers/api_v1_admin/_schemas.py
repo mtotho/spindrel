@@ -68,9 +68,6 @@ class BotOut(BaseModel):
     integration_config: dict = {}
     workspace: dict = {}
     docker_sandbox_profiles: list[str] = []
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None

@@ -509,9 +509,15 @@ async def on_step_task_completed(
         state["task_id"] = str(task.id)
         state["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Store correlation_id from the task for token usage tracking
-        if task.execution_config and task.execution_config.get("_correlation_id"):
-            state["correlation_id"] = task.execution_config["_correlation_id"]
+        # Store correlation_id for token usage tracking.
+        # Re-fetch from DB because the task object passed to the hook is from
+        # before execution — _correlation_id is written during task execution
+        # in a separate session.
+        fresh_task = await db.get(Task, task.id)
+        if fresh_task and fresh_task.execution_config:
+            cid = fresh_task.execution_config.get("_correlation_id")
+            if cid:
+                state["correlation_id"] = cid
 
         # Handle on_failure policy
         step_def = workflow.steps[step_index] if step_index < len(workflow.steps) else {}

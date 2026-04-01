@@ -172,10 +172,6 @@ class ChannelConfigOut(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Elevation
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     # Tool overrides
     local_tools_override: Optional[list[str]] = None
     local_tools_disabled: Optional[list[str]] = None
@@ -244,10 +240,6 @@ class ChannelConfigUpdate(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Elevation
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     # Tool overrides
     local_tools_override: Optional[list[str]] = None
     local_tools_disabled: Optional[list[str]] = None
@@ -554,9 +546,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compaction_prompt_template_id": channel.compaction_prompt_template_id,
         "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
         "history_mode": channel.history_mode,
-        "elevation_enabled": channel.elevation_enabled,
-        "elevation_threshold": channel.elevation_threshold,
-        "elevated_model": channel.elevated_model,
         "local_tools_override": channel.local_tools_override,
         "local_tools_disabled": channel.local_tools_disabled,
         "mcp_servers_override": channel.mcp_servers_override,

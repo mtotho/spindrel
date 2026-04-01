@@ -259,7 +259,6 @@ function BotsSection({ data }: { data: any[] }) {
             <Tag label="memory" value={b.memory_config?.enabled ? "on" : "off"} on={b.memory_config?.enabled} />
             <Tag label="knowledge" value={b.knowledge_config?.enabled ? "on" : "off"} on={b.knowledge_config?.enabled} />
             <Tag label="compaction" value={b.context_compaction ? "on" : "off"} on={b.context_compaction} />
-            {b.elevation_enabled && <Tag label="elevation" value="on" on />}
           </View>
           <DetailJSON data={b} />
         </View>

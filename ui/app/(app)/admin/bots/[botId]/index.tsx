@@ -3,7 +3,6 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, Save, Search, X, Zap } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
-import { useBotElevation } from "@/src/api/hooks/useElevation";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
@@ -39,7 +38,6 @@ export default function BotEditorScreen() {
   const router = useRouter();
   const goBack = useGoBack("/admin/bots");
   const { data: editorData, isLoading } = useBotEditorData(botId);
-  const { data: elevationData } = useBotElevation(isNew ? undefined : botId);
   const updateMutation = useUpdateBot(isNew ? undefined : botId);
   const createMutation = useCreateBot();
   const scrollRef = useRef<ScrollView>(null);
@@ -105,7 +103,6 @@ export default function BotEditorScreen() {
       carapaces: ["carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],
-      elevation: ["elevation", "elevate", "threshold"],
       attachments: ["attachment", "summarization", "vision"],
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
       delegation: ["delegat", "harness", "bot"],
@@ -478,162 +475,6 @@ export default function BotEditorScreen() {
 
           {activeSection === "knowledge" && (
             <KnowledgeSection draft={draft} update={update} />
-          )}
-
-          {activeSection === "elevation" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Model Elevation</div>
-              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-                Automatically switches to a more capable (and expensive) model when the conversation becomes complex.
-                On each turn, a rule-based classifier scores 8 weighted signals from 0.0 to 1.0. If the combined score
-                meets or exceeds the <strong style={{ color: t.text }}>threshold</strong>, the turn is sent to the
-                {" "}<strong style={{ color: t.text }}>elevated model</strong> instead of this bot's default model.
-                No elevation occurs during compaction turns, or if the elevated model is the same as the bot's model.
-                {" "}
-                <a href="/settings#Model%20Elevation" style={{ color: t.accent, textDecoration: "none" }}>
-                  Edit global elevation defaults &rarr;
-                </a>
-              </div>
-
-              <div style={{
-                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 10,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Signals &amp; Weights</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.7, fontFamily: "monospace" }}>
-                  <div><span style={{ color: "#6b9" }}>message_length</span>{"   "}(+0.10) — long user messages (500-1500+ chars)</div>
-                  <div><span style={{ color: "#6b9" }}>code_content</span>{"    "}(+0.20) — code blocks or inline backticks</div>
-                  <div><span style={{ color: "#6b9" }}>keyword_elevate</span>{" "}(+0.20) — "explain", "design", "debug", "refactor", "analyze", etc.</div>
-                  <div><span style={{ color: "#e66" }}>keyword_simple</span>{"  "}(-0.20) — "weather", "timer", "turn on/off", etc.</div>
-                  <div><span style={{ color: "#6b9" }}>tool_complexity</span>{" "}(+0.15) — complex tools (delegation, exec) vs simple tools</div>
-                  <div><span style={{ color: "#6b9" }}>conv_depth</span>{"      "}(+0.10) — number of tool messages in context (5-15+)</div>
-                  <div><span style={{ color: "#6b9" }}>iteration_depth</span>{" "}(+0.10) — tool iterations so far this turn (3-8+)</div>
-                  <div><span style={{ color: "#6b9" }}>prior_errors</span>{"    "}(+0.15) — error patterns in recent tool results</div>
-                </div>
-                <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
-                  Each signal outputs 0.0-1.0, multiplied by its weight. The sum (clamped to 0-1) is compared against
-                  the threshold. For example, a message with code (+0.14) and an "explain" keyword (+0.16) scores 0.30 —
-                  below the default 0.4 threshold. Add a deep conversation (+0.08) and prior errors (+0.075) and it
-                  crosses 0.4, triggering elevation.
-                </div>
-              </div>
-
-              <div style={{
-                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Config Resolution</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-                  Settings resolve with priority: <strong style={{ color: t.text }}>Bot</strong> &gt;{" "}
-                  <strong style={{ color: t.text }}>Channel</strong> &gt;{" "}
-                  <strong style={{ color: t.text }}>Global (.env)</strong>. Each field is resolved independently — a bot
-                  can override the threshold while inheriting enabled/model from the channel or globals.
-                  Set to "Inherit" to use the next level's value.
-                </div>
-              </div>
-
-              <SelectInput
-                value={draft.elevation_enabled === true ? "true" : draft.elevation_enabled === false ? "false" : ""}
-                onChange={(v) => update({ elevation_enabled: v === "true" ? true : v === "false" ? false : null })}
-                options={[{ label: "Inherit (default)", value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
-                style={{ maxWidth: 300 }}
-              />
-              <Row>
-                <Col>
-                  <FormRow label="Threshold (0.0-1.0)">
-                    <TextInput value={String(draft.elevation_threshold ?? "")}
-                      onChangeText={(v) => update({ elevation_threshold: v ? parseFloat(v) : null })} placeholder="inherit" type="number" />
-                  </FormRow>
-                  <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
-                    Lower = elevate more often (more expensive). Higher = only elevate for very complex turns. Default: 0.4.
-                  </div>
-                </Col>
-                <Col>
-                  <FormRow label="Elevated Model">
-                    <LlmModelDropdown value={draft.elevated_model || ""} onChange={(v) => update({ elevated_model: v || null })} placeholder="inherit" />
-                  </FormRow>
-                  <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
-                    The model to switch to when elevation triggers. Typically a stronger/more expensive model than the bot's default.
-                  </div>
-                </Col>
-              </Row>
-
-              {/* Elevation observability */}
-              {elevationData && (
-                <>
-                  {/* Stats bar */}
-                  <div style={{
-                    display: "flex", gap: 16, flexWrap: "wrap",
-                    background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                  }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Stats</div>
-                    <div style={{ fontSize: 11, color: t.textMuted }}>
-                      Total: <span style={{ color: t.text }}>{elevationData.stats.total_decisions}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: t.textMuted }}>
-                      Elevated: <span style={{ color: "#f59e0b" }}>{elevationData.stats.elevated_count}</span>
-                      {" "}({(elevationData.stats.elevation_rate * 100).toFixed(1)}%)
-                    </div>
-                    <div style={{ fontSize: 11, color: t.textMuted }}>
-                      Avg score: <span style={{ color: t.text }}>{elevationData.stats.avg_score.toFixed(3)}</span>
-                    </div>
-                    {elevationData.stats.avg_latency_ms != null && (
-                      <div style={{ fontSize: 11, color: t.textMuted }}>
-                        Avg latency: <span style={{ color: t.text }}>{elevationData.stats.avg_latency_ms}ms</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Recent decisions */}
-                  <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginTop: 8 }}>Recent Decisions</div>
-                  {elevationData.recent.length === 0 ? (
-                    <div style={{ fontSize: 12, color: t.textDim, fontStyle: "italic" }}>No elevation decisions recorded yet.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {elevationData.recent.map((entry) => (
-                        <div key={entry.id} style={{
-                          background: entry.was_elevated ? "#1a1f1a" : t.surfaceRaised,
-                          border: `1px solid ${entry.was_elevated ? "#2a3a2a" : t.surfaceOverlay}`,
-                          borderRadius: 6, padding: 10,
-                          display: "flex", flexDirection: "column", gap: 4,
-                        }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
-                                background: entry.was_elevated ? "#f59e0b22" : "#33333366",
-                                color: entry.was_elevated ? "#f59e0b" : t.textMuted,
-                              }}>
-                                {entry.was_elevated ? "ELEVATED" : "BASE"}
-                              </span>
-                              <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>
-                                {entry.model_chosen}
-                              </span>
-                            </div>
-                            <span style={{ fontSize: 10, color: t.textDim }}>
-                              {new Date(entry.created_at).toLocaleString()}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", gap: 12, fontSize: 10, color: t.textMuted }}>
-                            <span>score: <span style={{ color: t.text }}>{entry.classifier_score.toFixed(3)}</span></span>
-                            {entry.tokens_used != null && <span>tokens: {entry.tokens_used}</span>}
-                            {entry.latency_ms != null && <span>latency: {entry.latency_ms}ms</span>}
-                          </div>
-                          {entry.rules_fired.length > 0 && (
-                            <div style={{ fontSize: 10, color: "#6b9" }}>
-                              rules: {entry.rules_fired.join(", ")}
-                            </div>
-                          )}
-                          {entry.elevation_reason && (
-                            <div style={{ fontSize: 10, color: t.textMuted }}>{entry.elevation_reason}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
           )}
 
           {activeSection === "attachments" && (

@@ -190,10 +190,6 @@ class BotConfig:
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
     harness_access: list[str] = field(default_factory=list)  # allowed harness names
     cross_workspace_access: bool = False  # if True, channel workspace tools can see/search all bots' channels
-    # Model elevation (per-bot overrides; None = inherit from channel or global)
-    elevation_enabled: bool | None = None
-    elevation_threshold: float | None = None
-    elevated_model: str | None = None
     # LLM sampling parameters (temperature, max_tokens, etc.)
     model_params: dict = field(default_factory=dict)
     # Provider
@@ -418,9 +414,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
         cross_workspace_access=bool(row.delegation_config.get("cross_workspace_access", False)) if row.delegation_config else False,
         model_params=row.model_params or {},
-        elevation_enabled=row.elevation_enabled,
-        elevation_threshold=row.elevation_threshold,
-        elevated_model=row.elevated_model,
         model_provider_id=row.model_provider_id,
         fallback_models=row.fallback_models or [],
         bot_sandbox=bot_sandbox_cfg,
