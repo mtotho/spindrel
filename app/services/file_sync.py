@@ -662,6 +662,10 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     await session.commit()
                     counts["added"] += 1
                     logger.info("file_sync: added workflow '%s' from %s", wid, path)
+                elif existing.source_type == "manual":
+                    # Workflow was detached from file — don't overwrite manual edits
+                    counts["unchanged"] += 1
+                    logger.debug("file_sync: skipping detached workflow '%s'", wid)
                 elif existing.content_hash != content_hash:
                     existing.name = data.get("name", wid)
                     existing.description = data.get("description")

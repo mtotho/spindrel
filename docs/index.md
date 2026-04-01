@@ -5,7 +5,7 @@ hide:
 
 # Spindrel
 
-**Self-hosted AI agent server** with persistent channels, composable expertise, workspace-driven memory, scheduled automation, and a pluggable integration framework.
+**Self-hosted AI agent server** with persistent channels, composable expertise, workspace-driven memory, multi-step workflows, and a pluggable integration framework.
 
 Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LLM provider.
 
@@ -34,6 +34,12 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Per-channel file stores with 7 built-in schema templates keep project context structured and searchable.
 
+-   :material-sitemap:{ .lg .middle } **Workflows**
+
+    ---
+
+    Reusable multi-step automations defined in YAML. Conditions, approval gates, parallel branches, cross-bot delegation, and scoped secrets. Trigger via API, bot tool, or heartbeat. Manage and monitor from the admin UI.
+
 -   :material-heart-pulse:{ .lg .middle } **Heartbeats + Task Scheduling**
 
     ---
@@ -44,7 +50,7 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     ---
 
-    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Mission Control, Arr, Claude Code, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
+    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr, Claude Code, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
 
 -   :material-chart-line:{ .lg .middle } **Usage Tracking + Budgeting**
 
