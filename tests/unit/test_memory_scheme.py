@@ -421,3 +421,41 @@ class TestCustomPromptOverride:
             settings.MEMORY_SCHEME_PROMPT = orig
         assert "memory/MEMORY.md" in prompt
         assert "## Memory" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Base prompt content validation
+# ---------------------------------------------------------------------------
+
+class TestBasePromptContent:
+    def test_base_prompt_correct_tool_names(self):
+        """Verify correct tool names appear and old wrong names don't."""
+        from app.config import DEFAULT_GLOBAL_BASE_PROMPT
+
+        # Correct names must be present
+        assert "delegate_to_agent" in DEFAULT_GLOBAL_BASE_PROMPT
+        assert "get_tool_info" in DEFAULT_GLOBAL_BASE_PROMPT
+
+        # Old wrong names must NOT be present
+        # "delegate_to" appears inside "delegate_to_agent", so check for the
+        # standalone wrong usage: backtick-wrapped `delegate_to` without _agent
+        assert "`delegate_to`" not in DEFAULT_GLOBAL_BASE_PROMPT
+        # Old get_tool( pattern must not appear
+        assert "get_tool(" not in DEFAULT_GLOBAL_BASE_PROMPT
+
+    def test_base_prompt_platform_awareness(self):
+        """Verify key platform concepts are mentioned in the base prompt."""
+        from app.config import DEFAULT_GLOBAL_BASE_PROMPT
+
+        for concept in ["carapace", "integration", "workflow", "orchestrator"]:
+            assert concept.lower() in DEFAULT_GLOBAL_BASE_PROMPT.lower(), (
+                f"Base prompt missing platform concept: {concept}"
+            )
+
+    def test_base_prompt_capability_discovery(self):
+        """Verify capability discovery guidance is present."""
+        from app.config import DEFAULT_GLOBAL_BASE_PROMPT
+
+        assert "get_tool_info" in DEFAULT_GLOBAL_BASE_PROMPT
+        assert "get_skill" in DEFAULT_GLOBAL_BASE_PROMPT
+        assert "Discovering Capabilities" in DEFAULT_GLOBAL_BASE_PROMPT

@@ -4,7 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import MentionBase from "@tiptap/extension-mention";
 import { Extension, InputRule } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { Plugin, TextSelection } from "@tiptap/pm/state";
 import { Markdown } from "tiptap-markdown";
 import { useCompletions } from "../../api/hooks/useModels";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
@@ -162,46 +162,16 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       // HardBreak (which would otherwise exitCode on Shift-Enter in code blocks)
       Extension.create({
         name: "chatInputBehavior",
-        priority: 1000, // Must fire before StarterKit's HardBreak (priority 100)
+        priority: 1000,
         addKeyboardShortcuts() {
           return {
+            // Enter outside code block → submit (code block Enter handled by raw plugin below)
             Enter: ({ editor: ed }) => {
-              if (ed.isActive("codeBlock")) {
-                const { $from } = ed.state.selection;
-                const text = $from.parent.textContent;
-                const offset = $from.parentOffset;
-                // Double-Enter exit: cursor at end, text ends with \n (empty last line)
-                if (offset === text.length && text.endsWith("\n")) {
-                  // Remove the trailing \n and exit code block
-                  return ed.chain()
-                    .command(({ tr }) => {
-                      tr.delete($from.pos - 1, $from.pos);
-                      return true;
-                    })
-                    .exitCode()
-                    .run();
-                }
-                // Normal case: insert newline within code block
-                return ed.commands.command(({ tr, dispatch }) => {
-                  if (dispatch) tr.insertText("\n");
-                  return true;
-                });
-              }
+              if (ed.isActive("codeBlock")) return false;
               onSubmitRef.current();
               return true;
             },
-            "Shift-Enter": ({ editor: ed }) => {
-              if (ed.isActive("codeBlock")) {
-                // Actively insert newline — don't let HardBreak's exitCode fire
-                return ed.commands.command(({ tr, dispatch }) => {
-                  if (dispatch) tr.insertText("\n");
-                  return true;
-                });
-              }
-              return false; // outside code block: let HardBreak insert a hard break
-            },
             Escape: ({ editor: ed }) => {
-              // Exit code block: empty → convert to paragraph, non-empty → move to paragraph after
               if (ed.isActive("codeBlock")) {
                 const { $from } = ed.state.selection;
                 if (!$from.parent.textContent) {
@@ -220,7 +190,6 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
                 }
                 return true;
               }
-              // Clear any active inline formatting (bold, italic, code, etc.)
               const marks = ed.state.storedMarks || ed.state.selection.$from.marks();
               if (marks.length > 0) {
                 ed.commands.unsetAllMarks();
@@ -235,6 +204,46 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               return false;
             },
           };
+        },
+        // Raw ProseMirror plugin — handleKeyDown fires at plugin level before any
+        // keymap processing, guaranteeing we intercept Enter/Shift-Enter in code blocks
+        // before HardBreak's exitCode can fire.
+        addProseMirrorPlugins() {
+          const editorInstance = this.editor;
+          return [
+            new Plugin({
+              props: {
+                handleKeyDown(view, event) {
+                  if (event.key !== "Enter") return false;
+                  if (!editorInstance.isActive("codeBlock")) return false;
+
+                  event.preventDefault();
+
+                  // Double-Enter exit (plain Enter only, not Shift+Enter):
+                  // if cursor is at end and last line is empty, exit the code block
+                  if (!event.shiftKey) {
+                    const { $from } = editorInstance.state.selection;
+                    const text = $from.parent.textContent;
+                    const offset = $from.parentOffset;
+                    if (offset === text.length && text.endsWith("\n")) {
+                      editorInstance.chain()
+                        .command(({ tr }) => {
+                          tr.delete($from.pos - 1, $from.pos);
+                          return true;
+                        })
+                        .exitCode()
+                        .run();
+                      return true;
+                    }
+                  }
+
+                  // Insert newline (both Enter and Shift+Enter)
+                  view.dispatch(view.state.tr.insertText("\n"));
+                  return true;
+                },
+              },
+            }),
+          ];
         },
         // Triple backtick at start of line → immediately create code block (no Enter needed)
         addInputRules() {
