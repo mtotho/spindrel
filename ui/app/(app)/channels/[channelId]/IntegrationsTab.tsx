@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
-import { Plus, X, Pencil, Check, AlertTriangle, Zap, Power } from "lucide-react";
+import { Plus, X, Pencil, Check, AlertTriangle, Zap, Power, Layers } from "lucide-react";
+import { Link } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelIntegrations,
@@ -23,13 +24,44 @@ import type { ActivatableIntegration, ActivationResult } from "@/src/types/api";
 // Injection summary helpers
 // ---------------------------------------------------------------------------
 
+function fmtIntName(key: string): string {
+  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
+  if (special[key]) return special[key];
+  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+function CarapacePill({ id, t }: { id: string; t: any }) {
+  return (
+    <Link href={`/admin/carapaces/${id}` as any} asChild>
+      <a
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "2px 8px",
+          borderRadius: 5,
+          background: t.accentSubtle,
+          border: `1px solid ${t.accentBorder}`,
+          textDecoration: "none",
+          cursor: "pointer",
+        }}
+      >
+        <Layers size={10} color={t.accent} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.accent }}>{id}</span>
+      </a>
+    </Link>
+  );
+}
+
 function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
   const parts: string[] = [];
   if (ig.tools.length > 0) parts.push(`${ig.tools.length} tools`);
   if (ig.skill_count > 0) parts.push(`${ig.skill_count} skills`);
   if (ig.has_system_prompt) parts.push("system prompt");
   if (parts.length === 0) return null;
-  const carapaceLabel = ig.carapaces.length > 0 ? ig.carapaces.join(", ") : null;
+  const carapaceLabel = ig.carapaces.length > 0
+    ? ig.carapaces.join(", ")
+    : null;
   return (
     <span>
       Adds {parts.join(", ")}
@@ -39,13 +71,18 @@ function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
 }
 
 function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
-  if (ig.tools.length === 0 && ig.skill_count === 0 && !ig.has_system_prompt) return null;
+  if (ig.tools.length === 0 && ig.skill_count === 0 && !ig.has_system_prompt && ig.carapaces.length === 0) return null;
   return (
     <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
       {ig.carapaces.length > 0 && (
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
-          <span style={{ fontWeight: 600, color: t.text }}>Carapace: </span>
-          {ig.carapaces.join(", ")}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>Carapace:</span>
+          {ig.carapaces.map((id) => (
+            <CarapacePill key={id} id={id} t={t} />
+          ))}
+          <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
+            from {fmtIntName(ig.integration_type)}
+          </span>
         </div>
       )}
       {ig.tools.length > 0 && (
