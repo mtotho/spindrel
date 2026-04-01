@@ -48,12 +48,14 @@ export function useCreateSecretValue() {
 export function useUpdateSecretValue(secretId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: SecretValueUpdatePayload) =>
-      apiFetch<SecretValueItem>(`/api/v1/admin/secret-values/${secretId}`, {
+    mutationFn: (data: SecretValueUpdatePayload) => {
+      if (!secretId) return Promise.reject(new Error("No secret selected"));
+      return apiFetch<SecretValueItem>(`/api/v1/admin/secret-values/${secretId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-secret-values"] });
     },

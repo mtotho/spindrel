@@ -161,6 +161,7 @@ See [CLAUDE.md](CLAUDE.md) for the full field reference.
 | [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation (immediate + deferred) |
 | [Harnesses](docs/guides/harnesses.md) | External CLI tools (Claude Code, Cursor) |
 | [Integration Framework](docs/integrations/index.md) | Building custom integrations |
+| [Secrets & Redaction](docs/guides/secrets.md) | Secret vault, automatic redaction from tool results & LLM output |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |
 | [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor (Python CLI, Android) |

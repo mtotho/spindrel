@@ -96,16 +96,18 @@ class SecretCheckResponse(BaseModel):
 
 
 @router.post("/chat/check-secrets", response_model=SecretCheckResponse)
-async def check_secrets(body: SecretCheckRequest):
+async def check_secrets(body: SecretCheckRequest, _auth=Depends(verify_auth_or_user)):
     """Pre-flight check: detect known secrets or secret-like patterns in user input."""
     from app.services.secret_registry import check_user_input
     result = check_user_input(body.message)
     if result is None:
         return SecretCheckResponse(has_secrets=False)
+    # Strip match content and positions from pattern matches — only expose the type
+    safe_patterns = [{"type": pm["type"]} for pm in result.get("pattern_matches", [])]
     return SecretCheckResponse(
         has_secrets=True,
         exact_matches=result.get("exact_matches", 0),
-        pattern_matches=result.get("pattern_matches", []),
+        pattern_matches=safe_patterns,
     )
 
 

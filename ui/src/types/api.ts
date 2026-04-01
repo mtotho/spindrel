@@ -4,9 +4,6 @@ export interface SecretCheckResult {
   exact_matches: number;
   pattern_matches: Array<{
     type: string;
-    match: string;
-    start: number;
-    end: number;
   }>;
 }
 

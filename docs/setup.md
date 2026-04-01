@@ -46,6 +46,8 @@ Edit `.env` with your settings. Required fields:
 | `LITELLM_BASE_URL` | LLM API endpoint (LiteLLM proxy, OpenAI, etc.) |
 | `LITELLM_API_KEY` | API key for LLM provider |
 
+> **Tip:** These `.env` values and all other configured secrets (provider keys, integration tokens, etc.) are automatically redacted from tool results and LLM output. You can also store additional secrets via **Admin > Security > Secrets** — see the [Secrets & Redaction guide](guides/secrets.md).
+
 ### 2. Start Services
 
 ```bash

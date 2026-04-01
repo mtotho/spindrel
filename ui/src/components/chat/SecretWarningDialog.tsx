@@ -84,9 +84,7 @@ export function SecretWarningDialog({
           >
             <div style={{ fontWeight: 600, marginBottom: 2 }}>Pattern matches:</div>
             {result.pattern_matches.map((pm, i) => (
-              <div key={i}>
-                {pm.type}: <code>{pm.match}</code>
-              </div>
+              <div key={i}>{pm.type}</div>
             ))}
           </div>
         )}

@@ -259,7 +259,9 @@ async def dispatch_tool_call(
     except Exception:
         _tc_args = {}
 
-    result_obj.result = result
+    # Redact known secrets from the raw result before storage
+    from app.services.secret_registry import redact as _redact_secrets
+    result_obj.result = _redact_secrets(result)
 
     # Extract embedded client_action or injected_images
     result_for_llm = result
@@ -276,7 +278,6 @@ async def dispatch_tool_call(
         pass
 
     # Redact known secrets before summarization or LLM consumption
-    from app.services.secret_registry import redact as _redact_secrets
     result_for_llm = _redact_secrets(result_for_llm)
 
     # Summarize if needed
@@ -303,7 +304,7 @@ async def dispatch_tool_call(
         server_name=_tc_server,
         iteration=iteration,
         arguments=_tc_args,
-        result=result,
+        result=result_obj.result,  # use redacted result
         error=_tc_error,
         duration_ms=_tc_duration,
         correlation_id=correlation_id,
