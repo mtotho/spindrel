@@ -301,6 +301,44 @@ function StepCard({
             />
           </FormRow>
 
+          {/* Prior result injection */}
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <Toggle
+                value={!!step.inject_prior_results}
+                onChange={(v) => onChange({ inject_prior_results: v })}
+                label="Inject Prior Results"
+                description="Include completed step results in this step's context"
+              />
+            </div>
+            {step.inject_prior_results && (
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <FormRow label="Max Chars per Result">
+                  <input
+                    type="number"
+                    value={step.prior_result_max_chars ?? ""}
+                    onChange={(e) => onChange({ prior_result_max_chars: e.target.value ? parseInt(e.target.value) : null })}
+                    placeholder="500 (default)"
+                    style={inputStyle}
+                    disabled={disabled}
+                  />
+                </FormRow>
+              </div>
+            )}
+          </div>
+
+          {/* Result truncation */}
+          <FormRow label="Result Max Chars" description="Max chars to store from this step's result">
+            <input
+              type="number"
+              value={step.result_max_chars ?? ""}
+              onChange={(e) => onChange({ result_max_chars: e.target.value ? parseInt(e.target.value) : null })}
+              placeholder="2000 (default)"
+              style={inputStyle}
+              disabled={disabled}
+            />
+          </FormRow>
+
           {/* Condition (when) */}
           <ConditionEditor
             condition={step.when || null}

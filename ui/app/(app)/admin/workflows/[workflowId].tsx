@@ -10,7 +10,7 @@ import {
 } from "@/src/api/hooks/useWorkflows";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Save, Trash2, ArrowLeft, Info, Download, Copy, X as XIcon } from "lucide-react";
+import { Save, Trash2, ArrowLeft, Info, Download, Copy, X as XIcon, Unlink } from "lucide-react";
 import { Section, FormRow, SelectInput, TabBar } from "@/src/components/shared/FormControls";
 import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
@@ -67,6 +67,8 @@ export default function WorkflowDetailPage() {
     setDirty(true);
   }, []);
 
+  const goBack = () => router.push("/admin/workflows" as any);
+
   const handleSave = async () => {
     try {
       if (isNew) {
@@ -82,7 +84,7 @@ export default function WorkflowDetailPage() {
           tags: draft.tags || [],
           session_mode: draft.session_mode || "isolated",
         } as Workflow);
-        router.back();
+        goBack();
       } else {
         await updateMut.mutateAsync({
           name: draft.name,
@@ -110,7 +112,7 @@ export default function WorkflowDetailPage() {
     if (!ok) return;
     try {
       await deleteMut.mutateAsync(workflowId);
-      router.back();
+      goBack();
     } catch {
       // handled
     }
@@ -118,7 +120,7 @@ export default function WorkflowDetailPage() {
 
   const handleExport = async () => {
     try {
-      const yaml = await exportMut.mutateAsync();
+      await exportMut.mutateAsync();
       setShowExport(true);
     } catch {
       // handled
@@ -142,8 +144,6 @@ export default function WorkflowDetailPage() {
     background: t.inputBg, border: `1px solid ${t.inputBorder}`,
     borderRadius: 8, padding: "8px 12px", color: t.inputText,
     fontSize: 14, width: "100%", outline: "none",
-    opacity: isFileBased ? 0.6 : 1,
-    cursor: isFileBased ? "not-allowed" : undefined,
   };
 
   return (
@@ -156,11 +156,11 @@ export default function WorkflowDetailPage() {
           marginBottom: 16,
         }}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <ArrowLeft size={16} color={t.textMuted} />
-            <Text style={{ color: t.textMuted, fontSize: 13 }}>Back</Text>
+            <Text style={{ color: t.textMuted, fontSize: 13 }}>Workflows</Text>
           </Pressable>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {/* Export YAML */}
@@ -177,7 +177,7 @@ export default function WorkflowDetailPage() {
                 <Text style={{ color: t.textMuted, fontSize: 12 }}>Export</Text>
               </Pressable>
             )}
-            {!isNew && !isFileBased && (
+            {!isNew && (
               <Pressable
                 onPress={handleDelete}
                 style={{
@@ -190,23 +190,21 @@ export default function WorkflowDetailPage() {
                 <Text style={{ color: t.danger, fontSize: 12 }}>Delete</Text>
               </Pressable>
             )}
-            {!isFileBased && (
-              <Pressable
-                onPress={handleSave}
-                disabled={!dirty && !isNew}
-                style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
-                  opacity: dirty || isNew ? 1 : 0.5,
-                }}
-              >
-                <Save size={14} color="#fff" />
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                  {isNew ? "Create" : "Save"}
-                </Text>
-              </Pressable>
-            )}
+            <Pressable
+              onPress={handleSave}
+              disabled={!dirty && !isNew}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 4,
+                paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+                backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
+                opacity: dirty || isNew ? 1 : 0.5,
+              }}
+            >
+              <Save size={14} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                {isNew ? "Create" : isFileBased && dirty ? "Detach & Save" : "Save"}
+              </Text>
+            </Pressable>
           </div>
         </div>
 
@@ -227,11 +225,11 @@ export default function WorkflowDetailPage() {
             background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
             padding: 10, borderRadius: 8, marginBottom: 16, color: t.accent, fontSize: 12,
           }}>
-            <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
+            <Unlink size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
-              This workflow is managed by a {existing?.source_type} file
+              Sourced from {existing?.source_type} file
               {existing?.source_path ? ` (${existing.source_path})` : ""}.
-              Edit the source YAML to make changes.
+              You can edit freely — saving will detach from the file and make this a user-managed workflow.
             </span>
           </div>
         )}
@@ -254,7 +252,6 @@ export default function WorkflowDetailPage() {
                     onChange={(e) => update({ id: e.target.value })}
                     placeholder="my-workflow"
                     style={inputStyle}
-                    disabled={isFileBased}
                   />
                 </FormRow>
               )}
@@ -264,7 +261,6 @@ export default function WorkflowDetailPage() {
                   onChange={(e) => update({ name: e.target.value })}
                   placeholder="My Workflow"
                   style={inputStyle}
-                  disabled={isFileBased}
                 />
               </FormRow>
               <FormRow label="Description">
@@ -273,7 +269,6 @@ export default function WorkflowDetailPage() {
                   onChange={(e) => update({ description: e.target.value })}
                   placeholder="What this workflow does..."
                   style={inputStyle}
-                  disabled={isFileBased}
                 />
               </FormRow>
               <FormRow label="Tags" description="Comma-separated labels">
@@ -282,7 +277,6 @@ export default function WorkflowDetailPage() {
                   onChange={(e) => update({ tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
                   placeholder="ops, monitoring"
                   style={inputStyle}
-                  disabled={isFileBased}
                 />
               </FormRow>
             </Section>
@@ -297,7 +291,6 @@ export default function WorkflowDetailPage() {
                     { label: "Isolated — each step gets fresh session", value: "isolated" },
                     { label: "Shared — all steps share one conversation", value: "shared" },
                   ]}
-                  style={isFileBased ? { opacity: 0.6, pointerEvents: "none" as const } : undefined}
                 />
               </FormRow>
               <FormRow label="Secrets" description="Comma-separated secret names available to steps">
@@ -306,7 +299,6 @@ export default function WorkflowDetailPage() {
                   onChange={(e) => update({ secrets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
                   placeholder="API_KEY, DB_PASSWORD"
                   style={inputStyle}
-                  disabled={isFileBased}
                 />
               </FormRow>
             </Section>
@@ -316,7 +308,6 @@ export default function WorkflowDetailPage() {
               <ParamsEditor
                 value={draft.params || {}}
                 onChange={(v) => update({ params: v })}
-                disabled={isFileBased}
               />
             </Section>
 
@@ -325,7 +316,6 @@ export default function WorkflowDetailPage() {
               <DefaultsEditor
                 value={draft.defaults || {}}
                 onChange={(v) => update({ defaults: v })}
-                disabled={isFileBased}
               />
             </Section>
 
@@ -334,21 +324,15 @@ export default function WorkflowDetailPage() {
               <TriggersEditor
                 value={(draft.triggers || {}) as Record<string, boolean>}
                 onChange={(v) => update({ triggers: v })}
-                disabled={isFileBased}
               />
             </Section>
 
             {/* Steps */}
             <Section title="Steps" description="Workflow step definitions">
-              {isFileBased ? (
-                <StepPreview steps={draft.steps || []} t={t} />
-              ) : (
-                <WorkflowStepEditor
-                  steps={draft.steps || []}
-                  onChange={(v) => update({ steps: v })}
-                  disabled={isFileBased}
-                />
-              )}
+              <WorkflowStepEditor
+                steps={draft.steps || []}
+                onChange={(v) => update({ steps: v })}
+              />
             </Section>
           </View>
         )}
@@ -366,91 +350,6 @@ export default function WorkflowDetailPage() {
           t={t}
         />
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Step preview (read-only, for file-based workflows)
-// ---------------------------------------------------------------------------
-
-function StepPreview({ steps, t }: { steps: WorkflowStep[]; t: ReturnType<typeof useThemeTokens> }) {
-  if (steps.length === 0) return null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {steps.map((step, i) => (
-        <div
-          key={step.id || i}
-          style={{
-            display: "flex", alignItems: "flex-start", gap: 10,
-            padding: "8px 12px", borderRadius: 8,
-            background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-          }}
-        >
-          <div style={{
-            width: 22, height: 22, borderRadius: 11, flexShrink: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-            fontSize: 11, fontWeight: 700, color: t.accent,
-          }}>
-            {i + 1}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
-                {step.id || `step_${i}`}
-              </span>
-              {step.requires_approval && (
-                <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                  background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warning,
-                }}>approval</span>
-              )}
-              {step.on_failure && step.on_failure !== "abort" && (
-                <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                  background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`, color: t.textDim,
-                }}>on_failure: {step.on_failure}</span>
-              )}
-              {step.when && (
-                <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                  background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`, color: t.purple,
-                }}>conditional</span>
-              )}
-              {step.carapaces && step.carapaces.length > 0 && (
-                <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                  background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent,
-                }}>carapaces: {step.carapaces.join(", ")}</span>
-              )}
-            </div>
-            <div style={{
-              fontSize: 12, color: t.textMuted, marginTop: 3,
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            }}>
-              {(step.prompt || "").slice(0, 120)}
-            </div>
-            {(step.tools || step.model) && (
-              <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                {step.tools?.map((tool) => (
-                  <span key={tool} style={{
-                    fontSize: 10, padding: "1px 4px", borderRadius: 3,
-                    background: t.surfaceOverlay, color: t.textDim,
-                  }}>{tool}</span>
-                ))}
-                {step.model && (
-                  <span style={{
-                    fontSize: 10, padding: "1px 4px", borderRadius: 3,
-                    background: t.surfaceOverlay, color: t.textDim,
-                  }}>model: {step.model}</span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

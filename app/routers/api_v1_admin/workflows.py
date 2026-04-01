@@ -166,14 +166,20 @@ async def update_workflow(
     row = await db.get(Workflow, workflow_id)
     if not row:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    if row.source_type == "file":
-        raise HTTPException(status_code=400, detail="Cannot update file-sourced workflows via API")
+
+    # Auto-detach file-sourced workflows when edited — makes them user-managed
+    was_file_based = row.source_type in ("file", "integration")
 
     data = body.model_dump(exclude_none=True)
     for field in ("name", "description", "params", "secrets", "defaults",
                    "steps", "triggers", "tags", "session_mode"):
         if field in data:
             setattr(row, field, data[field])
+
+    if was_file_based:
+        row.source_type = "manual"
+        row.content_hash = None
+
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(row)
