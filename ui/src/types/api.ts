@@ -170,6 +170,10 @@ export interface ActivatableIntegration {
   description: string;
   requires_workspace: boolean;
   activated: boolean;
+  carapaces: string[];
+  tools: string[];
+  skill_count: number;
+  has_system_prompt: boolean;
 }
 
 export interface ActivationResult {
@@ -294,6 +298,7 @@ export interface EffectiveTools {
   disabled: Record<string, string[]>;
   skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
   carapaces: string[];
+  carapace_sources: Record<string, string>;
 }
 
 // Elevation types

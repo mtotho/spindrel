@@ -687,6 +687,7 @@ class EffectiveToolsOut(BaseModel):
     disabled: dict = {}  # per-category disabled lists
     skills_extra: list[dict] = []  # channel-added skills
     carapaces: list[str] = []  # resolved carapace IDs
+    carapace_sources: dict[str, str] = {}  # carapace_id → source label
 
 
 @router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
@@ -697,9 +698,12 @@ async def admin_channel_effective_tools(
 ):
     """Return the resolved tool/skill lists after applying channel overrides."""
     from app.agent.channel_overrides import resolve_effective_tools
-    from app.db.models import Skill as SkillRow
+    from app.db.models import ChannelIntegration, Skill as SkillRow
 
-    channel = await db.get(Channel, channel_id)
+    result = await db.execute(
+        select(Channel).where(Channel.id == channel_id).options(selectinload(Channel.integrations))
+    )
+    channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
@@ -723,7 +727,33 @@ async def admin_channel_effective_tools(
         except Exception:
             pass  # non-fatal — fall back to bot YAML skills only
 
+    # Build carapace provenance before resolving (tracks where each came from)
+    _carapace_sources: dict[str, str] = {}
+    for cid in bot.carapaces:
+        _carapace_sources[cid] = "bot"
+    for cid in (getattr(channel, "carapaces_extra", None) or []):
+        if cid not in _carapace_sources:
+            _carapace_sources[cid] = "channel_extra"
+    # Activation-injected carapaces
+    try:
+        from integrations import get_activation_manifests
+        _manifests = get_activation_manifests()
+        for _ci in (getattr(channel, "integrations", None) or []):
+            if not _ci.activated:
+                continue
+            _manifest = _manifests.get(_ci.integration_type)
+            if _manifest:
+                for _cap_id in _manifest.get("carapaces", []):
+                    if _cap_id not in _carapace_sources:
+                        _carapace_sources[_cap_id] = f"activation:{_ci.integration_type}"
+    except Exception:
+        pass
+
     eff = resolve_effective_tools(bot, channel)
+
+    # Filter sources to only include carapaces that survived resolution
+    _eff_set = set(eff.carapaces)
+    carapace_sources = {k: v for k, v in _carapace_sources.items() if k in _eff_set}
 
     def _mode(override, disabled):
         if override is not None:
@@ -769,6 +799,7 @@ async def admin_channel_effective_tools(
         },
         skills_extra=skills_extra_list,
         carapaces=eff.carapaces,
+        carapace_sources=carapace_sources,
     )
 
 

@@ -10,6 +10,7 @@ import {
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { ChannelSettings } from "@/src/types/api";
 import { EffectiveToolsList } from "./EffectiveToolsList";
 import { EffectiveSkillsList } from "./EffectiveSkillsList";
@@ -195,6 +196,11 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
           {filteredCarapaces.map((c) => {
             const isExtra = extras.has(c.id);
             const isDisabled = disabled.has(c.id);
+            const source = effective?.carapace_sources?.[c.id];
+            const isActivation = source?.startsWith("activation:");
+            const activationLabel = isActivation
+              ? `via ${source!.replace("activation:", "")} activation`
+              : null;
             return (
               <View
                 key={c.id}
@@ -208,24 +214,34 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                 }}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, color: t.text, fontWeight: "500" }}>{c.name}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Text style={{ fontSize: 12, color: t.text, fontWeight: "500" }}>{c.name}</Text>
+                    {isActivation && (
+                      <StatusBadge label={activationLabel!} variant="purple" />
+                    )}
+                    {source === "bot" && (
+                      <StatusBadge label="bot default" variant="neutral" />
+                    )}
+                  </View>
                   <Text style={{ fontSize: 10, color: t.textMuted }}>{c.id}{c.description ? ` — ${c.description}` : ""}</Text>
                 </View>
-                <Pressable
-                  onPress={() => toggleCarapaceExtra(c.id)}
-                  style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 4,
-                    borderWidth: 1,
-                    borderColor: isExtra ? t.success : t.surfaceBorder,
-                    backgroundColor: isExtra ? `${t.success}18` : "transparent",
-                  }}
-                >
-                  <Text style={{ fontSize: 10, color: isExtra ? t.success : t.textDim }}>
-                    {isExtra ? "Added" : "Add"}
-                  </Text>
-                </Pressable>
+                {!isActivation && (
+                  <Pressable
+                    onPress={() => toggleCarapaceExtra(c.id)}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 4,
+                      borderWidth: 1,
+                      borderColor: isExtra ? t.success : t.surfaceBorder,
+                      backgroundColor: isExtra ? `${t.success}18` : "transparent",
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, color: isExtra ? t.success : t.textDim }}>
+                      {isExtra ? "Added" : "Add"}
+                    </Text>
+                  </Pressable>
+                )}
                 <Pressable
                   onPress={() => toggleCarapaceDisabled(c.id)}
                   style={{

@@ -986,6 +986,10 @@ class AvailableIntegrationOut(BaseModel):
     description: str
     requires_workspace: bool
     activated: bool
+    carapaces: list[str] = []
+    tools: list[str] = []
+    skill_count: int = 0
+    has_system_prompt: bool = False
 
 
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
@@ -1122,12 +1126,29 @@ async def list_available_integrations(
     )
     activated_types = {row for row in activated_result.scalars().all()}
 
-    return [
-        AvailableIntegrationOut(
+    from app.agent.carapaces import resolve_carapaces
+
+    result = []
+    for itype, manifest in manifests.items():
+        carapace_ids = manifest.get("carapaces", [])
+        resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
+        tool_names: list[str] = []
+        skill_count = 0
+        has_system_prompt = False
+        if resolved:
+            tool_names = list(resolved.local_tools)
+            skill_count = len(resolved.skills)
+            has_system_prompt = len(resolved.system_prompt_fragments) > 0
+
+        result.append(AvailableIntegrationOut(
             integration_type=itype,
             description=manifest.get("description", ""),
             requires_workspace=manifest.get("requires_workspace", False),
             activated=itype in activated_types,
-        )
-        for itype, manifest in manifests.items()
-    ]
+            carapaces=carapace_ids,
+            tools=tool_names,
+            skill_count=skill_count,
+            has_system_prompt=has_system_prompt,
+        ))
+
+    return result

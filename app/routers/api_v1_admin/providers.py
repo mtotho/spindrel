@@ -31,6 +31,9 @@ class ProviderOut(BaseModel):
     rpm_limit: Optional[int] = None
     config: dict = {}
     has_api_key: bool = False
+    billing_type: str = "usage"
+    plan_cost: Optional[float] = None
+    plan_period: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -47,6 +50,9 @@ class ProviderCreateIn(BaseModel):
     tpm_limit: Optional[int] = None
     rpm_limit: Optional[int] = None
     management_key: Optional[str] = None
+    billing_type: str = "usage"
+    plan_cost: Optional[float] = None
+    plan_period: Optional[str] = None
 
 
 class ProviderUpdateIn(BaseModel):
@@ -60,6 +66,10 @@ class ProviderUpdateIn(BaseModel):
     management_key: Optional[str] = None
     clear_tpm_limit: bool = False
     clear_rpm_limit: bool = False
+    billing_type: Optional[str] = None
+    plan_cost: Optional[float] = None
+    plan_period: Optional[str] = None
+    clear_plan_cost: bool = False
 
 
 class ProviderModelOut(BaseModel):
@@ -109,6 +119,9 @@ def _provider_to_out(row: ProviderConfigRow) -> ProviderOut:
         rpm_limit=row.rpm_limit,
         config={k: v for k, v in (row.config or {}).items() if k != "management_key"},
         has_api_key=bool(row.api_key),
+        billing_type=row.billing_type,
+        plan_cost=row.plan_cost,
+        plan_period=row.plan_period,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -262,6 +275,9 @@ async def admin_create_provider(
         tpm_limit=body.tpm_limit,
         rpm_limit=body.rpm_limit,
         config=config,
+        billing_type=body.billing_type,
+        plan_cost=body.plan_cost,
+        plan_period=body.plan_period,
         created_at=now,
         updated_at=now,
     )
@@ -310,6 +326,18 @@ async def admin_update_provider(
         row.rpm_limit = body.rpm_limit
     elif body.clear_rpm_limit:
         row.rpm_limit = None
+    if body.billing_type is not None:
+        row.billing_type = body.billing_type
+    if body.plan_cost is not None:
+        row.plan_cost = body.plan_cost
+    elif body.clear_plan_cost:
+        row.plan_cost = None
+    if body.plan_period is not None:
+        row.plan_period = body.plan_period
+    # Clear plan fields when switching back to usage billing
+    if body.billing_type == "usage":
+        row.plan_cost = None
+        row.plan_period = None
 
     config = dict(row.config or {})
     if body.management_key is not None:

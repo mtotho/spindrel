@@ -9,9 +9,11 @@ interface Props {
   onUnlink: () => void;
   /** When set, only show templates matching this category */
   category?: string;
+  /** When set, templates with this tag get a "Recommended" badge */
+  highlightTag?: string;
 }
 
-export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: Props) {
+export function PromptTemplateLink({ templateId, onLink, onUnlink, category, highlightTag }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -178,7 +180,9 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                           No templates found
                         </div>
                       )}
-                      {manual.map((tpl) => (
+                      {manual.map((tpl) => {
+                        const isHighlighted = highlightTag && tpl.tags?.includes(highlightTag);
+                        return (
                         <button
                           key={tpl.id}
                           onMouseDown={(e) => {
@@ -206,6 +210,23 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                             <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                               {tpl.name}
                             </span>
+                            {isHighlighted && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  textTransform: "uppercase",
+                                  letterSpacing: 0.5,
+                                  padding: "1px 5px",
+                                  borderRadius: 3,
+                                  background: "rgba(34,197,94,0.12)",
+                                  color: "#22c55e",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Recommended
+                              </span>
+                            )}
                             {(tpl.source_type === "integration" || tpl.source_type === "file") && (
                               <span
                                 style={{
@@ -239,7 +260,8 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: P
                             </span>
                           )}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </>,

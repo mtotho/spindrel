@@ -29,6 +29,8 @@ class ConfigResponse(BaseModel):
     server_url: str
     default_bot: str
     chat_bot_map: dict[str, str]
+    wake_words: list[str]
+    channels: dict[str, dict]
 
 
 # In-memory config (could be persisted to IntegrationSetting later)
@@ -50,13 +52,51 @@ def _get_default_bot() -> str:
     return settings.BB_DEFAULT_BOT
 
 
+def _parse_wake_words(raw: str, default_bot: str) -> list[str]:
+    """Parse comma-separated wake words, falling back to bot name."""
+    words = [w.strip().lower() for w in raw.split(",") if w.strip()]
+    if not words:
+        words = [default_bot.lower()]
+    return words
+
+
 @router.get("/config")
 async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     """Return current BB configuration (used by bb_client.py)."""
+    from integrations.bluebubbles.config import settings
+    from app.db.engine import async_session
+    from app.db.models import Channel
+    from sqlalchemy import select
+
+    default_bot = _get_default_bot()
+
+    # Parse wake words from settings
+    wake_words = _parse_wake_words(settings.BB_WAKE_WORDS, default_bot)
+
+    # Query channel settings for all BB-bound channels
+    channels: dict[str, dict] = {}
+    try:
+        async with async_session() as db:
+            rows = (await db.execute(
+                select(Channel).where(Channel.integration == "bluebubbles")
+            )).scalars().all()
+        for row in rows:
+            if not row.client_id:
+                continue
+            chat_guid = row.client_id.removeprefix("bb:")
+            channels[chat_guid] = {
+                "require_mention": row.require_mention,
+                "passive_memory": row.passive_memory,
+            }
+    except Exception:
+        logger.debug("Failed to query BB channel settings", exc_info=True)
+
     return ConfigResponse(
         server_url=_get_server_url(),
-        default_bot=_get_default_bot(),
+        default_bot=default_bot,
         chat_bot_map=dict(_chat_bot_map),
+        wake_words=wake_words,
+        channels=channels,
     )
 
 

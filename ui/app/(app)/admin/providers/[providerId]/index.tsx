@@ -76,6 +76,9 @@ export default function ProviderDetailScreen() {
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
   const [managementKey, setManagementKey] = useState("");
+  const [billingType, setBillingType] = useState("usage");
+  const [planCost, setPlanCost] = useState("");
+  const [planPeriod, setPlanPeriod] = useState("monthly");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [initialized, setInitialized] = useState(isNew);
 
@@ -98,6 +101,9 @@ export default function ProviderDetailScreen() {
     setIsEnabled(provider.is_enabled);
     setTpmLimit(provider.tpm_limit ? String(provider.tpm_limit) : "");
     setRpmLimit(provider.rpm_limit ? String(provider.rpm_limit) : "");
+    setBillingType(provider.billing_type || "usage");
+    setPlanCost(provider.plan_cost ? String(provider.plan_cost) : "");
+    setPlanPeriod(provider.plan_period || "monthly");
     setInitialized(true);
   }
 
@@ -111,6 +117,9 @@ export default function ProviderDetailScreen() {
         tpm_limit: tpmLimit ? parseInt(tpmLimit) : null,
         rpm_limit: rpmLimit ? parseInt(rpmLimit) : null,
         management_key: managementKey || undefined,
+        billing_type: billingType,
+        plan_cost: billingType === "plan" && planCost ? parseFloat(planCost) : null,
+        plan_period: billingType === "plan" ? planPeriod : null,
       });
       goBack();
     } else {
@@ -123,9 +132,13 @@ export default function ProviderDetailScreen() {
         clear_tpm_limit: !tpmLimit,
         clear_rpm_limit: !rpmLimit,
         management_key: managementKey || undefined,
+        billing_type: billingType,
+        plan_cost: billingType === "plan" && planCost ? parseFloat(planCost) : undefined,
+        plan_period: billingType === "plan" ? planPeriod : undefined,
+        clear_plan_cost: billingType === "usage",
       });
     }
-  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, createMut, updateMut, goBack]);
+  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, billingType, planCost, planPeriod, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!providerId || !confirm("Delete this provider?")) return;
@@ -313,6 +326,40 @@ export default function ProviderDetailScreen() {
                 </FormRow>
               </Col>
             </Row>
+          </Section>
+
+          <Section title="Billing" description="How this provider charges for usage">
+            <FormRow label="Billing Type">
+              <SelectInput
+                value={billingType}
+                onChange={setBillingType}
+                options={[
+                  { label: "Per-token usage", value: "usage" },
+                  { label: "Fixed plan", value: "plan" },
+                ]}
+              />
+            </FormRow>
+            {billingType === "plan" && (
+              <Row>
+                <Col>
+                  <FormRow label="Plan Cost" description="Flat cost amount (e.g. 40)">
+                    <TextInput value={planCost} onChangeText={setPlanCost} placeholder="e.g. 40" type="number" />
+                  </FormRow>
+                </Col>
+                <Col>
+                  <FormRow label="Plan Period">
+                    <SelectInput
+                      value={planPeriod}
+                      onChange={setPlanPeriod}
+                      options={[
+                        { label: "Monthly", value: "monthly" },
+                        { label: "Weekly", value: "weekly" },
+                      ]}
+                    />
+                  </FormRow>
+                </Col>
+              </Row>
+            )}
           </Section>
 
           {!isNew && (

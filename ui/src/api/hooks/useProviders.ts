@@ -11,6 +11,9 @@ export interface ProviderItem {
   rpm_limit?: number | null;
   config: Record<string, any>;
   has_api_key: boolean;
+  billing_type: string;
+  plan_cost?: number | null;
+  plan_period?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +28,9 @@ export interface ProviderCreatePayload {
   tpm_limit?: number | null;
   rpm_limit?: number | null;
   management_key?: string;
+  billing_type?: string;
+  plan_cost?: number | null;
+  plan_period?: string | null;
 }
 
 export interface ProviderUpdatePayload {
@@ -38,6 +44,10 @@ export interface ProviderUpdatePayload {
   management_key?: string;
   clear_tpm_limit?: boolean;
   clear_rpm_limit?: boolean;
+  billing_type?: string;
+  plan_cost?: number | null;
+  plan_period?: string | null;
+  clear_plan_cost?: boolean;
 }
 
 export interface TestResult {

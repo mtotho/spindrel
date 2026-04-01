@@ -106,13 +106,30 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             carapaces=list(bot.carapaces),
         )
 
-    # Resolve carapaces: extras add, disabled removes
+    # Resolve carapaces: extras add, activation inject, disabled removes
     _carapaces = list(bot.carapaces)
     _ch_extra = getattr(channel, "carapaces_extra", None) or []
     for cid in _ch_extra:
         if cid not in _carapaces:
             _carapaces.append(cid)
     _ch_disabled = set(getattr(channel, "carapaces_disabled", None) or [])
+
+    # Inject carapaces from activated integrations (mirrors context_assembly.py)
+    if channel is not None:
+        try:
+            from integrations import get_activation_manifests
+            _manifests = get_activation_manifests()
+            for _ci in (getattr(channel, "integrations", None) or []):
+                if not _ci.activated:
+                    continue
+                _manifest = _manifests.get(_ci.integration_type)
+                if _manifest:
+                    for cap_id in _manifest.get("carapaces", []):
+                        if cap_id not in _carapaces and cap_id not in _ch_disabled:
+                            _carapaces.append(cap_id)
+        except Exception:
+            pass
+
     if _ch_disabled:
         _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 

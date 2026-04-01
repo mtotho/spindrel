@@ -714,6 +714,9 @@ class ProviderConfig(Base):
     tpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    billing_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'usage'"))
+    plan_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    plan_period: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

@@ -17,7 +17,9 @@ import {
   useChannelWorkspaceFiles,
   useChannelWorkspaceFileContent,
   useDeleteChannelWorkspaceFile,
+  useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
+import { InfoBanner } from "@/src/components/shared/SettingsControls";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
@@ -492,6 +494,13 @@ export function ChannelWorkspaceTab({
   const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
+  // Detect if Mission Control (or any integration with carapaces) is activated
+  const { data: activatable } = useActivatableIntegrations(channelId);
+  const mcActive = activatable?.some(
+    (ig) => ig.integration_type === "mission_control" && ig.activated,
+  );
+  const hasNoSchema = !form.workspace_schema_template_id && !form.workspace_schema_content;
+
   const { data: filesData, isLoading } = useChannelWorkspaceFiles(
     enabled ? channelId : undefined,
     { includeArchive: true, includeData: true },
@@ -518,6 +527,12 @@ export function ChannelWorkspaceTab({
             title="Workspace Schema"
             description="Choose an organization template that defines how workspace files should be structured for this type of project."
           >
+            {mcActive && hasNoSchema && (
+              <InfoBanner variant="info">
+                Mission Control is active on this channel. Pick a compatible workspace schema
+                (e.g. Structured Task Hub) for best results.
+              </InfoBanner>
+            )}
             <WorkspaceSchemaEditor
               templateId={form.workspace_schema_template_id ?? null}
               schemaContent={form.workspace_schema_content ?? null}
@@ -527,6 +542,7 @@ export function ChannelWorkspaceTab({
               onContentChange={(content) => {
                 patch("workspace_schema_content", content);
               }}
+              highlightTag={mcActive ? "mission-control" : undefined}
             />
           </Section>
 

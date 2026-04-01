@@ -203,6 +203,7 @@ export function useActivateIntegration(channelId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
       qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
     },
   });
 }
@@ -218,6 +219,7 @@ export function useDeactivateIntegration(channelId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
       qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
     },
   });
 }
