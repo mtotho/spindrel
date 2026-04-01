@@ -275,6 +275,10 @@ async def dispatch_tool_call(
     except (json.JSONDecodeError, TypeError):
         pass
 
+    # Redact known secrets before summarization or LLM consumption
+    from app.services.secret_registry import redact as _redact_secrets
+    result_for_llm = _redact_secrets(result_for_llm)
+
     # Summarize if needed
     _orig_len = len(result_for_llm)
     _was_summarized = False

@@ -93,6 +93,8 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WHISPER_COMPUTE_TYPE": {"group": "Speech-to-Text", "label": "Compute Type", "description": "Compute precision", "type": "string", "options": ["auto", "int8", "float16", "float32"]},
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},
     "WHISPER_LANGUAGE": {"group": "Speech-to-Text", "label": "Language", "description": "Transcription language code", "type": "string"},
+    # --- Security ---
+    "SECRET_REDACTION_ENABLED": {"group": "Security", "label": "Secret Redaction", "description": "Redact known secrets from tool results and LLM output", "type": "bool"},
     # --- Tool Policies ---
     "TOOL_POLICY_ENABLED": {"group": "Tool Policies", "label": "Enabled", "description": "Master switch for the tool policy engine", "type": "bool"},
     "TOOL_POLICY_DEFAULT_ACTION": {"group": "Tool Policies", "label": "Default Action", "description": "Action when no rule matches: allow, deny, or require_approval", "type": "string", "options": ["allow", "deny", "require_approval"]},
@@ -121,7 +123,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Agent", "Chat History",
+    "System", "General", "Security", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
     "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]

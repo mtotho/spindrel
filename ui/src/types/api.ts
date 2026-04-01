@@ -1,3 +1,15 @@
+// Secret check types
+export interface SecretCheckResult {
+  has_secrets: boolean;
+  exact_matches: number;
+  pattern_matches: Array<{
+    type: string;
+    match: string;
+    start: number;
+    end: number;
+  }>;
+}
+
 // Bot types
 export interface MemoryConfig {
   enabled?: boolean;

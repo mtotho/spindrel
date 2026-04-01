@@ -3,6 +3,13 @@ import { Link2, Unlink, Pencil } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
 
+function getIntegrationLabel(sourcePath?: string | null): string | null {
+  if (!sourcePath) return null;
+  const match = sourcePath.match(/integrations\/([^/]+)\//);
+  if (!match) return null;
+  return match[1].replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 interface Props {
   templateId: string | null | undefined;
   onLink: (id: string) => void;
@@ -71,7 +78,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                   whiteSpace: "nowrap",
                 }}
               >
-                Built-in
+                {(linked.source_type === "integration" && getIntegrationLabel(linked.source_path)) || "Built-in"}
               </span>
             )}
           </div>
@@ -241,7 +248,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                Built-in
+                                {(tpl.source_type === "integration" && getIntegrationLabel(tpl.source_path)) || "Built-in"}
                               </span>
                             )}
                           </div>

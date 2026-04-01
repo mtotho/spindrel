@@ -85,6 +85,30 @@ class ChatResponse(BaseModel):
     client_actions: list[dict] = []
 
 
+class SecretCheckRequest(BaseModel):
+    message: str
+
+
+class SecretCheckResponse(BaseModel):
+    has_secrets: bool
+    exact_matches: int = 0
+    pattern_matches: list[dict] = Field(default_factory=list)
+
+
+@router.post("/chat/check-secrets", response_model=SecretCheckResponse)
+async def check_secrets(body: SecretCheckRequest):
+    """Pre-flight check: detect known secrets or secret-like patterns in user input."""
+    from app.services.secret_registry import check_user_input
+    result = check_user_input(body.message)
+    if result is None:
+        return SecretCheckResponse(has_secrets=False)
+    return SecretCheckResponse(
+        has_secrets=True,
+        exact_matches=result.get("exact_matches", 0),
+        pattern_matches=result.get("pattern_matches", []),
+    )
+
+
 def _is_integration_client(client_id: str) -> bool:
     return is_integration_client_id(client_id)
 

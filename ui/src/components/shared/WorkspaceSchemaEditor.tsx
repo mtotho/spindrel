@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { FileText, Pencil, RotateCcw, Save, BookTemplate, X } from "lucide-react";
+import { FileText, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { PromptTemplateLink } from "./PromptTemplateLink";
 import { SaveAsTemplateModal } from "./SaveAsTemplateModal";
+
+function getIntegrationLabel(sourcePath?: string | null): string | null {
+  if (!sourcePath) return null;
+  const match = sourcePath.match(/integrations\/([^/]+)\//);
+  if (!match) return null;
+  return match[1].replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
 interface Props {
   templateId: string | null | undefined;
@@ -79,10 +86,71 @@ export function WorkspaceSchemaEditor({
     }
   };
 
-  // No template linked — just show the picker
+  // No template linked — show suggestions (if any) + fallback picker
   if (!hasTemplate && !hasOverride) {
+    const suggested = highlightTag
+      ? (templates ?? []).filter(
+          (tpl) => tpl.tags?.includes(highlightTag) && tpl.source_type !== "workspace_file"
+        )
+      : [];
+
     return (
       <View>
+        {suggested.length > 0 && (
+          <View style={{ marginBottom: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
+              <Sparkles size={12} color={t.accent} />
+              <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim }}>
+                Suggested schemas
+              </Text>
+            </View>
+            <View style={{ gap: 6 }}>
+              {suggested.map((tpl) => {
+                const provenance = getIntegrationLabel(tpl.source_path);
+                return (
+                  <Pressable
+                    key={tpl.id}
+                    onPress={() => handleTemplateLink(tpl.id)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: t.surfaceBorder,
+                      borderRadius: 6,
+                      padding: 10,
+                      backgroundColor: t.surfaceOverlay,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: t.text }}>
+                      {tpl.name}
+                    </Text>
+                    {tpl.description && (
+                      <Text
+                        numberOfLines={2}
+                        style={{ fontSize: 11, color: t.textDim, marginTop: 2, lineHeight: 16 }}
+                      >
+                        {tpl.description}
+                      </Text>
+                    )}
+                    {provenance && (
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontWeight: "700",
+                          color: t.textDim,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          marginTop: 4,
+                          textAlign: "right",
+                        }}
+                      >
+                        {provenance}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
         <PromptTemplateLink
           templateId={null}
           onLink={handleTemplateLink}

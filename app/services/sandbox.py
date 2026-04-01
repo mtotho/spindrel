@@ -350,6 +350,13 @@ class SandboxService:
                 _exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
         except Exception:
             pass
+        # Inject secret values as env vars
+        try:
+            from app.services.secret_values import get_env_dict as _get_secret_env
+            for _sk, _sv in _get_secret_env().items():
+                _exec_args += ["-e", f"{_sk}={_sv}"]
+        except Exception:
+            pass
         _exec_args += [instance.container_id, "sh", "-c", command]
 
         try:
@@ -762,6 +769,13 @@ class SandboxService:
                     _bot_key = await get_bot_api_key_value(_db, bot_id)
                 if _bot_key:
                     exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+            except Exception:
+                pass
+            # Inject secret values as env vars
+            try:
+                from app.services.secret_values import get_env_dict as _get_secret_env
+                for _sk, _sv in _get_secret_env().items():
+                    exec_args += ["-e", f"{_sk}={_sv}"]
             except Exception:
                 pass
             exec_args += [instance.container_id, "sh", "-c", command]

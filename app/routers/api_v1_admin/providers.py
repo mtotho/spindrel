@@ -328,16 +328,17 @@ async def admin_update_provider(
         row.rpm_limit = None
     if body.billing_type is not None:
         row.billing_type = body.billing_type
-    if body.plan_cost is not None:
-        row.plan_cost = body.plan_cost
-    elif body.clear_plan_cost:
-        row.plan_cost = None
-    if body.plan_period is not None:
-        row.plan_period = body.plan_period
-    # Clear plan fields when switching back to usage billing
-    if body.billing_type == "usage":
-        row.plan_cost = None
-        row.plan_period = None
+        # Clear plan fields when switching back to usage billing
+        if body.billing_type == "usage":
+            row.plan_cost = None
+            row.plan_period = None
+    if row.billing_type == "plan":
+        if body.plan_cost is not None:
+            row.plan_cost = body.plan_cost
+        elif body.clear_plan_cost:
+            row.plan_cost = None
+        if body.plan_period is not None:
+            row.plan_period = body.plan_period
 
     config = dict(row.config or {})
     if body.management_key is not None:

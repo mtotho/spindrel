@@ -100,6 +100,7 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "SECURITY",
     items: [
       { label: "API Keys", href: "/admin/api-keys", icon: Key },
+      { label: "Secrets", href: "/admin/secret-values", icon: Lock },
       { label: "Policies", href: "/admin/tool-policies", icon: Shield },
       { label: "Approvals", href: "/admin/approvals", icon: ShieldCheck },
       { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },

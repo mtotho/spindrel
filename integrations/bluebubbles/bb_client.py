@@ -147,6 +147,12 @@ async def _handle_message(message: dict) -> None:
         logger.warning("BB message has no chat GUID: %s", message.get("guid"))
         return
 
+    # Only process messages from chats that have a bound Channel in the DB.
+    # This prevents the bot from responding to random/unknown contacts.
+    if chat_guid not in _channel_settings:
+        logger.debug("Ignoring message from unbound chat %s", chat_guid)
+        return
+
     is_from_me = message.get("isFromMe", False)
     msg_guid = message.get("guid", "")
 

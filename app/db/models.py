@@ -1199,6 +1199,18 @@ class ApiKey(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
+class SecretValue(Base):
+    __tablename__ = "secret_values"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)  # encrypted with Fernet
+    description: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class PlanItem(Base):
     __tablename__ = "plan_items"
 
