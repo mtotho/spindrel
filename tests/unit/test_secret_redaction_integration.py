@@ -791,3 +791,85 @@ class TestSecretValuesCRUDCache:
 
         result = await secret_values.delete_secret(mock_db, uuid.uuid4())
         assert result is False
+
+
+# ===========================================================================
+# 11. Context compaction — secrets must not leak to summarization LLM
+# ===========================================================================
+
+class TestCompactionRedaction:
+    """Verify that compaction redacts secrets before sending to the LLM."""
+
+    def test_build_transcript_redacts_secrets(self):
+        """_build_transcript should redact secrets from message content."""
+        _set_secrets("super-secret-db-password")
+        from app.services.compaction import _build_transcript
+        conversation = [
+            {"role": "user", "content": "What is the DB password?"},
+            {"role": "assistant", "content": "The password is super-secret-db-password"},
+        ]
+        transcript = _build_transcript(conversation)
+        assert "super-secret-db-password" not in transcript
+        assert "[REDACTED]" in transcript
+        assert "[USER]:" in transcript
+        assert "[ASSISTANT]:" in transcript
+
+    def test_build_transcript_handles_multipart_content(self):
+        """_build_transcript should redact secrets in multi-part content."""
+        _set_secrets("leaked-api-key-xyz")
+        from app.services.compaction import _build_transcript
+        conversation = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Found key leaked-api-key-xyz in env"},
+            ]},
+        ]
+        transcript = _build_transcript(conversation)
+        assert "leaked-api-key-xyz" not in transcript
+        assert "[REDACTED]" in transcript
+
+    def test_build_transcript_no_secrets_passthrough(self):
+        """When no secrets are registered, content passes through unchanged."""
+        from app.services.compaction import _build_transcript
+        conversation = [
+            {"role": "user", "content": "Hello, how are you?"},
+            {"role": "assistant", "content": "I'm doing well!"},
+        ]
+        transcript = _build_transcript(conversation)
+        assert "Hello, how are you?" in transcript
+        assert "I'm doing well!" in transcript
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_redacts_transcript(self):
+        """_generate_summary should not send raw secrets to the LLM."""
+        _set_secrets("my-secret-token-12345")
+        from app.services.compaction import _generate_summary
+
+        captured_messages = []
+
+        class FakeCompletion:
+            class choice:
+                class message:
+                    content = '{"title": "Test", "summary": "A summary"}'
+            choices = [choice]
+            usage = None
+
+        class FakeClient:
+            class chat:
+                class completions:
+                    @staticmethod
+                    async def create(**kwargs):
+                        captured_messages.extend(kwargs.get("messages", []))
+                        return FakeCompletion()
+
+        conversation = [
+            {"role": "user", "content": "Show me the token"},
+            {"role": "assistant", "content": "The token is my-secret-token-12345"},
+        ]
+
+        with patch("app.services.providers.get_llm_client", return_value=FakeClient()):
+            await _generate_summary(conversation, "test-model", None)
+
+        # The transcript sent to the LLM should have secrets redacted
+        all_content = " ".join(m.get("content", "") for m in captured_messages)
+        assert "my-secret-token-12345" not in all_content
+        assert "[REDACTED]" in all_content

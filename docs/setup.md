@@ -56,9 +56,14 @@ docker compose up -d
 
 ## Web Search
 
-The built-in `web_search` tool uses SearXNG and Playwright containers. These are **opt-in** via Docker Compose profiles — they only start when you enable them.
+The `web_search` tool is always available. The backend depends on `WEB_SEARCH_ENABLED`:
 
-### Enabling web search
+| `WEB_SEARCH_ENABLED` | Backend | Containers needed |
+|---|---|---|
+| `true` (default) | SearXNG (self-hosted) | searxng + playwright |
+| `false` | ddgs (DuckDuckGo + other engines) | none |
+
+### SearXNG mode (default)
 
 Add to your `.env`:
 
@@ -67,13 +72,15 @@ WEB_SEARCH_ENABLED=true
 COMPOSE_PROFILES=web-search
 ```
 
-Then `docker compose up -d` will start the SearXNG and Playwright containers alongside the server.
+Then `docker compose up -d` starts SearXNG and Playwright containers alongside the server. This gives you a private, self-hosted search engine with JS rendering.
 
-### Disabling web search
+### Lightweight mode (no extra containers)
 
-Remove or set `WEB_SEARCH_ENABLED=false` and remove `COMPOSE_PROFILES` from `.env`. The `web_search` tool will not be registered, and the containers won't start. The `fetch_url` tool still works (falls back to httpx without Playwright).
+```bash
+WEB_SEARCH_ENABLED=false
+```
 
-You can always add custom search tools in `tools/`.
+The `web_search` tool uses `ddgs` (DuckDuckGo and other public search engines) directly — no containers, no API keys. Good enough for occasional searches. The `fetch_url` tool still works (falls back to httpx without Playwright).
 
 > **Upgrading?** If you already use web search, add `COMPOSE_PROFILES=web-search` to your `.env` — without it, SearXNG and Playwright containers won't start after this update.
 

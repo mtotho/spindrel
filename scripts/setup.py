@@ -268,7 +268,7 @@ def main() -> None:
         env_config["COMPOSE_PROFILES"] = "web-search"
     else:
         env_config["WEB_SEARCH_ENABLED"] = "false"
-        print("  \033[2mYou can add custom search tools in tools/\033[0m")
+        print("  \033[2mWeb search will use DuckDuckGo (no extra containers needed)\033[0m")
 
     # ── 5. Auth ────────────────────────────────────────────────────────────
 
