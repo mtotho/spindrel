@@ -8,7 +8,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from integrations.arr.tools._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,9 @@ def _base_url() -> str:
 
 
 async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.BAZARR_URL, "Bazarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     p = dict(params or {})
     p["apikey"] = settings.BAZARR_API_KEY
@@ -28,6 +31,9 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
 
 
 async def _post(path: str, params: dict | None = None, payload: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.BAZARR_URL, "Bazarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     p = dict(params or {})
     p["apikey"] = settings.BAZARR_API_KEY

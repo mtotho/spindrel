@@ -9,7 +9,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from integrations.arr.tools._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,9 @@ def _headers() -> dict[str, str]:
 
 
 async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
@@ -31,6 +34,9 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
 
 
 async def _post(path: str, payload: dict, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)

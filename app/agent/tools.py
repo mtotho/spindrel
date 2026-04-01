@@ -327,9 +327,16 @@ async def warm_mcp_tool_index_for_all_bots() -> None:
     for bot in list_bots():
         servers.update(bot.mcp_servers)
 
-    for name in sorted(servers):
-        tools = await fetch_mcp_tools([name])
-        await index_mcp_tools(name, tools)
+    import asyncio
+
+    async def _fetch_and_index(server: str) -> None:
+        try:
+            tools = await fetch_mcp_tools([server])
+            await index_mcp_tools(server, tools)
+        except Exception:
+            logger.exception("Failed to warm MCP tool index for server '%s'", server)
+
+    await asyncio.gather(*[_fetch_and_index(s) for s in sorted(servers)])
 
 
 async def validate_pinned_tools() -> None:

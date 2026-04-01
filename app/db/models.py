@@ -322,6 +322,10 @@ class Message(Base):
         back_populates="message", cascade="all, delete-orphan"
     )
 
+    __table_args__ = (
+        Index("ix_messages_session_id", "session_id"),
+    )
+
 
 class Attachment(Base):
     __tablename__ = "attachments"
@@ -378,6 +382,10 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_documents_source", "source"),
     )
 
 
@@ -469,6 +477,10 @@ class ToolEmbedding(Base):
     indexed_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_tool_embeddings_server_name", "server_name"),
     )
 
 
@@ -1051,6 +1063,10 @@ class Task(Base):
         nullable=True,
     )
     max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_tasks_status_run_at", "status", "run_at"),
+    )
 
 
 class Plan(Base):

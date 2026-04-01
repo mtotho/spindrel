@@ -64,6 +64,7 @@ async def assemble_config_state(db) -> dict:
         ChannelHeartbeat,
         ChannelIntegration,
         Document,
+        MCPServer,
         PromptTemplate,
         ProviderConfig,
         ProviderModel,
@@ -141,6 +142,22 @@ async def assemble_config_state(db) -> dict:
             ],
         }
         for p in provider_rows
+    ]
+
+    # --- MCP Servers ---
+    mcp_rows = (await db.execute(select(MCPServer))).scalars().all()
+    mcp_servers = [
+        {
+            "id": m.id,
+            "display_name": m.display_name,
+            "url": m.url,
+            "api_key": m.api_key,
+            "is_enabled": m.is_enabled,
+            "config": m.config,
+            "source": m.source,
+            "source_path": m.source_path,
+        }
+        for m in mcp_rows
     ]
 
     # --- Bots ---
@@ -492,6 +509,7 @@ async def assemble_config_state(db) -> dict:
         "server_settings": server_settings,
         "server_config": server_config,
         "providers": providers,
+        "mcp_servers": mcp_servers,
         "bots": bots,
         "channels": channels,
         "workspaces": workspaces,
