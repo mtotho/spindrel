@@ -64,6 +64,110 @@ async def _record_fallback_event(
         logger.warning("Failed to record fallback event", exc_info=True)
 
 
+def _extract_usage_extras(response: Any) -> dict[str, Any]:
+    """Extract cached_tokens and response_cost from a raw OpenAI/LiteLLM response.
+
+    These fields are hidden in different places depending on the provider.
+    Centralizes the fragile getattr chains so they exist in one place.
+    """
+    extras: dict[str, Any] = {}
+    usage = response.usage
+    if not usage:
+        return extras
+
+    # cached_tokens: nested in prompt_tokens_details
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details:
+        cached = getattr(details, "cached_tokens", None)
+        if cached is not None:
+            extras["cached_tokens"] = cached
+
+    # response_cost: hidden in LiteLLM's _hidden_params
+    cost = None
+    if hasattr(response, "_hidden_params"):
+        cost = getattr(response, "_hidden_params", {}).get("response_cost")
+    if cost is None and hasattr(response, "model_extra"):
+        hidden = (response.model_extra or {}).get("_hidden_params", {})
+        if isinstance(hidden, dict):
+            cost = hidden.get("response_cost")
+    if cost is not None:
+        extras["response_cost"] = cost
+
+    return extras
+
+
+def _finalize_response(
+    text: str,
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    compaction: bool,
+    native_audio: bool,
+    user_msg_index: int | None,
+    transcript_emitted: bool,
+    tool_calls_made: list[str],
+    turn_start: int,
+    embedded_client_actions: list[dict],
+) -> tuple[list[dict], bool]:
+    """Shared response finalization: transcript, tracing, hooks, tools_used, response event.
+
+    Returns ``(events_to_yield, transcript_emitted)`` — caller is responsible for
+    yielding the events (since this is not an async generator itself).
+    """
+    events: list[dict] = []
+
+    if native_audio and user_msg_index is not None and not transcript_emitted:
+        transcript, text = _extract_transcript(text)
+        messages[-1]["content"] = text
+        events.append(_event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction))
+        if transcript:
+            messages[user_msg_index] = {"role": "user", "content": transcript}
+        else:
+            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+        transcript_emitted = True
+
+    _trace("✓ response (%d chars)", len(text))
+    logger.info("Final response (%d chars): %r", len(text), text[:120])
+
+    if correlation_id is not None and not compaction:
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="response",
+            data={"text": text[:500], "full_length": len(text)},
+        ))
+
+    # Fire after_response lifecycle hook (fire-and-forget)
+    from app.agent.hooks import fire_hook, HookContext
+    asyncio.create_task(fire_hook("after_response", HookContext(
+        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
+    )))
+
+    # Inject tools_used into the final assistant message for persist_turn.
+    if tool_calls_made and messages and messages[-1].get("role") == "assistant":
+        messages[-1]["_tools_used"] = list(tool_calls_made)
+
+    events.append(_event_with_compaction_tag({
+        "type": "response",
+        "text": text,
+        "tools_used": list(tool_calls_made) if tool_calls_made else None,
+        "client_actions": (
+            _extract_client_actions(messages, turn_start) + embedded_client_actions
+        ),
+        **({"correlation_id": str(correlation_id)} if correlation_id else {}),
+    }, compaction))
+
+    return events, transcript_emitted
+
+
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
     """Ensure no message has null/missing content — some models reject it.
 
@@ -182,7 +286,19 @@ async def run_agent_tool_loop(
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
     _detected_cycle_len: int = 0  # populated when cycle detected
 
+    def _est_msg_chars(m: dict) -> int:
+        content = m.get("content") or ""
+        chars = len(content) if isinstance(content, str) else sum(
+            len(str(p)) for p in content
+        ) if isinstance(content, list) else 0
+        if m.get("tool_calls"):
+            chars += sum(len(str(tc)) for tc in m["tool_calls"])
+        return chars
+
     try:
+        import time as _time
+        from app.agent.hooks import fire_hook, HookContext
+        from app.services.providers import check_rate_limit
         from app.services.secret_registry import redact as _redact_secrets
 
         for iteration in range(effective_max_iterations):
@@ -195,7 +311,8 @@ async def run_agent_tool_loop(
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
-            if correlation_id is not None:
+            # Context breakdown trace (first iteration only — avoids O(n) scan every iteration)
+            if correlation_id is not None and iteration == 0:
                 _breakdown: dict[str, dict] = {}
                 for _m in messages:
                     _role = _m.get("role", "?")
@@ -225,17 +342,6 @@ async def run_agent_tool_loop(
                 ))
 
             # TPM rate limit check: yield wait event and sleep if needed
-            from app.services.providers import check_rate_limit
-
-            def _est_msg_chars(m: dict) -> int:
-                content = m.get("content") or ""
-                chars = len(content) if isinstance(content, str) else sum(
-                    len(str(p)) for p in content
-                ) if isinstance(content, list) else 0
-                if m.get("tool_calls"):
-                    chars += sum(len(str(tc)) for tc in m["tool_calls"])
-                return chars
-
             _est_tokens = sum(_est_msg_chars(m) // 4 for m in messages)
             _wait = check_rate_limit(provider_id, _est_tokens)
             if _wait:
@@ -271,11 +377,9 @@ async def run_agent_tool_loop(
 
             messages = _sanitize_messages(messages)
 
-            import time as _time
             _llm_t0 = _time.monotonic()
 
             # Fire before_llm_call lifecycle hook
-            from app.agent.hooks import fire_hook, HookContext
             asyncio.create_task(fire_hook("before_llm_call", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
@@ -310,7 +414,8 @@ async def run_agent_tool_loop(
                 return
 
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
-            assert accumulated_msg is not None
+            if accumulated_msg is None:
+                raise RuntimeError("LLM stream completed without yielding an AccumulatedMessage")
 
             # Fire after_llm_call lifecycle hook
             _fb_info_for_hook = last_fallback_info.get()
@@ -429,7 +534,6 @@ async def run_agent_tool_loop(
             if not accumulated_msg.tool_calls:
                 text = strip_malformed_tool_calls(accumulated_msg.content or "")
                 text = _redact_secrets(text)
-                _trace("✓ response (%d chars)", len(text))
 
                 if not text.strip():
                     # Distinguish genuine silent completion from model API failures.
@@ -502,51 +606,18 @@ async def run_agent_tool_loop(
                                 "message": text,
                             }, compaction)
 
-                if native_audio and user_msg_index is not None and not transcript_emitted:
-                    transcript, text = _extract_transcript(text)
-                    messages[-1]["content"] = text
-                    yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
-                    if transcript:
-                        logger.info("Audio transcript: %r", transcript[:100])
-                        messages[user_msg_index] = {"role": "user", "content": transcript}
-                    else:
-                        logger.warning("Native audio response contained no transcript tags")
-                        messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-                    transcript_emitted = True
-
-                logger.info("Final response (%d chars): %r", len(text), text[:120])
-                if correlation_id is not None and not compaction:
-                    asyncio.create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
-                        event_type="response",
-                        data={"text": text[:500], "full_length": len(text)},
-                    ))
-
-                # Fire after_response lifecycle hook (fire-and-forget)
-                from app.agent.hooks import fire_hook, HookContext
-                asyncio.create_task(fire_hook("after_response", HookContext(
-                    bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                _fin_events, transcript_emitted = _finalize_response(
+                    text,
+                    messages=messages, bot=bot, session_id=session_id,
                     client_id=client_id, correlation_id=correlation_id,
-                    extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
-                )))
-
-                # Inject tools_used into the final assistant message for
-                # persist_turn to save in metadata.
-                if tool_calls_made and messages and messages[-1].get("role") == "assistant":
-                    messages[-1]["_tools_used"] = list(tool_calls_made)
-
-                yield _event_with_compaction_tag({
-                    "type": "response",
-                    "text": text,
-                    "tools_used": list(tool_calls_made) if tool_calls_made else None,
-                    "client_actions": (
-                        _extract_client_actions(messages, turn_start) + embedded_client_actions
-                    ),
-                    **({"correlation_id": str(correlation_id)} if correlation_id else {}),
-                }, compaction)
+                    channel_id=channel_id, compaction=compaction,
+                    native_audio=native_audio, user_msg_index=user_msg_index,
+                    transcript_emitted=transcript_emitted,
+                    tool_calls_made=tool_calls_made, turn_start=turn_start,
+                    embedded_client_actions=embedded_client_actions,
+                )
+                for _evt in _fin_events:
+                    yield _evt
                 return
 
             _acc_content = accumulated_msg.content
@@ -694,7 +765,6 @@ async def run_agent_tool_loop(
                 yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
                 # Fire after_tool_call lifecycle hook (fire-and-forget)
-                from app.agent.hooks import fire_hook, HookContext
                 asyncio.create_task(fire_hook("after_tool_call", HookContext(
                     bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                     client_id=client_id, correlation_id=correlation_id,
@@ -809,21 +879,8 @@ async def run_agent_tool_loop(
                 "model": model,
                 "provider_id": provider_id,
                 "channel_id": str(channel_id) if channel_id else None,
+                **_extract_usage_extras(response),
             }
-            # Extract cached_tokens from usage details
-            _details2 = getattr(response.usage, 'prompt_tokens_details', None)
-            if _details2:
-                _cached2 = getattr(_details2, 'cached_tokens', None)
-                if _cached2 is not None:
-                    _usage_data2["cached_tokens"] = _cached2
-            # Extract response_cost from LiteLLM _hidden_params
-            _resp_cost2 = getattr(response, '_hidden_params', {}).get('response_cost') if hasattr(response, '_hidden_params') else None
-            if _resp_cost2 is None and hasattr(response, 'model_extra'):
-                _hidden2 = (response.model_extra or {}).get('_hidden_params', {})
-                if isinstance(_hidden2, dict):
-                    _resp_cost2 = _hidden2.get('response_cost')
-            if _resp_cost2 is not None:
-                _usage_data2["response_cost"] = _resp_cost2
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
@@ -835,61 +892,30 @@ async def run_agent_tool_loop(
 
         text = strip_think_tags(msg.content or "")
         text = _redact_secrets(text)
-        if native_audio and user_msg_index is not None and not transcript_emitted:
-            transcript, text = _extract_transcript(text)
-            messages[-1]["content"] = text
-            yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
-            if transcript:
-                messages[user_msg_index] = {"role": "user", "content": transcript}
-            else:
-                messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-            transcript_emitted = True
-
-        _trace("✓ response (%d chars)", len(text))
-        if correlation_id is not None and not compaction:
-            asyncio.create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="response",
-                data={"text": text[:500], "full_length": len(text)},
-            ))
-
-        # Fire after_response lifecycle hook (post-loop forced-response path)
-        from app.agent.hooks import fire_hook, HookContext
-        asyncio.create_task(fire_hook("after_response", HookContext(
-            bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+        _fin_events, transcript_emitted = _finalize_response(
+            text,
+            messages=messages, bot=bot, session_id=session_id,
             client_id=client_id, correlation_id=correlation_id,
-            extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
-        )))
-
-        # Inject tools_used into the final assistant message (post-loop path).
-        if tool_calls_made and messages and messages[-1].get("role") == "assistant":
-            messages[-1]["_tools_used"] = list(tool_calls_made)
-
-        yield _event_with_compaction_tag({
-            "type": "response",
-            "text": text,
-            "tools_used": list(tool_calls_made) if tool_calls_made else None,
-            "client_actions": (
-                _extract_client_actions(messages, turn_start) + embedded_client_actions
-            ),
-            **({"correlation_id": str(correlation_id)} if correlation_id else {}),
-        }, compaction)
+            channel_id=channel_id, compaction=compaction,
+            native_audio=native_audio, user_msg_index=user_msg_index,
+            transcript_emitted=transcript_emitted,
+            tool_calls_made=tool_calls_made, turn_start=turn_start,
+            embedded_client_actions=embedded_client_actions,
+        )
+        for _evt in _fin_events:
+            yield _evt
 
     except Exception as exc:
         # Fire after_response hook on error path so integrations can clean up
         # (e.g. Slack removes the hourglass reaction).
         try:
-            from app.agent.hooks import fire_hook, HookContext
             asyncio.create_task(fire_hook("after_response", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
                 extra={"error": True, "tool_calls_made": list(tool_calls_made)},
             )))
         except Exception:
-            pass  # best-effort cleanup
+            pass  # best-effort; fire_hook/HookContext may not be bound if imports failed
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
