@@ -147,7 +147,7 @@ export default function SkillDetailScreen() {
           <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
             This skill is managed by a {skill?.source_type} (
-            <code style={{ fontSize: 11, color: t.accentMuted }}>{skill?.source_path}</code>
+            <code style={{ fontSize: 11, fontWeight: 600 }}>{skill?.source_path}</code>
             ). Edit the source file to make changes &mdash; the server will pick them up automatically.
           </div>
         </div>
@@ -174,12 +174,11 @@ export default function SkillDetailScreen() {
             style={{
               flex: 1, minHeight: isWide ? 400 : 250,
               background: isFileManaged ? t.surface : t.inputBg,
-              border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
+              border: `1px solid ${isFileManaged ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 8,
               padding: 12, fontSize: 13, lineHeight: 1.6,
-              color: isFileManaged ? t.textDim : t.text,
+              color: isFileManaged ? t.textMuted : t.text,
               fontFamily: "monospace", resize: "vertical",
               outline: "none",
-              opacity: isFileManaged ? 0.6 : 1,
             }}
           />
           <div style={{ fontSize: 10, color: t.textDim, marginTop: 6 }}>
