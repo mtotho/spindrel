@@ -531,6 +531,58 @@ def _is_tools_not_supported_error(exc: openai.BadRequestError) -> bool:
     ))
 
 
+def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
+    """Detect 500s that wrap non-transient upstream errors (e.g. LiteLLM wrapping a 400)."""
+    msg = str(exc).lower()
+    return any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400"))
+
+
+@dataclass
+class _CallParams:
+    """Prepared parameters for an LLM API call."""
+    client: Any
+    model: str
+    messages: list
+    tools: list | None
+    tool_choice: str | None
+    extra: dict  # filtered model params
+
+
+def _prepare_call_params(
+    model: str,
+    messages: list,
+    tools_param: list | None,
+    tool_choice: str | None,
+    provider_id: str | None,
+    model_params: dict | None,
+    *,
+    force_no_tools: bool = False,
+) -> _CallParams:
+    """Shared model preparation: client, param filtering, message folding, tool stripping."""
+    from app.agent.model_params import filter_model_params
+    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding
+
+    client = get_llm_client(provider_id)
+    filtered = filter_model_params(model, model_params or {})
+
+    eff_msgs = messages
+    if requires_system_message_folding(model):
+        eff_msgs = _fold_system_messages(messages)
+
+    eff_tools = tools_param
+    eff_tool_choice = tool_choice
+    if force_no_tools or not model_supports_tools(model):
+        if tools_param:
+            logger.warning("Stripping tools for model %s (supports_tools=false)", model)
+        eff_tools = None
+        eff_tool_choice = None
+
+    return _CallParams(
+        client=client, model=model, messages=eff_msgs,
+        tools=eff_tools, tool_choice=eff_tool_choice, extra=filtered,
+    )
+
+
 _USAGE_DRAIN_TIMEOUT = 5.0  # seconds to wait for usage chunk after finish_reason
 
 
@@ -580,39 +632,16 @@ async def _llm_call_stream(
     Retry logic is inlined so retry/fallback status events can be yielded to
     the SSE stream, keeping Slack and other consumers informed during retries.
     """
-    from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, requires_system_message_folding
-
     last_fallback_info.set(None)
     max_retries = settings.LLM_MAX_RETRIES
 
-    def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
-        """Detect 500s that wrap non-transient upstream errors (e.g. LiteLLM wrapping a 400)."""
-        msg = str(exc).lower()
-        return any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400"))
-
     async def _try_model(m: str, pid: str | None, mp: dict | None, *, force_no_tools: bool = False):
-        """Attempt one model with retries. Returns stream or raises."""
-        from app.services.providers import model_supports_tools
-
-        client = get_llm_client(pid)
-        filtered = filter_model_params(m, mp or {})
-        eff_msgs = messages
-        if requires_system_message_folding(m):
-            eff_msgs = _fold_system_messages(messages)
-
-        eff_tools = tools_param
-        eff_tool_choice = tool_choice
-        if force_no_tools or not model_supports_tools(m):
-            if tools_param:
-                logger.warning("Stripping tools for model %s (supports_tools=false)", m)
-            eff_tools = None
-            eff_tool_choice = None
-
-        return await client.chat.completions.create(
-            model=m, messages=eff_msgs, tools=eff_tools,
-            tool_choice=eff_tool_choice, stream=True,
-            stream_options={"include_usage": True}, **filtered,
+        """Attempt one model. Returns stream or raises."""
+        p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=force_no_tools)
+        return await p.client.chat.completions.create(
+            model=p.model, messages=p.messages, tools=p.tools,
+            tool_choice=p.tool_choice, stream=True,
+            stream_options={"include_usage": True}, **p.extra,
         )
 
     # --- Circuit breaker: skip model if in cooldown ---
@@ -759,85 +788,6 @@ async def _llm_call_stream(
 
     async for ev in _consume_stream(stream):
         yield ev
-
-
-async def _attempt_stream_with_retries(
-    model: str,
-    messages: list,
-    tools_param: list | None,
-    tool_choice: str | None,
-    provider_id: str | None = None,
-    model_params: dict | None = None,
-):
-    """Retry the initial streaming create() call with exponential backoff."""
-    from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding
-
-    client = get_llm_client(provider_id)
-    filtered_params = filter_model_params(model, model_params or {})
-
-    effective_messages = messages
-    if requires_system_message_folding(model):
-        effective_messages = _fold_system_messages(messages)
-
-    eff_tools = tools_param
-    eff_tool_choice = tool_choice
-    if not model_supports_tools(model):
-        if tools_param:
-            logger.warning("Stripping tools for model %s (supports_tools=false)", model)
-        eff_tools = None
-        eff_tool_choice = None
-
-    max_retries = settings.LLM_MAX_RETRIES
-    for attempt in range(max_retries + 1):
-        try:
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=effective_messages,
-                tools=eff_tools,
-                tool_choice=eff_tool_choice,
-                stream=True,
-                stream_options={"include_usage": True},
-                **filtered_params,
-            )
-            return stream
-        except openai.BadRequestError as exc:
-            if _is_tools_not_supported_error(exc) and eff_tools:
-                logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
-                stream = await client.chat.completions.create(
-                    model=model,
-                    messages=effective_messages,
-                    tools=None,
-                    tool_choice=None,
-                    stream=True,
-                    stream_options={"include_usage": True},
-                    **filtered_params,
-                )
-                return stream
-            raise
-        except openai.RateLimitError:
-            if attempt >= max_retries:
-                raise
-            wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
-            logger.warning(
-                "Stream LLM call rate limited (attempt %d/%d), waiting %ds...",
-                attempt + 1, max_retries, wait,
-            )
-            await asyncio.sleep(wait)
-        except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
-            # Non-transient 500 (e.g. upstream 400 wrapped by LiteLLM) — don't retry
-            if isinstance(exc, openai.InternalServerError):
-                msg = str(exc).lower()
-                if any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400")):
-                    raise
-            if attempt >= max_retries:
-                raise
-            wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
-            logger.warning(
-                "Stream LLM call failed with %s (attempt %d/%d), waiting %.1fs...",
-                type(exc).__name__, attempt + 1, max_retries, wait,
-            )
-            await asyncio.sleep(wait)
 
 
 async def _llm_call(
@@ -1001,88 +951,56 @@ async def _llm_call_with_retries(
     provider_id: str | None = None,
     model_params: dict | None = None,
 ):
-    """Execute LLM call with exponential backoff on transient errors."""
-    from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, model_supports_tools, record_usage, requires_system_message_folding
+    """Execute non-streaming LLM call with exponential backoff on transient errors."""
+    from app.services.providers import record_usage
 
-    client = get_llm_client(provider_id)
-    filtered_params = filter_model_params(model, model_params or {})
+    p = _prepare_call_params(model, messages, tools_param, tool_choice, provider_id, model_params)
 
-    if requires_system_message_folding(model):
-        messages = _fold_system_messages(messages)
-
-    eff_tools = tools_param
-    eff_tool_choice = tool_choice
-    if not model_supports_tools(model):
-        if tools_param:
-            logger.warning("Stripping tools for model %s (supports_tools=false)", model)
-        eff_tools = None
-        eff_tool_choice = None
+    async def _do_call(*, use_tools: bool = True):
+        """Execute the API call, optionally stripping tools."""
+        resp = await p.client.chat.completions.create(
+            model=p.model, messages=p.messages,
+            tools=p.tools if use_tools else None,
+            tool_choice=p.tool_choice if use_tools else None,
+            **p.extra,
+        )
+        if not resp.choices:
+            raise EmptyChoicesError(
+                f"LLM returned empty choices list (model={model}, "
+                f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
+            )
+        if resp.usage:
+            record_usage(provider_id, resp.usage.total_tokens)
+        return resp
 
     max_retries = settings.LLM_MAX_RETRIES
     for attempt in range(max_retries + 1):
         try:
-            resp = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=eff_tools,
-                tool_choice=eff_tool_choice,
-                **filtered_params,
-            )
-            if not resp.choices:
-                raise EmptyChoicesError(
-                    f"LLM returned empty choices list (model={model}, "
-                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
-                )
-            if resp.usage:
-                record_usage(provider_id, resp.usage.total_tokens)
-            return resp
+            return await _do_call()
         except openai.BadRequestError as exc:
-            if _is_tools_not_supported_error(exc) and eff_tools:
+            if _is_tools_not_supported_error(exc) and p.tools:
                 logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
-                resp = await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    tools=None,
-                    tool_choice=None,
-                    **filtered_params,
-                )
-                if not resp.choices:
-                    raise EmptyChoicesError(
-                        f"LLM returned empty choices list (model={model}, "
-                        f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
-                    )
-                if resp.usage:
-                    record_usage(provider_id, resp.usage.total_tokens)
-                return resp
+                return await _do_call(use_tools=False)
             raise
         except openai.RateLimitError:
             if attempt >= max_retries:
                 raise
             wait = settings.LLM_RATE_LIMIT_INITIAL_WAIT * (2 ** attempt)
-            logger.warning(
-                "LLM call rate limited (attempt %d/%d), waiting %ds before retry...",
-                attempt + 1, max_retries, wait,
-            )
+            logger.warning("LLM call rate limited (attempt %d/%d), waiting %ds...", attempt + 1, max_retries, wait)
             await asyncio.sleep(wait)
         except EmptyChoicesError as exc:
             if attempt >= max_retries:
                 raise
             wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
-            logger.warning(
-                "LLM returned empty choices (attempt %d/%d), waiting %.1fs before retry: %s",
-                attempt + 1, max_retries, wait, exc,
-            )
+            logger.warning("LLM returned empty choices (attempt %d/%d), waiting %.1fs: %s", attempt + 1, max_retries, wait, exc)
             await asyncio.sleep(wait)
         except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as exc:
+            if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
+                raise
             if attempt >= max_retries:
                 raise
             wait = settings.LLM_RETRY_INITIAL_WAIT * (2 ** attempt)
-            label = type(exc).__name__
-            logger.warning(
-                "LLM call failed with %s (attempt %d/%d), waiting %.1fs before retry...",
-                label, attempt + 1, max_retries, wait,
-            )
+            logger.warning("LLM call failed with %s (attempt %d/%d), waiting %.1fs...", type(exc).__name__, attempt + 1, max_retries, wait)
             await asyncio.sleep(wait)
 
 

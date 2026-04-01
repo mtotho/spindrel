@@ -593,8 +593,33 @@ async def _expire_stale_approvals() -> None:
         logger.exception("Failed to expire stale approvals")
 
 
+async def _seconds_until_next_heartbeat() -> float:
+    """Query the soonest next_run_at across all enabled heartbeats.
+
+    Returns seconds to wait (capped at 30s).  Falls back to 30s if no
+    heartbeats are scheduled or on any DB error.
+    """
+    try:
+        from sqlalchemy import func as sa_func
+        async with async_session() as db:
+            soonest = (await db.execute(
+                select(sa_func.min(ChannelHeartbeat.next_run_at))
+                .where(
+                    ChannelHeartbeat.enabled.is_(True),
+                    ChannelHeartbeat.next_run_at.isnot(None),
+                )
+            )).scalar()
+        if soonest is None:
+            return 30.0
+        delta = (soonest - datetime.now(timezone.utc)).total_seconds()
+        # At least 1s to avoid busy-looping, at most 30s as safety cap
+        return max(1.0, min(delta, 30.0))
+    except Exception:
+        return 30.0
+
+
 async def heartbeat_worker() -> None:
-    """Background worker loop: polls for due heartbeats every 30 seconds."""
+    """Background worker loop: polls for due heartbeats, sleeps until the next one."""
     logger.info("Heartbeat worker started")
     while True:
         try:
@@ -612,7 +637,8 @@ async def heartbeat_worker() -> None:
             await _expire_stale_approvals()
         except Exception:
             logger.exception("heartbeat_worker poll error")
-        await asyncio.sleep(30)
+        sleep_for = await _seconds_until_next_heartbeat()
+        await asyncio.sleep(sleep_for)
 
 
 async def _safe_fire_heartbeat(hb: ChannelHeartbeat) -> None:

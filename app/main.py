@@ -176,9 +176,17 @@ async def lifespan(app: FastAPI):
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()
-    # Warn if secrets exist but encryption is not configured
+    # Check encryption status: hard error if encrypted secrets exist without key,
+    # soft warning if plaintext secrets exist without key.
     from app.services.encryption import is_encryption_enabled
     if not is_encryption_enabled():
+        from app.services.providers import has_encrypted_secrets
+        if await has_encrypted_secrets():
+            raise RuntimeError(
+                "ENCRYPTION_KEY is not set but the database contains encrypted secrets (enc: prefix). "
+                "These values cannot be decrypted without the original key. "
+                "Set ENCRYPTION_KEY in .env to the key used to encrypt them."
+            )
         from app.services.providers import list_providers as _list_providers
         if any(p.api_key for p in _list_providers()):
             logger.warning(
