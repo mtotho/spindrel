@@ -198,9 +198,10 @@ async def _get_plans_as_dicts(channel_id: str) -> list[dict]:
                     "position": s.position,
                     "status": s.status,
                     "content": s.content,
+                    "requires_approval": s.requires_approval,
+                    "started_at": s.started_at.isoformat() if s.started_at else None,
+                    "completed_at": s.completed_at.isoformat() if s.completed_at else None,
                 }
-                if s.requires_approval:
-                    step_dict["requires_approval"] = True
                 if s.task_id:
                     step_dict["task_id"] = s.task_id
                 if s.result_summary:
@@ -212,9 +213,60 @@ async def _get_plans_as_dicts(channel_id: str) -> list[dict]:
                 "meta": meta,
                 "steps": steps,
                 "notes": p.notes or "",
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
             })
 
     return plans
+
+
+async def get_single_plan(channel_id: str, plan_id: str) -> dict | None:
+    """Query MC SQLite for one plan by plan_id + channel_id, return dict or None."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
+
+    await _ensure_plans_migrated(channel_id)
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
+        )
+        p = result.scalar_one_or_none()
+        if not p:
+            return None
+
+        await session.refresh(p, ["steps"])
+        meta: dict[str, str] = {"id": p.plan_id}
+        if p.created_date:
+            meta["created"] = p.created_date
+        if p.approved_date:
+            meta["approved"] = p.approved_date
+        steps = []
+        for s in p.steps:
+            step_dict: dict = {
+                "position": s.position,
+                "status": s.status,
+                "content": s.content,
+                "requires_approval": s.requires_approval,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+            }
+            if s.task_id:
+                step_dict["task_id"] = s.task_id
+            if s.result_summary:
+                step_dict["result_summary"] = s.result_summary
+            steps.append(step_dict)
+        return {
+            "title": p.title,
+            "status": p.status,
+            "meta": meta,
+            "steps": steps,
+            "notes": p.notes or "",
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        }
 
 
 # ---------------------------------------------------------------------------

@@ -2,103 +2,12 @@ import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Square, Paperclip, X, Cpu, Mic } from "lucide-react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCompletions } from "../../api/hooks/useModels";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
-import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
-import type { CompletionItem } from "../../types/api";
-
-/** Escape HTML special characters */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-/**
- * Decorate raw markdown text into HTML that is character-for-character identical
- * but with styled spans for code fences, inline code, bold, and italic.
- */
-function decorateMarkdown(text: string, theme: { codeBg: string; codeText: string }): string {
-  const segments: string[] = [];
-
-  // Process in order: code fences → inline code → bold → italic
-  // NOTE: font-weight/font-style can cause minor wrap-point drift vs the textarea
-  // on very long lines. For typical chat messages this is imperceptible.
-  const codeStyle = `background:${theme.codeBg};color:${theme.codeText};border-radius:3px`;
-  const dimStyle = `opacity:0.3`;
-
-  const patterns = [
-    // Code fences: ```...``` (multiline)
-    {
-      regex: /(```)([\s\S]*?)(```)/g,
-      render: (m: RegExpExecArray) =>
-        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
-        `<span style="${codeStyle}">${escapeHtml(m[2])}</span>` +
-        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
-    },
-    // Inline code: `...` (no nesting, no newlines)
-    {
-      regex: /(`)((?:[^`\n])+?)(`)/g,
-      render: (m: RegExpExecArray) =>
-        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
-        `<span style="${codeStyle}">${escapeHtml(m[2])}</span>` +
-        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
-    },
-    // Bold: **...**
-    {
-      regex: /(\*\*)((?:[^*]|\*(?!\*))+?)(\*\*)/g,
-      render: (m: RegExpExecArray) =>
-        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
-        `<span style="font-weight:700">${escapeHtml(m[2])}</span>` +
-        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
-    },
-    // Italic: *...* (single asterisk, not preceded/followed by *)
-    {
-      regex: /(?<!\*)(\*)(?!\*)((?:[^*\n])+?)(\*)(?!\*)/g,
-      render: (m: RegExpExecArray) =>
-        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
-        `<span style="font-style:italic">${escapeHtml(m[2])}</span>` +
-        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
-    },
-  ];
-
-  // Multi-pass: process each pattern in order, protecting already-matched regions
-  // Use placeholder tokens to avoid re-matching decorated content
-  const tokens: string[] = [];
-  let working = text;
-
-  for (const pat of patterns) {
-    working = working.replace(pat.regex, (...args) => {
-      // args: full match, then capture groups, then offset, then string
-      // For RegExpExecArray compat, build a minimal array
-      const m = [args[0]] as RegExpExecArray;
-      for (let i = 1; i < args.length - 2; i++) m.push(args[i]);
-      const token = `\x00${tokens.length}\x00`;
-      tokens.push(pat.render(m));
-      return token;
-    });
-  }
-
-  // Escape remaining plain text (between tokens)
-  const parts = working.split(/\x00(\d+)\x00/);
-  for (let i = 0; i < parts.length; i++) {
-    if (i % 2 === 0) {
-      // Plain text segment — escape HTML
-      segments.push(escapeHtml(parts[i]));
-    } else {
-      // Token index — insert rendered HTML
-      segments.push(tokens[parseInt(parts[i], 10)]);
-    }
-  }
-
-  let result = segments.join("");
-  // When text ends with a newline, the textarea renders an extra blank line.
-  // The overlay div won't unless we add a trailing character to force it.
-  if (text.endsWith("\n")) result += "\n";
-  return result;
-}
+import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 
 export interface PendingFile {
   file: File;
@@ -162,7 +71,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     [draft?.files, localFiles],
   );
   const setPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
-    // Resolve the new files array
     const newFiles = typeof updater === "function" ? updater(pendingFiles) : updater;
     if (channelId) {
       setDraftFiles(channelId, newFiles.map((pf) => ({
@@ -179,54 +87,21 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
-
-  // Autocomplete state (web only)
-  const { data: completions } = useCompletions();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const decorationRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [showMenu, setShowMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const [atStart, setAtStart] = useState(-1);
-  const [filtered, setFiltered] = useState<CompletionItem[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
-
-  // Shared text style — used by sizer, decoration, and textarea to guarantee alignment
-  const inputPad = isMobile ? "8px 12px" : "10px 16px";
-  const sharedTextStyle: React.CSSProperties = {
-    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    fontSize: 15,
-    lineHeight: "1.5",
-    padding: inputPad,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-    overflowWrap: "break-word",
-    border: "none",
-    margin: 0,
-    boxSizing: "border-box",
-  };
-
-  // Decorated HTML for the overlay layer
-  const decoratedHtml = useMemo(
-    () => decorateMarkdown(text, { codeBg: t.codeBg, codeText: t.codeText }),
-    [text, t.codeBg, t.codeText],
-  );
-
-  // Sync scroll between textarea and decoration overlay
-  const handleDecorationScroll = useCallback(() => {
-    const ta = textareaRef.current;
-    const dec = decorationRef.current;
-    if (ta && dec) dec.scrollTop = ta.scrollTop;
-  }, []);
+  const editorRef = useRef<TiptapChatInputHandle>(null);
+  const editorWrapperRef = useRef<HTMLDivElement>(null);
 
   const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if ((!trimmed && pendingFiles.length === 0) || disabled) return;
-    onSend(trimmed, pendingFiles.length > 0 ? pendingFiles : undefined);
+    // On web, read directly from editor to avoid stale React state
+    const message = Platform.OS === "web"
+      ? (editorRef.current?.getMarkdown() ?? text).trim()
+      : text.trim();
+    if ((!message && pendingFiles.length === 0) || disabled) return;
+    onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
     if (Platform.OS === "web") {
-      textareaRef.current?.focus();
+      editorRef.current?.clear();
+      editorRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
@@ -241,8 +116,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         if (channelId) clearDraft(channelId);
         else { setLocalText(""); setLocalFiles([]); }
         if (Platform.OS === "web") {
-          const ta = textareaRef.current;
-          if (ta) ta.focus();
+          editorRef.current?.clear();
+          editorRef.current?.focus();
         }
       }
     } else {
@@ -250,7 +125,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     }
   }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, channelId, clearDraft]);
 
-  // Global keyboard listener for recording mode (textarea is hidden, so onKeyDown won't fire)
+  // Global keyboard listener for recording mode (editor is hidden, so onKeyDown won't fire)
   useEffect(() => {
     if (!recorder.isRecording || Platform.OS !== "web") return;
     const handler = (e: KeyboardEvent) => {
@@ -289,212 +164,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     });
   }, []);
 
-  // --- Web autocomplete logic ---
-  const handleWebInput = useCallback(
-    (newText: string) => {
-      setText(newText);
-      const ta = textareaRef.current;
-      if (!ta || !completions) return;
-      const pos = ta.selectionStart;
-      const before = newText.substring(0, pos);
-      const atIdx = before.lastIndexOf("@");
-      if (atIdx === -1 || (atIdx > 0 && /\w/.test(before[atIdx - 1]))) {
-        setShowMenu(false);
-        return;
-      }
-      const query = before.substring(atIdx + 1);
-      if (/\s/.test(query)) {
-        setShowMenu(false);
-        return;
-      }
-      setAtStart(atIdx);
-      const excludeValue = currentBotId ? `bot:${currentBotId}` : "";
-      const scored = completions
-        .filter((c) => c.value !== excludeValue)
-        .map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
-        .filter((x) => x.s > 0)
-        .sort((a, b) => b.s - a.s)
-        .map((x) => x.c)
-        .slice(0, 10);
-      setActiveIdx(0);
-      setFiltered(scored);
-      if (scored.length > 0 && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setMenuPos({
-          top: rect.top - 4,
-          left: rect.left,
-          width: Math.min(rect.width, 500),
-        });
-        setShowMenu(true);
-      } else {
-        setShowMenu(false);
-      }
-    },
-    [completions, currentBotId]
-  );
-
-  const selectItem = useCallback(
-    (item: CompletionItem) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const before = text.substring(0, atStart);
-      const after = text.substring(ta.selectionStart);
-      const newText = before + "@" + item.value + " " + after;
-      setText(newText);
-      setShowMenu(false);
-      requestAnimationFrame(() => {
-        const cur = atStart + item.value.length + 2;
-        ta.selectionStart = ta.selectionEnd = cur;
-        ta.focus();
-      });
-    },
-    [text, atStart]
-  );
-
-  // Helper: apply a text edit and set cursor position after React re-renders
-  const applyEdit = useCallback((newText: string, cursorStart: number, cursorEnd?: number) => {
-    setText(newText);
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.selectionStart = cursorStart;
-        ta.selectionEnd = cursorEnd ?? cursorStart;
-      }
-    });
-  }, [setText]);
-
-  const handleWebKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const mod = e.metaKey || e.ctrlKey;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const hasSelection = start !== end;
-
-      // --- Formatting shortcuts: Ctrl/Cmd+B (bold), Ctrl/Cmd+I (italic), Ctrl/Cmd+E (code) ---
-      if (mod && !e.shiftKey) {
-        if (e.key === "b") {
-          e.preventDefault();
-          if (hasSelection) {
-            applyEdit(text.substring(0, start) + "**" + text.substring(start, end) + "**" + text.substring(end), start + 2, end + 2);
-          } else {
-            applyEdit(text.substring(0, start) + "****" + text.substring(end), start + 2);
-          }
-          return;
-        }
-        if (e.key === "i") {
-          e.preventDefault();
-          if (hasSelection) {
-            applyEdit(text.substring(0, start) + "*" + text.substring(start, end) + "*" + text.substring(end), start + 1, end + 1);
-          } else {
-            applyEdit(text.substring(0, start) + "**" + text.substring(end), start + 1);
-          }
-          return;
-        }
-        if (e.key === "e") {
-          e.preventDefault();
-          if (hasSelection) {
-            applyEdit(text.substring(0, start) + "`" + text.substring(start, end) + "`" + text.substring(end), start + 1, end + 1);
-          } else {
-            applyEdit(text.substring(0, start) + "``" + text.substring(end), start + 1);
-          }
-          return;
-        }
-      }
-
-      // --- Wrap selection when typing ` ---
-      if (hasSelection && e.key === "`") {
-        e.preventDefault();
-        applyEdit(
-          text.substring(0, start) + "`" + text.substring(start, end) + "`" + text.substring(end),
-          start + 1, end + 1,
-        );
-        return;
-      }
-
-      // --- Autocomplete menu ---
-      if (showMenu) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveIdx((i) => Math.max(i - 1, 0));
-          return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          if (filtered.length > 0) {
-            e.preventDefault();
-            selectItem(filtered[activeIdx]);
-          }
-          return;
-        }
-        if (e.key === "Escape") {
-          setShowMenu(false);
-          return;
-        }
-      }
-
-      // --- Tab inside code fence: insert 2 spaces ---
-      if (e.key === "Tab" && !showMenu) {
-        const fenceCount = (text.substring(0, start).match(/```/g) || []).length;
-        if (fenceCount % 2 === 1) {
-          e.preventDefault();
-          applyEdit(text.substring(0, start) + "  " + text.substring(end), start + 2);
-          return;
-        }
-      }
-
-      // --- Enter handling ---
-      if (e.key === "Enter" && !e.shiftKey) {
-        const before = text.substring(0, start);
-
-        // Code block expansion: current line is ```[lang] — auto-complete the block
-        const lineStart = before.lastIndexOf("\n") + 1;
-        const currentLine = before.substring(lineStart);
-        if (/^```\w*$/.test(currentLine)) {
-          e.preventDefault();
-          applyEdit(before + "\n\n```" + text.substring(start), start + 1);
-          return;
-        }
-
-        // Inside unclosed code fence: insert newline instead of sending
-        const fenceCount = (before.match(/```/g) || []).length;
-        if (fenceCount % 2 === 1) {
-          e.preventDefault();
-          applyEdit(before + "\n" + text.substring(start), start + 1);
-          return;
-        }
-
-        // Normal: send message
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [showMenu, filtered, activeIdx, selectItem, handleSend, text, applyEdit]
-  );
-
-  // Handle paste with images
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const imageFiles: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) imageFiles.push(file);
-        }
-      }
-      if (imageFiles.length > 0) {
-        e.preventDefault();
-        const dt = new DataTransfer();
-        imageFiles.forEach((f) => dt.items.add(f));
-        handleFileSelect(dt.files);
-      }
+  // Handle image paste from Tiptap editor — images go to pendingFiles
+  const handleImagePaste = useCallback(
+    (files: File[]) => {
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      handleFileSelect(dt.files);
     },
     [handleFileSelect]
   );
@@ -518,7 +193,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   // Show mic icon when input is empty and onSendAudio is available
   const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
 
-  // Web: use raw textarea for selectionStart access
+  // Web: Tiptap rich editor
   if (Platform.OS === "web") {
     return (
       <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
@@ -625,7 +300,23 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             }}
           />
 
-          <div ref={containerRef} style={{ flex: 1, minWidth: 0, display: "flex" }}>
+          {/* Editor wrapper */}
+          <div
+            ref={editorWrapperRef}
+            onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayBorder; }}
+            onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayLight; }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: isMobile ? 36 : 44,
+              maxHeight: 280,
+              background: t.surfaceRaised,
+              borderRadius: 10,
+              border: `1px solid ${t.overlayLight}`,
+              overflow: "hidden",
+              display: "flex",
+            }}
+          >
             {recorder.isRecording ? (
               <RecordingOverlay
                 durationMs={recorder.durationMs}
@@ -633,83 +324,21 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 isMobile={isMobile}
               />
             ) : (
-              <div
-                style={{
-                  position: "relative",
-                  flex: 1,
-                  minWidth: 0,
-                  minHeight: isMobile ? 36 : 44,
-                  maxHeight: 280,
-                  background: t.surfaceRaised,
-                  borderRadius: 10,
-                  border: `1px solid ${t.overlayLight}`,
-                  overflow: "hidden",
-                }}
-              >
-                {/* Sizer — invisible, drives the wrapper's height */}
-                <div
-                  aria-hidden="true"
-                  style={{
-                    ...sharedTextStyle,
-                    visibility: "hidden",
-                    minHeight: isMobile ? 36 : 44,
-                  }}
-                >
-                  {text ? text + "\n" : "\u00A0"}
-                </div>
-                {/* Decoration layer — rendered markdown */}
-                <div
-                  ref={decorationRef}
-                  aria-hidden="true"
-                  style={{
-                    ...sharedTextStyle,
-                    position: "absolute",
-                    inset: 0,
-                    pointerEvents: "none",
-                    overflow: "hidden",
-                    color: t.text,
-                  }}
-                  dangerouslySetInnerHTML={{ __html: text ? decoratedHtml : `<span style="color:${t.textDim}">Type a message...</span>` }}
-                />
-                {/* Textarea — on top, transparent text+background, visible caret */}
-                <textarea
-                  ref={textareaRef}
-                  value={text}
-                  onChange={(e) => handleWebInput(e.target.value)}
-                  onKeyDown={handleWebKeyDown}
-                  onPaste={handlePaste}
-                  onScroll={handleDecorationScroll}
-                  onBlur={() => setTimeout(() => setShowMenu(false), 200)}
-                  placeholder="Type a message..."
-                  autoFocus={!isMobile}
-                  rows={1}
-                  style={{
-                    ...sharedTextStyle,
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    background: "transparent",
-                    color: "transparent",
-                    caretColor: t.text,
-                    WebkitTextFillColor: "transparent",
-                    resize: "none",
-                    outline: "none",
-                    overflow: "auto",
-                    scrollbarWidth: "none",
-                  }}
-                  onFocus={() => {
-                    const w = textareaRef.current?.parentElement;
-                    if (w) w.style.borderColor = t.overlayBorder;
-                  }}
-                  onBlurCapture={() => {
-                    const w = textareaRef.current?.parentElement;
-                    if (w) w.style.borderColor = t.overlayLight;
-                  }}
-                />
-              </div>
+              <TiptapChatInput
+                ref={editorRef}
+                key={channelId}
+                text={text}
+                onTextChange={setText}
+                onSubmit={handleSend}
+                onImagePaste={handleImagePaste}
+                disabled={disabled}
+                autoFocus={!isMobile}
+                isMobile={isMobile}
+                currentBotId={currentBotId}
+              />
             )}
           </div>
+
           {/* Per-turn model picker — hidden on mobile to save space */}
           {Platform.OS === "web" && onModelOverrideChange && !isMobile && (
             <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
@@ -813,20 +442,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
             )}
           </Pressable>
-          <AutocompleteMenu
-            show={showMenu}
-            items={filtered}
-            activeIdx={activeIdx}
-            menuPos={{
-              top: menuPos.top,
-              left: menuPos.left,
-              width: menuPos.width,
-            }}
-            onSelect={selectItem}
-            onHover={setActiveIdx}
-            onClose={() => setShowMenu(false)}
-            anchor="bottom"
-          />
         </View>
       </View>
     );

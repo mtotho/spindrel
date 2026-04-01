@@ -118,6 +118,8 @@ class MCPlanStep(BaseModel):
     requires_approval: bool = False
     task_id: Optional[str] = None
     result_summary: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
 
 
 class MCPlan(BaseModel):
@@ -129,10 +131,29 @@ class MCPlan(BaseModel):
     notes: str
     channel_id: str
     channel_name: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class MCPlansResponse(BaseModel):
     plans: list[MCPlan]
+
+
+class MCPlanStepInput(BaseModel):
+    content: str
+    requires_approval: bool = False
+
+
+class MCPlanCreateRequest(BaseModel):
+    title: str
+    notes: str = ""
+    steps: list[MCPlanStepInput]
+
+
+class MCPlanUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    steps: Optional[list[MCPlanStepInput]] = None
 
 
 class FeatureReadiness(BaseModel):

@@ -14,7 +14,7 @@ import {
   type MCKanbanColumn,
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
-import { channelColor } from "@/src/components/mission-control/botColors";
+import { ChannelFilterBar } from "@/src/components/mission-control/ChannelFilterBar";
 import { KanbanNewCardForm } from "@/src/components/mission-control/KanbanNewCardForm";
 import { KanbanSwimlaneBoard } from "@/src/components/mission-control/KanbanSwimlaneBoard";
 import { KanbanMobileSwimlanes } from "@/src/components/mission-control/KanbanMobileSwimlanes";
@@ -193,37 +193,11 @@ export default function MCKanban() {
         className="flex-row items-center gap-2 border-b border-surface-border flex-wrap"
         style={{ paddingHorizontal: 8, paddingVertical: 6 }}
       >
-        <Pressable
-          onPress={() => setFilterChannel(null)}
-          className={`rounded-full px-3 py-1 border ${
-            !filterChannel ? "border-accent bg-accent/10" : "border-surface-border"
-          }`}
-        >
-          <Text
-            className={`text-xs ${!filterChannel ? "text-accent font-medium" : "text-text-muted"}`}
-          >
-            All
-          </Text>
-        </Pressable>
-        {channels.map((ch) => {
-          const isActive = filterChannel === ch.id;
-          const cc = channelColor(ch.id);
-          return (
-            <Pressable
-              key={ch.id}
-              onPress={() => setFilterChannel(isActive ? null : ch.id)}
-              className={`rounded-full px-3 py-1 border ${
-                isActive ? "border-accent bg-accent/10" : "border-surface-border"
-              }`}
-            >
-              <Text
-                className={`text-xs ${isActive ? "text-accent font-medium" : "text-text-muted"}`}
-              >
-                {ch.name}
-              </Text>
-            </Pressable>
-          );
-        })}
+        <ChannelFilterBar
+          channels={channels}
+          value={filterChannel}
+          onChange={setFilterChannel}
+        />
       </View>
 
       {/* New card form */}

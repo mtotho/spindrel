@@ -138,6 +138,8 @@ export interface MCPlanStep {
   requires_approval: boolean;
   task_id: string | null;
   result_summary: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export interface MCPlan {
@@ -149,6 +151,8 @@ export interface MCPlan {
   notes: string;
   channel_id: string;
   channel_name: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface MCFeatureReadiness {
@@ -480,6 +484,123 @@ export function useMCPlanStepApprove() {
       qc.invalidateQueries({ queryKey: ["mc-plans"] });
       qc.invalidateQueries({ queryKey: ["mc-timeline"] });
       qc.invalidateQueries({ queryKey: ["mc-overview"] });
+    },
+  });
+}
+
+export function useMCPlan(channelId: string | undefined, planId: string | undefined) {
+  return useQuery({
+    queryKey: ["mc-plan", channelId, planId],
+    queryFn: () =>
+      apiFetch<MCPlan>(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}`
+      ),
+    enabled: !!channelId && !!planId,
+  });
+}
+
+export function useMCPlanCreate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      title,
+      notes,
+      steps,
+    }: {
+      channelId: string;
+      title: string;
+      notes?: string;
+      steps: Array<{ content: string; requires_approval?: boolean }>;
+    }) =>
+      apiFetch<{ ok: boolean; plan_id: string; status: string }>(
+        `/integrations/mission_control/channels/${channelId}/plans`,
+        {
+          method: "POST",
+          body: JSON.stringify({ title, notes: notes || "", steps }),
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
+    },
+  });
+}
+
+export function useMCPlanUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+      title,
+      notes,
+      steps,
+    }: {
+      channelId: string;
+      planId: string;
+      title?: string;
+      notes?: string;
+      steps?: Array<{ content: string; requires_approval?: boolean }>;
+    }) =>
+      apiFetch(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ title, notes, steps }),
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-plan"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCPlanStepSkip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+      position,
+    }: {
+      channelId: string;
+      planId: string;
+      position: number;
+    }) =>
+      apiFetch(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/steps/${position}/skip`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-plan"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCPlanDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+    }: {
+      channelId: string;
+      planId: string;
+    }) =>
+      apiFetch(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
     },
   });
 }
