@@ -20,53 +20,47 @@ function escapeHtml(s: string): string {
  * Decorate raw markdown text into HTML that is character-for-character identical
  * but with styled spans for code fences, inline code, bold, and italic.
  */
-function decorateMarkdown(text: string, theme: { textDim: string; codeBg: string }): string {
+function decorateMarkdown(text: string, theme: { codeBg: string; codeText: string }): string {
   const segments: string[] = [];
 
   // Process in order: code fences → inline code → bold → italic
-  // IMPORTANT: Decoration must NOT change character widths or the overlay will
-  // drift from the textarea's wrapping. No font-family, font-weight, font-style,
-  // or padding changes — only color, opacity, and background are safe.
+  // NOTE: font-weight/font-style can cause minor wrap-point drift vs the textarea
+  // on very long lines. For typical chat messages this is imperceptible.
+  const codeStyle = `background:${theme.codeBg};color:${theme.codeText};border-radius:3px`;
+  const dimStyle = `opacity:0.3`;
+
   const patterns = [
     // Code fences: ```...``` (multiline)
     {
       regex: /(```)([\s\S]*?)(```)/g,
-      render: (m: RegExpExecArray) => {
-        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
-        const content = `<span style="background:${theme.codeBg};border-radius:3px">${escapeHtml(m[2])}</span>`;
-        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
-        return marker1 + content + marker2;
-      },
+      render: (m: RegExpExecArray) =>
+        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
+        `<span style="${codeStyle}">${escapeHtml(m[2])}</span>` +
+        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
     },
     // Inline code: `...` (no nesting, no newlines)
     {
       regex: /(`)((?:[^`\n])+?)(`)/g,
-      render: (m: RegExpExecArray) => {
-        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
-        const content = `<span style="background:${theme.codeBg};border-radius:3px">${escapeHtml(m[2])}</span>`;
-        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
-        return marker1 + content + marker2;
-      },
+      render: (m: RegExpExecArray) =>
+        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
+        `<span style="${codeStyle}">${escapeHtml(m[2])}</span>` +
+        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
     },
     // Bold: **...**
     {
       regex: /(\*\*)((?:[^*]|\*(?!\*))+?)(\*\*)/g,
-      render: (m: RegExpExecArray) => {
-        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
-        const content = `<span style="text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px">${escapeHtml(m[2])}</span>`;
-        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
-        return marker1 + content + marker2;
-      },
+      render: (m: RegExpExecArray) =>
+        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
+        `<span style="font-weight:700">${escapeHtml(m[2])}</span>` +
+        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
     },
     // Italic: *...* (single asterisk, not preceded/followed by *)
     {
       regex: /(?<!\*)(\*)(?!\*)((?:[^*\n])+?)(\*)(?!\*)/g,
-      render: (m: RegExpExecArray) => {
-        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
-        const content = `<span style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px">${escapeHtml(m[2])}</span>`;
-        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
-        return marker1 + content + marker2;
-      },
+      render: (m: RegExpExecArray) =>
+        `<span style="${dimStyle}">${escapeHtml(m[1])}</span>` +
+        `<span style="font-style:italic">${escapeHtml(m[2])}</span>` +
+        `<span style="${dimStyle}">${escapeHtml(m[3])}</span>`,
     },
   ];
 
@@ -206,8 +200,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
   // Decorated HTML for the overlay layer
   const decoratedHtml = useMemo(
-    () => decorateMarkdown(text, { textDim: t.textDim, codeBg: t.overlayLight }),
-    [text, t.textDim, t.overlayLight],
+    () => decorateMarkdown(text, { codeBg: t.codeBg, codeText: t.codeText }),
+    [text, t.codeBg, t.codeText],
   );
 
   // Sync scroll between textarea and decoration overlay
@@ -359,8 +353,70 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     [text, atStart]
   );
 
+  // Helper: apply a text edit and set cursor position after React re-renders
+  const applyEdit = useCallback((newText: string, cursorStart: number, cursorEnd?: number) => {
+    setText(newText);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.selectionStart = cursorStart;
+        ta.selectionEnd = cursorEnd ?? cursorStart;
+        autoResize();
+      }
+    });
+  }, [setText, autoResize]);
+
   const handleWebKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const hasSelection = start !== end;
+
+      // --- Formatting shortcuts: Ctrl/Cmd+B (bold), Ctrl/Cmd+I (italic), Ctrl/Cmd+E (code) ---
+      if (mod && !e.shiftKey) {
+        if (e.key === "b") {
+          e.preventDefault();
+          if (hasSelection) {
+            applyEdit(text.substring(0, start) + "**" + text.substring(start, end) + "**" + text.substring(end), start + 2, end + 2);
+          } else {
+            applyEdit(text.substring(0, start) + "****" + text.substring(end), start + 2);
+          }
+          return;
+        }
+        if (e.key === "i") {
+          e.preventDefault();
+          if (hasSelection) {
+            applyEdit(text.substring(0, start) + "*" + text.substring(start, end) + "*" + text.substring(end), start + 1, end + 1);
+          } else {
+            applyEdit(text.substring(0, start) + "**" + text.substring(end), start + 1);
+          }
+          return;
+        }
+        if (e.key === "e") {
+          e.preventDefault();
+          if (hasSelection) {
+            applyEdit(text.substring(0, start) + "`" + text.substring(start, end) + "`" + text.substring(end), start + 1, end + 1);
+          } else {
+            applyEdit(text.substring(0, start) + "``" + text.substring(end), start + 1);
+          }
+          return;
+        }
+      }
+
+      // --- Wrap selection when typing ` ---
+      if (hasSelection && e.key === "`") {
+        e.preventDefault();
+        applyEdit(
+          text.substring(0, start) + "`" + text.substring(start, end) + "`" + text.substring(end),
+          start + 1, end + 1,
+        );
+        return;
+      }
+
+      // --- Autocomplete menu ---
       if (showMenu) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -384,12 +440,44 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           return;
         }
       }
+
+      // --- Tab inside code fence: insert 2 spaces ---
+      if (e.key === "Tab" && !showMenu) {
+        const fenceCount = (text.substring(0, start).match(/```/g) || []).length;
+        if (fenceCount % 2 === 1) {
+          e.preventDefault();
+          applyEdit(text.substring(0, start) + "  " + text.substring(end), start + 2);
+          return;
+        }
+      }
+
+      // --- Enter handling ---
       if (e.key === "Enter" && !e.shiftKey) {
+        const before = text.substring(0, start);
+
+        // Code block expansion: current line is ```[lang] — auto-complete the block
+        const lineStart = before.lastIndexOf("\n") + 1;
+        const currentLine = before.substring(lineStart);
+        if (/^```\w*$/.test(currentLine)) {
+          e.preventDefault();
+          applyEdit(before + "\n\n```" + text.substring(start), start + 1);
+          return;
+        }
+
+        // Inside unclosed code fence: insert newline instead of sending
+        const fenceCount = (before.match(/```/g) || []).length;
+        if (fenceCount % 2 === 1) {
+          e.preventDefault();
+          applyEdit(before + "\n" + text.substring(start), start + 1);
+          return;
+        }
+
+        // Normal: send message
         e.preventDefault();
         handleSend();
       }
     },
-    [showMenu, filtered, activeIdx, selectItem, handleSend]
+    [showMenu, filtered, activeIdx, selectItem, handleSend, text, applyEdit]
   );
 
   // Handle paste with images

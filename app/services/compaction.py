@@ -457,8 +457,9 @@ async def _generate_summary(
             "content": f"Previous summary of earlier conversation:\n\n{existing_summary}",
         })
 
+    from app.services.secret_registry import redact as _redact_secrets
     transcript = "\n".join(
-        f"[{m['role'].upper()}]: {m['content']}" for m in conversation
+        f"[{m['role'].upper()}]: {_redact_secrets(m['content'] or '')}" for m in conversation
     )
     prompt_messages.append({
         "role": "user",
@@ -498,6 +499,7 @@ async def _generate_summary(
 
 def _build_transcript(conversation: list[dict]) -> str:
     """Build a plain-text transcript from raw messages. Deterministic, no LLM needed."""
+    from app.services.secret_registry import redact as _redact_secrets
     lines = []
     for m in conversation:
         role = (m.get("role") or "unknown").upper()
@@ -507,7 +509,7 @@ def _build_transcript(conversation: list[dict]) -> str:
             content = "\n".join(
                 p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
             )
-        lines.append(f"[{role}]: {content}")
+        lines.append(f"[{role}]: {_redact_secrets(content)}")
     return "\n".join(lines)
 
 
