@@ -125,13 +125,15 @@ async def update_secret(
     await db.commit()
     await db.refresh(row)
 
-    # Update cache
-    if old_name != row.name:
-        _cache.pop(old_name, None)
+    # Update cache — handle rename + value change correctly
     if value is not None:
+        if old_name != row.name:
+            _cache.pop(old_name, None)
         _cache[row.name] = value
-    elif old_name != row.name and old_name in _cache:
-        _cache[row.name] = _cache.pop(old_name)
+    elif old_name != row.name:
+        old_value = _cache.pop(old_name, None)
+        if old_value is not None:
+            _cache[row.name] = old_value
 
     await _rebuild_registry()
 

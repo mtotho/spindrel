@@ -1,16 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { SecretCheckResult } from "@/src/types/api";
 
-export interface SecretCheckResult {
-  has_secrets: boolean;
-  exact_matches: number;
-  pattern_matches: Array<{
-    type: string;
-    match: string;
-    start: number;
-    end: number;
-  }>;
-}
+export type { SecretCheckResult };
 
 export function useSecretCheck() {
   return useMutation({

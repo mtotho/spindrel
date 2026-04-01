@@ -248,34 +248,51 @@ export default function SecretValuesScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingSecret, setEditingSecret] = useState<SecretValueItem | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateSecretValue();
   const deleteMutation = useDeleteSecretValue();
   const updateMutation = useUpdateSecretValue(editingSecret?.id);
 
   const handleCreate = (name: string, value: string, description: string) => {
+    setError(null);
     createMutation.mutate(
       { name, value, description },
       {
         onSuccess: () => setShowCreate(false),
+        onError: (err) => setError(err instanceof Error ? err.message : "Failed to create secret"),
       }
     );
   };
 
   const handleUpdate = (name: string, value: string, description: string) => {
     if (!editingSecret) return;
+    setError(null);
     const payload: { name?: string; value?: string; description?: string } = {};
     if (name !== editingSecret.name) payload.name = name;
     if (value) payload.value = value;
     if (description !== editingSecret.description) payload.description = description;
     updateMutation.mutate(payload, {
       onSuccess: () => setEditingSecret(null),
+      onError: (err) => setError(err instanceof Error ? err.message : "Failed to update secret"),
     });
   };
 
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
   const handleDelete = (id: string) => {
-    if (confirm("Delete this secret? This cannot be undone.")) {
-      deleteMutation.mutate(id);
-    }
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    setError(null);
+    deleteMutation.mutate(deleteConfirm, {
+      onSuccess: () => setDeleteConfirm(null),
+      onError: (err) => {
+        setDeleteConfirm(null);
+        setError(err instanceof Error ? err.message : "Failed to delete secret");
+      },
+    });
   };
 
   return (
@@ -358,6 +375,94 @@ export default function SecretValuesScreen() {
         </div>
       </RefreshableScrollView>
 
+      {error && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "10px 20px",
+            borderRadius: 8,
+            background: t.danger,
+            color: "#fff",
+            fontSize: 13,
+            zIndex: 1001,
+            cursor: "pointer",
+            maxWidth: 400,
+          }}
+          onClick={() => setError(null)}
+        >
+          {error}
+        </div>
+      )}
+      {deleteConfirm && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            style={{
+              background: t.surface,
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 360,
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text }}>
+              Delete this secret?
+            </div>
+            <div style={{ fontSize: 13, color: t.textDim }}>
+              This cannot be undone. The secret will be removed from all workspace containers.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: `1px solid ${t.surfaceOverlay}`,
+                  background: "transparent",
+                  color: t.text,
+                  cursor: "pointer",
+                  fontSize: 13,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleteMutation.isPending}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: t.danger,
+                  color: "#fff",
+                  cursor: deleteMutation.isPending ? "not-allowed" : "pointer",
+                  opacity: deleteMutation.isPending ? 0.5 : 1,
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCreate && (
         <CreateDialog
           onClose={() => setShowCreate(false)}

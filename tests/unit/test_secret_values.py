@@ -57,3 +57,113 @@ async def test_load_from_db():
             await secret_values.load_from_db()
             assert secret_values._cache == {"TEST_SECRET": "decrypted_value"}
             secret_values._cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# update_secret cache — rename, value change, rename+value
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_secret_rename_preserves_value():
+    """Renaming a secret should move the cached value to the new name."""
+    from app.services import secret_values
+
+    secret_values._cache.clear()
+    secret_values._cache["OLD_KEY"] = "the-value"
+
+    mock_row = MagicMock()
+    mock_row.name = "OLD_KEY"
+    mock_row.value = "enc:data"
+    mock_row.description = ""
+    mock_row.created_by = None
+    mock_row.created_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.updated_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.id = "abc123"
+
+    mock_db = AsyncMock()
+    mock_db.get = AsyncMock(return_value=mock_row)
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+
+    # After "rename", the mock simulates the new name
+    def apply_rename():
+        mock_row.name = "NEW_KEY"
+    mock_db.commit.side_effect = apply_rename
+
+    import uuid
+    with patch("app.services.secret_values._rebuild_registry", new_callable=AsyncMock):
+        result = await secret_values.update_secret(mock_db, uuid.uuid4(), name="NEW_KEY")
+
+    assert result is not None
+    assert "OLD_KEY" not in secret_values._cache
+    assert secret_values._cache.get("NEW_KEY") == "the-value"
+    secret_values._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_secret_value_only():
+    """Updating only the value should keep the same key name."""
+    from app.services import secret_values
+
+    secret_values._cache.clear()
+    secret_values._cache["MY_KEY"] = "old-val"
+
+    mock_row = MagicMock()
+    mock_row.name = "MY_KEY"
+    mock_row.value = "enc:data"
+    mock_row.description = ""
+    mock_row.created_by = None
+    mock_row.created_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.updated_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.id = "abc123"
+
+    mock_db = AsyncMock()
+    mock_db.get = AsyncMock(return_value=mock_row)
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+
+    import uuid
+    with patch("app.services.secret_values._rebuild_registry", new_callable=AsyncMock):
+        with patch("app.services.secret_values.encrypt", return_value="enc:new"):
+            result = await secret_values.update_secret(mock_db, uuid.uuid4(), value="new-val")
+
+    assert result is not None
+    assert secret_values._cache["MY_KEY"] == "new-val"
+    secret_values._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_secret_rename_and_value():
+    """Updating both name and value should cache correctly."""
+    from app.services import secret_values
+
+    secret_values._cache.clear()
+    secret_values._cache["OLD_KEY"] = "old-val"
+
+    mock_row = MagicMock()
+    mock_row.name = "OLD_KEY"
+    mock_row.value = "enc:data"
+    mock_row.description = ""
+    mock_row.created_by = None
+    mock_row.created_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.updated_at = MagicMock(isoformat=MagicMock(return_value="2026-01-01T00:00:00"))
+    mock_row.id = "abc123"
+
+    mock_db = AsyncMock()
+    mock_db.get = AsyncMock(return_value=mock_row)
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+
+    def apply_rename():
+        mock_row.name = "NEW_KEY"
+    mock_db.commit.side_effect = apply_rename
+
+    import uuid
+    with patch("app.services.secret_values._rebuild_registry", new_callable=AsyncMock):
+        with patch("app.services.secret_values.encrypt", return_value="enc:new"):
+            result = await secret_values.update_secret(mock_db, uuid.uuid4(), name="NEW_KEY", value="new-val")
+
+    assert result is not None
+    assert "OLD_KEY" not in secret_values._cache
+    assert secret_values._cache["NEW_KEY"] == "new-val"
+    secret_values._cache.clear()

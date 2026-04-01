@@ -168,6 +168,10 @@ Three tool types, all passed to the LLM in OpenAI function format:
 
     Build custom integrations with routers, dispatchers, and hooks.
 
+-   [:material-shield-lock-outline: **Secrets & Redaction**](guides/secrets.md)
+
+    Secret vault, automatic redaction, and user input detection.
+
 -   [:material-backup-restore: **Backup & Restore**](backup.md)
 
     Automated Postgres + config backups to S3.
