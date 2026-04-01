@@ -811,15 +811,13 @@ async def run_task(task: Task) -> None:
 
         import uuid as _uuid
         correlation_id = _uuid.uuid4()
-        # Store correlation_id on task for workflow step tracking (token usage)
-        if task.callback_config and task.callback_config.get("workflow_run_id"):
-            async with async_session() as _corr_db:
-                _t = await _corr_db.get(Task, task.id)
-                if _t:
-                    _ecfg = dict(_t.execution_config or {})
-                    _ecfg["_correlation_id"] = str(correlation_id)
-                    _t.execution_config = _ecfg
-                    await _corr_db.commit()
+        # Persist correlation_id on task row for cost attribution in forecast.
+        # Also store in execution_config for workflow step tracking if applicable.
+        async with async_session() as _corr_db:
+            _t = await _corr_db.get(Task, task.id)
+            if _t:
+                _t.correlation_id = correlation_id
+                await _corr_db.commit()
         messages_start = len(messages)  # capture before run() appends new turn
 
         # Resolve latest content from linked template or workspace file (if any)
