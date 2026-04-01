@@ -36,7 +36,11 @@ async def send_text(
     *,
     temp_guid: str | None = None,
 ) -> dict | None:
-    """Send a text message to a BB chat. Returns the API response dict or None on failure."""
+    """Send a text message to a BB chat. Returns the API response dict or None on failure.
+
+    Uses a longer timeout for the send operation since iMessage relay
+    through BB → macOS Messages → Apple servers can be slow (10-30s+).
+    """
     if temp_guid is None:
         temp_guid = str(uuid.uuid4())
     try:
@@ -47,7 +51,9 @@ async def send_text(
                 "chatGuid": chat_guid,
                 "message": text,
                 "tempGuid": temp_guid,
+                "method": "private-api",
             },
+            timeout=60.0,
         )
         r.raise_for_status()
         return r.json()

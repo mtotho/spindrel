@@ -14,8 +14,11 @@ from dataclasses import replace as _dc_replace
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import resolve_effective_tools
 from app.agent.context import set_ephemeral_delegates, set_ephemeral_skills
-from app.agent.knowledge import retrieve_knowledge
-from app.agent.memory import retrieve_memories
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agent.context_budget import ContextBudget
+
 from app.agent.message_utils import (
     _AUDIO_TRANSCRIPT_INSTRUCTION,
     _all_tool_schemas_by_name,
@@ -95,6 +98,7 @@ class AssemblyResult:
     channel_max_iterations: int | None = None
     channel_fallback_models: list[dict] = field(default_factory=list)
     channel_model_tier_overrides: dict | None = None
+    budget_utilization: float | None = None
 
 
 async def _inject_workspace_skills(
@@ -171,6 +175,7 @@ async def assemble_context(
     native_audio: bool,
     result: AssemblyResult,
     system_preamble: str | None = None,
+    budget: "ContextBudget | None" = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -185,6 +190,28 @@ async def assemble_context(
     ))
 
     _inject_chars: dict[str, int] = {}
+
+    def _budget_consume(category: str, text: str) -> None:
+        """Record consumption in the budget if one is active."""
+        if budget is not None:
+            from app.agent.context_budget import estimate_tokens
+            budget.consume(category, estimate_tokens(text))
+
+    def _budget_can_afford(text: str) -> bool:
+        """Check if the budget can accommodate this content."""
+        if budget is None:
+            return True
+        from app.agent.context_budget import estimate_tokens
+        return budget.can_afford(estimate_tokens(text))
+
+    # --- account for pre-existing messages (system prompt + conversation history) ---
+    if budget is not None:
+        from app.agent.context_budget import estimate_tokens
+        _existing_tokens = sum(
+            estimate_tokens(m.get("content", "") if isinstance(m.get("content"), str) else str(m.get("content", "")))
+            for m in messages
+        )
+        budget.consume("conversation_history", _existing_tokens)
 
     # --- datetime ---
     try:
@@ -351,6 +378,7 @@ async def assemble_context(
                 "role": "system",
                 "content": _carapace_prompt,
             })
+            _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
 
     # --- memory scheme: tool hiding + tool injection ---
@@ -393,10 +421,9 @@ async def assemble_context(
                 _mem_md_content = Path(_mem_md_path).read_text()
                 if _mem_md_content.strip():
                     _inject_chars["memory_bootstrap"] = len(_mem_md_content)
-                    messages.append({
-                        "role": "system",
-                        "content": f"Your persistent memory (MEMORY.md — curated stable facts):\n\n{_mem_md_content}",
-                    })
+                    _mem_full = f"Your persistent memory (MEMORY.md — curated stable facts):\n\n{_mem_md_content}"
+                    messages.append({"role": "system", "content": _mem_full})
+                    _budget_consume("memory_bootstrap", _mem_full)
                     _memory_scheme_injected_paths.add(f"{_mem_rel}/MEMORY.md")
                     yield {"type": "memory_scheme_bootstrap", "chars": len(_mem_md_content)}
 
@@ -539,10 +566,9 @@ async def assemble_context(
                 _cw_body = "\n\n---\n\n".join(_cw_sections)
 
             _inject_chars["channel_workspace"] = _cw_total_chars
-            messages.append({
-                "role": "system",
-                "content": _cw_helper + _cw_body,
-            })
+            _cw_full = _cw_helper + _cw_body
+            messages.append({"role": "system", "content": _cw_full})
+            _budget_consume("channel_workspace", _cw_full)
             yield {"type": "channel_workspace_context", "count": len(_cw_files), "chars": _cw_total_chars}
 
             # Background re-index (content-hash makes it a no-op if nothing changed)
@@ -958,47 +984,7 @@ async def assemble_context(
         })
         yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
-    # --- memories (DB-based — skip when using workspace-files scheme) ---
-    if bot.memory.enabled and bot.memory_scheme != "workspace-files" and session_id and client_id:
-        memories, mem_sim = await retrieve_memories(
-            query=user_message,
-            session_id=session_id,
-            client_id=client_id,
-            bot_id=bot.id,
-            cross_channel=bot.memory.cross_channel,
-            cross_client=bot.memory.cross_client,
-            cross_bot=bot.memory.cross_bot,
-            similarity_threshold=bot.memory.similarity_threshold,
-            channel_id=channel_id,
-            user_id=bot.user_id,
-        )
-        if memories:
-            _mem_limit = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS
-            memories = [
-                m[:_mem_limit] + ("…" if len(m) > _mem_limit else "")
-                for m in memories
-            ]
-            _mem_chars = sum(len(m) for m in memories)
-            _inject_chars["memory"] = _mem_chars
-            memory_preview = memories[0][:100] + "..." if len(memories[0]) > 100 else memories[0]
-            yield {"type": "memory_context", "count": len(memories), "memory_preview": memory_preview, "chars": _mem_chars}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="memory_injection",
-                    count=len(memories),
-                    data={"preview": memories[0][:200], "best_similarity": round(mem_sim, 4), "chars": _mem_chars},
-                ))
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Relevant memories (auto-retrieved excerpts — use search_memories for broader recall):\n\n"
-                    + "\n\n---\n\n".join(memories)
-                ),
-            })
+    # --- DB memory injection REMOVED (deprecated — use memory_scheme='workspace-files') ---
 
     # --- pinned knowledge ---
     if client_id:
@@ -1030,44 +1016,7 @@ async def assemble_context(
                 "content": "Pinned knowledge (always available):\n\n" + "\n\n---\n\n".join(pinned_docs),
             })
 
-    # --- RAG knowledge (DB-based — skip when using workspace-files scheme) ---
-    if bot.knowledge.enabled and bot.memory_scheme != "workspace-files" and client_id:
-        chunks, know_sim = await retrieve_knowledge(
-            query=user_message,
-            bot_id=bot.id,
-            client_id=client_id,
-            fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
-            session_id=session_id,
-            channel_id=channel_id,
-        )
-        if chunks:
-            _know_limit = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
-            chunks = [
-                c[:_know_limit] + ("…" if len(c) > _know_limit else "")
-                for c in chunks
-            ]
-            _know_chars = sum(len(c) for c in chunks)
-            _inject_chars["knowledge"] = _know_chars
-            knowledge_preview = chunks[0][:100] + "..." if len(chunks[0]) > 100 else chunks[0]
-            yield {"type": "knowledge_context", "count": len(chunks), "knowledge_preview": knowledge_preview, "chars": _know_chars}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="knowledge_context",
-                    count=len(chunks),
-                    data={"preview": chunks[0][:200], "best_similarity": round(know_sim, 4), "chars": _know_chars},
-                ))
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Relevant knowledge (auto-retrieved excerpts — use get_knowledge(name=\"<name>\") "
-                    "for full documents or search_knowledge for broader results):\n\n"
-                    + "\n\n---\n\n".join(chunks)
-                ),
-            })
+    # --- DB RAG knowledge injection REMOVED (deprecated — use skills/carapaces instead) ---
 
     # --- conversation section retrieval (structured mode) + tool injection (file mode) ---
     if channel_id is not None:
@@ -1193,25 +1142,29 @@ async def assemble_context(
                 if not any(p in c for p in _memory_scheme_injected_paths)
             ]
         if fs_chunks:
-            yield {"type": "fs_context", "count": len(fs_chunks)}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="fs_context",
-                    count=len(fs_chunks),
-                    data={"preview": fs_chunks[0][:200], "best_similarity": round(fs_sim, 4)},
-                ))
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Relevant workspace file excerpts (partial segments — "
-                    "use exec_command with `cat <filepath>` to read full file contents):\n\n"
-                    + "\n\n---\n\n".join(fs_chunks)
-                ),
-            })
+            _fs_body = (
+                "Relevant workspace file excerpts (partial segments — "
+                "use exec_command with `cat <filepath>` to read full file contents):\n\n"
+                + "\n\n---\n\n".join(fs_chunks)
+            )
+            # P3: skip if budget is too tight
+            if _budget_can_afford(_fs_body):
+                yield {"type": "fs_context", "count": len(fs_chunks)}
+                if correlation_id is not None:
+                    asyncio.create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="fs_context",
+                        count=len(fs_chunks),
+                        data={"preview": fs_chunks[0][:200], "best_similarity": round(fs_sim, 4)},
+                    ))
+                messages.append({"role": "system", "content": _fs_body})
+                _budget_consume("fs_context", _fs_body)
+            else:
+                logger.info("Budget: skipping workspace fs RAG (%d chunks, budget remaining: %d)",
+                           len(fs_chunks), budget.remaining if budget else 0)
     elif bot.filesystem_indexes:
         # Legacy filesystem_indexes path
         from app.agent.fs_indexer import retrieve_filesystem_context
@@ -1298,14 +1251,17 @@ async def assemble_context(
                 _index_lines = "\n".join(
                     f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
                 )
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        "Available tools not yet loaded — call get_tool_info(tool_name=\"<name>\") for full schema:\n"
-                        + _index_lines
-                    ),
-                })
-                yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
+                _tool_idx_content = (
+                    "Available tools not yet loaded — call get_tool_info(tool_name=\"<name>\") for full schema:\n"
+                    + _index_lines
+                )
+                # P4: expendable — skip if budget is tight
+                if _budget_can_afford(_tool_idx_content):
+                    messages.append({"role": "system", "content": _tool_idx_content})
+                    _budget_consume("tool_index", _tool_idx_content)
+                    yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
+                else:
+                    logger.info("Budget: skipping tool index hints (%d tools)", len(_unretrieved))
     # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
     from app.agent.context import current_injected_tools
     _injected = current_injected_tools.get()
@@ -1370,16 +1326,23 @@ async def assemble_context(
         messages.append({"role": "user", "content": user_content})
         result.user_msg_index = len(messages) - 1
 
+    # --- store budget utilization for downstream (compaction trigger) ---
+    if budget is not None:
+        result.budget_utilization = budget.utilization
+
     # --- injection summary trace ---
     if correlation_id is not None and _inject_chars:
+        _summary_data: dict[str, Any] = {
+            "breakdown": _inject_chars,
+            "total_chars": sum(_inject_chars.values()),
+        }
+        if budget is not None:
+            _summary_data["context_budget"] = budget.to_dict()
         asyncio.create_task(_record_trace_event(
             correlation_id=correlation_id,
             session_id=session_id,
             bot_id=bot.id,
             client_id=client_id,
             event_type="context_injection_summary",
-            data={
-                "breakdown": _inject_chars,
-                "total_chars": sum(_inject_chars.values()),
-            },
+            data=_summary_data,
         ))

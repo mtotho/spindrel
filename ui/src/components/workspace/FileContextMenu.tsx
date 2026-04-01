@@ -5,24 +5,7 @@ import { useDeleteWorkspaceFile } from "../../api/hooks/useWorkspaces";
 import { apiFetch } from "../../api/client";
 import type { WorkspaceFileEntry } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
-
-/** Write text to clipboard with fallback for non-HTTPS */
-async function writeToClipboard(text: string) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  } catch { /* fallback */ }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  document.body.removeChild(ta);
-}
+import { writeToClipboard } from "../../utils/clipboard";
 
 interface FileContextMenuProps {
   x: number;

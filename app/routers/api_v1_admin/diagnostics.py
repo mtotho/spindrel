@@ -502,3 +502,18 @@ async def diagnostics_disk_usage(
                     break
 
     return report
+
+
+@router.get("/diagnostics/feature-validation")
+async def diagnostics_feature_validation(
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Validate that all bots have tools required by their configured features."""
+    from app.services.feature_validation import validate_features
+
+    warnings = await validate_features()
+    return {
+        "warnings": [w.to_dict() for w in warnings],
+        "warning_count": len(warnings),
+        "healthy": len(warnings) == 0,
+    }

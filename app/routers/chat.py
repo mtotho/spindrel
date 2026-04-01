@@ -639,10 +639,10 @@ async def chat_stream(
                 bot_id=bot.id,
                 correlation_id=correlation_id,
                 channel_id=channel_id,
-                memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
-                memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
-                memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
-                memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+                memory_cross_channel=None,  # DB memory deprecated
+                memory_cross_client=None,
+                memory_cross_bot=None,
+                memory_similarity_threshold=None,
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
             )
@@ -666,6 +666,7 @@ async def chat_stream(
                 channel_id=channel_id,
                 model_override=req.model_override,
             )
+            _budget_utilization = None
             async for event in _with_keepalive(stream):
                 if await request.is_disconnected():
                     break
@@ -680,6 +681,9 @@ async def chat_stream(
                     event_with_session = {**event, "session_id": str(session_id)}
                     yield f"data: {json.dumps(event_with_session)}\n\n"
                     break
+                # Capture budget utilization for compaction trigger
+                if event.get("type") == "context_budget":
+                    _budget_utilization = event.get("utilization")
                 # Capture response for mirroring
                 if event.get("type") == "response":
                     response_text = event.get("text", "")
@@ -729,6 +733,7 @@ async def chat_stream(
                 correlation_id=correlation_id,
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
+                budget_utilization=_budget_utilization,
             )
         except Exception as e:
             logger.exception("Streaming agent loop error")

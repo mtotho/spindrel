@@ -6,6 +6,15 @@ description: >-
   cross-channel portfolio oversight, and integration setup guides.
 tags: [project-management, tasks, planning, feeds, integrations]
 
+requires:
+  tools:
+    - create_task_card
+    - move_task_card
+    - append_timeline_event
+    - draft_plan
+    - update_plan_step
+    - update_plan_status
+
 skills:
   # Task & project management
   - id: integrations/mission_control/mission_control

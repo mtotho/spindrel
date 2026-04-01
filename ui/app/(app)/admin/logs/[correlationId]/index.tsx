@@ -5,6 +5,7 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useTrace, type TraceEvent } from "@/src/api/hooks/useLogs";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { writeToClipboard } from "@/src/utils/clipboard";
 
 // ---------------------------------------------------------------------------
 // Colors
@@ -129,19 +130,7 @@ export default function TraceScreen() {
   const handleCopy = async () => {
     if (!data) return;
     const text = formatTraceForCopy(data);
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      // Fallback for non-HTTPS contexts
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
+    await writeToClipboard(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

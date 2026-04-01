@@ -180,8 +180,7 @@ def _effective_system_prompt(
         _tmpl = _cfg.MEMORY_SCHEME_PROMPT.strip() if _cfg.MEMORY_SCHEME_PROMPT else ""
         _prompt = (_tmpl or DEFAULT_MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
         parts.append(_prompt)
-    elif bot.memory.enabled and bot.memory.prompt:
-        parts.append(bot.memory.prompt.strip())
+    # DB memory prompt injection removed (deprecated)
     return "\n\n".join(parts)
 
 

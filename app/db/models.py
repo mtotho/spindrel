@@ -837,6 +837,7 @@ class Carapace(Base):
     tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    requires: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

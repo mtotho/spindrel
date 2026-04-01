@@ -779,6 +779,7 @@ async def run_compaction_stream(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     *,
     correlation_id: uuid.UUID | None = None,
+    budget_triggered: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """If compaction is due, run memory/knowledge phase (yielding tool events) then summarize.
     Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
@@ -819,12 +820,14 @@ async def run_compaction_stream(
         )
         user_msg_count = user_count_result.scalar() or 0
 
-    if user_msg_count < interval:
+    if user_msg_count < interval and not budget_triggered:
         logger.info(
             "Compaction not needed for %s (%d/%d turns)",
             session_id, user_msg_count, interval,
         )
         return
+    if budget_triggered:
+        logger.info("Budget-triggered early compaction for session %s", session_id)
 
     logger.info("Starting compaction for session %s", session_id)
 
@@ -1108,11 +1111,12 @@ async def _drain_compaction(
     correlation_id: uuid.UUID | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    budget_triggered: bool = False,
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
     compacted = False
     try:
-        async for event in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id):
+        async for event in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id, budget_triggered=budget_triggered):
             if isinstance(event, dict) and event.get("type") == "compaction_done":
                 compacted = True
     except Exception:
@@ -1139,13 +1143,19 @@ def maybe_compact(
     correlation_id: uuid.UUID | None = None,
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    budget_utilization: float | None = None,
 ) -> None:
-    """If compaction is due, run it in the background (memory phase + summary). Non-blocking."""
+    """If compaction is due, run it in the background (memory phase + summary). Non-blocking.
+
+    If budget_utilization > 0.85, triggers early compaction regardless of turn count.
+    """
+    _budget_triggered = budget_utilization is not None and budget_utilization > 0.85
     asyncio.create_task(_drain_compaction(
         session_id, bot, messages,
         correlation_id=correlation_id,
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
+        budget_triggered=_budget_triggered,
     ))
 
 

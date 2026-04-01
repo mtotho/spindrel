@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Trash2, Copy, Check, AlertTriangle, Info } from "lucide-react";
+import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import {
   useApiKey,
@@ -214,9 +215,9 @@ export default function ApiKeyDetailScreen() {
     [scopeGroups, name, activePreset],
   );
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = useCallback(async () => {
     if (createdKey) {
-      navigator.clipboard.writeText(createdKey);
+      await writeToClipboard(createdKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -285,19 +286,19 @@ export default function ApiKeyDetailScreen() {
           </button>
         )}
         <button
-          onClick={handleSave}
-          disabled={isSaving || !name.trim()}
+          onClick={createdKey ? goBack : handleSave}
+          disabled={!createdKey && (isSaving || !name.trim())}
           style={{
             padding: "6px 18px",
             borderRadius: 6,
             background:
-              isSaving || !name.trim() ? t.surfaceBorder : t.accent,
+              !createdKey && (isSaving || !name.trim()) ? t.surfaceBorder : t.accent,
             border: "none",
-            cursor: isSaving || !name.trim() ? "default" : "pointer",
+            cursor: !createdKey && (isSaving || !name.trim()) ? "default" : "pointer",
             fontSize: 13,
             fontWeight: 600,
             color: "#fff",
-            opacity: isSaving || !name.trim() ? 0.5 : 1,
+            opacity: !createdKey && (isSaving || !name.trim()) ? 0.5 : 1,
           }}
         >
           {isSaving ? "Saving..." : createdKey ? "Done" : "Save"}

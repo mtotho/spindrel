@@ -2,7 +2,7 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, BookOpen, FileText, Plug, AlertTriangle, Search } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Search } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -13,7 +13,7 @@ function SourceBadge({ type, detail }: { type: string; detail?: string }) {
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
     file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
     integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
-    manual: { bg: t.overlayLight, fg: t.textMuted, label: "manual" },
+    manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
     workspace: { bg: t.purpleSubtle, fg: t.purple, label: "workspace" },
   };
   const c = cfg[type] || cfg.manual;
@@ -36,6 +36,46 @@ function fmtDate(iso: string | null | undefined) {
   });
 }
 
+function fmtIntName(key: string): string {
+  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
+  if (special[key]) return special[key];
+  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+type RenderItem =
+  | { type: "header"; key: string; label: string; count: number }
+  | { type: "subheader"; key: string; label: string; count: number }
+  | { type: "skill"; key: string; skill: SkillItem };
+
+function SectionHeader({ label, count, level, isWide }: { label: string; count: number; level: number; isWide: boolean }) {
+  const t = useThemeTokens();
+  const isSubheader = level > 0;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      padding: isWide
+        ? `${isSubheader ? 8 : 14}px 16px ${isSubheader ? 4 : 6}px ${isSubheader ? 32 : 16}px`
+        : `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
+    }}>
+      <span style={{
+        fontSize: isSubheader ? 10 : 11,
+        fontWeight: 600,
+        color: isSubheader ? t.textDim : t.textMuted,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontSize: 10, color: t.textDim, fontWeight: 500,
+      }}>
+        {count}
+      </span>
+      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+    </div>
+  );
+}
+
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const firstLine = (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || "";
@@ -55,7 +95,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${isWs ? t.purpleBorder : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
+          border: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
           width: "100%",
         }}
       >
@@ -89,8 +129,10 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: `1px solid ${isWs ? t.purpleBorder : t.surfaceRaised}`, cursor: isWs ? "default" : "pointer",
-        textAlign: "left", width: "100%", border: "none",
+        border: "none",
+        borderBottom: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`,
+        cursor: isWs ? "default" : "pointer",
+        textAlign: "left", width: "100%",
       }}
       onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = t.inputBg; }}
       onMouseLeave={(e) => { if (!isWs) e.currentTarget.style.background = "transparent"; }}
@@ -179,6 +221,50 @@ export default function SkillsScreen() {
     );
   }, [skills, search]);
 
+  const renderItems = useMemo((): RenderItem[] => {
+    if (!filteredSkills.length) return [];
+
+    const manual: SkillItem[] = [];
+    const workspace: SkillItem[] = [];
+    const core: SkillItem[] = [];
+    const integrationMap = new Map<string, SkillItem[]>();
+
+    for (const s of filteredSkills) {
+      if (s.source_type === "manual") manual.push(s);
+      else if (s.source_type === "workspace") workspace.push(s);
+      else if (s.source_type === "integration") {
+        const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
+        const list = integrationMap.get(name);
+        if (list) list.push(s); else integrationMap.set(name, [s]);
+      } else core.push(s);
+    }
+
+    const items: RenderItem[] = [];
+
+    const addGroup = (key: string, label: string, skills: SkillItem[]) => {
+      if (!skills.length) return;
+      items.push({ type: "header", key, label, count: skills.length });
+      for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
+    };
+
+    addGroup("manual", "User Added", manual);
+    addGroup("workspace", "Workspace", workspace);
+    addGroup("core", "Core", core);
+
+    const intKeys = [...integrationMap.keys()].sort();
+    if (intKeys.length) {
+      const totalInt = intKeys.reduce((n, k) => n + integrationMap.get(k)!.length, 0);
+      items.push({ type: "header", key: "integrations", label: "Integrations", count: totalInt });
+      for (const k of intKeys) {
+        const skills = integrationMap.get(k)!;
+        items.push({ type: "subheader", key: `int-${k}`, label: fmtIntName(k), count: skills.length });
+        for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
+      }
+    }
+
+    return items;
+  }, [filteredSkills]);
+
   const handleSync = () => {
     setSyncResult(null);
     setSyncError(null);
@@ -233,14 +319,15 @@ export default function SkillsScreen() {
 
       {/* Search bar */}
       <div style={{
+        display: "flex", alignItems: "center", gap: 10,
         padding: isWide ? "8px 16px" : "8px 12px",
-        borderBottom: `1px solid ${t.surfaceRaised}`,
+        borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
-          background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+          background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 6, padding: "5px 10px",
-          maxWidth: isWide ? 300 : undefined,
+          maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
         }}>
           <Search size={13} color={t.textDim} />
           <input
@@ -253,6 +340,14 @@ export default function SkillsScreen() {
             }}
           />
         </div>
+        {skills && skills.length > 0 && (
+          <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+            {search && filteredSkills.length !== skills.length
+              ? `${filteredSkills.length} / ${skills.length}`
+              : skills.length}{" "}
+            skills
+          </span>
+        )}
       </div>
 
       {/* Sync result banner */}
@@ -270,22 +365,6 @@ export default function SkillsScreen() {
           <button onClick={() => setSyncError(null)} style={{
             background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 16,
           }}>&times;</button>
-        </div>
-      )}
-
-      {/* Table header (desktop only) */}
-      {isWide && filteredSkills.length > 0 && (
-        <div style={{
-          display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
-          gap: 12, padding: "8px 16px",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-          fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1,
-        }}>
-          <span>ID</span>
-          <span>Name</span>
-          <span>Source</span>
-          <span style={{ textAlign: "right" }}>Chunks</span>
-          <span style={{ textAlign: "right" }}>Updated</span>
         </div>
       )}
 
@@ -307,14 +386,20 @@ export default function SkillsScreen() {
             No skills match "{search}"
           </div>
         )}
-        {filteredSkills.map((skill) => (
-          <SkillRow
-            key={skill.id}
-            skill={skill}
-            isWide={isWide}
-            onPress={() => router.push(`/admin/skills/${encodeURIComponent(skill.id)}` as any)}
-          />
-        ))}
+        {renderItems.map((item) =>
+          item.type === "header" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={0} isWide={isWide} />
+          ) : item.type === "subheader" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={1} isWide={isWide} />
+          ) : (
+            <SkillRow
+              key={item.key}
+              skill={item.skill}
+              isWide={isWide}
+              onPress={() => router.push(`/admin/skills/${encodeURIComponent(item.skill.id)}` as any)}
+            />
+          ),
+        )}
       </RefreshableScrollView>
     </View>
   );

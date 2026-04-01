@@ -246,6 +246,12 @@ async def lifespan(app: FastAPI):
     await warm_mcp_tool_index_for_all_bots()
     await validate_pinned_tools()
 
+    # Feature validation (carapace requires, memory scheme tools, etc.)
+    from app.services.feature_validation import validate_features
+    _feature_warnings = await validate_features()
+    if _feature_warnings:
+        logger.warning("Feature validation found %d warning(s)", len(_feature_warnings))
+
     logger.info("Syncing file-sourced skills and knowledge...")
     await file_sync.sync_all_files()
     logger.info("Loading skills from DB...")

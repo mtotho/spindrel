@@ -77,7 +77,8 @@ class ContextBreakdownResult:
     compaction: CompactionState
     reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
-    disclaimer: str
+    context_budget: dict | None = None
+    disclaimer: str = ""
 
 
 def _chars_to_tokens(chars: int) -> int:
@@ -139,15 +140,7 @@ async def compute_context_breakdown(
             description="Bot-specific system prompt",
         ))
 
-    # Memory guidelines (appended to system prompt)
-    if bot.memory.enabled and bot.memory.prompt:
-        mg_chars = len(bot.memory.prompt.strip())
-        if mg_chars:
-            categories.append(ContextCategory(
-                key="memory_guidelines", label="Memory Guidelines", chars=mg_chars,
-                tokens_approx=0, percentage=0, category="static",
-                description="Instructions for memory usage appended to system prompt",
-            ))
+    # Memory guidelines — DEPRECATED (DB memory no longer in use)
 
     # Persona
     if bot.persona:
@@ -307,25 +300,8 @@ async def compute_context_breakdown(
             description=f"{len(bot.delegate_bots)} delegatable bot(s)",
         ))
 
-    # Memory RAG
-    if bot.memory.enabled:
-        mem_max = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS
-        est_mem = int(settings.MEMORY_RETRIEVAL_LIMIT * mem_max * 0.4)
-        categories.append(ContextCategory(
-            key="memory_rag", label="Memory (RAG)", chars=est_mem,
-            tokens_approx=0, percentage=0, category="rag",
-            description="Semantically recalled memories; varies by query",
-        ))
-
-    # Knowledge RAG
-    if bot.knowledge.enabled:
-        know_max = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
-        est_k = int(3 * know_max * 0.35)
-        categories.append(ContextCategory(
-            key="knowledge_rag", label="Knowledge (RAG)", chars=est_k,
-            tokens_approx=0, percentage=0, category="rag",
-            description="Up to 3 knowledge docs; varies by query",
-        ))
+    # Memory RAG — DEPRECATED (DB memory no longer in use)
+    # Knowledge RAG — DEPRECATED (DB knowledge no longer in use)
 
     # Pinned knowledge
     pinned_k_count = (await db.execute(
@@ -596,8 +572,8 @@ async def compute_context_breakdown(
             channel.compaction_keep_turns, bot.compaction_keep_turns,
             settings.COMPACTION_KEEP_TURNS, "compaction_keep_turns",
         ),
-        "memory_enabled": EffectiveSetting(value=bot.memory.enabled, source="bot"),
-        "knowledge_enabled": EffectiveSetting(value=bot.knowledge.enabled, source="bot"),
+        "memory_enabled": EffectiveSetting(value=False, source="deprecated"),
+        "knowledge_enabled": EffectiveSetting(value=False, source="deprecated"),
         "max_iterations": _resolve_setting(
             channel.max_iterations, None, settings.AGENT_MAX_ITERATIONS, "max_iterations",
         ),
@@ -630,6 +606,27 @@ async def compute_context_breakdown(
         cat.tokens_approx = _chars_to_tokens(cat.chars)
         cat.percentage = round((cat.chars / total_chars * 100) if total_chars > 0 else 0, 1)
 
+    # Context budget info (if enabled)
+    _budget_info = None
+    if settings.CONTEXT_BUDGET_ENABLED:
+        try:
+            from app.agent.context_budget import get_model_context_window, estimate_tokens
+            _model = channel.model_override or bot.model
+            _provider = getattr(channel, "model_provider_id_override", None) or bot.model_provider_id
+            _window = get_model_context_window(_model, _provider)
+            _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
+            _available = _window - _reserve
+            _est_consumed = _chars_to_tokens(total_chars)
+            _budget_info = {
+                "model_context_window": _window,
+                "reserve_tokens": _reserve,
+                "available_tokens": _available,
+                "estimated_consumed_tokens": _est_consumed,
+                "estimated_utilization": round(_est_consumed / _available, 3) if _available > 0 else 1.0,
+            }
+        except Exception:
+            pass
+
     return ContextBreakdownResult(
         channel_id=str(channel_id),
         session_id=session_id,
@@ -640,6 +637,7 @@ async def compute_context_breakdown(
         compaction=compaction,
         reranking=reranking,
         effective_settings=effective_settings,
+        context_budget=_budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )
 
