@@ -31,7 +31,7 @@ interface TasksResponse {
 }
 
 type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
-type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api";
+type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api" | "workflow";
 type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
 type EditorState =
@@ -47,6 +47,7 @@ const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "harness", label: "Harness" },
   { key: "exec", label: "Exec" },
   { key: "api", label: "API" },
+  { key: "workflow", label: "Workflow" },
 ];
 
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
