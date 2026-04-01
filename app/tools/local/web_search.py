@@ -55,9 +55,9 @@ def _check_ssrf(url: str) -> None:
                 )
 
 
-# ── web_search (conditional) ──────────────────────────────────────────────
+# ── web_search (dispatches based on WEB_SEARCH_MODE at call time) ─────────
 
-_WEB_SEARCH_SCHEMA = {
+@register({
     "type": "function",
     "function": {
         "name": "web_search",
@@ -80,19 +80,30 @@ _WEB_SEARCH_SCHEMA = {
             "required": ["query"],
         },
     },
-}
+})
+async def web_search(query: str, num_results: int = 5) -> str:
+    mode = settings.WEB_SEARCH_MODE
+    if mode == "searxng":
+        return await _web_search_searxng(query, num_results)
+    elif mode == "ddgs":
+        return await _web_search_ddgs(query, num_results)
+    else:
+        return json.dumps({"error": "Web search is disabled. Ask your admin to enable it in Settings > Web Search."})
 
 
 async def _web_search_searxng(query: str, num_results: int = 5) -> str:
     """Search via self-hosted SearXNG instance."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{settings.SEARXNG_URL}/search",
-            params={"q": query, "format": "json"},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.SEARXNG_URL}/search",
+                params={"q": query, "format": "json"},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.ConnectError:
+        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Are the containers running? (COMPOSE_PROFILES=web-search)"})
 
     results = data.get("results", [])[:num_results]
     return json.dumps([
@@ -107,18 +118,12 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
     from ddgs import DDGS
 
     results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
+    if not results:
+        return json.dumps([])
     return json.dumps([
         {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
         for r in results
     ])
-
-
-if settings.WEB_SEARCH_ENABLED:
-    register(_WEB_SEARCH_SCHEMA)(_web_search_searxng)
-    logger.info("web_search tool registered (SearXNG backend)")
-else:
-    register(_WEB_SEARCH_SCHEMA)(_web_search_ddgs)
-    logger.info("web_search tool registered (ddgs backend — SearXNG disabled)")
 
 
 # ── fetch_url (always registered) ─────────────────────────────────────────

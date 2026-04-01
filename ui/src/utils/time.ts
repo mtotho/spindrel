@@ -15,12 +15,18 @@ export function formatTime(iso: string): string {
   });
 }
 
-/** Format a compact time — e.g. "2:30 PM" (no timezone, for tight spaces like chat) */
+/** Format a compact time for chat — includes date context for older messages.
+ *  Today: "2:30 PM", Yesterday: "Yesterday 2:30 PM", Older: "Mar 26, 2:30 PM" */
 export function formatTimeShort(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const d = new Date(iso);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = today.getTime() - msgDay.getTime();
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (diff === 0) return time;
+  if (diff === 86400000) return `Yesterday ${time}`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + `, ${time}`;
 }
 
 /** Format a datetime for display — e.g. "Mar 26, 2:30 PM EST" */

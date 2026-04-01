@@ -241,6 +241,7 @@ class Settings(BaseSettings):
     AGENT_MAX_ITERATIONS: int = 15
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
+    TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
     LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
     LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)
@@ -256,7 +257,7 @@ class Settings(BaseSettings):
     TASK_MAX_RUN_SECONDS: int = 1200         # 20 minutes
 
     # Web tools
-    WEB_SEARCH_ENABLED: bool = True  # built-in web_search tool (requires SearXNG container)
+    WEB_SEARCH_MODE: str = "searxng"  # "searxng" (self-hosted), "ddgs" (lightweight), or "none"
     SEARXNG_URL: str = "http://searxng:8080"
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
 
@@ -373,6 +374,9 @@ class Settings(BaseSettings):
     DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"
     SECTION_INDEX_COUNT: int = 10
     SECTION_INDEX_VERBOSITY: str = "standard"  # "compact" | "standard" | "detailed"
+    HISTORY_WRITE_FILES: bool = False
+    SECTION_RETENTION_MODE: str = "forever"  # "forever" | "count" | "days"
+    SECTION_RETENTION_VALUE: int = 100
     TRIGGER_HEARTBEAT_BEFORE_COMPACTION: bool = False  # deprecated — use MEMORY_FLUSH_ENABLED
 
     # Memory flush (dedicated pre-compaction memory save)

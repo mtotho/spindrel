@@ -126,7 +126,7 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Database", ["DATABASE_URL"]),
         ("LLM Provider", ["LITELLM_BASE_URL", "LITELLM_API_KEY"]),
         ("Embeddings", ["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"]),
-        ("Web Search", ["WEB_SEARCH_ENABLED", "COMPOSE_PROFILES"]),
+        ("Web Search", ["WEB_SEARCH_MODE", "COMPOSE_PROFILES"]),
     ]
 
     written_keys: set[str] = set()
@@ -255,20 +255,30 @@ def main() -> None:
 
     # ── 4. Web search ─────────────────────────────────────────────────────
 
-    web_search = questionary.confirm(
-        "Enable built-in web search? (adds SearXNG + Playwright containers)",
-        default=True,
+    web_mode = questionary.select(
+        "Web search backend:",
+        choices=[
+            questionary.Choice(
+                "SearXNG — self-hosted, private (adds 2 containers)",
+                value="searxng",
+            ),
+            questionary.Choice(
+                "DuckDuckGo — lightweight, no extra containers",
+                value="ddgs",
+            ),
+            questionary.Choice(
+                "None — I'll add my own search tool",
+                value="none",
+            ),
+        ],
         style=STYLE,
     ).ask()
-    if web_search is None:
+    if web_mode is None:
         return
 
-    if web_search:
-        env_config["WEB_SEARCH_ENABLED"] = "true"
+    env_config["WEB_SEARCH_MODE"] = web_mode
+    if web_mode == "searxng":
         env_config["COMPOSE_PROFILES"] = "web-search"
-    else:
-        env_config["WEB_SEARCH_ENABLED"] = "false"
-        print("  \033[2mWeb search will use DuckDuckGo (no extra containers needed)\033[0m")
 
     # ── 5. Auth ────────────────────────────────────────────────────────────
 
@@ -316,6 +326,8 @@ def main() -> None:
     print(f"  API Key: {env_config['API_KEY'][:20]}...")
     print(f"  Provider: {provider_name}")
     print(f"  Model: {model}")
+    web_labels = {"searxng": "SearXNG (self-hosted)", "ddgs": "DuckDuckGo (lightweight)", "none": "Disabled"}
+    print(f"  Web Search: {web_labels.get(web_mode, web_mode)}")
     print()
     print("  The Orchestrator bot will guide you through the rest:")
     print("  creating bots, enabling integrations, and configuring workspaces.")

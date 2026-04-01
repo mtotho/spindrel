@@ -1,12 +1,14 @@
-"""Mission Control plan tools — structured plan management via plans.md.
+"""Mission Control plan tools — structured plan management via MC SQLite DB.
 
-Thin wrappers around integrations.mission_control.services.
+Thin wrappers around DB operations. Markdown files are rendered as read-only
+context injection (write-through from DB).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import date
+
+from sqlalchemy import select
 
 from integrations import _register as reg
 from integrations.mission_control.services import (
@@ -43,6 +45,14 @@ logger = logging.getLogger(__name__)
                 "description": "Optional context, estimates, or rationale",
                 "default": "",
             },
+            "approval_steps": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": (
+                    "Optional list of step positions (1-based) that require human approval "
+                    "before execution. The plan executor will pause at these steps."
+                ),
+            },
         },
         "required": ["channel_id", "title", "steps"],
     },
@@ -52,38 +62,55 @@ async def draft_plan(
     title: str,
     steps: list[str],
     notes: str = "",
+    approval_steps: list[int] | None = None,
 ) -> str:
-    """Create a draft plan in plans.md."""
+    """Create a draft plan in the MC database."""
     from app.services.plan_board import generate_plan_id
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep
+    from integrations.mission_control.services import _ensure_plans_migrated, _render_plans_md
 
-    _raw, plans = await _read_plans_md(channel_id)
+    await _ensure_plans_migrated(channel_id)
 
     plan_id = generate_plan_id()
-    plan_steps = [
-        {"position": i + 1, "status": "pending", "content": s}
-        for i, s in enumerate(steps)
-    ]
+    approval_set = set(approval_steps or [])
 
-    plan = {
-        "title": title,
-        "status": "draft",
-        "meta": {
-            "id": plan_id,
-            "created": date.today().isoformat(),
-        },
-        "steps": plan_steps,
-        "notes": notes,
-    }
-    plans.append(plan)
-    await _write_plans_md(channel_id, plans)
+    async with await mc_session() as session:
+        db_plan = McPlan(
+            channel_id=channel_id,
+            plan_id=plan_id,
+            title=title,
+            status="draft",
+            notes=notes,
+            created_date=date.today().isoformat(),
+        )
+        session.add(db_plan)
+        await session.flush()
+
+        for i, step_content in enumerate(steps, 1):
+            session.add(McPlanStep(
+                plan_id=db_plan.id,
+                position=i,
+                content=step_content,
+                status="pending",
+                requires_approval=i in approval_set,
+            ))
+
+        await session.commit()
+
+    await _render_plans_md(channel_id)
 
     try:
         await append_timeline(channel_id, f"Plan drafted: **{title}** ({plan_id})")
     except Exception:
         logger.debug("Failed to log timeline event for draft_plan", exc_info=True)
 
+    approval_note = ""
+    if approval_set:
+        approval_note = f" Steps {sorted(approval_set)} require human approval."
+
     return (
-        f"Created draft plan '{title}' (id: {plan_id}) with {len(steps)} steps. "
+        f"Created draft plan '{title}' (id: {plan_id}) with {len(steps)} steps.{approval_note} "
         f"The plan is visible in Mission Control for review. "
         f"The user must approve it before execution can begin."
     )
@@ -119,68 +146,79 @@ async def update_plan_step(
     step_number: int,
     status: str,
 ) -> str:
-    """Update a step's status in a plan."""
+    """Update a step's status in a plan via DB."""
     if status not in ("pending", "in_progress", "done", "skipped", "failed"):
         return f"Invalid step status: {status}"
 
-    _raw, plans = await _read_plans_md(channel_id)
+    from datetime import datetime, timezone
 
-    plan = None
-    for p in plans:
-        if p["meta"].get("id") == plan_id:
-            plan = p
-            break
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep
+    from integrations.mission_control.services import _ensure_plans_migrated, _render_plans_md
 
-    if not plan:
-        return f"Plan '{plan_id}' not found in plans.md"
+    await _ensure_plans_migrated(channel_id)
 
-    if plan["status"] not in ("executing", "approved"):
-        return f"Plan '{plan_id}' is [{plan['status']}] — can only update steps on executing/approved plans"
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
+        if not db_plan:
+            return f"Plan '{plan_id}' not found"
 
-    step = None
-    for s in plan["steps"]:
-        if s["position"] == step_number:
-            step = s
-            break
+        if db_plan.status not in ("executing", "approved"):
+            return f"Plan '{plan_id}' is [{db_plan.status}] — can only update steps on executing/approved plans"
 
-    if not step:
-        return f"Step {step_number} not found in plan '{plan_id}'"
+        await session.refresh(db_plan, ["steps"])
+        step = next((s for s in db_plan.steps if s.position == step_number), None)
+        if not step:
+            return f"Step {step_number} not found in plan '{plan_id}'"
 
-    old_status = step["status"]
-    step["status"] = status
+        old_status = step.status
+        step.status = status
 
-    if plan["status"] == "approved":
-        plan["status"] = "executing"
+        now = datetime.now(timezone.utc)
+        if status == "in_progress":
+            step.started_at = now
+        elif status in ("done", "skipped", "failed"):
+            step.completed_at = now
 
-    all_terminal = all(s["status"] in ("done", "skipped", "failed") for s in plan["steps"])
-    if all_terminal:
-        plan["status"] = "complete"
+        if db_plan.status == "approved":
+            db_plan.status = "executing"
 
-    await _write_plans_md(channel_id, plans)
+        all_terminal = all(s.status in ("done", "skipped", "failed") for s in db_plan.steps)
+        if all_terminal:
+            db_plan.status = "complete"
+
+        plan_title = db_plan.title
+        step_content = step.content
+        await session.commit()
+
+    await _render_plans_md(channel_id)
 
     if status == "done":
         await append_timeline(
             channel_id,
-            f"Plan step {step_number} completed: **{step['content']}** ({plan_id})",
+            f"Plan step {step_number} completed: **{step_content}** ({plan_id})",
         )
     elif status == "in_progress":
         await append_timeline(
             channel_id,
-            f"Plan step {step_number} started: **{step['content']}** ({plan_id})",
+            f"Plan step {step_number} started: **{step_content}** ({plan_id})",
         )
     elif status == "failed":
         await append_timeline(
             channel_id,
-            f"Plan step {step_number} failed: **{step['content']}** ({plan_id})",
+            f"Plan step {step_number} failed: **{step_content}** ({plan_id})",
         )
 
     if all_terminal:
-        await append_timeline(channel_id, f"Plan completed: **{plan['title']}** ({plan_id})")
+        await append_timeline(channel_id, f"Plan completed: **{plan_title}** ({plan_id})")
 
-    result = f"Step {step_number} updated: {old_status} → {status}"
+    result_msg = f"Step {step_number} updated: {old_status} → {status}"
     if all_terminal:
-        result += f" — plan auto-completed (all steps done/skipped)"
-    return result
+        result_msg += " — plan auto-completed (all steps done/skipped)"
+    return result_msg
 
 
 @reg.register({"type": "function", "function": {
@@ -208,38 +246,45 @@ async def update_plan_status(
     plan_id: str,
     status: str,
 ) -> str:
-    """Change a plan's overall status."""
+    """Change a plan's overall status via DB."""
     if status not in ("complete", "abandoned"):
         return f"Invalid status: {status}. Bots can only set complete or abandoned."
 
-    _raw, plans = await _read_plans_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
+    from integrations.mission_control.services import _ensure_plans_migrated, _render_plans_md
 
-    plan = None
-    for p in plans:
-        if p["meta"].get("id") == plan_id:
-            plan = p
-            break
-
-    if not plan:
-        return f"Plan '{plan_id}' not found in plans.md"
+    await _ensure_plans_migrated(channel_id)
 
     allowed = {
         "complete": ("executing",),
         "abandoned": ("draft", "approved", "executing"),
     }
-    if plan["status"] not in allowed.get(status, ()):
-        return (
-            f"Cannot transition plan '{plan_id}' from [{plan['status']}] to [{status}]. "
-            f"Allowed from: {allowed.get(status, ())}"
-        )
 
-    old_status = plan["status"]
-    plan["status"] = status
-    await _write_plans_md(channel_id, plans)
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
+        if not db_plan:
+            return f"Plan '{plan_id}' not found"
+
+        if db_plan.status not in allowed.get(status, ()):
+            return (
+                f"Cannot transition plan '{plan_id}' from [{db_plan.status}] to [{status}]. "
+                f"Allowed from: {allowed.get(status, ())}"
+            )
+
+        old_status = db_plan.status
+        db_plan.status = status
+        plan_title = db_plan.title
+        await session.commit()
+
+    await _render_plans_md(channel_id)
 
     await append_timeline(
         channel_id,
-        f"Plan {status}: **{plan['title']}** ({plan_id}) — was [{old_status}]",
+        f"Plan {status}: **{plan_title}** ({plan_id}) — was [{old_status}]",
     )
 
-    return f"Plan '{plan['title']}' transitioned: {old_status} → {status}"
+    return f"Plan '{plan_title}' transitioned: {old_status} → {status}"

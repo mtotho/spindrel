@@ -1,3 +1,4 @@
-# Mission Control integration — no extra Python deps required.
+# Mission Control integration
 # The dashboard runs in its own Docker container (Node.js).
 # The router uses FastAPI (already in core) for write-back endpoints.
+aiosqlite>=0.20.0

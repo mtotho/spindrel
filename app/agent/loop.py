@@ -22,6 +22,7 @@ from app.agent.elevation import classify_turn, get_elevation_config
 from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -177,6 +178,8 @@ async def run_agent_tool_loop(
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
+    tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
+    _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
 
     try:
         from app.services.secret_registry import redact as _redact_secrets
@@ -674,6 +677,7 @@ async def run_agent_tool_loop(
                     }, compaction)
 
                 tool_calls_made.append(name)
+                tool_call_trace.append(make_signature(name, args))
                 for pre_event in tc_result.pre_events:
                     yield pre_event
                 if tc_result.embedded_client_action is not None:
@@ -710,11 +714,40 @@ async def run_agent_tool_loop(
                 if len(_img_parts) > 1:
                     messages.append({"role": "user", "content": _img_parts})
 
-        _max_iter_msg = (
-            f"Max iterations reached ({effective_max_iterations} tool calls). "
-            "Generating final response without tools."
-        )
-        logger.warning("Agent loop hit max iterations (%d)", effective_max_iterations)
+            # --- Within-run tool loop detection ---
+            if settings.TOOL_LOOP_DETECTION_ENABLED and len(tool_call_trace) >= 3:
+                _cycle_len = detect_cycle(tool_call_trace)
+                if _cycle_len is not None:
+                    _loop_broken_reason = "cycle"
+                    logger.warning(
+                        "Tool loop detected: cycle length %d after %d calls — breaking",
+                        _cycle_len, len(tool_call_trace),
+                    )
+                    break
+
+        # --- Post-loop: forced response (max iterations or cycle break) ---
+        if _loop_broken_reason == "cycle":
+            _break_msg = (
+                f"Tool loop detected (cycle of {_cycle_len} call(s) repeating) "
+                f"after {len(tool_call_trace)} tool calls. Breaking cycle."
+            )
+            _break_code = "tool_loop_detected"
+            _system_prompt = (
+                "You are stuck in a loop — you have been making the same tool calls "
+                "with the same arguments repeatedly. Stop calling tools and respond now."
+            )
+        else:
+            _break_msg = (
+                f"Max iterations reached ({effective_max_iterations} tool calls). "
+                "Generating final response without tools."
+            )
+            _break_code = "max_iterations"
+            _system_prompt = (
+                "You have used too many tool calls. Please respond to the user now "
+                "without using any tools."
+            )
+
+        logger.warning("Agent loop ended: %s", _break_code)
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
@@ -722,18 +755,18 @@ async def run_agent_tool_loop(
                 bot_id=bot.id,
                 client_id=client_id,
                 event_type="warning",
-                event_name="max_iterations",
-                data={"iterations": effective_max_iterations, "message": _max_iter_msg},
+                event_name=_break_code,
+                data={"iterations": iteration + 1, "total_tool_calls": len(tool_call_trace), "message": _break_msg},
             ))
         yield _event_with_compaction_tag({
             "type": "warning",
-            "code": "max_iterations",
-            "message": _max_iter_msg,
+            "code": _break_code,
+            "message": _break_msg,
         }, compaction)
 
         messages.append({
             "role": "system",
-            "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
+            "content": _system_prompt,
         })
         try:
             # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
@@ -747,8 +780,8 @@ async def run_agent_tool_loop(
             )
             msg = response.choices[0].message
         except Exception as exc:
-            logger.error("Max-iterations final LLM call failed: %s", exc)
-            _fallback_text = f"[Error: {_max_iter_msg} Final response generation also failed: {type(exc).__name__}]"
+            logger.error("Post-loop final LLM call failed: %s", exc)
+            _fallback_text = f"[Error: {_break_msg} Final response generation also failed: {type(exc).__name__}]"
             messages.append({"role": "assistant", "content": _fallback_text})
             yield _event_with_compaction_tag({
                 "type": "error",
@@ -771,7 +804,7 @@ async def run_agent_tool_loop(
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
-                "iteration": effective_max_iterations + 1,
+                "iteration": iteration + 2,  # +1 for 0-index, +1 for this forced call
                 "model": model,
                 "provider_id": provider_id,
                 "channel_id": str(channel_id) if channel_id else None,
@@ -822,7 +855,7 @@ async def run_agent_tool_loop(
                 data={"text": text[:500], "full_length": len(text)},
             ))
 
-        # Fire after_response lifecycle hook (max-iterations path)
+        # Fire after_response lifecycle hook (post-loop forced-response path)
         from app.agent.hooks import fire_hook, HookContext
         asyncio.create_task(fire_hook("after_response", HookContext(
             bot_id=bot.id, session_id=session_id, channel_id=channel_id,
@@ -830,7 +863,7 @@ async def run_agent_tool_loop(
             extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
         )))
 
-        # Inject tools_used into the final assistant message (max-iterations path).
+        # Inject tools_used into the final assistant message (post-loop path).
         if tool_calls_made and messages and messages[-1].get("role") == "assistant":
             messages[-1]["_tools_used"] = list(tool_calls_made)
 

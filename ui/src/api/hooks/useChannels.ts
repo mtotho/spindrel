@@ -159,6 +159,15 @@ export function useAdoptIntegration(channelId: string) {
   });
 }
 
+export interface ConfigField {
+  key: string;
+  type: "string" | "boolean" | "number" | "select" | "multiselect";
+  label: string;
+  description?: string;
+  default?: any;
+  options?: { value: string; label: string }[];
+}
+
 export interface AvailableIntegration {
   type: string;
   binding?: {
@@ -166,6 +175,7 @@ export interface AvailableIntegration {
     client_id_placeholder: string;
     client_id_description: string;
     display_name_placeholder: string;
+    config_fields?: ConfigField[];
     event_types?: { value: string; label: string }[];
   } | null;
 }

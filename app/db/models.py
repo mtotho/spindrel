@@ -175,6 +175,7 @@ class ConversationSection(Base):
     period_end: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     transcript_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("50"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

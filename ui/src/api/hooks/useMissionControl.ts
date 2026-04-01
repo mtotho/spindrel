@@ -135,6 +135,9 @@ export interface MCPlanStep {
   position: number;
   status: string;
   content: string;
+  requires_approval: boolean;
+  task_id: string | null;
+  result_summary: string | null;
 }
 
 export interface MCPlan {
@@ -453,6 +456,30 @@ export function useMCPlanResume() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mc-plans"] });
       qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCPlanStepApprove() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+      position,
+    }: {
+      channelId: string;
+      planId: string;
+      position: number;
+    }) =>
+      apiFetch(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/steps/${position}/approve`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+      qc.invalidateQueries({ queryKey: ["mc-overview"] });
     },
   });
 }

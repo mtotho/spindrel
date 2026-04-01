@@ -163,48 +163,32 @@ def has_plans_file(channel: Channel) -> bool:
 # ---------------------------------------------------------------------------
 
 async def read_tasks_for_channel(channel: Channel) -> list[dict]:
-    """Read and parse tasks.md for a channel. Returns columns."""
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.task_board import parse_tasks_md
+    """Read kanban columns for a channel from MC SQLite DB."""
     try:
-        bot = get_bot(channel.bot_id)
-        content = await asyncio.to_thread(read_workspace_file, str(channel.id), bot, "tasks.md")
-        if content:
-            return parse_tasks_md(content)
+        from integrations.mission_control.services import _get_kanban_columns_as_dicts
+        return await _get_kanban_columns_as_dicts(str(channel.id))
     except Exception:
-        logger.debug("Could not read tasks.md for channel %s", channel.id, exc_info=True)
+        logger.debug("Could not read tasks for channel %s", channel.id, exc_info=True)
     return []
 
 
 async def read_plans_for_channel(channel: Channel) -> list[dict]:
-    """Read and parse plans.md for a channel. Returns plan dicts."""
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.plan_board import parse_plans_md
+    """Read plans for a channel from MC SQLite DB."""
     try:
-        bot = get_bot(channel.bot_id)
-        content = await asyncio.to_thread(
-            read_workspace_file, str(channel.id), bot, "plans.md",
-        )
-        if content:
-            return parse_plans_md(content)
+        from integrations.mission_control.services import _get_plans_as_dicts
+        return await _get_plans_as_dicts(str(channel.id))
     except Exception:
-        logger.debug("Could not read plans.md for channel %s", channel.id, exc_info=True)
+        logger.debug("Could not read plans for channel %s", channel.id, exc_info=True)
     return []
 
 
 async def read_timeline_for_channel(channel: Channel) -> list[dict]:
-    """Read and parse timeline.md for a channel. Returns event dicts."""
-    from app.services.channel_workspace import read_workspace_file
-    from integrations.mission_control.services import parse_timeline_md
+    """Read timeline events for a channel from MC SQLite DB."""
     try:
-        bot = get_bot(channel.bot_id)
-        content = await asyncio.to_thread(
-            read_workspace_file, str(channel.id), bot, "timeline.md",
-        )
-        if content:
-            return parse_timeline_md(content)
+        from integrations.mission_control.services import get_timeline_events
+        return await get_timeline_events(str(channel.id))
     except Exception:
-        logger.debug("Could not read timeline.md for channel %s", channel.id, exc_info=True)
+        logger.debug("Could not read timeline for channel %s", channel.id, exc_info=True)
     return []
 
 

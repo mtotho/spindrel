@@ -56,31 +56,40 @@ docker compose up -d
 
 ## Web Search
 
-The `web_search` tool is always available. The backend depends on `WEB_SEARCH_ENABLED`:
+The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable at runtime in **Settings > Web Search**):
 
-| `WEB_SEARCH_ENABLED` | Backend | Containers needed |
-|---|---|---|
-| `true` (default) | SearXNG (self-hosted) | searxng + playwright |
-| `false` | ddgs (DuckDuckGo + other engines) | none |
+| Mode | Backend | Containers | Description |
+|---|---|---|---|
+| `searxng` (default) | SearXNG + Playwright | 2 containers | Self-hosted, private, JS rendering |
+| `ddgs` | DuckDuckGo + public engines | none | Lightweight, no infrastructure needed |
+| `none` | disabled | none | Bring your own search tool in `tools/` |
 
 ### SearXNG mode (default)
 
-Add to your `.env`:
-
 ```bash
-WEB_SEARCH_ENABLED=true
+WEB_SEARCH_MODE=searxng
 COMPOSE_PROFILES=web-search
 ```
 
-Then `docker compose up -d` starts SearXNG and Playwright containers alongside the server. This gives you a private, self-hosted search engine with JS rendering.
+Self-hosted search via SearXNG with Playwright for JS-rendered page fetching. Private — queries never leave your network.
 
-### Lightweight mode (no extra containers)
+### DuckDuckGo mode
 
 ```bash
-WEB_SEARCH_ENABLED=false
+WEB_SEARCH_MODE=ddgs
 ```
 
-The `web_search` tool uses `ddgs` (DuckDuckGo and other public search engines) directly — no containers, no API keys. Good enough for occasional searches. The `fetch_url` tool still works (falls back to httpx without Playwright).
+Uses `ddgs` to search DuckDuckGo, Google, Brave, and other public engines. No containers, no API keys. Good for occasional searches.
+
+### Disabled
+
+```bash
+WEB_SEARCH_MODE=none
+```
+
+The `web_search` tool returns an error directing bots to ask the admin. Add custom search tools in `tools/`.
+
+You can switch modes at any time via the Settings UI — no restart required. The `fetch_url` tool always works regardless of mode (falls back to httpx when Playwright is unavailable).
 
 > **Upgrading?** If you already use web search, add `COMPOSE_PROFILES=web-search` to your `.env` — without it, SearXNG and Playwright containers won't start after this update.
 

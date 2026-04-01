@@ -2,12 +2,14 @@ import { useState } from "react";
 import { ActivityIndicator } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SectionsStats } from "./BackfillSection";
 
 export function SectionsViewer({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
+  const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [migrating, setMigrating] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["channel-sections", channelId],
@@ -18,6 +20,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
       created_at: string | null; view_count: number;
       last_viewed_at: string | null; tags: string[];
       file_exists: boolean | null;
+      has_transcript: boolean;
     }>; total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
 
@@ -28,10 +31,35 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
     </div>
   );
 
+  const missingTranscripts = data.sections.filter((s) => !s.has_transcript && s.transcript_path).length;
+
+  const migrateTranscripts = async () => {
+    setMigrating(true);
+    try {
+      await apiFetch(`/api/v1/admin/channels/${channelId}/backfill-transcripts`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["channel-sections", channelId] });
+    } catch { /* ignore */ }
+    setMigrating(false);
+  };
+
   return (
     <div style={{ marginTop: 4 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>
-        Archived Sections ({data.total})
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
+          Archived Sections ({data.total})
+        </div>
+        {missingTranscripts > 0 && (
+          <button
+            onClick={migrateTranscripts}
+            disabled={migrating}
+            style={{
+              padding: "2px 8px", borderRadius: 4, border: `1px solid ${t.accentSubtle}`,
+              background: "none", color: t.accent, fontSize: 10, cursor: migrating ? "wait" : "pointer",
+            }}
+          >
+            {migrating ? "Migrating..." : `Migrate ${missingTranscripts} to DB`}
+          </button>
+        )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 600, minHeight: 0, overflowY: "auto" }}>
         {[...data.sections].reverse().map((s) => {
@@ -39,8 +67,11 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
           const dateStr = s.period_start
             ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
             : "";
-          // File integrity dot: green = exists, red = missing, gray = no path
-          const dotColor = s.file_exists === true ? t.success : s.file_exists === false ? t.danger : t.textDim;
+          // Transcript indicator: green = DB transcript, blue = file only, red = missing file, gray = nothing
+          const dotColor = s.has_transcript ? t.success
+            : s.file_exists === true ? t.accent
+            : s.file_exists === false ? t.danger
+            : t.textDim;
           return (
             <div key={s.id} style={{
               background: t.inputBg, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6,
@@ -103,39 +134,48 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
                       ))}
                     </div>
                   )}
-                  {s.transcript_path ? (
-                    <div style={{
-                      marginTop: 8, padding: "6px 10px", background: t.codeBg,
-                      border: `1px solid ${s.file_exists === false ? t.dangerBorder : t.codeBorder}`,
-                      borderRadius: 6,
-                      display: "flex", alignItems: "center", gap: 6,
-                    }}>
-                      <span style={{ fontSize: 12 }}>{"\ud83d\udcc4"}</span>
-                      <span style={{ fontSize: 10, color: t.textMuted, fontFamily: "monospace", flex: 1, wordBreak: "break-all" }}>
-                        {s.transcript_path}
+                  {/* Transcript storage status */}
+                  <div style={{
+                    marginTop: 8, padding: "6px 10px", background: t.codeBg,
+                    border: `1px solid ${t.codeBorder}`, borderRadius: 6,
+                    display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                  }}>
+                    {s.has_transcript ? (
+                      <span style={{
+                        fontSize: 9, color: t.success, background: t.successSubtle,
+                        padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                      }}>DB Transcript</span>
+                    ) : (
+                      <span style={{
+                        fontSize: 9, color: t.warningMuted, background: t.warningSubtle,
+                        padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                      }}>No DB Transcript</span>
+                    )}
+                    {s.transcript_path && (
+                      <>
+                        <span style={{ fontSize: 10, color: t.textMuted, fontFamily: "monospace", wordBreak: "break-all" }}>
+                          {s.transcript_path}
+                        </span>
+                        {s.file_exists === true && (
+                          <span style={{
+                            fontSize: 9, color: t.success, background: t.successSubtle,
+                            padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                          }}>File OK</span>
+                        )}
+                        {s.file_exists === false && (
+                          <span style={{
+                            fontSize: 9, color: t.danger, background: t.dangerSubtle,
+                            padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
+                          }}>File Missing</span>
+                        )}
+                      </>
+                    )}
+                    {!s.has_transcript && !s.transcript_path && (
+                      <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
+                        No transcript stored — re-run backfill to populate
                       </span>
-                      {s.file_exists === true && (
-                        <span style={{
-                          fontSize: 9, color: t.success, background: t.successSubtle,
-                          padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                        }}>File OK</span>
-                      )}
-                      {s.file_exists === false && (
-                        <span style={{
-                          fontSize: 9, color: t.danger, background: t.dangerSubtle,
-                          padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                        }}>File Missing</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{
-                      marginTop: 8, padding: "6px 10px", background: t.dangerSubtle,
-                      border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-                      fontSize: 10, color: t.danger, fontStyle: "italic",
-                    }}>
-                      No transcript file — re-run backfill to generate .md files.
-                    </div>
-                  )}
+                    )}
+                  </div>
                   {s.view_count > 0 && s.last_viewed_at && (
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
                       Viewed {s.view_count}x {"\u00b7"} last {new Date(s.last_viewed_at).toLocaleDateString()}

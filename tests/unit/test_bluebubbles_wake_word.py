@@ -321,10 +321,11 @@ def _make_channel(require_mention: bool = True, bot_id: str = "default"):
     return ch
 
 
-def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567"):
+def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567", dispatch_config=None):
     b = MagicMock()
     b.channel_id = channel_id
     b.client_id = client_id
+    b.dispatch_config = dispatch_config
     return b
 
 
@@ -479,7 +480,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
              patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
-             patch("integrations.bluebubbles.router._parse_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
             mock_tracker.is_echo.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
@@ -493,7 +494,7 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_external_with_wake_word_active(self):
-        """External message with wake word → active."""
+        """External message with bot name as wake word → active."""
         from integrations.bluebubbles.router import webhook
 
         ch = _make_channel(require_mention=True)
@@ -507,7 +508,35 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
              patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
-             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_external_with_custom_wake_word_active(self):
+        """External message matching a custom BB_WAKE_WORDS entry → active."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="hey bot help me"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
             mock_tracker.is_echo.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
@@ -535,7 +564,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
              patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
-             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
 
@@ -564,6 +594,135 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+
+# ---------------------------------------------------------------------------
+# Per-binding config (dispatch_config wake words)
+# ---------------------------------------------------------------------------
+
+class TestPerBindingConfig:
+    """Test per-binding config_fields: extra_wake_words and use_bot_wake_word."""
+
+    @pytest.mark.asyncio
+    async def test_binding_extra_wake_words_trigger(self):
+        """Per-binding extra_wake_words in dispatch_config trigger the agent."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id, dispatch_config={
+            "extra_wake_words": "hey jarvis, yo assistant",
+        })
+        session_id = uuid.uuid4()
+
+        # Message contains "hey jarvis" — should match per-binding wake word
+        request = _webhook_request(_bb_webhook_payload(text="hey jarvis what time is it"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_binding_use_bot_wake_word_false(self):
+        """When use_bot_wake_word=False, bot name does NOT trigger wake."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True, bot_id="atlas")
+        binding = _make_binding(ch.id, dispatch_config={
+            "use_bot_wake_word": False,
+        })
+        session_id = uuid.uuid4()
+
+        # Message mentions "atlas" (bot name) but use_bot_wake_word is off
+        request = _webhook_request(_bb_webhook_payload(text="atlas help me"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        # Bot name should NOT trigger since use_bot_wake_word is False
+        assert call_kwargs.kwargs["run_agent"] is False
+
+    @pytest.mark.asyncio
+    async def test_binding_config_defaults_when_missing(self):
+        """Missing dispatch_config uses defaults: use_bot_wake_word=True, no extra words."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True, bot_id="atlas")
+        # No dispatch_config at all
+        binding = _make_binding(ch.id, dispatch_config=None)
+        session_id = uuid.uuid4()
+
+        # Message mentions bot name — should trigger (default use_bot_wake_word=True)
+        request = _webhook_request(_bb_webhook_payload(text="atlas do something"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_echo.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_binding_extra_words_combined_with_global(self):
+        """Per-binding wake words are combined with global BB_WAKE_WORDS."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id, dispatch_config={
+            "extra_wake_words": "jarvis",
+            "use_bot_wake_word": False,
+        })
+        session_id = uuid.uuid4()
+
+        # Message matches global wake word "hey bot" but not per-binding "jarvis"
+        request = _webhook_request(_bb_webhook_payload(text="hey bot help"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
             mock_tracker.is_echo.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
