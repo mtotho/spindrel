@@ -157,6 +157,31 @@ async def load_providers() -> None:
     await _warm_model_info_cache()
 
 
+async def has_encrypted_secrets() -> bool:
+    """Check if any provider rows in the DB contain encrypted values (enc: prefix).
+
+    This queries raw DB values before decryption — used at startup to detect
+    undecryptable secrets when ENCRYPTION_KEY is not set.
+    """
+    from app.services.encryption import ENCRYPTED_PREFIX
+
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(ProviderConfigRow.api_key, ProviderConfigRow.config)
+                .where(ProviderConfigRow.is_enabled == True)  # noqa: E712
+            )
+        ).all()
+    for api_key, config in rows:
+        if api_key and api_key.startswith(ENCRYPTED_PREFIX):
+            return True
+        if isinstance(config, dict):
+            mgmt_key = config.get("management_key", "")
+            if mgmt_key and mgmt_key.startswith(ENCRYPTED_PREFIX):
+                return True
+    return False
+
+
 def requires_system_message_folding(model: str) -> bool:
     """Check whether a model requires system messages to be folded into user messages.
 
