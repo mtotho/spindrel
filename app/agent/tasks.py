@@ -1136,7 +1136,8 @@ async def fetch_due_tasks() -> list[Task]:
 async def recover_stuck_tasks() -> None:
     """Mark running tasks that have exceeded their timeout as failed.
 
-    Called once at task_worker startup to clean up tasks from prior crashes.
+    Called periodically by task_worker to clean up tasks stuck from crashes/timeouts.
+    Fires the task completion hook so workflow runs advance properly.
     """
     now = datetime.now(timezone.utc)
     async with async_session() as db:
@@ -1171,8 +1172,108 @@ async def recover_stuck_tasks() -> None:
                     await db.commit()
                     recovered += 1
                     logger.warning("Recovered stuck task %s (running %ds, timeout %ds)", task.id, int(elapsed), timeout)
+                    # Fire the completion hook so workflow runs can advance
+                    await _fire_task_complete(t, "failed")
     if recovered:
         logger.info("Recovered %d stuck tasks", recovered)
+
+
+async def recover_stalled_workflow_runs() -> None:
+    """Detect and recover workflow runs that are stuck in 'running' state.
+
+    Catches two scenarios:
+    1. Step has a task_id but the Task is terminal (hook never fired)
+    2. Step is "running" with no task_id (crash between state commit and task creation)
+    """
+    from app.db.models import WorkflowRun
+
+    now = datetime.now(timezone.utc)
+    stale_threshold = now - timedelta(minutes=10)
+
+    async with async_session() as db:
+        from sqlalchemy import or_
+        stmt = (
+            select(WorkflowRun)
+            .where(WorkflowRun.status.in_(["running", "awaiting_approval"]))
+            .where(
+                or_(
+                    WorkflowRun.created_at < stale_threshold,
+                    # Also check runs where completed_at is null and created > 10 min ago
+                )
+            )
+        )
+        stalled = list((await db.execute(stmt)).scalars().all())
+
+    if not stalled:
+        return
+
+    recovered = 0
+    for run in stalled:
+        step_states = list(run.step_states or [])
+        # Find the running step
+        running_step_idx = None
+        for i, st in enumerate(step_states):
+            if st.get("status") == "running":
+                running_step_idx = i
+                break
+
+        if running_step_idx is None:
+            continue
+
+        state = step_states[running_step_idx]
+        started_at_str = state.get("started_at")
+        if started_at_str:
+            try:
+                started_at = datetime.fromisoformat(started_at_str)
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                if started_at > stale_threshold:
+                    continue  # Not stale yet
+            except (ValueError, TypeError):
+                pass
+
+        task_id_str = state.get("task_id")
+        if task_id_str:
+            # Scenario 1: step has a task_id — check if the task is terminal
+            try:
+                task_uuid = uuid.UUID(task_id_str)
+            except (ValueError, TypeError):
+                continue
+            async with async_session() as db:
+                task = await db.get(Task, task_uuid)
+            if task and task.status in ("complete", "failed", "cancelled"):
+                # Re-fire the step completion callback
+                logger.warning(
+                    "Recovering stalled workflow run %s step %d — task %s is %s but hook never fired",
+                    run.id, running_step_idx, task.id, task.status,
+                )
+                from app.services.workflow_executor import on_step_task_completed
+                cb = task.callback_config or {}
+                await on_step_task_completed(
+                    str(run.id), running_step_idx, task.status, task,
+                )
+                recovered += 1
+        else:
+            # Scenario 2: step is running but no task was ever created (crash)
+            logger.warning(
+                "Recovering stalled workflow run %s step %d — no task_id, marking failed",
+                run.id, running_step_idx,
+            )
+            async with async_session() as db:
+                fresh_run = await db.get(WorkflowRun, run.id)
+                if fresh_run and fresh_run.status in ("running", "awaiting_approval"):
+                    ss = list(fresh_run.step_states)
+                    ss[running_step_idx]["status"] = "failed"
+                    ss[running_step_idx]["error"] = "Recovered: task was never created (server crash)"
+                    ss[running_step_idx]["completed_at"] = now.isoformat()
+                    fresh_run.step_states = ss
+                    await db.commit()
+            from app.services.workflow_executor import advance_workflow
+            await advance_workflow(run.id)
+            recovered += 1
+
+    if recovered:
+        logger.info("Recovered %d stalled workflow runs", recovered)
 
 
 async def task_worker() -> None:
@@ -1182,6 +1283,10 @@ async def task_worker() -> None:
         await recover_stuck_tasks()
     except Exception:
         logger.exception("recover_stuck_tasks failed at startup")
+
+    last_recovery_at = datetime.now(timezone.utc)
+    last_workflow_sweep_at = datetime.now(timezone.utc)
+
     while True:
         try:
             if settings.SYSTEM_PAUSED:
@@ -1193,6 +1298,25 @@ async def task_worker() -> None:
             due = await fetch_due_tasks()
             for task in due:
                 asyncio.create_task(run_task(task))
+
+            now = datetime.now(timezone.utc)
+
+            # Periodic stuck-task recovery (every 60s)
+            if (now - last_recovery_at).total_seconds() >= 60:
+                last_recovery_at = now
+                try:
+                    await recover_stuck_tasks()
+                except Exception:
+                    logger.exception("periodic recover_stuck_tasks failed")
+
+            # Periodic stalled workflow run sweep (every 5 min)
+            if (now - last_workflow_sweep_at).total_seconds() >= 300:
+                last_workflow_sweep_at = now
+                try:
+                    await recover_stalled_workflow_runs()
+                except Exception:
+                    logger.exception("recover_stalled_workflow_runs failed")
+
         except Exception:
             logger.exception("task_worker poll error")
         await asyncio.sleep(5)

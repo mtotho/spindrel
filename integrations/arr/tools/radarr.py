@@ -63,8 +63,8 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
     "function": {
         "name": "radarr_movies",
         "description": (
-            "List movies in Radarr or search TMDB for new movies to add. "
-            "Without search: returns library movies (optionally filtered). "
+            "List movies in Radarr (newest first) or search TMDB for new movies to add. "
+            "Without search: returns library movies sorted by recently added. "
             "With search: searches TMDB for matching movies. "
             "Filters: 'missing' (monitored, no file), 'wanted' (missing + monitored)."
         ),
@@ -80,11 +80,15 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
                     "enum": ["missing", "wanted"],
                     "description": "Filter library results. Omit for all movies.",
                 },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results for library listing (default 50). Use 0 for all.",
+                },
             },
         },
     },
 })
-async def radarr_movies(search: str | None = None, filter: str | None = None) -> str:
+async def radarr_movies(search: str | None = None, filter: str | None = None, limit: int = 50) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
     try:
@@ -103,6 +107,9 @@ async def radarr_movies(search: str | None = None, filter: str | None = None) ->
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/movie")
+            # Sort by added date, newest first
+            data.sort(key=lambda m: m.get("added", ""), reverse=True)
+            total = len(data)
             movies = []
             for m in data:
                 has_file = m.get("hasFile", False)
@@ -116,11 +123,17 @@ async def radarr_movies(search: str | None = None, filter: str | None = None) ->
                     "title": sanitize(m.get("title", "")),
                     "year": m.get("year"),
                     "status": m.get("status"),
+                    "added": (m.get("added") or "")[:10],
                     "has_file": has_file,
                     "monitored": monitored,
                     "size_mb": round((m.get("sizeOnDisk", 0) or 0) / 1_048_576, 1),
                 })
-            return json.dumps({"count": len(movies), "movies": movies})
+                if limit > 0 and len(movies) >= limit:
+                    break
+            result: dict = {"count": len(movies), "total_in_library": total, "movies": movies}
+            if limit > 0 and len(movies) >= limit:
+                result["page"] = {"limit": limit, "returned": len(movies), "has_more": True}
+            return json.dumps(result)
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:

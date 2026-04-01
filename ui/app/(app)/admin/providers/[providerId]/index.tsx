@@ -171,9 +171,9 @@ export default function ProviderDetailScreen() {
 
   // Capabilities-driven field visibility
   const { data: caps } = useProviderTypeCapabilities(providerType);
-  const showApiKey = caps?.requires_api_key ?? true;
-  const showBaseUrl = caps?.requires_base_url ?? providerType !== "anthropic";
-  const showManagementKey = caps?.management_key ?? false;
+  const showApiKey = caps?.requires_api_key ?? providerType !== "ollama";
+  const showBaseUrl = caps?.requires_base_url ?? !["anthropic", "openai"].includes(providerType);
+  const showManagementKey = caps?.management_key ?? providerType === "litellm";
 
   if (!isNew && isLoading) {
     return (

@@ -4,7 +4,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -193,6 +195,44 @@ async def delete_workflow(
     await db.commit()
     from app.services.workflows import _registry
     _registry.pop(workflow_id, None)
+
+
+@router.post("/workflows/{workflow_id}/export")
+async def export_workflow(
+    workflow_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workflows:read")),
+):
+    """Export a workflow as YAML."""
+    row = await db.get(Workflow, workflow_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    data: dict = {
+        "id": row.id,
+        "name": row.name,
+    }
+    if row.description:
+        data["description"] = row.description
+    if row.params:
+        data["params"] = row.params
+    if row.secrets:
+        data["secrets"] = row.secrets
+    if row.defaults:
+        data["defaults"] = row.defaults
+    if row.steps:
+        data["steps"] = row.steps
+    if row.triggers:
+        data["triggers"] = row.triggers
+    if row.tags:
+        data["tags"] = row.tags
+    if row.session_mode and row.session_mode != "isolated":
+        data["session_mode"] = row.session_mode
+
+    return PlainTextResponse(
+        yaml.dump(data, default_flow_style=False, sort_keys=False),
+        media_type="text/yaml",
+    )
 
 
 # ---------------------------------------------------------------------------
