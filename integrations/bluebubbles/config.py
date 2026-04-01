@@ -41,5 +41,9 @@ class _Settings:
     def BB_WAKE_WORDS(self) -> str:
         return _get("BB_WAKE_WORDS")
 
+    @property
+    def BB_WEBHOOK_TOKEN(self) -> str:
+        return _get("BB_WEBHOOK_TOKEN")
+
 
 settings = _Settings()

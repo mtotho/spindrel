@@ -34,6 +34,7 @@ dependencies = [
     "tree-sitter-rust",
     "websockets",
     "fastembed",
+    "ddgs",
 ]
 
 [project.optional-dependencies]

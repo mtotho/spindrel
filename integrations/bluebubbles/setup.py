@@ -9,11 +9,12 @@ SETUP = {
         {"key": "AGENT_BASE_URL", "required": False, "description": "Agent server URL (default: http://localhost:8000)"},
         {"key": "BB_DEFAULT_BOT", "required": False, "description": "Default bot ID (default: default)"},
         {"key": "BB_WAKE_WORDS", "required": False, "description": "Comma-separated wake words (case-insensitive). Bot responds when any appear in message. Default: bot name."},
+        {"key": "BB_WEBHOOK_TOKEN", "required": False, "description": "Shared secret for webhook auth (?token=). If empty, webhook is unauthenticated.", "secret": True},
     ],
     "api_permissions": "slack_integration",
     "webhook": {
         "path": "/integrations/bluebubbles/webhook",
-        "description": "BlueBubbles new-message webhook receiver (authenticate with ?token=BLUEBUBBLES_PASSWORD)",
+        "description": "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)",
     },
     "instructions_url": None,
     "python_dependencies": [

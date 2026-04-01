@@ -126,6 +126,7 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Database", ["DATABASE_URL"]),
         ("LLM Provider", ["LITELLM_BASE_URL", "LITELLM_API_KEY"]),
         ("Embeddings", ["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"]),
+        ("Web Search", ["WEB_SEARCH_ENABLED", "COMPOSE_PROFILES"]),
     ]
 
     written_keys: set[str] = set()
@@ -252,7 +253,24 @@ def main() -> None:
     # Store the model for the orchestrator bot to pick up via config state
     env_config["DEFAULT_MODEL"] = model
 
-    # ── 4. Auth ────────────────────────────────────────────────────────────
+    # ── 4. Web search ─────────────────────────────────────────────────────
+
+    web_search = questionary.confirm(
+        "Enable built-in web search? (adds SearXNG + Playwright containers)",
+        default=True,
+        style=STYLE,
+    ).ask()
+    if web_search is None:
+        return
+
+    if web_search:
+        env_config["WEB_SEARCH_ENABLED"] = "true"
+        env_config["COMPOSE_PROFILES"] = "web-search"
+    else:
+        env_config["WEB_SEARCH_ENABLED"] = "false"
+        print("  \033[2mYou can add custom search tools in tools/\033[0m")
+
+    # ── 5. Auth ────────────────────────────────────────────────────────────
 
     generated_key = generate_api_key()
     auth_choice = questionary.select(

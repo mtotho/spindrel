@@ -44,6 +44,7 @@ services:
 
   searxng:
     image: searxng/searxng
+    profiles: [web-search]
     ports:
       - "8080:8080"
     volumes:
@@ -54,6 +55,7 @@ services:
 
   playwright:
     image: ghcr.io/browserless/chromium
+    profiles: [web-search]
     ports:
       - "3000:3000"
     environment:

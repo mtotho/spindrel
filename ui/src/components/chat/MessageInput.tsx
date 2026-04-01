@@ -548,7 +548,16 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 isMobile={isMobile}
               />
             ) : (
-              <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  position: "relative",
+                  flex: 1,
+                  minWidth: 0,
+                  background: t.surfaceRaised,
+                  borderRadius: 10,
+                  border: `1px solid ${t.overlayLight}`,
+                }}
+              >
                 {/* Decoration layer — rendered markdown behind the textarea */}
                 <div
                   ref={decorationRef}
@@ -561,8 +570,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     fontSize: 15,
                     lineHeight: "1.5",
                     padding: isMobile ? "8px 12px" : "10px 16px",
-                    borderRadius: 10,
-                    border: "1px solid transparent",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
                     overflow: "hidden",
@@ -570,7 +577,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   }}
                   dangerouslySetInnerHTML={{ __html: text ? decoratedHtml : `<span style="color:${t.textDim}">Type a message...</span>` }}
                 />
-                {/* Textarea — on top, transparent text, visible caret */}
+                {/* Textarea — on top, transparent text+background, visible caret */}
                 <textarea
                   ref={textareaRef}
                   value={text}
@@ -584,15 +591,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   rows={1}
                   style={{
                     position: "relative",
-                    flex: 1,
                     width: "100%",
                     fontFamily: "inherit",
                     fontSize: 15,
                     lineHeight: "1.5",
                     padding: isMobile ? "8px 12px" : "10px 16px",
+                    border: "none",
                     borderRadius: 10,
-                    border: `1px solid ${t.overlayLight}`,
-                    background: t.surfaceRaised,
+                    background: "transparent",
                     color: "transparent",
                     caretColor: t.text,
                     WebkitTextFillColor: "transparent",
@@ -601,12 +607,15 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     minHeight: isMobile ? 36 : 44,
                     maxHeight: 280,
                     overflow: "auto",
+                    scrollbarWidth: "none",
                   }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = t.overlayBorder;
+                  onFocus={() => {
+                    const w = textareaRef.current?.parentElement;
+                    if (w) w.style.borderColor = t.overlayBorder;
                   }}
-                  onBlurCapture={(e) => {
-                    e.target.style.borderColor = t.overlayLight;
+                  onBlurCapture={() => {
+                    const w = textareaRef.current?.parentElement;
+                    if (w) w.style.borderColor = t.overlayLight;
                   }}
                 />
               </div>
