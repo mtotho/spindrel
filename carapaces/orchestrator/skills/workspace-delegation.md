@@ -117,6 +117,27 @@ delegate_to_agent(
 )
 ```
 
+### 5. Workflow-Based Orchestration
+
+For repeatable multi-step processes, use workflows instead of ad-hoc delegation chains. Workflows handle sequencing, conditions, and failure policies deterministically.
+
+```python
+# Trigger an existing workflow
+manage_workflow(
+    action="trigger",
+    id="media-troubleshoot",
+    params='{"title": "The Pitt S02E13"}',
+)
+```
+
+**When to reach for workflows vs delegation:**
+- Delegation: one-off, creative, exploratory work
+- Workflows: repeatable, structured, conditional — same process, different parameters
+- Workflows + heartbeat: "detect then remediate" — heartbeat triggers workflow when conditions are met
+
+For workflow design patterns:
+→ `get_skill('carapaces/orchestrator/workflows')`
+
 ---
 
 ## Common Delegation Mistakes

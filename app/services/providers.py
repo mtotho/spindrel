@@ -28,29 +28,9 @@ _plan_billed_models: set[str] = set()
 
 
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
-    ptype = provider.provider_type
-    if ptype == "litellm":
-        return AsyncOpenAI(
-            base_url=provider.base_url or settings.LITELLM_BASE_URL,
-            api_key=provider.api_key or settings.LITELLM_API_KEY or "dummy",
-            timeout=settings.LLM_TIMEOUT,
-            max_retries=0,
-        )
-    elif ptype in ("openai", "openai-compatible"):
-        kw: dict = {"api_key": provider.api_key, "timeout": settings.LLM_TIMEOUT, "max_retries": 0}
-        if provider.base_url:
-            kw["base_url"] = provider.base_url
-        return AsyncOpenAI(**kw)
-    elif ptype in ("anthropic", "anthropic-compatible"):
-        return AsyncOpenAI(
-            base_url=provider.base_url or "https://api.anthropic.com/v1",
-            api_key=provider.api_key,
-            timeout=settings.LLM_TIMEOUT,
-            max_retries=0,
-            default_headers={"anthropic-version": "2023-06-01"},
-        )
-    else:
-        raise ValueError(f"Unknown provider type: {ptype}")
+    from app.services.provider_drivers import get_driver
+
+    return get_driver(provider.provider_type).make_client(provider)
 
 
 def _fallback_client() -> AsyncOpenAI:
@@ -65,16 +45,15 @@ def _fallback_client() -> AsyncOpenAI:
 
 def _litellm_mgmt_key(provider: ProviderConfigRow | None) -> str:
     """Return the management key for a LiteLLM provider (or .env fallback key)."""
-    if provider is not None:
-        mgmt = (provider.config or {}).get("management_key")
-        if mgmt:
-            return mgmt
-        return provider.api_key or settings.LITELLM_API_KEY or "dummy"
-    return settings.LITELLM_API_KEY or "dummy"
+    from app.services.provider_drivers.litellm_driver import _litellm_mgmt_key as _mgmt_key
+
+    return _mgmt_key(provider)
 
 
 async def _warm_model_info_cache() -> None:
     """Fetch model info from all litellm providers (and .env fallback) into _model_info_cache."""
+    from app.services.provider_drivers.litellm_driver import _fetch_litellm_model_info
+
     targets: list[tuple[str | None, str, str]] = []  # (provider_id, base_url, key)
 
     # .env fallback
@@ -316,16 +295,6 @@ def record_usage(provider_id: str | None, total_tokens: int) -> None:
     _tpm_windows.setdefault(provider_id, deque(maxlen=10000)).append((now, total_tokens))
 
 
-# Hardcoded model lists for providers that don't expose an API models endpoint
-_ANTHROPIC_MODELS = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
-]
-
-
 async def _get_db_models_for_provider(provider_id: str) -> list[dict]:
     """Query provider_models table and return enriched dicts."""
     async with async_session() as db:
@@ -359,24 +328,16 @@ async def _get_db_models_for_provider(provider_id: str) -> list[dict]:
 
 async def list_models_for_provider(provider_id: str) -> list[str]:
     """Fetch available models for a specific provider. Falls back to DB models."""
+    from app.services.provider_drivers import get_driver
+
     provider = _registry.get(provider_id)
     if provider is None:
         return []
 
-    ptype = provider.provider_type
-    # anthropic (direct) returns hardcoded list; anthropic-compatible tries the API first
-    if ptype == "anthropic":
-        return list(_ANTHROPIC_MODELS)
-
-    # litellm / openai / openai-compatible / anthropic-compatible: use the models API
-    try:
-        client = get_llm_client(provider_id)
-        models = await client.models.list()
-        api_models = sorted(m.id for m in models.data)
-        if api_models:
-            return api_models
-    except Exception as exc:
-        logger.warning("Failed to list models for provider %s: %s", provider_id, exc)
+    driver = get_driver(provider.provider_type)
+    api_models = await driver.list_models(provider)
+    if api_models:
+        return api_models
 
     # Fallback: DB-stored models
     db_models = await _get_db_models_for_provider(provider_id)
@@ -384,51 +345,6 @@ async def list_models_for_provider(provider_id: str) -> list[str]:
         logger.info("Using %d DB-stored models for provider %s", len(db_models), provider_id)
         return [m["id"] for m in db_models]
     return []
-
-
-def _fmt_cost(per_token: float | None) -> str | None:
-    """Format per-token cost as a human-readable per-1M string, e.g. '$3.00'."""
-    if per_token is None:
-        return None
-    per_1m = per_token * 1_000_000
-    if per_1m >= 1:
-        return f"${per_1m:.2f}"
-    elif per_1m >= 0.01:
-        return f"${per_1m:.3f}"
-    else:
-        return f"${per_1m:.4f}"
-
-
-async def _fetch_litellm_model_info(base_url: str, api_key: str) -> dict[str, dict]:
-    """Fetch /model/info from a LiteLLM proxy.
-    Returns {model_name: {max_tokens, input_cost_per_1m, output_cost_per_1m, ...}}.
-    """
-    import httpx
-    info_url = base_url.rstrip("/") + "/model/info"
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key and api_key != "dummy" else {}
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            r = await http.get(info_url, headers=headers)
-            r.raise_for_status()
-            data = r.json()
-        result: dict[str, dict] = {}
-        for entry in data.get("data", []):
-            name = entry.get("model_name") or entry.get("id", "")
-            info = entry.get("model_info") or {}
-            if name:
-                ctx = info.get("max_input_tokens") or info.get("max_tokens")
-                inp = _fmt_cost(info.get("input_cost_per_token"))
-                out = _fmt_cost(info.get("output_cost_per_token"))
-                result[name] = {
-                    "max_tokens": ctx,
-                    "input_cost_per_1m": inp,
-                    "output_cost_per_1m": out,
-                }
-        logger.debug("Fetched model info from %s: %d entries", info_url, len(result))
-        return result
-    except Exception as exc:
-        logger.warning("Failed to fetch model info from %s: %s", info_url, exc)
-        return {}
 
 
 def get_cached_model_info(model_id: str, provider_id: str | None = None) -> dict | None:
@@ -449,6 +365,8 @@ async def get_available_models_grouped() -> list[dict]:
     Each entry: {provider_id, provider_name, provider_type, models: [{id, display, max_tokens}]}
     Always includes .env LiteLLM fallback (provider_id=None) so bots can be reset to use it.
     """
+    from app.services.provider_drivers.litellm_driver import _fetch_litellm_model_info
+
     groups = []
 
     def _enrich(mid: str, info: dict) -> dict:

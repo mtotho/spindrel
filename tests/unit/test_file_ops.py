@@ -102,6 +102,27 @@ class TestResolvePath:
         with pytest.raises(ValueError, match="escapes workspace"):
             _resolve_path("escape/secret", str(ws))
 
+    def test_bare_memory_md_resolves_to_root(self, ws):
+        """Bare 'MEMORY.md' resolves to workspace root, NOT memory/ subdir.
+
+        This documents the behavior that caused the memory path bug —
+        the prompt must tell bots to use 'memory/MEMORY.md', not bare 'MEMORY.md'.
+        """
+        result = _resolve_path("MEMORY.md", str(ws))
+        assert result == str(ws / "MEMORY.md")
+        # This is NOT the same as memory/MEMORY.md:
+        assert result != str(ws / "memory" / "MEMORY.md")
+
+    def test_prefixed_memory_md_resolves_to_subdir(self, ws):
+        """'memory/MEMORY.md' correctly resolves to the memory subdirectory."""
+        result = _resolve_path("memory/MEMORY.md", str(ws))
+        assert result == os.path.realpath(str(ws / "memory" / "MEMORY.md"))
+
+    def test_prefixed_memory_log_resolves_to_subdir(self, ws):
+        """'memory/logs/2026-04-01.md' resolves into the logs subdirectory."""
+        result = _resolve_path("memory/logs/2026-04-01.md", str(ws))
+        assert result == os.path.realpath(str(ws / "memory" / "logs" / "2026-04-01.md"))
+
 
 class TestResolvePathSharedWorkspace:
     """Test _resolve_path for shared workspace bots.

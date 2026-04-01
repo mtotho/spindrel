@@ -26,10 +26,15 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Radarr request timed out after {timeout}s: {path}"
+        )
 
 
 async def _post(path: str, payload: dict, timeout: float = 15.0):
@@ -37,10 +42,15 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Radarr request timed out after {timeout}s: {path}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +289,7 @@ async def radarr_releases(
         if movie_id is None:
             return error("movie_id required for search")
 
-        data = await _get("/api/v3/release", params={"movieId": movie_id}, timeout=30.0)
+        data = await _get("/api/v3/release", params={"movieId": movie_id}, timeout=60.0)
 
         # Sort by seeders descending, take top 15
         data.sort(key=lambda r: r.get("seeders", 0) or 0, reverse=True)

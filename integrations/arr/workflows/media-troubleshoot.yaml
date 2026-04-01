@@ -1,0 +1,135 @@
+id: media-troubleshoot
+name: "Media Troubleshoot"
+description: >
+  Diagnose and fix "why isn't [show/movie] on Jellyfin?" — checks availability,
+  download chain (Sonarr/Radarr → qBit → Jellyfin), auto-remediates common issues,
+  and reports back with a friendly summary.
+
+params:
+  title:
+    type: string
+    required: true
+    description: "The show or movie name to troubleshoot"
+  media_type:
+    type: string
+    default: "auto"
+    description: "Type: tv, movie, or auto (detect from title)"
+
+defaults:
+  model: gemini/gemini-2.5-flash
+  carapaces: [arr]
+  timeout: 180
+
+triggers:
+  tool: true
+  api: true
+
+tags: [media, troubleshooting, arr]
+session_mode: shared
+
+steps:
+  - id: check_jellyfin
+    prompt: |
+      Someone is asking why "{{title}}" isn't on Jellyfin. Start by checking if it's actually there.
+
+      **Important — title matching:** The user's title "{{title}}" may not match exactly.
+      Titles differ across platforms — "Paradise" might be "Paradise (2025)" in Sonarr,
+      "Paradise" in Jellyfin, "Paradise 2025" in an indexer. Always:
+      - Search with the shortest unambiguous form first (e.g., just "Paradise")
+      - If multiple results, pick the most likely match based on context
+      - Try without year, then with year if ambiguous
+      - Note the canonical title each platform uses — you'll need it in later steps
+
+      1. Search Jellyfin: `jellyfin_library(action="search", search="{{title}}")`
+      2. If no results, try shorter/simpler variations of the title.
+
+      Report your findings:
+      - If FOUND: reply with "STATUS: AVAILABLE" and details (quality, when added, full title as shown in Jellyfin).
+      - If NOT found: reply with "STATUS: NOT_FOUND" and move on.
+
+  - id: check_download_chain
+    prompt: |
+      "{{title}}" is not in Jellyfin. Investigate the full download chain.
+
+      **Title matching reminder:** Search broadly — the title in Sonarr/Radarr may differ
+      from what the user said. Use partial matches and check results carefully.
+
+      **Step 1 — Is it tracked?**
+      - TV: `sonarr_series(action="list")` and search for "{{title}}" (try partial match)
+      - Movie: `radarr_movies(action="list")` and search for "{{title}}" (try partial match)
+      - If media_type is "auto", check both.
+      - Note the series_id/movie_id and the canonical title for later steps.
+
+      **Step 2 — Download queue** (if tracked)
+      - `sonarr_queue()` / `radarr_queue()` — is it grabbed/downloading?
+      - `qbit_torrents(filter="downloading")` — active download progress?
+      - `qbit_torrents(filter="stalled")` — is anything stuck?
+
+      **Step 3 — Recent imports** (if downloaded)
+      - `jellyfin_library(action="recent", limit=20)` — did it import recently?
+
+      End your analysis with exactly ONE of these markers:
+      - "DIAGNOSIS: NOT_TRACKED" — not in Sonarr/Radarr at all
+      - "DIAGNOSIS: DOWNLOADING" — actively downloading with progress, just needs time
+      - "DIAGNOSIS: STALLED" — torrent is stuck (stalledDL, no peers, ETA infinity)
+      - "DIAGNOSIS: QUEUED" — grabbed but download hasn't started
+      - "DIAGNOSIS: NOT_GRABBED" — tracked but no release grabbed yet
+      - "DIAGNOSIS: IMPORT_ISSUE" — downloaded/completed but not in Jellyfin library
+    when:
+      step: check_jellyfin
+      output_contains: "NOT_FOUND"
+
+  - id: fix
+    prompt: |
+      Based on your diagnosis, take corrective action for "{{title}}".
+      Use the canonical title/IDs you found in previous steps — don't re-search with
+      the user's original text if you already have the correct series_id or movie_id.
+
+      **NOT_TRACKED** — Add it and trigger a search:
+      - TV: `sonarr_series(action="search", query="{{title}}")` to find TVDB ID, then note
+        the series needs to be added (report this — adding requires API not yet in tools).
+        Try: `sonarr_command(action="SeriesSearch")` if it's partially tracked.
+      - Movie: `radarr_movies(action="search", query="{{title}}")` to find TMDB match.
+      - Also check Jellyseerr: `jellyseerr_search(query="{{title}}")` — request it if found.
+      - When searching, try the simplest form of the title first. If ambiguous, add year.
+
+      **STALLED** — Remove the bad torrent and search for alternatives:
+      - `qbit_manage(hashes=[...], action="delete")` — remove stuck torrent
+      - Browse releases: `sonarr_releases(action="search", series_id=X)` or `radarr_releases(action="search", movie_id=X)`
+      - Pick the best release: seeders >10, reasonable size, not rejected
+      - Grab it: `*_releases(action="grab", guid="...", indexer_id=N)`
+
+      **NOT_GRABBED / QUEUED** — Force a search:
+      - TV: `sonarr_command(action="SeriesSearch", series_id=X)` or `sonarr_command(action="EpisodeSearch", episode_ids=[...])`
+      - Movie: `radarr_command(action="MoviesSearch", movie_ids=[X])`
+      - If search returns no results, browse releases manually and grab the best one.
+
+      **IMPORT_ISSUE** — Trigger library refresh:
+      - Try `jellyfin_library(action="scan")` to force a library scan.
+      - Check if the content appears after scan.
+
+      Report what you did: "FIX: [description of action taken]"
+    when:
+      all:
+        - step: check_download_chain
+          status: done
+        - step: check_download_chain
+          output_not_contains: "DIAGNOSIS: DOWNLOADING"
+    on_failure: continue
+
+  - id: report
+    prompt: |
+      Write a final summary of the troubleshooting for "{{title}}".
+
+      Write as if responding to someone who asked "why isn't {{title}} on Jellyfin?" —
+      keep it conversational, concise, and helpful.
+
+      Include:
+      - What you found (available, downloading, was stuck, wasn't tracked, etc.)
+      - What you did about it (re-searched, grabbed new release, requested it, etc.)
+      - Expected timeline ("should be there in a few hours", "downloading now, ~45 min left", etc.)
+      - Any follow-up needed ("if it's still not there tomorrow, we may need to check the indexer")
+
+      Example tone: "Checked it out — The Pitt S02E13 was downloaded but the import to
+      Jellyfin got stuck. Triggered a library scan, should show up within the hour. I'll
+      keep an eye on it."

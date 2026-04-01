@@ -101,6 +101,8 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
         return error(f"Cannot connect to qBittorrent at {settings.QBIT_URL}")
+    except httpx.TimeoutException:
+        return error(f"qBittorrent request timed out")
     except RuntimeError as e:
         return error(str(e))
     except Exception as e:
@@ -173,6 +175,8 @@ async def qbit_manage(hashes: list[str], action: str) -> str:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
         return error(f"Cannot connect to qBittorrent at {settings.QBIT_URL}")
+    except httpx.TimeoutException:
+        return error(f"qBittorrent request timed out")
     except RuntimeError as e:
         return error(str(e))
     except Exception as e:

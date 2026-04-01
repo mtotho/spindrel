@@ -14,6 +14,7 @@ const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   "openai-compatible": { bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
   anthropic: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
   "anthropic-compatible": { bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
+  ollama: { bg: "rgba(139,92,246,0.15)", fg: "#8b5cf6" },
 };
 
 function TypeBadge({ type }: { type: string }) {

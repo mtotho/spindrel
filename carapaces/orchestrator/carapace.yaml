@@ -120,10 +120,11 @@ system_prompt_fragment: |
   3. Configure channel prompts, heartbeats, and workspace schemas
   4. Document the setup in workspace MEMORY.md
 
-  ### Delegation
+  ### Delegation & Workflows
   Prefer delegation over doing everything yourself. Use `delegate_to_agent` for
-  bot work, `delegate_to_harness` for CLI agents (Claude Code, Cursor), and
-  `exec_command` only for orchestrator-level operations (file placement, coordination).
+  one-off bot work, `delegate_to_harness` for CLI agents (Claude Code, Cursor),
+  and `manage_workflow(action="trigger")` for repeatable multi-step processes.
+  Use `exec_command` only for orchestrator-level operations (file placement, coordination).
 
   ### Deep Knowledge Index
 

@@ -215,3 +215,132 @@ export function useDeleteProviderModel(providerId: string | undefined) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Provider Capabilities
+// ---------------------------------------------------------------------------
+
+export interface ProviderCapabilities {
+  list_models: boolean;
+  pull_model: boolean;
+  delete_model: boolean;
+  model_info: boolean;
+  running_models: boolean;
+  pricing: boolean;
+  requires_base_url: boolean;
+  requires_api_key: boolean;
+  management_key: boolean;
+}
+
+export function useProviderTypeCapabilities(providerType: string | undefined) {
+  return useQuery({
+    queryKey: ["provider-type-capabilities", providerType],
+    queryFn: () =>
+      apiFetch<ProviderCapabilities>(
+        `/api/v1/admin/provider-types/${providerType}/capabilities`
+      ),
+    enabled: !!providerType,
+  });
+}
+
+export function useProviderCapabilities(providerId: string | undefined) {
+  return useQuery({
+    queryKey: ["provider-capabilities", providerId],
+    queryFn: () =>
+      apiFetch<ProviderCapabilities>(
+        `/api/v1/admin/providers/${providerId}/capabilities`
+      ),
+    enabled: !!providerId && providerId !== "new",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Model sync, pull, delete, running, info
+// ---------------------------------------------------------------------------
+
+export interface SyncModelsResult {
+  created: number;
+  updated: number;
+  total: number;
+}
+
+export function useSyncProviderModels(providerId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SyncModelsResult>(
+        `/api/v1/admin/providers/${providerId}/sync-models`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function usePullModel(providerId: string | undefined) {
+  return useMutation({
+    mutationFn: (modelName: string) =>
+      apiFetch(
+        `/api/v1/admin/providers/${providerId}/pull-model`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_name: modelName }),
+        }
+      ),
+  });
+}
+
+export function useDeleteRemoteModel(providerId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (modelName: string) =>
+      apiFetch(
+        `/api/v1/admin/providers/${providerId}/remote-models/${encodeURIComponent(modelName)}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["running-models", providerId] });
+    },
+  });
+}
+
+export interface RunningModel {
+  name: string;
+  model: string;
+  size: number;
+  size_vram: number;
+  digest: string;
+  expires_at: string;
+  details: Record<string, any>;
+}
+
+export function useRunningModels(providerId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["running-models", providerId],
+    queryFn: () =>
+      apiFetch<RunningModel[]>(
+        `/api/v1/admin/providers/${providerId}/running-models`
+      ),
+    enabled: !!providerId && providerId !== "new" && enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useRemoteModelInfo(
+  providerId: string | undefined,
+  modelName: string | undefined
+) {
+  return useQuery({
+    queryKey: ["remote-model-info", providerId, modelName],
+    queryFn: () =>
+      apiFetch<Record<string, any>>(
+        `/api/v1/admin/providers/${providerId}/remote-models/${encodeURIComponent(modelName!)}/info`
+      ),
+    enabled: !!providerId && providerId !== "new" && !!modelName,
+  });
+}

@@ -67,11 +67,13 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 | Server API reference, permissions, scopes, `agent` CLI, file/task operations | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
 | Channels, workspace skills, memory patterns, base template, common mistakes | `get_skill('carapaces/orchestrator/workspace-management')` |
 
-## Quick Delegation Reference
+## Quick Dispatch Reference
 
 | Scenario | Tool |
 |---|---|
-| Domain work by a specialized bot | `delegate_to_agent` |
+| One-off domain work by a specialized bot | `delegate_to_agent` |
+| Repeatable multi-step process with conditions | `manage_workflow` (trigger) |
+| Diagnostic chain (check → diagnose → fix → report) | `manage_workflow` (trigger) |
 | Code editing / debugging / refactoring | `delegate_to_harness` (claude-code) |
 | Quick focused code edit | `delegate_to_harness` (cursor) |
 | Coordination / file placement / synthesis | `exec_command` directly |
@@ -80,8 +82,10 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 ## Key Rules
 
 - Prefer delegation over doing everything yourself — use the right bot for each job
+- **Use workflows for repeatable processes** — if you'd delegate the same multi-step sequence more than once, create a workflow instead
 - Always check system status before making structural changes
 - Document decisions in workspace MEMORY.md so future sessions have context
 - Each delegation prompt must be self-contained — child bots don't share your context
 - Use `notify_parent=true` (default) to track delegated task results
 - Use `schedule_task` for deferred or recurring work, not inline blocking calls
+- **Heartbeat + workflow** is the pattern for "detect then remediate" — heartbeats are cheap detection, workflows handle multi-step fixes

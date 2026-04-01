@@ -162,6 +162,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       // HardBreak (which would otherwise exitCode on Shift-Enter in code blocks)
       Extension.create({
         name: "chatInputBehavior",
+        priority: 1000, // Must fire before StarterKit's HardBreak (priority 100)
         addKeyboardShortcuts() {
           return {
             Enter: ({ editor: ed }) => {
