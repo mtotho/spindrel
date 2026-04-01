@@ -21,20 +21,12 @@ export function BotOverridesList({ group }: { group: string }) {
           b.attachment_vision_concurrency != null
       );
     }
-    if (group === "Model Elevation") {
-      return bots.filter(
-        (b) =>
-          b.elevation_enabled != null ||
-          b.elevation_threshold != null ||
-          b.elevated_model
-      );
-    }
     return [];
   }, [bots, group]);
 
   if (!overrides.length) return null;
 
-  const sectionHash = group === "Attachments" ? "attachments" : "elevation";
+  const sectionHash = "attachments";
 
   return (
     <View style={{ marginTop: 20, gap: 8 }}>

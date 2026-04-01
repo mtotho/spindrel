@@ -18,8 +18,6 @@ from app.agent.message_utils import (
     _extract_transcript,
     _merge_tool_schemas,
 )
-from app.agent.elevation import classify_turn, get_elevation_config
-from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
@@ -31,6 +29,11 @@ from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_llm_text(raw: str) -> str:
+    """Apply both sanitization passes to raw LLM text output."""
+    return strip_malformed_tool_calls(strip_think_tags(raw))
 
 
 async def _record_fallback_event(
@@ -352,28 +355,7 @@ async def run_agent_tool_loop(
                 )
                 await asyncio.sleep(_wait)
 
-            # --- Model elevation ---
-            _elev_cfg = await get_elevation_config(bot, channel_id)
-            if _elev_cfg.enabled and not compaction:
-                decision = classify_turn(
-                    messages, model,
-                    _elev_cfg.elevated_model,
-                    _elev_cfg.threshold,
-                    tool_calls_made,
-                )
-                effective_model = decision.model
-                _elev_log_id = await log_elevation(
-                    decision, turn_id=correlation_id,
-                    bot_id=bot.id, channel_id=channel_id,
-                )
-                if decision.was_elevated:
-                    logger.info(
-                        "Elevation: %s → %s (score=%.2f, rules=%s)",
-                        model, effective_model, decision.score, decision.rules_fired,
-                    )
-            else:
-                effective_model = model
-                _elev_log_id = None
+            effective_model = model
 
             messages = _sanitize_messages(messages)
 
@@ -471,13 +453,6 @@ async def run_agent_tool_loop(
                     _fb_info, session_id=session_id, channel_id=channel_id, bot_id=bot.id,
                 ))
 
-            # Backfill elevation log with outcome data
-            if _elev_log_id is not None:
-                _tokens = accumulated_msg.usage.total_tokens if accumulated_msg.usage else None
-                asyncio.create_task(backfill_elevation_log(
-                    _elev_log_id, tokens_used=_tokens, latency_ms=_llm_latency_ms,
-                ))
-
             msg_dict = accumulated_msg.to_msg_dict()
             messages.append(msg_dict)
 
@@ -532,7 +507,7 @@ async def run_agent_tool_loop(
                     messages[-1] = accumulated_msg.to_msg_dict()
 
             if not accumulated_msg.tool_calls:
-                text = strip_malformed_tool_calls(accumulated_msg.content or "")
+                text = _sanitize_llm_text(accumulated_msg.content or "")
                 text = _redact_secrets(text)
 
                 if not text.strip():
@@ -583,7 +558,7 @@ async def run_agent_tool_loop(
                                 provider_id=provider_id,
                                 fallback_models=fallback_models,
                             )
-                            text = strip_malformed_tool_calls(strip_think_tags(retry.choices[0].message.content or ""))
+                            text = _sanitize_llm_text(retry.choices[0].message.content or "")
                             text = _redact_secrets(text)
                             messages.append(retry.choices[0].message.model_dump(exclude_none=True))
                         except Exception as exc:
@@ -634,7 +609,7 @@ async def run_agent_tool_loop(
             # surfaces to streaming consumers (Slack, UI, etc.).
             # Strip malformed tool calls (XML/JSON fragments) that local models
             # sometimes emit as text alongside proper function calls.
-            _intermediate_text = strip_malformed_tool_calls(_acc_content or "")
+            _intermediate_text = _sanitize_llm_text(_acc_content or "")
             _intermediate_text = _redact_secrets(_intermediate_text)
             if _intermediate_text:
                 yield _event_with_compaction_tag(
@@ -890,7 +865,7 @@ async def run_agent_tool_loop(
                 data=_usage_data2,
             ))
 
-        text = strip_think_tags(msg.content or "")
+        text = _sanitize_llm_text(msg.content or "")
         text = _redact_secrets(text)
         _fin_events, transcript_emitted = _finalize_response(
             text,

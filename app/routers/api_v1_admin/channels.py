@@ -348,9 +348,6 @@ class ChannelSettingsOut(BaseModel):
     memory_flush_workspace_id: Optional[uuid.UUID] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     # Tool / skill overrides
@@ -423,9 +420,6 @@ class ChannelSettingsUpdate(BaseModel):
     memory_flush_workspace_id: Optional[uuid.UUID] = None
     section_index_count: Optional[int] = None
     section_index_verbosity: Optional[str] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     # Tool / skill overrides (set to null to clear → revert to inherit)

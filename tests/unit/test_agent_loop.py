@@ -1134,3 +1134,100 @@ class TestToolLoopCycleDetection:
             # detect_cycle finds 3-call cycle with 2 reps → break
             assert len(tool_starts) == 6
             assert not any(w["code"] == "max_iterations" for w in warning_events)
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_llm_text tests
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeLlmText:
+    """Verify _sanitize_llm_text applies both strip passes consistently."""
+
+    def test_strips_think_tags(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("<think>internal reasoning</think>Real text") == "Real text"
+
+    def test_strips_malformed_tool_calls(self):
+        from app.agent.loop import _sanitize_llm_text
+        xml = '<invoke name="foo"><parameter name="x">1</parameter></invoke>'
+        assert _sanitize_llm_text(f"Answer. {xml}") == "Answer."
+
+    def test_strips_both_combined(self):
+        from app.agent.loop import _sanitize_llm_text
+        raw = '<think>planning</think>Here is the answer. <invoke name="get"><parameter name="id">x</parameter></invoke>'
+        assert _sanitize_llm_text(raw) == "Here is the answer."
+
+    def test_passthrough_clean_text(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("Hello world") == "Hello world"
+
+    def test_empty_string(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("") == ""
+
+    @pytest.mark.asyncio
+    async def test_think_tags_stripped_from_normal_response(self):
+        """Normal text response path applies strip_think_tags (was missing before fix)."""
+        from app.agent.loop import run_agent_tool_loop
+
+        acc = _mock_accumulated("<think>reasoning</think>Real response")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "test"}], bot
+            ):
+                events.append(event)
+
+            response_events = [e for e in events if e["type"] == "response"]
+            assert response_events
+            assert "<think>" not in response_events[0]["text"]
+            assert "Real response" in response_events[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_calls_stripped_from_post_loop(self):
+        """Post-loop forced response applies strip_malformed_tool_calls (was missing before fix)."""
+        from app.agent.loop import run_agent_tool_loop
+        from app.agent.tool_dispatch import ToolCallResult
+
+        # Simulate: tool call on every iteration → hits max_iterations → forced response
+        tc = _mock_tool_call("test_tool", '{"x": 1}', "tc_1")
+        acc_with_tc = _mock_accumulated(content=None, tool_calls=[tc])
+
+        bot = _make_bot(local_tools=["test_tool"])
+        # Forced _llm_call at end of loop returns text with XML fragments
+        forced_resp = _mock_response(content='Answer. <invoke name="foo"><parameter name="x">1</parameter></invoke>')
+
+        mock_tc_result = ToolCallResult(
+            result='{"ok": true}', result_for_llm='{"ok": true}',
+            tool_event={"type": "tool_result", "tool": "test_tool", "result": '{"ok": true}'},
+        )
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_with_tc)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=forced_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.dispatch_tool_call", new_callable=AsyncMock, return_value=mock_tc_result), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None):
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "test"}], bot,
+                max_iterations=1,
+            ):
+                events.append(event)
+
+            response_events = [e for e in events if e["type"] == "response"]
+            assert response_events
+            # XML tool call fragments should be stripped
+            assert "<invoke" not in response_events[0]["text"]
+            assert "Answer." in response_events[0]["text"]

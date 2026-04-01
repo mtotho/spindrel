@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import MentionBase from "@tiptap/extension-mention";
 import { Extension, InputRule } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import { Markdown } from "tiptap-markdown";
 import { useCompletions } from "../../api/hooks/useModels";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
@@ -164,13 +165,24 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         addKeyboardShortcuts() {
           return {
             Enter: ({ editor: ed }) => {
-              if (ed.isActive("codeBlock")) return false; // let ProseMirror's newlineInCode handle it
+              if (ed.isActive("codeBlock")) {
+                // Actively insert newline — returning false would let HardBreak exitCode
+                return ed.commands.command(({ tr, dispatch }) => {
+                  if (dispatch) tr.insertText("\n");
+                  return true;
+                });
+              }
               onSubmitRef.current();
               return true;
             },
             "Shift-Enter": ({ editor: ed }) => {
-              // In code block: add newline (don't let HardBreak's exitCode fire)
-              if (ed.isActive("codeBlock")) return false; // fall through to ProseMirror's newlineInCode
+              if (ed.isActive("codeBlock")) {
+                // Actively insert newline — don't let HardBreak's exitCode fire
+                return ed.commands.command(({ tr, dispatch }) => {
+                  if (dispatch) tr.insertText("\n");
+                  return true;
+                });
+              }
               return false; // outside code block: let HardBreak insert a hard break
             },
             Escape: ({ editor: ed }) => {
@@ -183,7 +195,6 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
                   const after = $from.after();
                   const nodeAfter = ed.state.doc.nodeAt(after);
                   if (nodeAfter) {
-                    // Paragraph already exists after code block — just move there
                     ed.commands.setTextSelection(after + 1);
                   } else {
                     ed.chain()
@@ -215,8 +226,16 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           return [
             new InputRule({
               find: /^```$/,
-              handler: ({ range, chain }) => {
-                chain().deleteRange(range).setCodeBlock().run();
+              handler: ({ state, range, commands }) => {
+                // Replace the entire paragraph node with an empty code block
+                commands.command(({ tr }) => {
+                  const $from = state.doc.resolve(range.from);
+                  const blockStart = $from.before();
+                  const blockEnd = $from.after();
+                  tr.replaceWith(blockStart, blockEnd, state.schema.nodes.codeBlock.create());
+                  tr.setSelection(TextSelection.create(tr.doc, blockStart + 1));
+                  return true;
+                });
               },
             }),
           ];

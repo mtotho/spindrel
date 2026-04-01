@@ -867,50 +867,6 @@ def _recurrence_runs_per_day(recurrence: str) -> float:
     return 86400 / interval_secs
 
 
-def _group_costs_by_template(
-    run_parent: dict[str, str],
-    run_costs: dict[str, float],
-) -> dict[str, list[float]]:
-    """Group per-run costs by their parent template task id.
-
-    Args:
-        run_parent: mapping from run key (session_id) → parent_task_id (template)
-        run_costs: mapping from run key → total cost for that run
-
-    Returns:
-        dict mapping template_id → list of per-run costs
-    """
-    from collections import defaultdict
-    result: dict[str, list[float]] = defaultdict(list)
-    for key, run_cost in run_costs.items():
-        parent_id = run_parent.get(key)
-        if parent_id:
-            result[parent_id].append(run_cost)
-    return dict(result)
-
-
-def _compute_recurring_task_daily(
-    tasks: list,
-    template_run_costs: dict[str, list[float]],
-) -> float:
-    """Compute total daily cost from recurring tasks and their per-template costs.
-
-    Args:
-        tasks: list of recurring Task objects (with .id, .recurrence)
-        template_run_costs: mapping from template_id → list of per-run costs
-
-    Returns:
-        total daily cost
-    """
-    total = 0.0
-    for task in tasks:
-        runs_per_day = _recurrence_runs_per_day(task.recurrence or "")
-        costs = template_run_costs.get(str(task.id), [])
-        avg_cost = sum(costs) / len(costs) if costs else 0.0
-        total += runs_per_day * avg_cost
-    return total
-
-
 def _compute_cost_for_events(
     events: list[TraceEvent],
     pricing: dict,
@@ -1025,50 +981,46 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
     )).scalars().all()
 
     if recurring_tasks:
-        # Estimate avg cost per task from recent spawned runs.
-        # Group by parent_task_id (the schedule template) so each task gets
-        # its own cost average rather than sharing a per-bot average.
+        # Estimate cost per recurring task using the average cost per LLM call
+        # for each task's bot model from recent 7-day usage data. This avoids
+        # fragile trace-event-to-run matching (sessions are shared across runs).
+        from app.agent.bots import get_bot_config
         from collections import defaultdict
 
-        template_ids = [t.id for t in recurring_tasks]
-        recent_runs = (await db.execute(
-            select(Task).where(
-                Task.parent_task_id.in_(template_ids),
-                Task.session_id.isnot(None),
-                Task.completed_at >= seven_days_ago,
-            )
-        )).scalars().all()
+        # Build avg cost-per-call by model from recent events
+        recent_events, _ = await _fetch_token_usage_events(db, after=seven_days_ago)
+        model_cost_sum: dict[str, float] = defaultdict(float)
+        model_call_count: dict[str, int] = defaultdict(int)
+        for ev in recent_events:
+            d = ev.data or {}
+            ev_model = d.get("model")
+            if not ev_model:
+                continue
+            cost = _resolve_event_cost(d, pricing, ptype_map)
+            if cost is not None:
+                model_cost_sum[ev_model] += cost
+                model_call_count[ev_model] += 1
 
-        # Map session_id → parent_task_id for cost attribution
-        session_parent: dict[str, str] = {}
-        task_session_ids = []
-        for run in recent_runs:
-            if run.session_id and run.parent_task_id:
-                sid = str(run.session_id)
-                session_parent[sid] = str(run.parent_task_id)
-                task_session_ids.append(run.session_id)
+        model_avg_cost: dict[str, float] = {
+            m: model_cost_sum[m] / model_call_count[m]
+            for m in model_cost_sum if model_call_count[m] > 0
+        }
 
-        # Sum cost per session, then attribute to parent template
-        session_costs: dict[str, float] = defaultdict(float)
-        if task_session_ids:
-            task_events = (await db.execute(
-                select(TraceEvent).where(
-                    TraceEvent.event_type == "token_usage",
-                    TraceEvent.session_id.in_(task_session_ids),
-                )
-            )).scalars().all()
+        task_daily = 0.0
+        for task in recurring_tasks:
+            runs_per_day = _recurrence_runs_per_day(task.recurrence or "")
+            if runs_per_day <= 0:
+                continue
 
-            for ev in task_events:
-                sid = str(ev.session_id) if ev.session_id else None
-                if not sid:
-                    continue
-                d = ev.data or {}
-                cost = _resolve_event_cost(d, pricing, ptype_map)
-                if cost is not None:
-                    session_costs[sid] += cost
+            bot = get_bot_config(task.bot_id)
+            model = bot.model if bot else None
 
-        template_run_costs = _group_costs_by_template(session_parent, session_costs)
-        task_daily = _compute_recurring_task_daily(recurring_tasks, template_run_costs)
+            # Plan-billed models cost $0 per call
+            if model and _is_plan_billed(None, model):
+                continue
+
+            avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
+            task_daily += runs_per_day * avg_cost
 
         components.append(ForecastComponent(
             source="recurring_tasks",

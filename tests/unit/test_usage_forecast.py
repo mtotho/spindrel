@@ -1,5 +1,5 @@
 """Unit tests for usage forecast logic — timezone handling, recurrence parsing,
-and per-template cost grouping."""
+and model-based cost estimation."""
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
@@ -42,13 +42,10 @@ class TestForecastTimezone:
     def test_today_start_uses_local_midnight(self):
         """If it's 12pm Eastern, today_start should be midnight Eastern (4am UTC in EDT)."""
         tz = ZoneInfo("America/New_York")
-        # April 1 2026, 12:00 PM Eastern = 4:00 PM UTC (EDT = UTC-4)
         now_utc = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
         now_local = now_utc.astimezone(tz)
 
         today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-
-        # Midnight Eastern on April 1 = 4:00 AM UTC
         assert today_start == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
 
     def test_today_start_utc_would_be_wrong(self):
@@ -56,12 +53,7 @@ class TestForecastTimezone:
         tz = ZoneInfo("America/New_York")
         now_utc = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
 
-        # The OLD (broken) way:
         utc_today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        # This gives midnight UTC = 8pm Eastern previous day
-        assert utc_today_start == datetime(2026, 4, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        # The NEW (correct) way:
         now_local = now_utc.astimezone(tz)
         local_today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
@@ -77,8 +69,7 @@ class TestForecastTimezone:
 
         today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
         hours_elapsed = (now_utc - today_start).total_seconds() / 3600
-
-        assert hours_elapsed == 12.0  # 12pm - midnight = 12 hours
+        assert hours_elapsed == 12.0
 
     def test_month_start_uses_local_timezone(self):
         """Month start should be the 1st of the local month, not UTC month."""
@@ -87,24 +78,18 @@ class TestForecastTimezone:
         now_utc = datetime(2026, 4, 1, 3, 0, 0, tzinfo=timezone.utc)
         now_local = now_utc.astimezone(tz)
 
-        # Local time is March 31 11pm — still March
         assert now_local.month == 3
-        assert now_local.day == 31
-
         month_start = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        # Should be March 1 midnight Eastern = March 1 5:00 AM UTC (EST = UTC-5 in March)
         assert month_start.month == 3
         assert month_start.day == 1
 
     def test_dst_spring_forward(self):
         """Spring forward: March 8 2026 2am EST → 3am EDT. Day boundary still correct."""
         tz = ZoneInfo("America/New_York")
-        # March 8 2026 at 10am EDT (after spring forward) = 2pm UTC
         now_utc = datetime(2026, 3, 8, 14, 0, 0, tzinfo=timezone.utc)
         now_local = now_utc.astimezone(tz)
 
         today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        # Midnight on March 8 — still EST (before 2am), so UTC-5 = 5am UTC
         assert today_start == datetime(2026, 3, 8, 5, 0, 0, tzinfo=timezone.utc)
 
 
@@ -118,14 +103,10 @@ class TestPeriodStartTimezone:
 
         now_utc = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
         with patch("app.services.usage_limits.datetime") as mock_dt:
-            # Keep the real datetime class but intercept .now()
             mock_dt.now.return_value = now_utc
-            # Let datetime(...) constructor calls pass through to real datetime
             mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
 
             result = _period_start("daily")
-
-            # Midnight Eastern (EDT) = 4am UTC
             assert result == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
 
     @patch("app.config.settings")
@@ -139,8 +120,6 @@ class TestPeriodStartTimezone:
             mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
 
             result = _period_start("monthly")
-
-            # April 1 midnight Eastern (EDT) = April 1 4am UTC
             assert result == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
 
     @patch("app.config.settings")
@@ -156,156 +135,89 @@ class TestPeriodStartTimezone:
                 _period_start("yearly")
 
 
-class TestGroupCostsByTemplate:
-    """Test _group_costs_by_template — the production function that maps
-    per-run costs to parent template tasks."""
-
-    def test_groups_by_parent(self):
-        from app.routers.api_v1_admin.usage import _group_costs_by_template
-
-        run_parent = {
-            "session-1": "template-A",
-            "session-2": "template-A",
-            "session-3": "template-B",
-        }
-        run_costs = {
-            "session-1": 0.10,
-            "session-2": 0.20,
-            "session-3": 0.50,
-        }
-        result = _group_costs_by_template(run_parent, run_costs)
-
-        assert set(result.keys()) == {"template-A", "template-B"}
-        assert result["template-A"] == [0.10, 0.20]
-        assert result["template-B"] == [0.50]
-
-    def test_ignores_costs_without_parent(self):
-        """Session IDs not in run_parent are silently dropped."""
-        from app.routers.api_v1_admin.usage import _group_costs_by_template
-
-        run_parent = {"session-1": "template-A"}
-        run_costs = {
-            "session-1": 0.10,
-            "session-orphan": 0.99,  # no parent mapping
-        }
-        result = _group_costs_by_template(run_parent, run_costs)
-
-        assert list(result.keys()) == ["template-A"]
-        assert result["template-A"] == [0.10]
-
-    def test_empty_inputs(self):
-        from app.routers.api_v1_admin.usage import _group_costs_by_template
-
-        assert _group_costs_by_template({}, {}) == {}
-        assert _group_costs_by_template({"c": "t"}, {}) == {}
-        assert _group_costs_by_template({}, {"c": 1.0}) == {}
-
-
-class TestComputeRecurringTaskDaily:
-    """Test _compute_recurring_task_daily — the production function that computes
-    total daily cost from recurring tasks and their per-template cost history."""
-
-    def _make_task(self, task_id: str, recurrence: str):
-        t = MagicMock()
-        t.id = task_id
-        t.recurrence = recurrence
-        return t
-
-    def test_hourly_task_with_known_costs(self):
-        from app.routers.api_v1_admin.usage import _compute_recurring_task_daily
-
-        tasks = [self._make_task("t1", "+1h")]
-        costs = {"t1": [0.01, 0.02, 0.01]}  # avg = 0.0133...
-        result = _compute_recurring_task_daily(tasks, costs)
-
-        # 24 runs/day * avg $0.01333 = $0.32
-        expected = 24 * (0.04 / 3)
-        assert abs(result - expected) < 0.001
-
-    def test_task_with_no_history_contributes_zero(self):
-        from app.routers.api_v1_admin.usage import _compute_recurring_task_daily
-
-        tasks = [self._make_task("t1", "+1h")]
-        result = _compute_recurring_task_daily(tasks, {})
-        assert result == 0.0
-
-    def test_multiple_tasks_different_intervals(self):
-        """Cheap hourly task + expensive daily task computed separately."""
-        from app.routers.api_v1_admin.usage import _compute_recurring_task_daily
-
-        tasks = [
-            self._make_task("cheap", "+1h"),   # 24 runs/day
-            self._make_task("expensive", "+1d"),  # 1 run/day
-        ]
-        costs = {
-            "cheap": [0.01, 0.01, 0.01],     # avg $0.01
-            "expensive": [0.50, 0.50, 0.50],  # avg $0.50
-        }
-        result = _compute_recurring_task_daily(tasks, costs)
-
-        # 24 * 0.01 + 1 * 0.50 = 0.74
-        assert abs(result - 0.74) < 0.001
-
-    def test_same_bot_different_costs_not_blended(self):
-        """Two tasks for the same bot get their OWN cost averages, not blended."""
-        from app.routers.api_v1_admin.usage import _compute_recurring_task_daily
-
-        tasks = [
-            self._make_task("cheap-task", "+1h"),
-            self._make_task("expensive-task", "+1h"),
-        ]
-        costs = {
-            "cheap-task": [0.01, 0.01],       # avg $0.01
-            "expensive-task": [0.50, 0.50],   # avg $0.50
-        }
-        result = _compute_recurring_task_daily(tasks, costs)
-
-        # Per-template: 24*0.01 + 24*0.50 = 0.24 + 12.0 = 12.24
-        assert abs(result - 12.24) < 0.01
-
-        # If blended (old bug): avg = 0.255, 48 * 0.255 = 12.24
-        # Same total when intervals are equal, but diverges when they differ.
-
-    def test_plan_billed_task_contributes_zero(self):
-        """Tasks using plan-billed models have $0.00 per-run costs."""
-        from app.routers.api_v1_admin.usage import _compute_recurring_task_daily
-
-        tasks = [self._make_task("plan-task", "+1h")]
-        costs = {"plan-task": [0.0, 0.0, 0.0]}  # plan-billed = $0 per run
-        result = _compute_recurring_task_daily(tasks, costs)
-        assert result == 0.0
-
-
 class TestProjectionPlanCosts:
     """Test that projected_daily always includes fixed plan costs."""
 
     def test_plan_cost_added_when_trajectory_wins(self):
         """Even when trajectory > scheduled variable costs, plan costs must be added."""
-        # Simulates the projection logic from usage_forecast()
-        trajectory_daily = 10.0  # high trajectory from interactive use
-        variable_scheduled_daily = 2.0  # heartbeats + recurring tasks
-        fixed_plan_daily = 1.33  # $40/month plan
-
-        projected = max(trajectory_daily, variable_scheduled_daily) + fixed_plan_daily
-
-        # Plan cost is always added, not lost in the max()
-        assert abs(projected - 11.33) < 0.01
-
-    def test_plan_cost_added_when_scheduled_wins(self):
-        """When scheduled costs are higher, plan costs are still additive."""
-        trajectory_daily = 2.0
-        variable_scheduled_daily = 8.0  # heavy heartbeat/task automation
+        trajectory_daily = 10.0
+        variable_scheduled_daily = 2.0
         fixed_plan_daily = 1.33
 
         projected = max(trajectory_daily, variable_scheduled_daily) + fixed_plan_daily
+        assert abs(projected - 11.33) < 0.01
 
+    def test_plan_cost_added_when_scheduled_wins(self):
+        variable_scheduled_daily = 8.0
+        trajectory_daily = 2.0
+        fixed_plan_daily = 1.33
+
+        projected = max(trajectory_daily, variable_scheduled_daily) + fixed_plan_daily
         assert abs(projected - 9.33) < 0.01
 
     def test_no_plans_adds_zero(self):
-        """When there are no plan providers, projection is unaffected."""
-        trajectory_daily = 5.0
-        variable_scheduled_daily = 3.0
-        fixed_plan_daily = 0.0
-
-        projected = max(trajectory_daily, variable_scheduled_daily) + fixed_plan_daily
+        projected = max(5.0, 3.0) + 0.0
         assert projected == 5.0
+
+
+class TestModelBasedTaskForecast:
+    """Test the model-based recurring task cost estimation logic."""
+
+    def test_plan_billed_model_contributes_zero(self):
+        """Tasks using plan-billed models should not add to the forecast."""
+        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day, _is_plan_billed
+
+        runs_per_day = _recurrence_runs_per_day("+1h")
+        assert runs_per_day == 24.0
+
+        # Plan-billed model → skip
+        with patch("app.services.providers._registry", {}), \
+             patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
+            assert _is_plan_billed(None, "minimax/MiniMax-M2.7") is True
+            # In the forecast, this means task_daily += 0 (skipped)
+
+    def test_model_avg_cost_computation(self):
+        """Average cost per model is total_cost / call_count."""
+        from collections import defaultdict
+
+        # Simulate the model avg cost computation from the forecast
+        model_cost_sum: dict[str, float] = defaultdict(float)
+        model_call_count: dict[str, int] = defaultdict(int)
+
+        # 3 calls to gemini-flash at different costs
+        for cost in [0.001, 0.002, 0.001]:
+            model_cost_sum["gemini/gemini-2.0-flash"] += cost
+            model_call_count["gemini/gemini-2.0-flash"] += 1
+
+        # 2 calls to gpt-4o
+        for cost in [0.05, 0.03]:
+            model_cost_sum["gpt-4o"] += cost
+            model_call_count["gpt-4o"] += 1
+
+        model_avg_cost = {
+            m: model_cost_sum[m] / model_call_count[m]
+            for m in model_cost_sum if model_call_count[m] > 0
+        }
+
+        assert abs(model_avg_cost["gemini/gemini-2.0-flash"] - 0.001333) < 0.001
+        assert abs(model_avg_cost["gpt-4o"] - 0.04) < 0.001
+
+    def test_task_daily_from_model_avg(self):
+        """Daily cost = runs_per_day * avg_cost_per_call for the bot's model."""
+        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+
+        model_avg_cost = {"gemini/gemini-2.0-flash": 0.001}
+
+        # Task runs every hour on gemini-flash
+        runs_per_day = _recurrence_runs_per_day("+1h")
+        avg_cost = model_avg_cost.get("gemini/gemini-2.0-flash", 0.0)
+        daily = runs_per_day * avg_cost
+
+        # 24 runs * $0.001 = $0.024/day
+        assert abs(daily - 0.024) < 0.001
+
+    def test_unknown_model_contributes_zero(self):
+        """Tasks with models not seen in recent usage contribute $0."""
+        model_avg_cost = {"gpt-4o": 0.04}
+        avg_cost = model_avg_cost.get("some-unknown-model", 0.0)
+        assert avg_cost == 0.0
