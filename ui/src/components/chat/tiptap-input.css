@@ -1,11 +1,30 @@
 /* Tiptap rich editor styles for chat input */
 
+/* Make wrapper and EditorContent's intermediate div fill the container
+   so the contenteditable covers the full click area */
+.tiptap-chat-input {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  cursor: text;
+}
+
+.tiptap-chat-input > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .tiptap-chat-input .tiptap {
   outline: none;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 15px;
   line-height: 1.5;
   color: var(--tiptap-text);
+  padding: var(--tiptap-padding, 10px 16px);
+  flex: 1;
   min-height: 24px;
   max-height: 260px;
   overflow-y: auto;

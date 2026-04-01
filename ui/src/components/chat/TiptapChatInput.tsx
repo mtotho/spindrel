@@ -3,7 +3,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import MentionBase from "@tiptap/extension-mention";
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Markdown } from "tiptap-markdown";
 import { useCompletions } from "../../api/hooks/useModels";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
@@ -165,13 +165,36 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       }),
       Placeholder.configure({ placeholder: "Type a message..." }),
       Extension.create({
-        name: "chatKeyboardShortcuts",
+        name: "chatInputBehavior",
         addKeyboardShortcuts() {
           return {
             Enter: ({ editor: ed }) => {
               if (ed.isActive("codeBlock")) return false;
               onSubmitRef.current();
               return true;
+            },
+            Escape: ({ editor: ed }) => {
+              // Exit code block: empty → convert to paragraph, non-empty → new paragraph after
+              if (ed.isActive("codeBlock")) {
+                const { $from } = ed.state.selection;
+                if (!$from.parent.textContent) {
+                  ed.commands.toggleCodeBlock();
+                } else {
+                  const after = $from.after();
+                  ed.chain()
+                    .insertContentAt(after, { type: "paragraph" })
+                    .setTextSelection(after + 1)
+                    .run();
+                }
+                return true;
+              }
+              // Clear any active inline formatting (bold, italic, code, etc.)
+              const marks = ed.state.storedMarks || ed.state.selection.$from.marks();
+              if (marks.length > 0) {
+                ed.commands.unsetAllMarks();
+                return true;
+              }
+              return false;
             },
             Tab: ({ editor: ed }) => {
               if (ed.isActive("codeBlock")) {
@@ -180,6 +203,17 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               return false;
             },
           };
+        },
+        // Triple backtick at start of line → immediately create code block (no Enter needed)
+        addInputRules() {
+          return [
+            new InputRule({
+              find: /^```$/,
+              handler: ({ range, chain }) => {
+                chain().deleteRange(range).setCodeBlock().run();
+              },
+            }),
+          ];
         },
       }),
       Mention.configure({
@@ -244,6 +278,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       clear: () => {
         suppressUpdateRef.current = true;
         editor?.commands.clearContent(true);
+        editor?.commands.unsetAllMarks();
         suppressUpdateRef.current = false;
       },
       getMarkdown: () => (editor?.storage as any)?.markdown?.getMarkdown() ?? "",
@@ -254,7 +289,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       "--tiptap-text-dim": t.textDim,
       "--tiptap-code-bg": t.codeBg,
       "--tiptap-code-text": t.codeText,
-    } as React.CSSProperties), [t.text, t.textDim, t.codeBg, t.codeText]);
+      "--tiptap-padding": isMobile ? "8px 12px" : "10px 16px",
+    } as React.CSSProperties), [t.text, t.textDim, t.codeBg, t.codeText, isMobile]);
 
     const selectItem = useCallback((item: CompletionItem) => {
       commandRef.current?.({ id: item.value, label: item.label });
@@ -265,10 +301,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         <div
           ref={containerRef}
           className="tiptap-chat-input"
-          style={{
-            ...cssVars,
-            padding: isMobile ? "8px 12px" : "10px 16px",
-          }}
+          style={cssVars}
         >
           <EditorContent editor={editor} />
         </div>
