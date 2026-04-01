@@ -562,7 +562,26 @@ async def load_bots() -> None:
     _registry.clear()
     async with async_session() as db:
         rows = (await db.execute(select(BotRow))).scalars().all()
-        # Load shared workspace memberships
+
+        # Auto-enroll any new bots into the default workspace.
+        # This ensures bots created at runtime (via admin API) get enrolled
+        # without requiring a full server restart.  Runs before fetching
+        # SharedWorkspaceBot rows so the registry immediately reflects
+        # the new enrollment.
+        try:
+            from app.services.workspace_bootstrap import ensure_all_bots_enrolled
+            from app.db.models import SharedWorkspace
+            ws = (await db.execute(
+                select(SharedWorkspace).order_by(SharedWorkspace.created_at.asc()).limit(1)
+            )).scalar_one_or_none()
+            if ws:
+                added = await ensure_all_bots_enrolled(db, ws.id)
+                if added:
+                    logger.info("Auto-enrolled %d new bot(s) into workspace", added)
+        except Exception:
+            pass  # Workspace may not exist yet during early startup
+
+        # Load shared workspace memberships (includes any just-enrolled bots)
         sw_rows = (await db.execute(select(SharedWorkspaceBot))).scalars().all()
         # Batch-fetch workspace indexing_config for cascade resolution
         ws_ids = {r.workspace_id for r in sw_rows}

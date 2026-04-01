@@ -4,7 +4,7 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { ChevronLeft, ChevronRight, AlertTriangle, X, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertTriangle, X, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
@@ -19,6 +19,7 @@ import {
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LimitsTab } from "./LimitsTab";
+import { useUsageHudStore } from "@/src/stores/usageHud";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -870,6 +871,36 @@ function ChartsTab({ params }: { params: UsageParams }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sidebar HUD toggle
+// ---------------------------------------------------------------------------
+function HudToggle() {
+  const t = useThemeTokens();
+  const enabled = useUsageHudStore((s) => s.enabled);
+  const setEnabled = useUsageHudStore((s) => s.setEnabled);
+  return (
+    <button
+      onClick={() => setEnabled(!enabled)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "4px 10px",
+        fontSize: 11,
+        background: "transparent",
+        color: t.textDim,
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 4,
+        cursor: "pointer",
+      }}
+      title={enabled ? "Hide usage badge in sidebar" : "Show usage badge in sidebar"}
+    >
+      {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+      Sidebar HUD
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 export default function UsageScreen() {
@@ -1018,6 +1049,10 @@ export default function UsageScreen() {
             <X size={12} /> Clear filters
           </button>
         )}
+
+        {/* Spacer + HUD toggle */}
+        <div style={{ flex: 1 }} />
+        <HudToggle />
       </div>
 
       {/* Tab bar */}

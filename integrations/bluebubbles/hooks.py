@@ -44,6 +44,7 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
         return None
 
     return {
+        "type": "bluebubbles",
         "chat_guid": chat_guid,
         "server_url": server_url,
         "password": password,

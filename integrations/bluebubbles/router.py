@@ -1,7 +1,8 @@
-"""BlueBubbles integration router — config endpoint.
+"""BlueBubbles integration router — config + webhook endpoints.
 
 Serves per-chat bot mapping configuration to the bb_client.py process,
-and provides a chat listing endpoint for the admin UI.
+provides a chat listing endpoint for the admin UI, and receives
+new-message webhooks from BlueBubbles Server.
 """
 from __future__ import annotations
 
@@ -9,10 +10,14 @@ import logging
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import verify_admin_auth
+from app.dependencies import get_db, verify_admin_auth
+from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
+from integrations import utils
+from integrations.bluebubbles.echo_tracker import shared_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +239,119 @@ async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
         "ok": len(issues) == 0,
         "issues": issues,
         "checks": checks,
+    }
+
+
+@router.post("/webhook")
+async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    """Receive new-message webhooks from BlueBubbles Server.
+
+    BB POSTs ``{"type": "new-message", "data": {...}}`` for each incoming
+    iMessage.  This replaces Socket.IO for message delivery.
+
+    Authenticated via ``?token=<API_KEY>`` query param (the agent server's
+    API key).  BB webhooks don't support custom headers, so the token goes
+    in the URL.
+    """
+    from app.config import settings as app_settings
+    token = request.query_params.get("token", "")
+    if token != app_settings.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    event_type = payload.get("type")
+    if event_type != "new-message":
+        logger.debug("BB webhook: ignoring event type %s", event_type)
+        return {"status": "ignored", "event": event_type}
+
+    data = payload.get("data") or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return {"status": "ignored", "reason": "empty_text"}
+
+    is_from_me = bool(data.get("isFromMe"))
+    msg_guid = data.get("guid", "")
+
+    # Extract chat GUID (BB puts chats in a list)
+    chats = data.get("chats") or []
+    chat_guid = chats[0]["guid"] if chats else data.get("chatGuid", "")
+    if not chat_guid:
+        logger.warning("BB webhook: new-message without chat GUID, guid=%s", msg_guid)
+        return {"status": "ignored", "reason": "no_chat_guid"}
+
+    # Echo check — is this our own reply bouncing back?
+    if is_from_me and shared_tracker.is_echo(msg_guid, text):
+        logger.debug("BB webhook: echo detected, guid=%s", msg_guid)
+        return {"status": "ignored", "reason": "echo"}
+
+    # Resolve channels bound to this chat
+    client_id = f"bb:{chat_guid}"
+    pairs = await resolve_all_channels_by_client_id(db, client_id)
+    if not pairs:
+        logger.debug("BB webhook: no channels bound to %s", client_id)
+        return {"status": "ignored", "reason": "unbound"}
+
+    # Extract sender info
+    handle = data.get("handle") or {}
+    sender = handle.get("address", "unknown") if not is_from_me else "me"
+
+    # Read BB credentials + wake words
+    from integrations.bluebubbles.config import settings as bb_settings
+    server_url = bb_settings.BLUEBUBBLES_SERVER_URL
+    password = bb_settings.BLUEBUBBLES_PASSWORD
+    default_bot = bb_settings.BB_DEFAULT_BOT
+    wake_words = _parse_wake_words(bb_settings.BB_WAKE_WORDS, default_bot)
+
+    dispatch_config = {
+        "type": "bluebubbles",
+        "chat_guid": chat_guid,
+        "server_url": server_url,
+        "password": password,
+    }
+
+    results = []
+    for channel, binding in pairs:
+        session_id = await ensure_active_session(db, channel)
+
+        if is_from_me:
+            # Human texting from their own phone — always active
+            run_agent = True
+            content = text
+        elif not channel.require_mention:
+            # Channel doesn't require mention — always active
+            run_agent = True
+            content = text
+        else:
+            # Check wake word
+            text_lower = text.lower()
+            mentioned = any(w in text_lower for w in wake_words) if wake_words else False
+            if mentioned:
+                run_agent = True
+                content = text
+            else:
+                # Passive — store with sender prefix, no agent run
+                run_agent = False
+                content = f"[{sender}]: {text}"
+
+        result = await utils.inject_message(
+            session_id, content, source="bluebubbles",
+            run_agent=run_agent, notify=False,
+            dispatch_config=dispatch_config,
+            db=db,
+        )
+        results.append(result)
+
+    logger.info("BB webhook: processed %s from %s → %d channel(s), run_agent=%s",
+                chat_guid, sender, len(results), any(r.get("task_id") for r in results))
+
+    return {
+        "status": "processed",
+        "channels": len(results),
+        "results": results,
     }
 
 

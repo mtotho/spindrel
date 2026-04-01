@@ -408,6 +408,10 @@ def discover_activation_manifests() -> dict[str, dict]:
             setup = getattr(module, "SETUP", {})
             activation = setup.get("activation")
             if activation and isinstance(activation, dict):
+                # Embed version from top-level SETUP into the manifest
+                version = setup.get("version")
+                if version and "version" not in activation:
+                    activation = {**activation, "version": version}
                 results[integration_id] = activation
         except Exception:
             logger.exception("Failed to load activation manifest for integration %r", integration_id)

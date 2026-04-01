@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Info, FileText, Sparkles } from "lucide-react";
+import { ChevronLeft, Trash2, Info, FileText, Sparkles, X } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import {
   usePromptTemplate,
@@ -75,6 +75,44 @@ export default function PromptTemplateDetailScreen() {
 
   const isFileManaged = template?.source_type === "file";
   const isWorkspaceFile = sourceType === "workspace_file";
+
+  // Split tags into integration compatibility tags and regular tags
+  const [newIntegrationId, setNewIntegrationId] = useState("");
+
+  const integrationIds = useMemo(() => {
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    return tagList
+      .filter((t) => t.startsWith("integration:"))
+      .map((t) => t.replace("integration:", ""));
+  }, [tags]);
+
+  const regularTags = useMemo(() => {
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    return tagList.filter((t) => !t.startsWith("integration:")).join(", ");
+  }, [tags]);
+
+  const setRegularTags = useCallback((value: string) => {
+    const regular = value.split(",").map((t) => t.trim()).filter(Boolean);
+    const integrationTags = tags.split(",").map((t) => t.trim()).filter((t) => t.startsWith("integration:"));
+    setTags([...regular, ...integrationTags].join(", "));
+  }, [tags]);
+
+  const addIntegrationCompat = useCallback(() => {
+    const id = newIntegrationId.trim().replace(/\s+/g, "_").toLowerCase();
+    if (!id) return;
+    const tag = `integration:${id}`;
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!tagList.includes(tag)) {
+      setTags([...tagList, tag].join(", "));
+    }
+    setNewIntegrationId("");
+  }, [newIntegrationId, tags]);
+
+  const removeIntegrationCompat = useCallback((id: string) => {
+    const tag = `integration:${id}`;
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    setTags(tagList.filter((t) => t !== tag).join(", "));
+  }, [tags]);
 
   const handleSelectionChange = useCallback(() => {
     const ta = textareaRef.current;
@@ -430,14 +468,106 @@ export default function PromptTemplateDetailScreen() {
                   style={isFileManaged ? { opacity: 0.5, pointerEvents: "none" } : undefined}
                 />
               </FormRow>
-              <FormRow label="Tags" description="Comma-separated tags">
+              <FormRow label="Tags" description="Comma-separated tags (excluding integration compatibility)">
                 <TextInput
-                  value={tags}
-                  onChangeText={isFileManaged ? () => {} : setTags}
+                  value={regularTags}
+                  onChangeText={isFileManaged ? () => {} : setRegularTags}
                   placeholder="e.g. python, api, backend"
                   style={isFileManaged ? { opacity: 0.5, pointerEvents: "none" } : undefined}
                 />
               </FormRow>
+            </Section>
+
+            <Section title="Integration Compatibility">
+              {integrationIds.length > 0 ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {integrationIds.map((id) => (
+                    <span
+                      key={id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: "rgba(34,197,94,0.12)",
+                        color: "#22c55e",
+                      }}
+                    >
+                      {id.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                      {!isFileManaged && (
+                        <button
+                          onClick={() => removeIntegrationCompat(id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            display: "inline-flex",
+                            color: "#22c55e",
+                          }}
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>
+                  No integration compatibility declared
+                </span>
+              )}
+              {isFileManaged && integrationIds.length > 0 && (
+                <span style={{ fontSize: 10, color: t.textDim, marginTop: 4, display: "block" }}>
+                  Compatibility is declared in the source file via <code>compatible_integrations</code> frontmatter.
+                </span>
+              )}
+              {!isFileManaged && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <input
+                    type="text"
+                    value={newIntegrationId}
+                    onChange={(e) => setNewIntegrationId(e.target.value)}
+                    placeholder="e.g. mission_control"
+                    style={{
+                      background: t.inputBg,
+                      border: `1px solid ${t.inputBorder}`,
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      color: t.inputText,
+                      outline: "none",
+                      flex: 1,
+                      maxWidth: 200,
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addIntegrationCompat();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={addIntegrationCompat}
+                    disabled={!newIntegrationId.trim()}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: "none",
+                      borderRadius: 4,
+                      background: newIntegrationId.trim() ? t.accent : t.surfaceBorder,
+                      color: newIntegrationId.trim() ? "#fff" : t.textDim,
+                      cursor: newIntegrationId.trim() ? "pointer" : "default",
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </Section>
 
             {template && (

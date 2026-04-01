@@ -11,7 +11,10 @@ SETUP = {
         {"key": "BB_WAKE_WORDS", "required": False, "description": "Comma-separated wake words (case-insensitive). Bot responds when any appear in message. Default: bot name."},
     ],
     "api_permissions": "slack_integration",
-    "webhook": None,
+    "webhook": {
+        "path": "/integrations/bluebubbles/webhook",
+        "description": "BlueBubbles new-message webhook receiver (authenticate with ?token=BLUEBUBBLES_PASSWORD)",
+    },
     "instructions_url": None,
     "python_dependencies": [
         {"package": "python-socketio", "import_name": "socketio"},

@@ -346,12 +346,14 @@ async def dispatch_tool_call(
     result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
     logger.debug("Tool result [%s]: %s", name, result_preview)
 
-    # Build tool_event
+    # Build tool_event — use redacted result to avoid leaking secrets
+    # in SSE events, log output, or memory previews
+    _redacted_result = result_obj.result
     tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
     if _was_summarized:
         tool_event["summarized"] = True
     try:
-        parsed = json.loads(result)
+        parsed = json.loads(_redacted_result)
         if isinstance(parsed, dict) and "error" in parsed:
             err = parsed["error"]
             logger.warning("Tool %s returned error: %s", name, err)
@@ -362,15 +364,15 @@ async def dispatch_tool_call(
     except (json.JSONDecodeError, TypeError):
         _trace("← %s (%d chars)", name, len(result_for_llm))
     if name == "search_memories":
-        if result == "No relevant memories found." or result == "No search query provided.":
+        if _redacted_result == "No relevant memories found." or _redacted_result == "No search query provided.":
             tool_event["memory_count"] = 0
-        elif result.startswith("Relevant memories:\n\n"):
-            body = result[len("Relevant memories:\n\n"):]
+        elif _redacted_result.startswith("Relevant memories:\n\n"):
+            body = _redacted_result[len("Relevant memories:\n\n"):]
             tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
             if tool_event["memory_count"] > 0:
                 first = body.split("\n\n---\n\n")[0].strip()
                 tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
-    elif name == "save_memory" and result == "Memory saved.":
+    elif name == "save_memory" and _redacted_result == "Memory saved.":
         tool_event["saved"] = True
     result_obj.tool_event = tool_event
 

@@ -9,19 +9,20 @@ import type { SharedWorkspace } from "@/src/types/api";
 // ---------------------------------------------------------------------------
 export interface EditorTabProps {
   workspace: SharedWorkspace;
+  currentStatus: string;
 }
 
 // ---------------------------------------------------------------------------
 // Editor tab: code-server toggle + status + open button
 // ---------------------------------------------------------------------------
-export function EditorTab({ workspace }: EditorTabProps) {
+export function EditorTab({ workspace, currentStatus }: EditorTabProps) {
   const t = useThemeTokens();
   const enableMut = useEnableEditor(workspace.id);
   const disableMut = useDisableEditor(workspace.id);
   const { data: editorStatus } = useEditorStatus(workspace.id);
   const [opening, setOpening] = useState(false);
 
-  const isRunning = workspace.status === "running";
+  const isRunning = currentStatus === "running";
   const editorEnabled = editorStatus?.editor_enabled ?? workspace.editor_enabled;
   const editorRunning = editorStatus?.editor_running ?? false;
   const busy = enableMut.isPending || disableMut.isPending;

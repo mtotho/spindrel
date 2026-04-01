@@ -5,7 +5,7 @@ import {
 } from "@/src/components/shared/FormControls";
 
 // ---------------------------------------------------------------------------
-// Env var editor (shared with index.tsx)
+// Env var editor
 // ---------------------------------------------------------------------------
 export function EnvEditor({ entries, onChange }: {
   entries: { key: string; value: string }[];
@@ -174,6 +174,9 @@ export function DockerTab({
       {/* Environment */}
       <Section title="Environment Variables" description="Injected into the container. AGENT_SERVER_URL and AGENT_SERVER_API_KEY are auto-injected.">
         <EnvEditor entries={env} onChange={setEnv} />
+        <div style={{ fontSize: 11, color: t.textDim, marginTop: 8 }}>
+          For sensitive values (API keys, tokens), use <a href="/admin/secret-values" style={{ color: t.accent }}>Secrets</a> instead — they are encrypted at rest and automatically redacted from tool results and LLM output.
+        </div>
       </Section>
 
       {/* Port Mappings */}

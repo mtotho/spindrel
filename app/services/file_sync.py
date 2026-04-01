@@ -442,6 +442,14 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
+        # Expand compatible_integrations frontmatter into integration:* tags
+        compat = meta.get("compatible_integrations", [])
+        if isinstance(compat, str):
+            compat = [c.strip() for c in compat.split(",") if c.strip()]
+        for ci in compat:
+            tag = f"integration:{ci}"
+            if tag not in tags:
+                tags.append(tag)
 
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
@@ -741,6 +749,14 @@ async def sync_changed_file(path: Path) -> None:
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
+        # Expand compatible_integrations frontmatter into integration:* tags
+        compat = meta.get("compatible_integrations", [])
+        if isinstance(compat, str):
+            compat = [c.strip() for c in compat.split(",") if c.strip()]
+        for ci in compat:
+            tag = f"integration:{ci}"
+            if tag not in tags:
+                tags.append(tag)
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
                 PromptTemplate.source_path == path_str,

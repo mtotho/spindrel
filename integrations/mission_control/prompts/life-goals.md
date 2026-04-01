@@ -2,6 +2,8 @@
 name: "Life Goals / Personal"
 description: "Personal goal tracking with life areas, habits, and reflections — Mission Control compatible."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - personal
   - goals

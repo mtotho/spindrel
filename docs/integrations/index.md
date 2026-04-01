@@ -725,6 +725,13 @@ dashboard (or any integration-owned dashboard).
 Modules are data-driven — integrations serve structured JSON from their router
 endpoints, and the frontend renders it generically.
 
+### `activation` — Integration activation + template compatibility
+
+Integrations can declare an activation manifest that auto-injects carapaces and
+declares template compatibility. See [Activation & Templates](activation-and-templates.md)
+for the full guide on carapace injection, workspace template compatibility, versioning,
+and how to create compatible templates.
+
 ---
 
 ## Dispatch Config

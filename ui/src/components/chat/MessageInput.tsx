@@ -7,10 +7,104 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import { RecordingOverlay } from "./RecordingOverlay";
-import { MarkdownContent } from "./MessageBubble";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import type { CompletionItem } from "../../types/api";
+
+/** Escape HTML special characters */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/**
+ * Decorate raw markdown text into HTML that is character-for-character identical
+ * but with styled spans for code fences, inline code, bold, and italic.
+ */
+function decorateMarkdown(text: string, theme: { textDim: string; codeBg: string }): string {
+  const segments: string[] = [];
+
+  // Process in order: code fences → inline code → bold → italic
+  // IMPORTANT: Decoration must NOT change character widths or the overlay will
+  // drift from the textarea's wrapping. No font-family, font-weight, font-style,
+  // or padding changes — only color, opacity, and background are safe.
+  const patterns = [
+    // Code fences: ```...``` (multiline)
+    {
+      regex: /(```)([\s\S]*?)(```)/g,
+      render: (m: RegExpExecArray) => {
+        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
+        const content = `<span style="background:${theme.codeBg};border-radius:3px">${escapeHtml(m[2])}</span>`;
+        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
+        return marker1 + content + marker2;
+      },
+    },
+    // Inline code: `...` (no nesting, no newlines)
+    {
+      regex: /(`)((?:[^`\n])+?)(`)/g,
+      render: (m: RegExpExecArray) => {
+        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
+        const content = `<span style="background:${theme.codeBg};border-radius:3px">${escapeHtml(m[2])}</span>`;
+        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
+        return marker1 + content + marker2;
+      },
+    },
+    // Bold: **...**
+    {
+      regex: /(\*\*)((?:[^*]|\*(?!\*))+?)(\*\*)/g,
+      render: (m: RegExpExecArray) => {
+        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
+        const content = `<span style="text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px">${escapeHtml(m[2])}</span>`;
+        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
+        return marker1 + content + marker2;
+      },
+    },
+    // Italic: *...* (single asterisk, not preceded/followed by *)
+    {
+      regex: /(?<!\*)(\*)(?!\*)((?:[^*\n])+?)(\*)(?!\*)/g,
+      render: (m: RegExpExecArray) => {
+        const marker1 = `<span style="opacity:0.35">${escapeHtml(m[1])}</span>`;
+        const content = `<span style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px">${escapeHtml(m[2])}</span>`;
+        const marker2 = `<span style="opacity:0.35">${escapeHtml(m[3])}</span>`;
+        return marker1 + content + marker2;
+      },
+    },
+  ];
+
+  // Multi-pass: process each pattern in order, protecting already-matched regions
+  // Use placeholder tokens to avoid re-matching decorated content
+  const tokens: string[] = [];
+  let working = text;
+
+  for (const pat of patterns) {
+    working = working.replace(pat.regex, (...args) => {
+      // args: full match, then capture groups, then offset, then string
+      // For RegExpExecArray compat, build a minimal array
+      const m = [args[0]] as RegExpExecArray;
+      for (let i = 1; i < args.length - 2; i++) m.push(args[i]);
+      const token = `\x00${tokens.length}\x00`;
+      tokens.push(pat.render(m));
+      return token;
+    });
+  }
+
+  // Escape remaining plain text (between tokens)
+  const parts = working.split(/\x00(\d+)\x00/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      // Plain text segment — escape HTML
+      segments.push(escapeHtml(parts[i]));
+    } else {
+      // Token index — insert rendered HTML
+      segments.push(tokens[parseInt(parts[i], 10)]);
+    }
+  }
+
+  let result = segments.join("");
+  // When text ends with a newline, the textarea renders an extra blank line.
+  // The overlay div won't unless we add a trailing character to force it.
+  if (text.endsWith("\n")) result += "\n";
+  return result;
+}
 
 export interface PendingFile {
   file: File;
@@ -43,53 +137,6 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
     const preview = df.type.startsWith("image/") ? `data:${df.type};base64,${df.base64}` : undefined;
     return { file, base64: df.base64, preview };
   });
-}
-
-/** Detect whether text contains markdown that benefits from a rendered preview. */
-function hasMarkdown(text: string): boolean {
-  if (!text || text.length < 3) return false;
-  // Code fences
-  if (/```[\s\S]*?```/.test(text)) return true;
-  // Inline code
-  if (/`[^`]+`/.test(text)) return true;
-  // Bold
-  if (/\*\*[^*]+\*\*/.test(text)) return true;
-  // Italic (standalone * not inside **, content must not start/end with space)
-  if (/(?<!\*)\*(?!\*)\S[^*]*\S\*(?!\*)/.test(text)) return true;
-  // Headers
-  if (/^#{1,6}\s/m.test(text)) return true;
-  // Links/images
-  if (/!?\[[^\]]+\]\([^)]+\)/.test(text)) return true;
-  // Blockquotes
-  if (/^>\s/m.test(text)) return true;
-  return false;
-}
-
-/** Live markdown preview strip shown below the textarea. */
-function MarkdownPreview({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
-  return (
-    <div style={{
-      maxHeight: 200,
-      overflowY: "auto",
-      padding: "8px 16px",
-      background: t.surfaceOverlay,
-      borderTop: `1px solid ${t.overlayLight}`,
-      borderRadius: "0 0 10px 10px",
-      marginTop: -10,
-      marginBottom: 2,
-    }}>
-      <div style={{
-        fontSize: 10, fontWeight: 600, color: t.textDim,
-        textTransform: "uppercase", letterSpacing: "0.05em",
-        marginBottom: 4,
-      }}>
-        Preview
-      </div>
-      <div style={{ fontSize: 14 }}>
-        <MarkdownContent text={text} t={t} />
-      </div>
-    </div>
-  );
 }
 
 export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
@@ -142,6 +189,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   // Autocomplete state (web only)
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const decorationRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
@@ -154,6 +202,19 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 280) + "px";
+  }, []);
+
+  // Decorated HTML for the overlay layer
+  const decoratedHtml = useMemo(
+    () => decorateMarkdown(text, { textDim: t.textDim, codeBg: t.overlayLight }),
+    [text, t.textDim, t.overlayLight],
+  );
+
+  // Sync scroll between textarea and decoration overlay
+  const handleDecorationScroll = useCallback(() => {
+    const ta = textareaRef.current;
+    const dec = decorationRef.current;
+    if (ta && dec) dec.scrollTop = ta.scrollTop;
   }, []);
 
   // Auto-resize textarea when draft text is restored on mount/channel switch
@@ -487,39 +548,68 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 isMobile={isMobile}
               />
             ) : (
-              <textarea
-                ref={textareaRef}
-                value={text}
-                onChange={(e) => handleWebInput(e.target.value)}
-                onKeyDown={handleWebKeyDown}
-                onPaste={handlePaste}
-                onBlur={() => setTimeout(() => setShowMenu(false), 200)}
-                placeholder="Type a message..."
-                autoFocus={!isMobile}
-                rows={1}
-                style={{
-                  flex: 1,
-                  fontFamily: "inherit",
-                  fontSize: 15,
-                  lineHeight: "1.5",
-                  padding: isMobile ? "8px 12px" : "10px 16px",
-                  borderRadius: 10,
-                  border: `1px solid ${t.overlayLight}`,
-                  background: t.surfaceRaised,
-                  color: t.text,
-                  resize: "none",
-                  outline: "none",
-                  minHeight: isMobile ? 36 : 44,
-                  maxHeight: 280,
-                  overflow: "auto",
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = t.overlayBorder;
-                }}
-                onBlurCapture={(e) => {
-                  e.target.style.borderColor = t.overlayLight;
-                }}
-              />
+              <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                {/* Decoration layer — rendered markdown behind the textarea */}
+                <div
+                  ref={decorationRef}
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    pointerEvents: "none",
+                    fontFamily: "inherit",
+                    fontSize: 15,
+                    lineHeight: "1.5",
+                    padding: isMobile ? "8px 12px" : "10px 16px",
+                    borderRadius: 10,
+                    border: "1px solid transparent",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflow: "hidden",
+                    color: t.text,
+                  }}
+                  dangerouslySetInnerHTML={{ __html: text ? decoratedHtml : `<span style="color:${t.textDim}">Type a message...</span>` }}
+                />
+                {/* Textarea — on top, transparent text, visible caret */}
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={(e) => handleWebInput(e.target.value)}
+                  onKeyDown={handleWebKeyDown}
+                  onPaste={handlePaste}
+                  onScroll={handleDecorationScroll}
+                  onBlur={() => setTimeout(() => setShowMenu(false), 200)}
+                  placeholder="Type a message..."
+                  autoFocus={!isMobile}
+                  rows={1}
+                  style={{
+                    position: "relative",
+                    flex: 1,
+                    width: "100%",
+                    fontFamily: "inherit",
+                    fontSize: 15,
+                    lineHeight: "1.5",
+                    padding: isMobile ? "8px 12px" : "10px 16px",
+                    borderRadius: 10,
+                    border: `1px solid ${t.overlayLight}`,
+                    background: t.surfaceRaised,
+                    color: "transparent",
+                    caretColor: t.text,
+                    WebkitTextFillColor: "transparent",
+                    resize: "none",
+                    outline: "none",
+                    minHeight: isMobile ? 36 : 44,
+                    maxHeight: 280,
+                    overflow: "auto",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = t.overlayBorder;
+                  }}
+                  onBlurCapture={(e) => {
+                    e.target.style.borderColor = t.overlayLight;
+                  }}
+                />
+              </div>
             )}
           </div>
           {/* Per-turn model picker — hidden on mobile to save space */}
@@ -640,12 +730,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             anchor="bottom"
           />
         </View>
-        {/* Live markdown preview — shown when input contains markdown */}
-        {hasMarkdown(text) && (
-          <div style={{ paddingLeft: isMobile ? 8 : 20, paddingRight: isMobile ? 8 : 20 }}>
-            <MarkdownPreview text={text} t={t} />
-          </div>
-        )}
       </View>
     );
   }

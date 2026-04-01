@@ -2,6 +2,8 @@
 name: "Software Testing / QA"
 description: "Workspace schema for test planning, case tracking, bug reports, and coverage analysis."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - testing
   - qa

@@ -123,7 +123,7 @@ export function SelectInput({ value, onChange, options, style }: {
 export function Toggle({ value, onChange, label, description }: {
   value: boolean;
   onChange: (v: boolean) => void;
-  label: string;
+  label?: string;
   description?: string;
 }) {
   const t = useThemeTokens();
@@ -161,12 +161,14 @@ export function Toggle({ value, onChange, label, description }: {
           transition: "left 0.15s",
         }} />
       </div>
-      <div>
-        <div style={{ fontSize: 13, color: t.text }}>{label}</div>
-        {description && (
-          <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{description}</div>
-        )}
-      </div>
+      {(label || description) && (
+        <div>
+          {label && <div style={{ fontSize: 13, color: t.text }}>{label}</div>}
+          {description && (
+            <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{description}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

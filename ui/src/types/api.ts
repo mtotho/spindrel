@@ -183,6 +183,8 @@ export interface ActivatableIntegration {
   tools: string[];
   skill_count: number;
   has_system_prompt: boolean;
+  version?: string | null;
+  compatible_template_tag?: string | null;
 }
 
 export interface ActivationResult {

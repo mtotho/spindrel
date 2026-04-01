@@ -2,6 +2,8 @@
 name: "Project Management Hub"
 description: "Workspace schema for managing multiple projects across channels — status dashboards, cross-project tracking, and portfolio reporting."
 category: workspace_schema
+compatible_integrations:
+  - mission_control
 tags:
   - project-management
   - portfolio

@@ -72,3 +72,8 @@ class EchoTracker:
         expired_hashes = [k for k, e in self._by_hash.items() if e.timestamp < cutoff]
         for k in expired_hashes:
             self._by_hash.pop(k)
+
+
+# Shared singleton — used by both webhook handler and dispatcher
+# (both run in the same FastAPI process).
+shared_tracker = EchoTracker()

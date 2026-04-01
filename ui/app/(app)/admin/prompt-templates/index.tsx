@@ -95,6 +95,39 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   );
 }
 
+function TagPills({ tags }: { tags: string[] }) {
+  const tk = useThemeTokens();
+  if (!tags || tags.length === 0) return null;
+  const display = tags.slice(0, 5);
+  const overflow = tags.length - display.length;
+  return (
+    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", alignItems: "center" }}>
+      {display.map((tag) => {
+        const isIntegration = tag.startsWith("integration:");
+        return (
+          <span
+            key={tag}
+            style={{
+              padding: "1px 6px",
+              borderRadius: 3,
+              fontSize: 10,
+              fontWeight: 600,
+              background: isIntegration ? "rgba(34,197,94,0.12)" : tk.surfaceOverlay,
+              color: isIntegration ? "#22c55e" : tk.textDim,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {tag}
+          </span>
+        );
+      })}
+      {overflow > 0 && (
+        <span style={{ fontSize: 10, color: tk.textDim }}>+{overflow} more</span>
+      )}
+    </div>
+  );
+}
+
 function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; onPress: () => void; isWide: boolean }) {
   const tk = useThemeTokens();
   const preview = template.content.split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim() || "";
@@ -120,6 +153,7 @@ function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; 
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: tk.textDim }}>
           {template.category && <span>{template.category}</span>}
         </div>
+        {(template.tags || []).length > 0 && <TagPills tags={template.tags || []} />}
         {preview && (
           <div style={{ fontSize: 11, color: tk.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {preview.slice(0, 120)}
@@ -153,6 +187,11 @@ function TemplateRow({ template, onPress, isWide }: { template: PromptTemplate; 
             {template.description}
           </div>
         )}
+        {(template.tags || []).length > 0 && (
+          <div style={{ marginTop: 3 }}>
+            <TagPills tags={template.tags || []} />
+          </div>
+        )}
       </div>
       <span style={{ fontSize: 11, color: tk.textMuted }}>{template.category || "\u2014"}</span>
       <ScopeBadge workspaceId={template.workspace_id} />
@@ -171,11 +210,28 @@ export default function PromptTemplatesScreen() {
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   const categories = useMemo(() => {
     if (!templates) return [];
     const cats = new Set(templates.map((t) => t.category).filter(Boolean) as string[]);
     return Array.from(cats).sort();
+  }, [templates]);
+
+  const allTags = useMemo(() => {
+    if (!templates) return [];
+    const tagSet = new Set<string>();
+    for (const t of templates) {
+      for (const tag of t.tags || []) tagSet.add(tag);
+    }
+    // Sort: integration:* tags first, then the rest alphabetically
+    return Array.from(tagSet).sort((a, b) => {
+      const aInt = a.startsWith("integration:");
+      const bInt = b.startsWith("integration:");
+      if (aInt && !bInt) return -1;
+      if (!aInt && bInt) return 1;
+      return a.localeCompare(b);
+    });
   }, [templates]);
 
   const filteredTemplates = useMemo(() => {
@@ -184,17 +240,21 @@ export default function PromptTemplatesScreen() {
     if (categoryFilter) {
       result = result.filter((t) => t.category === categoryFilter);
     }
+    if (tagFilter) {
+      result = result.filter((t) => (t.tags || []).includes(tagFilter));
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(
         (t) =>
           t.name.toLowerCase().includes(q) ||
           (t.category || "").toLowerCase().includes(q) ||
-          (t.description || "").toLowerCase().includes(q),
+          (t.description || "").toLowerCase().includes(q) ||
+          (t.tags || []).some((tag: string) => tag.toLowerCase().includes(q)),
       );
     }
     return result;
-  }, [templates, search, categoryFilter]);
+  }, [templates, search, categoryFilter, tagFilter]);
 
   const renderItems = useMemo((): RenderItem[] => {
     if (!filteredTemplates.length) return [];
@@ -297,7 +357,7 @@ export default function PromptTemplatesScreen() {
           </div>
           {templates && templates.length > 0 && (
             <span style={{ fontSize: 11, color: tk.textDim, whiteSpace: "nowrap" }}>
-              {(search || categoryFilter) && filteredTemplates.length !== templates.length
+              {(search || categoryFilter || tagFilter) && filteredTemplates.length !== templates.length
                 ? `${filteredTemplates.length} / ${templates.length}`
                 : templates.length}{" "}
               templates
@@ -333,6 +393,30 @@ export default function PromptTemplatesScreen() {
                 {cat}
               </button>
             ))}
+          </div>
+        )}
+        {allTags.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: tk.textDim, fontWeight: 600, marginRight: 2 }}>Tags:</span>
+            {allTags.map((tag) => {
+              const isIntegration = tag.startsWith("integration:");
+              const active = tagFilter === tag;
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setTagFilter(active ? null : tag)}
+                  style={{
+                    padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600,
+                    border: `1px solid ${active ? (isIntegration ? "#22c55e" : tk.accent) : tk.surfaceBorder}`,
+                    background: active ? (isIntegration ? "rgba(34,197,94,0.12)" : tk.accentSubtle) : "transparent",
+                    color: active ? (isIntegration ? "#22c55e" : tk.accent) : (isIntegration ? "#22c55e" : tk.textDim),
+                    cursor: "pointer",
+                  }}
+                >
+                  {tag}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

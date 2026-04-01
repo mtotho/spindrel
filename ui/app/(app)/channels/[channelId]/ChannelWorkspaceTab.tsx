@@ -494,11 +494,15 @@ export function ChannelWorkspaceTab({
   const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  // Detect if Mission Control (or any integration with carapaces) is activated
+  // Detect any active integration that declares template compatibility
   const { data: activatable } = useActivatableIntegrations(channelId);
-  const mcActive = activatable?.some(
-    (ig) => ig.integration_type === "mission_control" && ig.activated,
+  const activeWithTemplates = (activatable ?? []).filter(
+    (ig) => ig.activated && ig.compatible_template_tag,
   );
+  const highlightTag = activeWithTemplates[0]?.compatible_template_tag ?? undefined;
+  const activeIntName = activeWithTemplates[0]
+    ? activeWithTemplates[0].integration_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : "";
   const hasNoSchema = !form.workspace_schema_template_id && !form.workspace_schema_content;
 
   const { data: filesData, isLoading } = useChannelWorkspaceFiles(
@@ -527,10 +531,9 @@ export function ChannelWorkspaceTab({
             title="Workspace Schema"
             description="Choose an organization template that defines how workspace files should be structured for this type of project."
           >
-            {mcActive && hasNoSchema && (
+            {activeWithTemplates.length > 0 && hasNoSchema && (
               <InfoBanner variant="info">
-                Mission Control is active on this channel. Pick a compatible workspace schema
-                (e.g. Structured Task Hub) for best results.
+                {activeIntName} is active on this channel. Pick a compatible workspace schema for best results.
               </InfoBanner>
             )}
             <WorkspaceSchemaEditor
@@ -542,7 +545,8 @@ export function ChannelWorkspaceTab({
               onContentChange={(content) => {
                 patch("workspace_schema_content", content);
               }}
-              highlightTag={mcActive ? "mission-control" : undefined}
+              highlightTag={highlightTag}
+              activeIntegrationName={activeIntName || undefined}
             />
           </Section>
 
