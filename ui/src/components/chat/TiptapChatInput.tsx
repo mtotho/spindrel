@@ -157,34 +157,40 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     }), [updateMenuPos]);
 
     const extensions = useMemo(() => [
-      StarterKit.configure({ hardBreak: { keepMarks: true } }),
-      Markdown.configure({
-        html: false,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-      Placeholder.configure({ placeholder: "Type a message..." }),
+      // MUST be first — our keymap handlers need to fire before StarterKit's
+      // HardBreak (which would otherwise exitCode on Shift-Enter in code blocks)
       Extension.create({
         name: "chatInputBehavior",
         addKeyboardShortcuts() {
           return {
             Enter: ({ editor: ed }) => {
-              if (ed.isActive("codeBlock")) return false;
+              if (ed.isActive("codeBlock")) return false; // let ProseMirror's newlineInCode handle it
               onSubmitRef.current();
               return true;
             },
+            "Shift-Enter": ({ editor: ed }) => {
+              // In code block: add newline (don't let HardBreak's exitCode fire)
+              if (ed.isActive("codeBlock")) return false; // fall through to ProseMirror's newlineInCode
+              return false; // outside code block: let HardBreak insert a hard break
+            },
             Escape: ({ editor: ed }) => {
-              // Exit code block: empty → convert to paragraph, non-empty → new paragraph after
+              // Exit code block: empty → convert to paragraph, non-empty → move to paragraph after
               if (ed.isActive("codeBlock")) {
                 const { $from } = ed.state.selection;
                 if (!$from.parent.textContent) {
                   ed.commands.toggleCodeBlock();
                 } else {
                   const after = $from.after();
-                  ed.chain()
-                    .insertContentAt(after, { type: "paragraph" })
-                    .setTextSelection(after + 1)
-                    .run();
+                  const nodeAfter = ed.state.doc.nodeAt(after);
+                  if (nodeAfter) {
+                    // Paragraph already exists after code block — just move there
+                    ed.commands.setTextSelection(after + 1);
+                  } else {
+                    ed.chain()
+                      .insertContentAt(after, { type: "paragraph" })
+                      .setTextSelection(after + 1)
+                      .run();
+                  }
                 }
                 return true;
               }
@@ -216,6 +222,13 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           ];
         },
       }),
+      StarterKit.configure({ hardBreak: { keepMarks: true } }),
+      Markdown.configure({
+        html: false,
+        transformPastedText: true,
+        transformCopiedText: true,
+      }),
+      Placeholder.configure({ placeholder: "Type a message..." }),
       Mention.configure({
         HTMLAttributes: { class: "mention" },
         renderText({ node }) {
