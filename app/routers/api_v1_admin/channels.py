@@ -710,22 +710,21 @@ async def admin_channel_effective_tools(
     bot = get_bot(channel.bot_id)
 
     # Merge workspace DB skills into bot.skills (mirrors context_assembly.py)
-    if bot.shared_workspace_id:
-        try:
-            from app.agent.bots import _parse_skill_entry
-            from app.db.models import SharedWorkspace as _SW
-            import dataclasses
-            _ws_row = await db.get(_SW, uuid.UUID(bot.shared_workspace_id))
-            if _ws_row and _ws_row.skills:
-                _bot_skill_ids = {s.id for s in bot.skills}
-                _ws_skills = [
-                    _parse_skill_entry(e) for e in _ws_row.skills
-                    if (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids
-                ]
-                if _ws_skills:
-                    bot = dataclasses.replace(bot, skills=list(bot.skills) + _ws_skills)
-        except Exception:
-            pass  # non-fatal — fall back to bot YAML skills only
+    try:
+        from app.agent.bots import _parse_skill_entry
+        from app.db.models import SharedWorkspace as _SW
+        import dataclasses
+        _ws_row = await db.get(_SW, uuid.UUID(bot.shared_workspace_id))
+        if _ws_row and _ws_row.skills:
+            _bot_skill_ids = {s.id for s in bot.skills}
+            _ws_skills = [
+                _parse_skill_entry(e) for e in _ws_row.skills
+                if (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids
+            ]
+            if _ws_skills:
+                bot = dataclasses.replace(bot, skills=list(bot.skills) + _ws_skills)
+    except Exception:
+        pass  # non-fatal — fall back to bot YAML skills only
 
     # Build carapace provenance before resolving (tracks where each came from)
     _carapace_sources: dict[str, str] = {}
@@ -1730,17 +1729,16 @@ async def admin_channel_context_preview(
 
     ws_base = None
     ws_base_enabled = False
-    if bot.shared_workspace_id:
-        from app.db.models import SharedWorkspaceBot as _SWBot, SharedWorkspace as _SW
-        _swb = (await db.execute(
-            select(_SWBot).where(_SWBot.bot_id == bot.id)
-        )).scalar_one_or_none()
-        if _swb:
-            _sw = await db.get(_SW, _swb.workspace_id)
-            if _sw:
-                ws_base_enabled = _sw.workspace_base_prompt_enabled
-        if channel.workspace_base_prompt_enabled is not None:
-            ws_base_enabled = channel.workspace_base_prompt_enabled
+    from app.db.models import SharedWorkspaceBot as _SWBot, SharedWorkspace as _SW
+    _swb = (await db.execute(
+        select(_SWBot).where(_SWBot.bot_id == bot.id)
+    )).scalar_one_or_none()
+    if _swb:
+        _sw = await db.get(_SW, _swb.workspace_id)
+        if _sw:
+            ws_base_enabled = _sw.workspace_base_prompt_enabled
+    if channel.workspace_base_prompt_enabled is not None:
+        ws_base_enabled = channel.workspace_base_prompt_enabled
         if ws_base_enabled:
             ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 

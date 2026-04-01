@@ -46,9 +46,7 @@ async def admin_bots_list(
     bots = list_bots()
     out = []
     for b in bots:
-        ws_persona = None
-        if b.shared_workspace_id:
-            ws_persona = resolve_workspace_persona(b.shared_workspace_id, b.id)
+        ws_persona = resolve_workspace_persona(b.shared_workspace_id, b.id)
         out.append(_bot_to_out(
             b,
             persona_from_workspace=ws_persona is not None,
@@ -70,9 +68,7 @@ async def admin_bot_detail(
     except HTTPException:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
     persona_content = await get_persona(bot_id)
-    ws_persona = None
-    if bot.shared_workspace_id:
-        ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+    ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
 
     # Get api_permissions from linked key
     bot_row = await db.get(BotRow, bot_id)
@@ -173,9 +169,7 @@ async def admin_bot_editor_data(
             _fetch_tool_rows(db),
             _fetch_sandbox_profiles(db),
         )
-        ws_persona = None
-        if bot.shared_workspace_id:
-            ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+        ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
         bot_row = await db.get(BotRow, bot_id)
         api_perms = await _get_bot_api_permissions(db, bot_row) if bot_row else None
         bot_out = _bot_to_out(
@@ -219,7 +213,7 @@ async def admin_bot_editor_data(
     ws_skills_out: list[WorkspaceSkillOut] = []
     if not is_new:
         ws_id = getattr(bot, "shared_workspace_id", None)
-        if ws_id:
+        if ws_id:  # Always true for enrolled bots
             ws_skill_rows = (await db.execute(
                 select(
                     Document.metadata_["skill_id"].as_string().label("skill_id"),

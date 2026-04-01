@@ -1,16 +1,18 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "react-native";
 import {
   FileText, Archive, Database, ChevronDown, ChevronRight,
   X, Trash2, Plus, GripVertical,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useChannelWorkspaceFiles,
   useDeleteChannelWorkspaceFile,
   useWriteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
+import { useChatStore } from "@/src/stores/chat";
 
 type WorkspaceFile = {
   name: string;
@@ -356,6 +358,28 @@ export function ChannelFileExplorer({
     includeArchive: true,
     includeData: true,
   });
+
+  // Auto-refresh file list while the bot is streaming (agent may be creating files)
+  const queryClient = useQueryClient();
+  const isStreaming = useChatStore((s) => s.getChannel(channelId).isStreaming);
+  const wasStreamingRef = useRef(false);
+
+  useEffect(() => {
+    if (isStreaming) {
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+    // Streaming just ended — do one final refresh to catch any last files
+    if (wasStreamingRef.current) {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    }
+  }, [isStreaming, channelId, queryClient]);
+
+  useEffect(() => {
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const moveMutation = useMoveChannelWorkspaceFile(channelId);
 

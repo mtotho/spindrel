@@ -218,6 +218,7 @@ class HarnessService:
             from app.services.shared_workspace import shared_workspace_service
             host_root = shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
         else:
+            from app.services.workspace import workspace_service
             host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
 
         workspace_mount = {

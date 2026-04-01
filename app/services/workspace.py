@@ -35,13 +35,14 @@ class WorkspaceService:
     def get_workspace_root(self, bot_id: str, bot: BotConfig | None = None) -> str:
         """Return the host-side workspace path for a bot.
 
-        If the bot is in a shared workspace, returns the appropriate path
-        within the shared workspace directory.
+        All bots are in the shared workspace, so this always returns the
+        shared workspace path.
         """
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             sw_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
             return os.path.join(sw_root, "bots", bot_id)
+        # Fallback for when bot config is not available (e.g. orphan cleanup)
         base = local_workspace_base()
         return os.path.join(base, bot_id)
 
@@ -50,10 +51,7 @@ class WorkspaceService:
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
-            root = self.get_workspace_root(bot_id, bot)
-            os.makedirs(root, exist_ok=True)
-            return root
-        root = self.get_workspace_root(bot_id)
+        root = self.get_workspace_root(bot_id, bot)
         os.makedirs(root, exist_ok=True)
         return root
 
@@ -65,11 +63,12 @@ class WorkspaceService:
         working_dir: str = "",
         bot: BotConfig | None = None,
     ) -> ExecResult:
-        """Execute a command in the workspace, routing to Docker, host, or shared."""
-        # Shared workspace membership takes priority (no workspace.enabled needed)
+        """Execute a command in the workspace, routing to shared workspace container."""
+        # All bots are in the shared workspace
         if bot and bot.shared_workspace_id:
             return await self._exec_shared(bot, command, working_dir)
 
+        # Fallback for legacy standalone workspace (shouldn't happen in normal operation)
         if not workspace.enabled:
             raise WorkspaceError("Workspace is not enabled for this bot.")
 
@@ -218,16 +217,16 @@ class WorkspaceService:
         Docker/Shared: /workspace/foo → host path
         Host: identity (path is already on host)
         """
+        # All bots are in the shared workspace
         if bot and bot.shared_workspace_id:
             from app.services.shared_workspace import shared_workspace_service
             return shared_workspace_service.translate_path(bot.shared_workspace_id, bot_path)
-        if workspace.type == "docker":
-            host_root = self.get_workspace_root(bot_id)
-            if bot_path.startswith("/workspace/"):
-                return os.path.join(host_root, bot_path[len("/workspace/"):])
-            elif bot_path == "/workspace":
-                return host_root
-            return bot_path
+        # Fallback for legacy standalone workspace
+        host_root = self.get_workspace_root(bot_id)
+        if bot_path.startswith("/workspace/"):
+            return os.path.join(host_root, bot_path[len("/workspace/"):])
+        elif bot_path == "/workspace":
+            return host_root
         return bot_path
 
     async def recreate(self, bot_id: str) -> None:

@@ -3,8 +3,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
-class TestIsPlanProvider:
-    """Test _is_plan_provider helper in usage.py."""
+class TestIsPlanBilled:
+    """Test _is_plan_billed helper in usage.py."""
 
     def _make_provider(self, billing_type="usage", plan_cost=None, plan_period=None):
         p = MagicMock()
@@ -13,30 +13,47 @@ class TestIsPlanProvider:
         p.plan_period = plan_period
         return p
 
-    def test_returns_false_for_none_provider_id(self):
-        from app.routers.api_v1_admin.usage import _is_plan_provider
-        assert _is_plan_provider(None) is False
+    def test_returns_false_for_none_provider_and_no_model(self):
+        from app.routers.api_v1_admin.usage import _is_plan_billed
+        with patch("app.services.providers._plan_billed_models", set()):
+            assert _is_plan_billed(None, None) is False
 
     def test_returns_false_for_unknown_provider_id(self):
-        from app.routers.api_v1_admin.usage import _is_plan_provider
-        with patch("app.services.providers._registry", {}):
-            assert _is_plan_provider("nonexistent") is False
+        from app.routers.api_v1_admin.usage import _is_plan_billed
+        with patch("app.services.providers._registry", {}), \
+             patch("app.services.providers._plan_billed_models", set()):
+            assert _is_plan_billed("nonexistent", None) is False
 
     def test_returns_false_for_usage_provider(self):
-        from app.routers.api_v1_admin.usage import _is_plan_provider
+        from app.routers.api_v1_admin.usage import _is_plan_billed
         provider = self._make_provider(billing_type="usage")
-        with patch("app.services.providers._registry", {"my-provider": provider}):
-            assert _is_plan_provider("my-provider") is False
+        with patch("app.services.providers._registry", {"my-provider": provider}), \
+             patch("app.services.providers._plan_billed_models", set()):
+            assert _is_plan_billed("my-provider", None) is False
 
     def test_returns_true_for_plan_provider(self):
-        from app.routers.api_v1_admin.usage import _is_plan_provider
+        from app.routers.api_v1_admin.usage import _is_plan_billed
         provider = self._make_provider(billing_type="plan", plan_cost=40.0, plan_period="monthly")
-        with patch("app.services.providers._registry", {"minimax": provider}):
-            assert _is_plan_provider("minimax") is True
+        with patch("app.services.providers._registry", {"minimax": provider}), \
+             patch("app.services.providers._plan_billed_models", set()):
+            assert _is_plan_billed("minimax", None) is True
+
+    def test_returns_true_for_model_on_plan_provider(self):
+        """Even if provider_id doesn't match, model name lookup should work."""
+        from app.routers.api_v1_admin.usage import _is_plan_billed
+        with patch("app.services.providers._registry", {}), \
+             patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
+            assert _is_plan_billed(None, "minimax/MiniMax-M2.7") is True
+
+    def test_returns_false_for_unrelated_model(self):
+        from app.routers.api_v1_admin.usage import _is_plan_billed
+        with patch("app.services.providers._registry", {}), \
+             patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
+            assert _is_plan_billed(None, "gpt-4") is False
 
 
 class TestResolveEventCostPlanProvider:
-    """Test that _resolve_event_cost returns 0.0 for plan providers with no pricing."""
+    """Test that _resolve_event_cost returns 0.0 for plan-billed calls with no pricing."""
 
     def _make_provider(self, billing_type="plan"):
         p = MagicMock()
@@ -52,9 +69,23 @@ class TestResolveEventCostPlanProvider:
             "prompt_tokens": 100,
             "completion_tokens": 50,
         }
-        with patch("app.services.providers._registry", {"minimax": provider}):
-            # Empty pricing map → no per-token rates → normally returns None
+        with patch("app.services.providers._registry", {"minimax": provider}), \
+             patch("app.services.providers._plan_billed_models", set()):
             cost = _resolve_event_cost(event_data, {}, {"minimax": "openai-compatible"})
+            assert cost == 0.0
+
+    def test_plan_model_returns_zero_when_routed_through_different_provider(self):
+        """Model belongs to a plan provider but call went through .env fallback."""
+        from app.routers.api_v1_admin.usage import _resolve_event_cost
+        event_data = {
+            "provider_id": None,
+            "model": "minimax/MiniMax-M2.7",
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+        }
+        with patch("app.services.providers._registry", {}), \
+             patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
+            cost = _resolve_event_cost(event_data, {}, {})
             assert cost == 0.0
 
     def test_usage_provider_returns_none_when_no_pricing(self):
@@ -66,7 +97,8 @@ class TestResolveEventCostPlanProvider:
             "prompt_tokens": 100,
             "completion_tokens": 50,
         }
-        with patch("app.services.providers._registry", {"my-openai": provider}):
+        with patch("app.services.providers._registry", {"my-openai": provider}), \
+             patch("app.services.providers._plan_billed_models", set()):
             cost = _resolve_event_cost(event_data, {}, {"my-openai": "openai"})
             assert cost is None
 
@@ -78,7 +110,8 @@ class TestResolveEventCostPlanProvider:
             "model": "minimax-text-01",
             "response_cost": 0.05,
         }
-        with patch("app.services.providers._registry", {"minimax": provider}):
+        with patch("app.services.providers._registry", {"minimax": provider}), \
+             patch("app.services.providers._plan_billed_models", set()):
             cost = _resolve_event_cost(event_data, {}, {})
             assert cost == 0.05
 

@@ -179,9 +179,9 @@ class TestMemoryPathConsistency:
     def test_standalone_bot_paths_match(self):
         bot = _bot(bot_id="standalone_bot")
         prefix = self._compute_search_params(bot)
-        assert prefix == "memory"
-        # Indexed file_path: "memory/MEMORY.md" matches LIKE "memory/%"
-        assert "memory/MEMORY.md".startswith(prefix + "/")
+        assert prefix == "bots/standalone_bot/memory"
+        # Indexed file_path: "bots/standalone_bot/memory/MEMORY.md" matches LIKE prefix + "/%"
+        assert "bots/standalone_bot/memory/MEMORY.md".startswith(prefix + "/")
 
     def test_shared_member_bot_paths_match(self):
         """Member bot: root = workspace root, prefix = bots/{id}/memory."""
@@ -218,15 +218,15 @@ class TestMemorySearchPatterns:
     """Verify the SQL LIKE pattern correctly scopes to memory subdirectory."""
 
     def test_standalone_pattern(self):
-        """Standalone bot: memory_prefix='memory' → LIKE 'memory/%'."""
+        """Standalone bot: memory_prefix='bots/standalone/memory' → LIKE 'bots/standalone/memory/%'."""
         from app.services.memory_scheme import get_memory_index_prefix
         bot = _bot(bot_id="standalone")
         prefix = get_memory_index_prefix(bot)
         pattern = prefix.rstrip("/") + "/%"
-        assert pattern == "memory/%"
-        assert "memory/MEMORY.md".startswith("memory/")
-        assert "memory/logs/2026-03-28.md".startswith("memory/")
-        assert not "data/status.json".startswith("memory/")
+        assert pattern == "bots/standalone/memory/%"
+        assert "bots/standalone/memory/MEMORY.md".startswith("bots/standalone/memory/")
+        assert "bots/standalone/memory/logs/2026-03-28.md".startswith("bots/standalone/memory/")
+        assert not "data/status.json".startswith("bots/standalone/memory/")
 
     def test_shared_workspace_pattern(self):
         """Shared workspace bot: prefix='bots/{id}/memory' → LIKE 'bots/{id}/memory/%'."""
@@ -251,7 +251,7 @@ class TestDiagnosticsMemoryPrefix:
         from app.services.memory_scheme import get_memory_index_prefix
         bot = _bot(bot_id="standalone")
         prefix = get_memory_index_prefix(bot)
-        assert prefix == "memory"
+        assert prefix == "bots/standalone/memory"
 
     def test_shared_bot_index_prefix(self):
         from app.services.memory_scheme import get_memory_index_prefix

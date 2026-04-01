@@ -92,10 +92,17 @@ class TestListWorkspaces:
         assert isinstance(resp.json(), list)
         assert len(resp.json()) == 0
 
-    async def test_list_with_data(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            await _create_workspace(client, name="ws-a")
-            await _create_workspace(client, name="ws-b")
+    async def test_list_with_data(self, client, db_session):
+        # Insert workspaces directly into DB (POST guard blocks creating >1)
+        now = datetime.now(timezone.utc)
+        for name in ("ws-a", "ws-b"):
+            ws = SharedWorkspace(
+                name=name, image="img:latest", status="stopped",
+                created_at=now, updated_at=now,
+            )
+            db_session.add(ws)
+        await db_session.commit()
+
         resp = await client.get("/api/v1/workspaces", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         names = [w["name"] for w in resp.json()]
@@ -195,32 +202,23 @@ class TestUpdateWorkspace:
 # ---------------------------------------------------------------------------
 
 class TestDeleteWorkspace:
-    async def test_delete_workspace(self, client, db_session):
+    async def test_delete_workspace_blocked(self, client, db_session):
+        """DELETE always returns 400 in single-workspace mode."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
             created = await _create_workspace(client)
         ws_id = created["id"]
 
-        with (
-            patch("app.routers.api_v1_workspaces.shared_workspace_service"),
-            patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock),
-        ):
-            resp = await client.delete(
-                f"/api/v1/workspaces/{ws_id}", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 204
-
-        # Verify deleted
-        resp = await client.get(
+        resp = await client.delete(
             f"/api/v1/workspaces/{ws_id}", headers=AUTH_HEADERS,
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 400
 
-    async def test_delete_not_found(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            resp = await client.delete(
-                f"/api/v1/workspaces/{uuid.uuid4()}", headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 404
+    async def test_delete_not_found_also_blocked(self, client):
+        """DELETE returns 400 regardless of whether workspace exists."""
+        resp = await client.delete(
+            f"/api/v1/workspaces/{uuid.uuid4()}", headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------

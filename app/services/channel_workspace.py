@@ -72,11 +72,7 @@ def _migrate_old_layout(channel_dir: str, channel_id: str) -> None:
 
 
 def _get_ws_root(bot: "BotConfig") -> str:
-    """Get the workspace root for channel workspaces.
-
-    For shared workspace bots, uses the shared workspace root.
-    For standalone bots, uses the individual workspace root.
-    """
+    """Get the workspace root for channel workspaces."""
     if bot.shared_workspace_id:
         from app.services.shared_workspace import shared_workspace_service
         return shared_workspace_service.get_host_root(bot.shared_workspace_id)

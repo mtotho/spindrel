@@ -90,10 +90,8 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  if (isLoading) return null;
-
-  // API error or no data — show a dim fallback badge so it stays visible
-  if (isError || !data) {
+  // Loading, error, or no data — show a dim placeholder that's always clickable
+  if (isLoading || isError || !data) {
     const dimColor = t.textDim;
     if (collapsed) {
       return (
@@ -101,14 +99,14 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
           <Link href={"/admin/usage" as any} asChild>
             <Pressable
               className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-              style={{ width: 44, height: 44, opacity: 0.5 }}
-              accessibilityLabel="Usage forecast unavailable"
+              style={{ width: 44, height: 44, opacity: isLoading ? 0.3 : 0.5 }}
+              accessibilityLabel={isLoading ? "Loading usage" : "Usage forecast unavailable"}
             >
               <Text
                 style={{ fontSize: 10, fontWeight: "700", color: dimColor, fontVariant: ["tabular-nums"] as any }}
                 numberOfLines={1}
               >
-                $--
+                {isLoading ? "$\u2026" : "$--"}
               </Text>
             </Pressable>
           </Link>
@@ -120,11 +118,11 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
         <Link href={"/admin/usage" as any} asChild>
           <Pressable
             className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ opacity: 0.5 }}
+            style={{ opacity: isLoading ? 0.3 : 0.5 }}
           >
             <DollarSign size={14} color={dimColor} />
             <Text style={{ fontSize: 12, fontWeight: "600", color: dimColor, fontVariant: ["tabular-nums"] as any }}>
-              $-- today
+              {isLoading ? "$\u2026" : "$-- today"}
             </Text>
           </Pressable>
         </Link>

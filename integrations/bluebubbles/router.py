@@ -78,7 +78,7 @@ async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     try:
         async with async_session() as db:
             rows = (await db.execute(
-                select(Channel).where(Channel.integration == "bluebubbles")
+                select(Channel).where(Channel.client_id.like("bb:%"))
             )).scalars().all()
         for row in rows:
             if not row.client_id:

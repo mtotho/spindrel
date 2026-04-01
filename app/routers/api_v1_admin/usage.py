@@ -104,12 +104,21 @@ def _cache_discount_for_provider(
     return _CACHE_DISCOUNT_BY_PROVIDER_TYPE.get(ptype, _DEFAULT_CACHE_DISCOUNT)
 
 
-def _is_plan_provider(provider_id: str | None) -> bool:
-    """Check if a provider uses fixed plan billing (cost per call is zero)."""
-    from app.services.providers import _registry
-    if not provider_id or provider_id not in _registry:
-        return False
-    return _registry[provider_id].billing_type == "plan"
+def _is_plan_billed(provider_id: str | None, model: str | None) -> bool:
+    """Check if a call is plan-billed, by provider ID or model name.
+
+    Checks two paths:
+    1. The event's provider_id directly references a plan-billed provider
+    2. The event's model name matches a ProviderModel row under a plan-billed provider
+       (handles cases where calls are routed through a different provider like .env fallback)
+    """
+    from app.services.providers import _registry, _plan_billed_models
+    if provider_id and provider_id in _registry:
+        if _registry[provider_id].billing_type == "plan":
+            return True
+    if model and model in _plan_billed_models:
+        return True
+    return False
 
 
 def _resolve_event_cost(
@@ -120,7 +129,7 @@ def _resolve_event_cost(
     """Resolve cost for a single trace event data dict.
 
     Prefers response_cost (actual from provider) → computed with cache awareness.
-    For plan providers (fixed monthly/weekly cost), marginal cost per call is 0.
+    For plan-billed calls (fixed monthly/weekly cost), marginal cost per call is 0.
     """
     cost = d.get("response_cost")
     if cost is not None:
@@ -133,8 +142,8 @@ def _resolve_event_cost(
     cached = d.get("cached_tokens", 0)
     discount = _cache_discount_for_provider(ev_provider, provider_type_map) if cached else 0.0
     computed = _compute_cost(pt, ct, input_rate, output_rate, cached, discount)
-    # Plan providers: marginal cost is 0 (flat rate), suppress "no pricing" warnings
-    if computed is None and _is_plan_provider(ev_provider):
+    # Plan-billed calls: marginal cost is 0 (flat rate), suppress "no pricing" warnings
+    if computed is None and _is_plan_billed(ev_provider, ev_model):
         return 0.0
     return computed
 

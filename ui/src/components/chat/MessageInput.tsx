@@ -7,6 +7,7 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import { RecordingOverlay } from "./RecordingOverlay";
+import { MarkdownContent } from "./MessageBubble";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import type { CompletionItem } from "../../types/api";
@@ -42,6 +43,53 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
     const preview = df.type.startsWith("image/") ? `data:${df.type};base64,${df.base64}` : undefined;
     return { file, base64: df.base64, preview };
   });
+}
+
+/** Detect whether text contains markdown that benefits from a rendered preview. */
+function hasMarkdown(text: string): boolean {
+  if (!text || text.length < 3) return false;
+  // Code fences
+  if (/```[\s\S]*?```/.test(text)) return true;
+  // Inline code
+  if (/`[^`]+`/.test(text)) return true;
+  // Bold
+  if (/\*\*[^*]+\*\*/.test(text)) return true;
+  // Italic (standalone * not inside **, content must not start/end with space)
+  if (/(?<!\*)\*(?!\*)\S[^*]*\S\*(?!\*)/.test(text)) return true;
+  // Headers
+  if (/^#{1,6}\s/m.test(text)) return true;
+  // Links/images
+  if (/!?\[[^\]]+\]\([^)]+\)/.test(text)) return true;
+  // Blockquotes
+  if (/^>\s/m.test(text)) return true;
+  return false;
+}
+
+/** Live markdown preview strip shown below the textarea. */
+function MarkdownPreview({ text, t }: { text: string; t: ReturnType<typeof useThemeTokens> }) {
+  return (
+    <div style={{
+      maxHeight: 200,
+      overflowY: "auto",
+      padding: "8px 16px",
+      background: t.surfaceOverlay,
+      borderTop: `1px solid ${t.overlayLight}`,
+      borderRadius: "0 0 10px 10px",
+      marginTop: -10,
+      marginBottom: 2,
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 600, color: t.textDim,
+        textTransform: "uppercase", letterSpacing: "0.05em",
+        marginBottom: 4,
+      }}>
+        Preview
+      </div>
+      <div style={{ fontSize: 14 }}>
+        <MarkdownContent text={text} t={t} />
+      </div>
+    </div>
+  );
 }
 
 export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
@@ -105,7 +153,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+    ta.style.height = Math.min(ta.scrollHeight, 280) + "px";
   }, []);
 
   // Auto-resize textarea when draft text is restored on mount/channel switch
@@ -462,7 +510,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   resize: "none",
                   outline: "none",
                   minHeight: isMobile ? 36 : 44,
-                  maxHeight: 140,
+                  maxHeight: 280,
                   overflow: "auto",
                 }}
                 onFocus={(e) => {
@@ -592,6 +640,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             anchor="bottom"
           />
         </View>
+        {/* Live markdown preview — shown when input contains markdown */}
+        {hasMarkdown(text) && (
+          <div style={{ paddingLeft: isMobile ? 8 : 20, paddingRight: isMobile ? 8 : 20 }}>
+            <MarkdownPreview text={text} t={t} />
+          </div>
+        )}
       </View>
     );
   }
@@ -601,7 +655,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     <View className="flex-row items-end gap-2 px-4 py-3" style={{ borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
       <TextInput
         ref={inputRef}
-        className="flex-1 bg-surface-raised rounded-xl px-4 py-3 text-text text-[15px] min-h-[44px] max-h-[140px]"
+        className="flex-1 bg-surface-raised rounded-xl px-4 py-3 text-text text-[15px] min-h-[44px] max-h-[280px]"
         style={{ borderWidth: 1, borderColor: t.overlayLight }}
         placeholder="Type a message..."
         placeholderTextColor={t.textDim}

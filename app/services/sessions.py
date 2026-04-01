@@ -150,7 +150,7 @@ def _effective_system_prompt(
         parts.append(_settings.GLOBAL_BASE_PROMPT.rstrip())
 
     ws_base = None
-    if workspace_base_prompt_enabled and bot.shared_workspace_id:
+    if workspace_base_prompt_enabled:
         ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
@@ -162,7 +162,7 @@ def _effective_system_prompt(
 
     # Resolve system prompt from workspace file if configured
     _sys_prompt = bot.system_prompt
-    if getattr(bot, "system_prompt_workspace_file", False) and bot.shared_workspace_id:
+    if getattr(bot, "system_prompt_workspace_file", False):
         from app.services.prompt_resolution import resolve_workspace_file_prompt
         _ws_prompt = resolve_workspace_file_prompt(
             bot.shared_workspace_id,

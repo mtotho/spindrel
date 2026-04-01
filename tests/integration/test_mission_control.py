@@ -157,6 +157,7 @@ class TestMCKanban:
         with (
             patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content),
             patch("app.services.channel_workspace.write_workspace_file") as mock_write,
+            patch("app.services.channel_workspace.ensure_channel_workspace"),
         ):
             resp = await client.post(
                 "/integrations/mission_control/kanban/move",

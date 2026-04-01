@@ -79,8 +79,7 @@ def _auto_set_workspace_id(channel: Channel) -> None:
     try:
         from app.agent.bots import get_bot
         bot = get_bot(channel.bot_id)
-        if bot.shared_workspace_id:
-            channel.workspace_id = uuid.UUID(bot.shared_workspace_id)
+        channel.workspace_id = uuid.UUID(bot.shared_workspace_id)
     except Exception:
         logger.debug("Could not auto-set workspace_id for channel bot_id=%s (bot not loaded yet?)", channel.bot_id)
 
