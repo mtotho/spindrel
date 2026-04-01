@@ -233,10 +233,17 @@ async def assemble_context(
     _ch_row = None
     if channel_id is not None:
         try:
+            from sqlalchemy import select as _sa_select
+            from sqlalchemy.orm import selectinload as _selectinload
             from app.db.engine import async_session
-            from app.db.models import Channel
+            from app.db.models import Channel, ChannelIntegration
             async with async_session() as _ch_db:
-                _ch_row = await _ch_db.get(Channel, channel_id)
+                _ch_result = await _ch_db.execute(
+                    _sa_select(Channel)
+                    .where(Channel.id == channel_id)
+                    .options(_selectinload(Channel.integrations))
+                )
+                _ch_row = _ch_result.scalar_one_or_none()
         except Exception:
             logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
 
@@ -321,17 +328,23 @@ async def assemble_context(
         if _ch_row.model_tier_overrides:
             result.channel_model_tier_overrides = _ch_row.model_tier_overrides
 
-    # --- auto-inject mission-control carapace for workspace-enabled channels ---
-    if _ch_row is not None and getattr(_ch_row, "channel_workspace_enabled", False):
-        _MC_CARAPACE_ID = "mission-control"
+    # --- auto-inject carapaces from activated integrations ---
+    if _ch_row is not None:
         _ch_carapaces_disabled = set(getattr(_ch_row, "carapaces_disabled", None) or [])
-        from app.agent.carapaces import get_carapace as _get_mc_carapace
-        if (
-            _MC_CARAPACE_ID not in (bot.carapaces or [])
-            and _MC_CARAPACE_ID not in _ch_carapaces_disabled
-            and _get_mc_carapace(_MC_CARAPACE_ID)
-        ):
-            bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + [_MC_CARAPACE_ID])
+        try:
+            from integrations import get_activation_manifests
+            _manifests = get_activation_manifests()
+            for _ci in (getattr(_ch_row, "integrations", None) or []):
+                if not _ci.activated:
+                    continue
+                _manifest = _manifests.get(_ci.integration_type)
+                if not _manifest:
+                    continue
+                for _cap_id in _manifest.get("carapaces", []):
+                    if _cap_id not in (bot.carapaces or []) and _cap_id not in _ch_carapaces_disabled:
+                        bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + [_cap_id])
+        except Exception:
+            logger.warning("Failed to inject activation carapaces", exc_info=True)
 
     # --- carapace resolution ---
     _carapace_ids = list(bot.carapaces or [])

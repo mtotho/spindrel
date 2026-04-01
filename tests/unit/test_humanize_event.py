@@ -1,7 +1,7 @@
 """Tests for timeline event humanization."""
 import pytest
 
-from app.routers.api_v1_mission_control import _humanize_event
+from integrations.mission_control.helpers import humanize_event as _humanize_event
 
 
 class TestHumanizeEvent:

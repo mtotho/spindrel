@@ -41,7 +41,7 @@ function useSetupGuide() {
   return useQuery({
     queryKey: ["mc-setup-guide"],
     queryFn: () =>
-      apiFetch<{ content: string }>("/api/v1/mission-control/setup-guide"),
+      apiFetch<{ content: string }>("/integrations/mission_control/setup-guide"),
     staleTime: 300_000,
   });
 }

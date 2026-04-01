@@ -112,6 +112,83 @@ def _check_carapace_requires(bot, available_tools: set[str]) -> list[FeatureWarn
     return warnings
 
 
+async def validate_activation(bot_id: str, integration_type: str) -> list[FeatureWarning]:
+    """Check if a bot has the tools required by an integration's carapaces.
+
+    Used when activating an integration on a channel to warn about missing prerequisites.
+    """
+    from app.agent.bots import get_bot
+    from app.tools.mcp import fetch_mcp_tools
+
+    try:
+        bot = get_bot(bot_id)
+    except Exception:
+        return []
+
+    # Build the bot's effective tool set
+    available: set[str] = set(bot.local_tools) | set(bot.client_tools)
+    if bot.mcp_servers:
+        try:
+            mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
+            available |= {t["function"]["name"] for t in mcp_schemas}
+        except Exception:
+            pass
+
+    # Include tools from existing bot carapaces
+    if bot.carapaces:
+        from app.agent.carapaces import resolve_carapaces
+        try:
+            resolved = resolve_carapaces(bot.carapaces)
+            available |= set(resolved.local_tools)
+            available |= set(resolved.mcp_tools)
+        except Exception:
+            pass
+
+    # Now check the carapaces declared in the activation manifest
+    from integrations import get_activation_manifests
+    manifests = get_activation_manifests()
+    manifest = manifests.get(integration_type)
+    if not manifest:
+        return []
+
+    warnings: list[FeatureWarning] = []
+    # Include tools from the activation carapaces themselves
+    activation_carapaces = manifest.get("carapaces", [])
+    if activation_carapaces:
+        from app.agent.carapaces import resolve_carapaces
+        try:
+            resolved = resolve_carapaces(activation_carapaces)
+            available |= set(resolved.local_tools)
+            available |= set(resolved.mcp_tools)
+        except Exception:
+            pass
+
+    # Check requires on each activation carapace
+    for cid in activation_carapaces:
+        from app.agent.carapaces import get_carapace
+        c = get_carapace(cid)
+        if c is None:
+            warnings.append(FeatureWarning(
+                bot_id=bot_id,
+                feature=f"activation:{integration_type}",
+                description=f"Carapace '{cid}' not found",
+            ))
+            continue
+        requires = c.get("requires", {})
+        required_tools = requires.get("tools", []) if isinstance(requires, dict) else []
+        if required_tools:
+            missing = [t for t in required_tools if t not in available]
+            if missing:
+                warnings.append(FeatureWarning(
+                    bot_id=bot_id,
+                    feature=f"activation:{integration_type}:carapace:{cid}",
+                    description=f"Carapace '{cid}' requires tools",
+                    missing_tools=missing,
+                ))
+
+    return warnings
+
+
 async def validate_features() -> list[FeatureWarning]:
     """Check all bots for missing feature prerequisites. Returns warnings."""
     from app.agent.bots import list_bots

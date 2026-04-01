@@ -19,7 +19,7 @@ pytestmark = pytest.mark.asyncio
 class TestMCReadiness:
     async def test_readiness_no_channels(self, client, db_session):
         """No workspace channels → all features not ready."""
-        resp = await client.get("/api/v1/mission-control/readiness", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/readiness", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["dashboard"]["ready"] is False
@@ -45,11 +45,11 @@ class TestMCReadiness:
 
         # _has_tasks_file does os.path.isfile — mock it to return False
         with patch(
-            "app.routers.api_v1_mission_control._has_tasks_file",
+            "integrations.mission_control.helpers.has_tasks_file",
             return_value=False,
         ):
             resp = await client.get(
-                "/api/v1/mission-control/readiness", headers=AUTH_HEADERS
+                "/integrations/mission_control/readiness", headers=AUTH_HEADERS
             )
 
         assert resp.status_code == 200
@@ -85,15 +85,15 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("app.routers.api_v1_mission_control._has_tasks_file", return_value=True),
-            patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot),
+            patch("integrations.mission_control.helpers.has_tasks_file", return_value=True),
+            patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
             patch("os.path.isdir", return_value=True),
             patch("os.path.isfile", return_value=True),
         ):
             resp = await client.get(
-                "/api/v1/mission-control/readiness", headers=AUTH_HEADERS
+                "/integrations/mission_control/readiness", headers=AUTH_HEADERS
             )
 
         assert resp.status_code == 200
@@ -129,16 +129,16 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("app.routers.api_v1_mission_control._has_tasks_file", return_value=True),
-            patch("app.routers.api_v1_mission_control._has_timeline_file", return_value=True),
-            patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot),
+            patch("integrations.mission_control.helpers.has_tasks_file", return_value=True),
+            patch("integrations.mission_control.helpers.has_timeline_file", return_value=True),
+            patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
             patch("os.path.isdir", return_value=True),
             patch("os.path.isfile", return_value=True),
         ):
             resp = await client.get(
-                "/api/v1/mission-control/readiness", headers=AUTH_HEADERS
+                "/integrations/mission_control/readiness", headers=AUTH_HEADERS
             )
 
         body = resp.json()
@@ -167,14 +167,14 @@ class TestMCReferenceFile:
         (ref_dir / "notes.md").write_text("# Reference notes\nSome content here.")
 
         with (
-            patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot),
+            patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch(
                 "app.services.memory_scheme.get_memory_root",
                 return_value=str(tmp_path),
             ),
         ):
             resp = await client.get(
-                "/api/v1/mission-control/memory/ref-bot/reference/notes.md",
+                "/integrations/mission_control/memory/ref-bot/reference/notes.md",
                 headers=AUTH_HEADERS,
             )
 
@@ -192,9 +192,9 @@ class TestMCReferenceFile:
             system_prompt="test",
             memory_scheme="workspace-files",
         )
-        with patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot):
+        with patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot):
             resp = await client.get(
-                "/api/v1/mission-control/memory/test-bot/reference/foo%5Cbar.md",
+                "/integrations/mission_control/memory/test-bot/reference/foo%5Cbar.md",
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 400
@@ -202,7 +202,7 @@ class TestMCReferenceFile:
     async def test_reference_file_with_dotdot(self, client, db_session):
         """Filename containing .. is rejected."""
         resp = await client.get(
-            "/api/v1/mission-control/memory/test-bot/reference/..secret.md",
+            "/integrations/mission_control/memory/test-bot/reference/..secret.md",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
@@ -221,14 +221,14 @@ class TestMCReferenceFile:
         ref_dir.mkdir(parents=True)
 
         with (
-            patch("app.routers.api_v1_mission_control._get_bot", return_value=mem_bot),
+            patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch(
                 "app.services.memory_scheme.get_memory_root",
                 return_value=str(tmp_path),
             ),
         ):
             resp = await client.get(
-                "/api/v1/mission-control/memory/test-bot/reference/nonexistent.md",
+                "/integrations/mission_control/memory/test-bot/reference/nonexistent.md",
                 headers=AUTH_HEADERS,
             )
 
@@ -238,7 +238,7 @@ class TestMCReferenceFile:
         """Bot without workspace-files memory scheme returns 400."""
         # test-bot from conftest has no memory_scheme set
         resp = await client.get(
-            "/api/v1/mission-control/memory/test-bot/reference/notes.md",
+            "/integrations/mission_control/memory/test-bot/reference/notes.md",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
@@ -252,7 +252,7 @@ class TestMCScope:
     async def test_overview_scope_param(self, client, db_session):
         """Overview accepts scope param without error."""
         resp = await client.get(
-            "/api/v1/mission-control/overview?scope=fleet",
+            "/integrations/mission_control/overview?scope=fleet",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -262,7 +262,7 @@ class TestMCScope:
     async def test_overview_personal_scope(self, client, db_session):
         """Personal scope doesn't crash."""
         resp = await client.get(
-            "/api/v1/mission-control/overview?scope=personal",
+            "/integrations/mission_control/overview?scope=personal",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -270,7 +270,7 @@ class TestMCScope:
     async def test_kanban_scope_param(self, client, db_session):
         """Kanban accepts scope param."""
         resp = await client.get(
-            "/api/v1/mission-control/kanban?scope=fleet",
+            "/integrations/mission_control/kanban?scope=fleet",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -278,7 +278,7 @@ class TestMCScope:
     async def test_journal_scope_param(self, client, db_session):
         """Journal accepts scope param."""
         resp = await client.get(
-            "/api/v1/mission-control/journal?scope=fleet",
+            "/integrations/mission_control/journal?scope=fleet",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -286,7 +286,7 @@ class TestMCScope:
     async def test_memory_scope_param(self, client, db_session):
         """Memory accepts scope param."""
         resp = await client.get(
-            "/api/v1/mission-control/memory?scope=fleet",
+            "/integrations/mission_control/memory?scope=fleet",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -301,7 +301,7 @@ class TestMCModules:
         """No integrations with dashboard_modules → empty list."""
         with patch("integrations.discover_dashboard_modules", return_value=[]):
             resp = await client.get(
-                "/api/v1/mission-control/modules",
+                "/integrations/mission_control/modules",
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 200
@@ -321,7 +321,7 @@ class TestMCModules:
         ]
         with patch("integrations.discover_dashboard_modules", return_value=mock_modules):
             resp = await client.get(
-                "/api/v1/mission-control/modules",
+                "/integrations/mission_control/modules",
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 200

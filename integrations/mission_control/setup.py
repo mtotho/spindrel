@@ -34,6 +34,12 @@ SETUP = {
             "default": "~/.agent-workspaces",
         },
     ],
+    "activation": {
+        "carapaces": ["mission-control"],
+        "workspace_schema": "structured-task-hub",
+        "requires_workspace": True,
+        "description": "Project management with task boards, plans, and timelines",
+    },
     "webhook": None,
     "instructions_url": None,
     "sidebar_section": {
@@ -50,7 +56,7 @@ SETUP = {
             {"label": "Setup", "href": "/mission-control/setup", "icon": "HelpCircle"},
             {"label": "Settings", "href": "/mission-control/settings", "icon": "Settings"},
         ],
-        "readiness_endpoint": "/api/v1/mission-control/readiness",
+        "readiness_endpoint": "/integrations/mission_control/readiness",
         "readiness_field": "dashboard",
     },
 }

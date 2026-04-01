@@ -3,7 +3,6 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Trash2, Info, FileText, Sparkles } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   usePromptTemplate,
   useCreatePromptTemplate,
@@ -38,7 +37,6 @@ export default function PromptTemplateDetailScreen() {
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const isNew = templateId === "new";
   const goBack = useGoBack("/admin/prompt-templates");
-  const qc = useQueryClient();
   const { data: template, isLoading } = usePromptTemplate(isNew ? undefined : templateId);
   const createMut = useCreatePromptTemplate();
   const updateMut = useUpdatePromptTemplate(templateId);
@@ -151,21 +149,18 @@ export default function PromptTemplateDetailScreen() {
       if (sourceType === "manual" && !content.trim()) return;
       if (sourceType === "workspace_file" && (!workspaceId || !sourcePath.trim())) return;
       await createMut.mutateAsync(base as any);
-      qc.invalidateQueries({ queryKey: ["prompt-templates"] });
       goBack();
     } else {
       if (!name.trim()) return;
       await updateMut.mutateAsync(base as any);
-      qc.invalidateQueries({ queryKey: ["prompt-templates"] });
     }
-  }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, qc, goBack]);
+  }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!templateId || !confirm("Delete this template?")) return;
     await deleteMut.mutateAsync(templateId);
-    qc.invalidateQueries({ queryKey: ["prompt-templates"] });
     goBack();
-  }, [templateId, deleteMut, qc, goBack]);
+  }, [templateId, deleteMut, goBack]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew
@@ -245,7 +240,7 @@ export default function PromptTemplateDetailScreen() {
           <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
             This template is managed by a file (
-            <code style={{ fontSize: 11, color: t.accentMuted }}>{template?.source_path}</code>
+            <code style={{ fontSize: 11, fontWeight: 600 }}>{template?.source_path}</code>
             ). Edit the source file to make changes.
           </div>
         </div>
@@ -348,12 +343,11 @@ export default function PromptTemplateDetailScreen() {
               style={{
                 flex: 1, minHeight: isWide ? 400 : 250,
                 background: isFileManaged ? t.surface : t.inputBg,
-                border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
+                border: `1px solid ${isFileManaged ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 8,
                 padding: 12, fontSize: 13, lineHeight: 1.6,
                 color: isFileManaged ? t.textMuted : t.text,
                 fontFamily: "monospace", resize: "vertical",
                 outline: "none",
-                opacity: isFileManaged ? 0.7 : 1,
               }}
             />
           )}

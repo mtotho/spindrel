@@ -61,9 +61,11 @@ def _build_user_client_app(db_session, user):
     from fastapi import FastAPI
     from app.routers.api_v1 import router as api_v1_router
     from app.dependencies import get_db, verify_auth_or_user
+    from integrations.mission_control.router import router as mc_router
 
     app = FastAPI()
     app.include_router(api_v1_router)
+    app.include_router(mc_router, prefix="/integrations/mission_control")
 
     async def _override_get_db():
         yield db_session
@@ -177,7 +179,7 @@ class TestAutoJoinOnCreate:
 class TestTrackedChannelsScope:
     async def test_fleet_scope_returns_all_workspace_channels(self, db_session):
         """Fleet scope returns all workspace-enabled channels regardless of membership."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session)
         ch1 = await _create_channel_row(db_session, workspace_enabled=True)
@@ -193,7 +195,7 @@ class TestTrackedChannelsScope:
 
     async def test_personal_scope_returns_only_member_channels(self, db_session):
         """Personal scope returns only channels user is a member of."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session)
         ch_member = await _create_channel_row(db_session, workspace_enabled=True)
@@ -208,7 +210,7 @@ class TestTrackedChannelsScope:
 
     async def test_personal_scope_no_members_returns_empty(self, db_session):
         """Personal scope with no memberships returns no channels."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session)
         await _create_channel_row(db_session, workspace_enabled=True)
@@ -219,7 +221,7 @@ class TestTrackedChannelsScope:
 
     async def test_personal_scope_filters_non_workspace(self, db_session):
         """Personal scope only returns workspace-enabled member channels."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session)
         ch_ws = await _create_channel_row(db_session, workspace_enabled=True)
@@ -235,7 +237,7 @@ class TestTrackedChannelsScope:
 
     async def test_tracked_channel_ids_pref_still_applies(self, db_session):
         """tracked_channel_ids pref further filters member channels."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session)
         ch1 = await _create_channel_row(db_session, workspace_enabled=True)
@@ -251,7 +253,7 @@ class TestTrackedChannelsScope:
 
     async def test_fleet_scope_for_non_admin(self, db_session):
         """Non-admin users can see all workspace channels in fleet scope."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user = await _create_user(db_session, is_admin=False)
         ch = await _create_channel_row(db_session, workspace_enabled=True)
@@ -263,7 +265,7 @@ class TestTrackedChannelsScope:
 
     async def test_multiple_users_same_channel(self, db_session):
         """Multiple users can be members of the same channel."""
-        from app.routers.api_v1_mission_control import _tracked_channels
+        from integrations.mission_control.helpers import tracked_channels as _tracked_channels
 
         user_a = await _create_user(db_session)
         user_b = await _create_user(db_session)
@@ -291,7 +293,7 @@ class TestJoinLeaveAPI:
         await db_session.commit()
 
         resp = await client.post(
-            f"/api/v1/mission-control/channels/{ch.id}/join",
+            f"/integrations/mission_control/channels/{ch.id}/join",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -311,8 +313,8 @@ class TestJoinLeaveAPI:
         ch = await _create_channel_row(db_session, workspace_enabled=True)
         await db_session.commit()
 
-        await client.post(f"/api/v1/mission-control/channels/{ch.id}/join", headers=AUTH_HEADERS)
-        resp = await client.post(f"/api/v1/mission-control/channels/{ch.id}/join", headers=AUTH_HEADERS)
+        await client.post(f"/integrations/mission_control/channels/{ch.id}/join", headers=AUTH_HEADERS)
+        resp = await client.post(f"/integrations/mission_control/channels/{ch.id}/join", headers=AUTH_HEADERS)
         assert resp.status_code == 200
 
         rows = (await db_session.execute(
@@ -323,7 +325,7 @@ class TestJoinLeaveAPI:
     async def test_join_nonexistent_channel_404(self, user_client, db_session):
         client, _ = user_client
         resp = await client.post(
-            f"/api/v1/mission-control/channels/{uuid.uuid4()}/join",
+            f"/integrations/mission_control/channels/{uuid.uuid4()}/join",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
@@ -335,7 +337,7 @@ class TestJoinLeaveAPI:
         await db_session.commit()
 
         resp = await client.delete(
-            f"/api/v1/mission-control/channels/{ch.id}/join",
+            f"/integrations/mission_control/channels/{ch.id}/join",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -356,7 +358,7 @@ class TestJoinLeaveAPI:
         await db_session.commit()
 
         resp = await client.delete(
-            f"/api/v1/mission-control/channels/{ch.id}/join",
+            f"/integrations/mission_control/channels/{ch.id}/join",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
@@ -374,7 +376,7 @@ class TestOverviewIsMember:
         await _add_member(db_session, ch_member.id, user.id)
         await db_session.commit()
 
-        resp = await client.get("/api/v1/mission-control/overview", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/overview", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         channels_by_name = {ch["name"]: ch for ch in body["channels"]}

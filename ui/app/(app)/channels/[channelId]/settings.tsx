@@ -266,7 +266,7 @@ export default function ChannelSettingsScreen() {
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "integrations" && <IntegrationsTab channelId={channelId!} />}
+        {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}

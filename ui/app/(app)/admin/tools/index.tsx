@@ -1,8 +1,9 @@
+import { useState, useMemo } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Wrench, Server, Cpu } from "lucide-react";
+import { Search } from "lucide-react";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -46,6 +47,44 @@ function fmtDate(iso: string | null | undefined) {
   });
 }
 
+function fmtIntName(key: string): string {
+  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
+  if (special[key]) return special[key];
+  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+type RenderItem =
+  | { type: "header"; key: string; label: string; count: number }
+  | { type: "subheader"; key: string; label: string; count: number }
+  | { type: "tool"; key: string; tool: ToolItem };
+
+function SectionHeader({ label, count, level, isWide }: { label: string; count: number; level: number; isWide: boolean }) {
+  const t = useThemeTokens();
+  const isSubheader = level > 0;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      padding: isWide
+        ? `${isSubheader ? 8 : 14}px 16px ${isSubheader ? 4 : 6}px ${isSubheader ? 32 : 16}px`
+        : `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
+    }}>
+      <span style={{
+        fontSize: isSubheader ? 10 : 11,
+        fontWeight: 600,
+        color: isSubheader ? t.textDim : t.textMuted,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+      }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 10, color: t.textDim, fontWeight: 500 }}>
+        {count}
+      </span>
+      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+    </div>
+  );
+}
+
 function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => void; isWide: boolean }) {
   const t = useThemeTokens();
   const desc = tool.description || "";
@@ -58,7 +97,7 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${t.surfaceRaised}`, cursor: "pointer", textAlign: "left",
+          border: `1px solid ${t.surfaceBorder}`, cursor: "pointer", textAlign: "left",
           width: "100%",
         }}
       >
@@ -76,9 +115,11 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
             {desc.slice(0, 120)}
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
-          {source && <span style={{ fontFamily: "monospace" }}>{source}</span>}
-        </div>
+        {source && (
+          <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+            {source}
+          </div>
+        )}
       </button>
     );
   }
@@ -90,8 +131,10 @@ function ToolRow({ tool, onPress, isWide }: { tool: ToolItem; onPress: () => voi
         display: "grid", gridTemplateColumns: "200px 1fr 90px 120px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: `1px solid ${t.surfaceRaised}`, cursor: "pointer",
-        textAlign: "left", width: "100%", border: "none",
+        border: "none",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+        cursor: "pointer",
+        textAlign: "left", width: "100%",
       }}
       onMouseEnter={(e) => (e.currentTarget.style.background = t.inputBg)}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -134,6 +177,74 @@ export default function ToolsScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!tools) return [];
+    if (!search.trim()) return tools;
+    const q = search.toLowerCase();
+    return tools.filter(
+      (t) =>
+        t.tool_name.toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q) ||
+        (t.server_name || "").toLowerCase().includes(q) ||
+        (t.source_integration || "").toLowerCase().includes(q),
+    );
+  }, [tools, search]);
+
+  const renderItems = useMemo((): RenderItem[] => {
+    if (!filtered.length) return [];
+
+    const local: ToolItem[] = [];
+    const integrationMap = new Map<string, ToolItem[]>();
+    const mcpMap = new Map<string, ToolItem[]>();
+
+    for (const t of filtered) {
+      if (t.server_name) {
+        const list = mcpMap.get(t.server_name);
+        if (list) list.push(t); else mcpMap.set(t.server_name, [t]);
+      } else if (t.source_integration) {
+        const list = integrationMap.get(t.source_integration);
+        if (list) list.push(t); else integrationMap.set(t.source_integration, [t]);
+      } else {
+        local.push(t);
+      }
+    }
+
+    const items: RenderItem[] = [];
+
+    // Local tools
+    if (local.length) {
+      items.push({ type: "header", key: "local", label: "Local", count: local.length });
+      for (const t of local) items.push({ type: "tool", key: t.id, tool: t });
+    }
+
+    // Integration tools, sub-grouped
+    const intKeys = [...integrationMap.keys()].sort();
+    if (intKeys.length) {
+      const totalInt = intKeys.reduce((n, k) => n + integrationMap.get(k)!.length, 0);
+      items.push({ type: "header", key: "integrations", label: "Integrations", count: totalInt });
+      for (const k of intKeys) {
+        const list = integrationMap.get(k)!;
+        items.push({ type: "subheader", key: `int-${k}`, label: fmtIntName(k), count: list.length });
+        for (const t of list) items.push({ type: "tool", key: t.id, tool: t });
+      }
+    }
+
+    // MCP tools, sub-grouped by server
+    const mcpKeys = [...mcpMap.keys()].sort();
+    if (mcpKeys.length) {
+      const totalMcp = mcpKeys.reduce((n, k) => n + mcpMap.get(k)!.length, 0);
+      items.push({ type: "header", key: "mcp", label: "MCP Servers", count: totalMcp });
+      for (const k of mcpKeys) {
+        const list = mcpMap.get(k)!;
+        items.push({ type: "subheader", key: `mcp-${k}`, label: k, count: list.length });
+        for (const t of list) items.push({ type: "tool", key: t.id, tool: t });
+      }
+    }
+
+    return items;
+  }, [filtered]);
 
   if (isLoading) {
     return (
@@ -143,37 +254,42 @@ export default function ToolsScreen() {
     );
   }
 
-  // Group tools: local, integration, mcp
-  const localTools = tools?.filter((t) => !t.server_name && !t.source_integration) ?? [];
-  const integrationTools = tools?.filter((t) => !t.server_name && t.source_integration) ?? [];
-  const mcpTools = tools?.filter((t) => t.server_name) ?? [];
-
-  // Group MCP tools by server
-  const mcpByServer = new Map<string, ToolItem[]>();
-  for (const t of mcpTools) {
-    const list = mcpByServer.get(t.server_name!) || [];
-    list.push(t);
-    mcpByServer.set(t.server_name!, list);
-  }
-
   return (
     <View className="flex-1 bg-surface">
-      <MobileHeader title="Tools" subtitle={`${tools?.length ?? 0} indexed`} />
+      <MobileHeader title="Tool Index" />
 
-      {/* Table header (desktop only) */}
-      {isWide && tools && tools.length > 0 && (
+      {/* Pinned search bar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: isWide ? "8px 16px" : "8px 12px",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+      }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "200px 1fr 90px 120px",
-          gap: 12, padding: "8px 16px",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-          fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1,
+          display: "flex", alignItems: "center", gap: 6,
+          background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 6, padding: "5px 10px",
+          maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
         }}>
-          <span>Name</span>
-          <span>Description</span>
-          <span>Type</span>
-          <span style={{ textAlign: "right" }}>Indexed</span>
+          <Search size={13} color={t.textDim} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter tools..."
+            style={{
+              background: "none", border: "none", outline: "none",
+              color: t.text, fontSize: 12, flex: 1, width: "100%",
+            }}
+          />
         </div>
-      )}
+        {tools && tools.length > 0 && (
+          <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+            {search && filtered.length !== tools.length
+              ? `${filtered.length} / ${tools.length}`
+              : tools.length}{" "}
+            tools
+          </span>
+        )}
+      </div>
 
       {/* List */}
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
@@ -187,67 +303,25 @@ export default function ToolsScreen() {
             No tools indexed yet. Tools are indexed automatically on server startup.
           </div>
         )}
-
-        {/* Local tools */}
-        {localTools.length > 0 && !isWide && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "8px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
-          }}>
-            <Cpu size={12} color={t.textDim} />
-            Local ({localTools.length})
+        {tools && tools.length > 0 && filtered.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+            No tools match "{search}"
           </div>
         )}
-        {localTools.map((tool) => (
-          <ToolRow
-            key={tool.id}
-            tool={tool}
-            isWide={isWide}
-            onPress={() => router.push(`/admin/tools/${encodeURIComponent(tool.tool_name)}` as any)}
-          />
-        ))}
-
-        {/* Integration tools */}
-        {integrationTools.length > 0 && !isWide && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
-          }}>
-            <Wrench size={12} color={t.textDim} />
-            Integration ({integrationTools.length})
-          </div>
+        {renderItems.map((item) =>
+          item.type === "header" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={0} isWide={isWide} />
+          ) : item.type === "subheader" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={1} isWide={isWide} />
+          ) : (
+            <ToolRow
+              key={item.key}
+              tool={item.tool}
+              isWide={isWide}
+              onPress={() => router.push(`/admin/tools/${encodeURIComponent(item.tool.server_name ? item.tool.tool_key : item.tool.tool_name)}` as any)}
+            />
+          ),
         )}
-        {integrationTools.map((tool) => (
-          <ToolRow
-            key={tool.id}
-            tool={tool}
-            isWide={isWide}
-            onPress={() => router.push(`/admin/tools/${encodeURIComponent(tool.tool_name)}` as any)}
-          />
-        ))}
-
-        {/* MCP tools by server */}
-        {[...mcpByServer.entries()].map(([server, serverTools]) => (
-          <div key={server}>
-            {!isWide && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "12px 4px 4px", fontSize: 11, fontWeight: 600, color: t.textDim,
-              }}>
-                <Server size={12} color={t.textDim} />
-                {server} ({serverTools.length})
-              </div>
-            )}
-            {serverTools.map((tool) => (
-              <ToolRow
-                key={tool.id}
-                tool={tool}
-                isWide={isWide}
-                onPress={() => router.push(`/admin/tools/${encodeURIComponent(tool.tool_key)}` as any)}
-              />
-            ))}
-          </div>
-        ))}
       </RefreshableScrollView>
     </View>
   );

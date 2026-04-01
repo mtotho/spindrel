@@ -183,7 +183,7 @@ export function useMCOverview(scope?: "fleet" | "personal") {
     queryKey: ["mc-overview", scope],
     queryFn: () =>
       apiFetch<MCOverview>(
-        `/api/v1/mission-control/overview${scope ? `?scope=${scope}` : ""}`
+        `/integrations/mission_control/overview${scope ? `?scope=${scope}` : ""}`
       ),
   });
 }
@@ -193,7 +193,7 @@ export function useMCKanban(scope?: "fleet" | "personal") {
     queryKey: ["mc-kanban", scope],
     queryFn: () =>
       apiFetch<MCKanbanResponse>(
-        `/api/v1/mission-control/kanban${scope ? `?scope=${scope}` : ""}`
+        `/integrations/mission_control/kanban${scope ? `?scope=${scope}` : ""}`
       ),
   });
 }
@@ -207,7 +207,7 @@ export function useMCKanbanMove() {
       to_column: string;
       channel_id: string;
     }) =>
-      apiFetch("/api/v1/mission-control/kanban/move", {
+      apiFetch("/integrations/mission_control/kanban/move", {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -232,7 +232,7 @@ export function useMCKanbanUpdate() {
       due?: string;
       tags?: string;
     }) =>
-      apiFetch("/api/v1/mission-control/kanban/update", {
+      apiFetch("/integrations/mission_control/kanban/update", {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
@@ -257,7 +257,7 @@ export function useMCKanbanCreate() {
       due?: string;
       description?: string;
     }) =>
-      apiFetch("/api/v1/mission-control/kanban/create", {
+      apiFetch("/integrations/mission_control/kanban/create", {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -276,7 +276,7 @@ export function useMCJournal(days = 7, scope?: "fleet" | "personal") {
       const params = new URLSearchParams({ days: String(days) });
       if (scope) params.set("scope", scope);
       return apiFetch<{ entries: MCJournalEntry[] }>(
-        `/api/v1/mission-control/journal?${params}`
+        `/integrations/mission_control/journal?${params}`
       );
     },
   });
@@ -289,7 +289,7 @@ export function useMCTimeline(days = 7, scope?: "fleet" | "personal") {
       const params = new URLSearchParams({ days: String(days) });
       if (scope) params.set("scope", scope);
       return apiFetch<{ events: MCTimelineEvent[] }>(
-        `/api/v1/mission-control/timeline?${params}`
+        `/integrations/mission_control/timeline?${params}`
       );
     },
   });
@@ -300,7 +300,7 @@ export function useMCMemory(scope?: "fleet" | "personal") {
     queryKey: ["mc-memory", scope],
     queryFn: () =>
       apiFetch<{ sections: MCMemorySection[] }>(
-        `/api/v1/mission-control/memory${scope ? `?scope=${scope}` : ""}`
+        `/integrations/mission_control/memory${scope ? `?scope=${scope}` : ""}`
       ),
   });
 }
@@ -310,7 +310,7 @@ export function useMCChannelContext(channelId: string | undefined) {
     queryKey: ["mc-channel-context", channelId],
     queryFn: () =>
       apiFetch<MCChannelContext>(
-        `/api/v1/mission-control/channels/${channelId}/context`
+        `/integrations/mission_control/channels/${channelId}/context`
       ),
     enabled: !!channelId,
   });
@@ -319,7 +319,7 @@ export function useMCChannelContext(channelId: string | undefined) {
 export function useMCPrefs() {
   return useQuery({
     queryKey: ["mc-prefs"],
-    queryFn: () => apiFetch<MCPrefs>("/api/v1/mission-control/prefs"),
+    queryFn: () => apiFetch<MCPrefs>("/integrations/mission_control/prefs"),
   });
 }
 
@@ -327,7 +327,7 @@ export function useUpdateMCPrefs() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<MCPrefs>) =>
-      apiFetch<MCPrefs>("/api/v1/mission-control/prefs", {
+      apiFetch<MCPrefs>("/integrations/mission_control/prefs", {
         method: "PUT",
         body: JSON.stringify(body),
       }),
@@ -346,7 +346,7 @@ export function useMCReadiness() {
   return useQuery({
     queryKey: ["mc-readiness"],
     queryFn: () =>
-      apiFetch<MCReadiness>("/api/v1/mission-control/readiness"),
+      apiFetch<MCReadiness>("/integrations/mission_control/readiness"),
     staleTime: 60_000,
   });
 }
@@ -359,7 +359,7 @@ export function useMCReferenceFile(
     queryKey: ["mc-reference-file", botId, filename],
     queryFn: () =>
       apiFetch<{ content: string }>(
-        `/api/v1/mission-control/memory/${botId}/reference/${filename}`
+        `/integrations/mission_control/memory/${botId}/reference/${filename}`
       ),
     enabled: !!botId && !!filename,
   });
@@ -370,7 +370,7 @@ export function useMCModules() {
     queryKey: ["mc-modules"],
     queryFn: () =>
       apiFetch<{ modules: MCDashboardModule[] }>(
-        "/api/v1/mission-control/modules"
+        "/integrations/mission_control/modules"
       ),
     staleTime: 300_000,
   });
@@ -385,7 +385,7 @@ export function useMCPlans(scope?: "fleet" | "personal", status?: string) {
       if (status) params.set("status", status);
       const qs = params.toString();
       return apiFetch<{ plans: MCPlan[] }>(
-        `/api/v1/mission-control/plans${qs ? `?${qs}` : ""}`
+        `/integrations/mission_control/plans${qs ? `?${qs}` : ""}`
       );
     },
   });
@@ -402,7 +402,7 @@ export function useMCPlanApprove() {
       planId: string;
     }) =>
       apiFetch(
-        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/approve`,
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/approve`,
         { method: "POST" }
       ),
     onSuccess: () => {
@@ -425,7 +425,7 @@ export function useMCPlanReject() {
       planId: string;
     }) =>
       apiFetch(
-        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/reject`,
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/reject`,
         { method: "POST" }
       ),
     onSuccess: () => {
@@ -447,7 +447,7 @@ export function useMCPlanResume() {
       planId: string;
     }) =>
       apiFetch(
-        `/api/v1/mission-control/channels/${channelId}/plans/${planId}/resume`,
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/resume`,
         { method: "POST" }
       ),
     onSuccess: () => {
@@ -461,7 +461,7 @@ export function useJoinChannel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (channelId: string) =>
-      apiFetch(`/api/v1/mission-control/channels/${channelId}/join`, {
+      apiFetch(`/integrations/mission_control/channels/${channelId}/join`, {
         method: "POST",
       }),
     onSuccess: () => {
@@ -474,7 +474,7 @@ export function useLeaveChannel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (channelId: string) =>
-      apiFetch(`/api/v1/mission-control/channels/${channelId}/join`, {
+      apiFetch(`/integrations/mission_control/channels/${channelId}/join`, {
         method: "DELETE",
       }),
     onSuccess: () => {
