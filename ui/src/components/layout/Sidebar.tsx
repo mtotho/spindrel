@@ -43,6 +43,7 @@ import {
   Camera,
   MessageCircle,
   Terminal,
+  Cable,
 } from "lucide-react";
 import { useMCModules } from "../../api/hooks/useMissionControl";
 import { useSidebarSections, useIntegrationIcons, type SidebarSection } from "../../api/hooks/useIntegrations";
@@ -113,7 +114,8 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Integrations", href: "/admin/integrations", icon: Plug },
       { label: "Providers", href: "/admin/providers", icon: Server },
-      { label: "Tools", href: "/admin/tools", icon: Wrench },
+      { label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable },
+      { label: "Tool Index", href: "/admin/tools", icon: Wrench },
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },

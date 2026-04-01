@@ -2,7 +2,7 @@
 
 import json
 
-from integrations.arr.tools._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 
 # ── sanitize: empty / passthrough ────────────────────────────────────────────
@@ -142,3 +142,60 @@ class TestError:
         msg = 'quotes "and" backslash \\ and newline \n'
         parsed = json.loads(error(msg))
         assert parsed["error"] == msg
+
+
+# ── validate_url ────────────────────────────────────────────────────────────
+
+
+class TestValidateUrl:
+    def test_valid_http_url(self):
+        assert validate_url("http://192.168.1.100:8989", "Sonarr") is None
+
+    def test_valid_https_url(self):
+        assert validate_url("https://sonarr.example.com", "Sonarr") is None
+
+    def test_valid_url_no_port(self):
+        assert validate_url("http://10.10.30.108", "Jellyfin") is None
+
+    def test_valid_url_with_path(self):
+        assert validate_url("http://10.10.30.108:8096/jellyfin", "Jellyfin") is None
+
+    def test_missing_scheme(self):
+        result = validate_url("192.168.1.100:8989", "Sonarr")
+        assert result is not None
+        assert "malformed" in result
+
+    def test_ftp_scheme(self):
+        result = validate_url("ftp://192.168.1.100", "Sonarr")
+        assert result is not None
+        assert "malformed" in result
+
+    def test_empty_string(self):
+        result = validate_url("", "Sonarr")
+        assert result is not None
+
+    def test_no_hostname(self):
+        result = validate_url("http://", "Sonarr")
+        assert result is not None
+        assert "no hostname" in result
+
+    def test_colon_typo_in_ip(self):
+        # http://10:10.30.108:8096 — colon instead of first dot
+        result = validate_url("http://10:10.30.108:8096", "Jellyfin")
+        assert result is not None
+        assert "invalid port" in result.lower()
+
+    def test_non_numeric_port(self):
+        result = validate_url("http://192.168.1.100:abc", "Sonarr")
+        assert result is not None
+        assert "invalid port" in result.lower()
+
+    def test_service_name_in_error(self):
+        result = validate_url("http://10:10.30.108:8096", "Jellyfin")
+        assert "Jellyfin" in result
+
+    def test_localhost(self):
+        assert validate_url("http://localhost:8989", "Sonarr") is None
+
+    def test_ipv4_standard(self):
+        assert validate_url("http://10.10.30.108:8096", "Jellyfin") is None

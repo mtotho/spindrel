@@ -149,7 +149,7 @@ async def admin_bot_editor_data(
     from app.agent.bots import list_bots as _list_bots
     from app.agent.persona import get_persona, resolve_workspace_persona
     from app.services.harness import harness_service
-    from app.tools.mcp import _servers
+    from app.services.mcp_servers import list_server_names
     from app.tools.client_tools import _client_tools
 
     is_new = bot_id == "new"
@@ -188,7 +188,7 @@ async def admin_bot_editor_data(
 
     bot_memory_scheme = getattr(bot_out, "memory_scheme", None) if not is_new else None
     tool_groups = _build_tool_groups(tool_rows, memory_scheme=bot_memory_scheme)
-    mcp_servers = sorted(_servers.keys())
+    mcp_servers = list_server_names()
     client_tools = sorted(_client_tools.keys())
 
     all_skills = [

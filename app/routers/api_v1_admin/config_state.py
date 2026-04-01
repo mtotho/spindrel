@@ -15,6 +15,7 @@ from app.db.models import (
     Channel,
     ChannelHeartbeat,
     ChannelIntegration,
+    MCPServer,
     PromptTemplate,
     ProviderConfig,
     ProviderModel,
@@ -140,6 +141,25 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 }
                 await db.execute(pg_insert(ProviderModel).values(**m_vals))
         _track("providers", c, u)
+
+    # 4b. MCP Servers
+    if mcp_servers := payload.get("mcp_servers"):
+        c, u = 0, 0
+        for row in mcp_servers:
+            vals = {
+                "display_name": row["display_name"],
+                "url": row["url"],
+                "api_key": row.get("api_key"),
+                "is_enabled": row.get("is_enabled", True),
+                "config": row.get("config", {}),
+                "source": row.get("source", "manual"),
+                "source_path": row.get("source_path"),
+            }
+            stmt = pg_insert(MCPServer).values(id=row["id"], **vals)
+            stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=vals)
+            await db.execute(stmt)
+            u += 1
+        _track("mcp_servers", c, u)
 
     # 5. Prompt templates
     if templates := payload.get("prompt_templates"):
@@ -535,9 +555,11 @@ async def restore_config_state(
     # Reload in-memory registries
     try:
         from app.agent.bots import load_bots
+        from app.services.mcp_servers import load_mcp_servers
         from app.services.providers import load_providers
         await load_bots()
         await load_providers()
+        await load_mcp_servers()
     except Exception as e:
         log.warning("Post-restore reload failed: %s", e)
 

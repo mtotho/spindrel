@@ -239,7 +239,7 @@ def check_rate_limit(provider_id: str | None, estimated_tokens: int) -> int | No
         return None
 
     now = time.monotonic()
-    window = _tpm_windows.setdefault(provider_id, deque())
+    window = _tpm_windows.setdefault(provider_id, deque(maxlen=10000))
     # Evict entries older than 60s
     while window and window[0][0] < now - 60:
         window.popleft()
@@ -263,7 +263,7 @@ def record_usage(provider_id: str | None, total_tokens: int) -> None:
     if provider is None or not provider.tpm_limit:
         return
     now = time.monotonic()
-    _tpm_windows.setdefault(provider_id, deque()).append((now, total_tokens))
+    _tpm_windows.setdefault(provider_id, deque(maxlen=10000)).append((now, total_tokens))
 
 
 # Hardcoded model lists for providers that don't expose an API models endpoint
