@@ -1,17 +1,17 @@
 ---
 name: Mission Control
-description: Structured task tracking and project status using kanban boards in workspace files
+description: DB-backed project management with kanban boards, timelines, and structured plans — with read-only markdown rendering
 ---
 
 # SKILL: Mission Control
 
 ## Overview
 
-Mission Control is a structured file protocol for managing project tasks, status, and activity using markdown files in channel workspaces. These files are readable by both humans and the Mission Control dashboard.
+Mission Control is a DB-backed system for managing project tasks, status, and activity. Data is stored in the MC database and rendered as read-only markdown files in channel workspaces. These files are readable by both humans and the Mission Control dashboard, but **must never be edited directly** — all mutations go through tools.
 
-## Task Board (`tasks.md`)
+## Task Board (`tasks.md` — Read-Only Rendering)
 
-The `tasks.md` file is a kanban board. Columns are `## ` headers, cards are `### ` headers within columns, and metadata uses `- **key**: value` format.
+The `tasks.md` file is a read-only rendering of the kanban database. Columns are `## ` headers, cards are `### ` headers within columns, and metadata uses `- **key**: value` format. The file is auto-generated after every mutation.
 
 ### Format
 
@@ -65,9 +65,9 @@ Standard columns (in order): **Backlog**, **In Progress**, **Review**, **Done**.
 
 ### Tools
 
-Use these tools for task management:
+Use these tools for all task management — `tasks.md` is a read-only rendering from the database and must not be edited directly:
 
-- **`create_task_card`** — Creates a new card with auto-generated ID and proper metadata. Preferred over manually editing tasks.md.
+- **`create_task_card`** — Creates a new card with auto-generated ID and proper metadata
 - **`move_task_card`** — Moves a card between columns by ID. Automatically adds `started`/`completed` timestamps.
 
 ### When to Use tasks.md
@@ -113,15 +113,16 @@ What the project is working on right now.
 - **yellow** — Minor issues or risks
 - **red** — Blocked or significantly behind
 
-## Timeline (`timeline.md`)
+## Timeline (`timeline.md` — Read-Only Rendering)
 
-The `timeline.md` file is a reverse-chronological activity log. Events are auto-logged by `move_task_card` and status changes. Use `append_timeline_event` to manually log notable events (deployments, decisions, meetings, milestones, incidents).
+The `timeline.md` file is a read-only rendering of the timeline database. Events are auto-logged by `move_task_card`, plan state changes, and status updates. Use `append_timeline_event` to manually log notable events (deployments, decisions, meetings, milestones, incidents).
 
 Format: `- HH:MM — Event description` grouped under `## YYYY-MM-DD` date headers. New entries go at the top of the current day's section.
 
 ## Best Practices
 
-1. **Always use tools** for task creation/movement — they handle ID generation and timestamps
-2. **Keep Done column clean** — archive completed tasks periodically (move card text to `archive/tasks-done.md`)
-3. **Update status.md** when project health changes or milestones are reached
-4. **Use consistent tags** across tasks for filtering in the dashboard
+1. **Always use tools** for task creation/movement — they handle ID generation, timestamps, and DB persistence
+2. **Never edit `tasks.md`, `timeline.md`, or `plans.md` directly** — these are auto-generated from the database
+3. **Keep Done column clean** — archive completed tasks periodically (move card text to `archive/tasks-done.md`)
+4. **Update status.md** when project health changes or milestones are reached
+5. **Use consistent tags** across tasks for filtering in the dashboard

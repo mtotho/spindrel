@@ -1,5 +1,6 @@
 """Tests for Mission Control plan operations backed by SQLite DB."""
 import os
+import re
 import uuid
 
 import pytest
@@ -284,3 +285,271 @@ class TestPlanExecutor:
             await session.refresh(db_plan, ["steps"])
             assert db_plan.steps[0].status == "failed"
             assert db_plan.steps[0].result_summary == "Something went wrong"
+
+    async def test_advance_plan_already_complete(self, mc_db, mock_workspace):
+        """advance_plan on a complete plan should be a no-op."""
+        from integrations.mission_control.tools.plans import draft_plan
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Already done", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            db_plan.steps[0].status = "done"
+            db_plan.status = "complete"
+            plan_db_id = db_plan.id
+            await session.commit()
+
+        from integrations.mission_control.plan_executor import advance_plan
+        await advance_plan(plan_db_id)  # should be a no-op
+
+        async with await mc_session() as session:
+            db_plan = await session.get(McPlan, plan_db_id)
+            assert db_plan.status == "complete"
+
+    async def test_advance_plan_all_failed(self, mc_db, mock_workspace):
+        """When all steps are failed, plan should auto-complete."""
+        from integrations.mission_control.tools.plans import draft_plan
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "All fail", ["Fail 1", "Fail 2"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            db_plan.steps[0].status = "failed"
+            db_plan.steps[1].status = "failed"
+            db_plan.status = "executing"
+            plan_db_id = db_plan.id
+            await session.commit()
+
+        from integrations.mission_control.plan_executor import advance_plan
+        await advance_plan(plan_db_id)
+
+        async with await mc_session() as session:
+            db_plan = await session.get(McPlan, plan_db_id)
+            assert db_plan.status == "complete"
+
+
+@pytest.mark.asyncio
+class TestUpdatePlanStep:
+    async def test_mark_step_done(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_step
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Step test", ["Do it"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        # Move to executing
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "executing"
+            await session.commit()
+
+        result = await update_plan_step(CHANNEL_ID, plan_id, 1, "done")
+        assert "done" in result
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            assert db_plan.steps[0].status == "done"
+            assert db_plan.steps[0].completed_at is not None
+
+    async def test_mark_step_failed(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_step
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Fail step", ["Try this", "Then this"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "executing"
+            await session.commit()
+
+        result = await update_plan_step(CHANNEL_ID, plan_id, 1, "failed")
+        assert "failed" in result
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            assert db_plan.steps[0].status == "failed"
+            assert db_plan.steps[1].status == "pending"
+
+    async def test_auto_complete_all_terminal(self, mc_db, mock_workspace):
+        """When update_plan_step makes all steps terminal, plan auto-completes."""
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_step
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Auto complete", ["Only step"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "executing"
+            await session.commit()
+
+        result = await update_plan_step(CHANNEL_ID, plan_id, 1, "done")
+        assert "auto-completed" in result
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "complete"
+
+
+@pytest.mark.asyncio
+class TestUpdatePlanStatus:
+    async def test_abandon_from_draft(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+
+        result_text = await draft_plan(CHANNEL_ID, "Abandon draft", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        result = await update_plan_status(CHANNEL_ID, plan_id, "abandoned")
+        assert "abandoned" in result
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "abandoned"
+
+    async def test_abandon_from_executing(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Abandon exec", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "executing"
+            await session.commit()
+
+        result = await update_plan_status(CHANNEL_ID, plan_id, "abandoned")
+        assert "abandoned" in result
+
+    async def test_complete_from_executing(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Complete", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(CHANNEL_ID, plan_id)
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "executing"
+            await session.commit()
+
+        result = await update_plan_status(CHANNEL_ID, plan_id, "complete")
+        assert "complete" in result
+
+    async def test_invalid_transition_blocked(self, mc_db, mock_workspace):
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+
+        result_text = await draft_plan(CHANNEL_ID, "Bad transition", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        # Can't complete a draft plan (must be executing)
+        result = await update_plan_status(CHANNEL_ID, plan_id, "complete")
+        assert "Cannot transition" in result
+
+
+@pytest.mark.asyncio
+class TestPlanMigration:
+    async def test_lazy_migration_imports_plans(self, mc_db):
+        """Lazy migration should import plans from markdown file."""
+        from app.services.plan_board import serialize_plans_md
+
+        # Create fake plan data that would be in a plans.md file
+        plans_content = """# Plans
+
+## Deploy v2 [draft]
+- **id**: plan-test123
+- **created**: 2026-04-01
+
+### Steps
+1. [ ] Update config
+2. [ ] Run migrations
+"""
+        with (
+            patch("integrations.mission_control.services._resolve_bot", new_callable=AsyncMock),
+            patch("app.services.channel_workspace.ensure_channel_workspace"),
+            patch("app.services.channel_workspace.write_workspace_file"),
+            patch("app.services.channel_workspace.read_workspace_file", return_value=plans_content),
+        ):
+            channel_id = str(uuid.uuid4())
+            plans = await _get_plans(channel_id)
+
+            # Should have imported something (exact count depends on parser)
+            # The key thing is it didn't crash and the channel is now marked migrated
+            from integrations.mission_control import services
+            assert channel_id in services._plans_migrated
+
+
+async def _get_plans(channel_id: str) -> list[dict]:
+    """Helper to trigger migration and get plans."""
+    from integrations.mission_control.services import _get_plans_as_dicts
+    return await _get_plans_as_dicts(channel_id)

@@ -226,42 +226,51 @@ _kanban_migrated: set[str] = set()
 _timeline_migrated: set[str] = set()
 _plans_migrated: set[str] = set()
 
+# Serialise migrations to prevent duplicate imports under concurrent access
+_kanban_lock = asyncio.Lock()
+_timeline_lock = asyncio.Lock()
+_plans_lock = asyncio.Lock()
+
 
 async def _ensure_kanban_migrated(channel_id: str) -> None:
     """If DB has no kanban data for this channel but markdown exists, import it."""
     if channel_id in _kanban_migrated:
         return
 
-    from integrations.mission_control.db.engine import mc_session
-    from integrations.mission_control.db.models import McKanbanColumn
+    async with _kanban_lock:
+        if channel_id in _kanban_migrated:
+            return
 
-    async with await mc_session() as session:
-        result = await session.execute(
-            select(func.count()).select_from(McKanbanColumn)
-            .where(McKanbanColumn.channel_id == channel_id)
-        )
-        count = result.scalar() or 0
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McKanbanColumn
 
-    if count > 0:
-        _kanban_migrated.add(channel_id)
-        return
+        async with await mc_session() as session:
+            result = await session.execute(
+                select(func.count()).select_from(McKanbanColumn)
+                .where(McKanbanColumn.channel_id == channel_id)
+            )
+            count = result.scalar() or 0
 
-    # Try to import from markdown
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.task_board import default_columns, parse_tasks_md
+        if count > 0:
+            _kanban_migrated.add(channel_id)
+            return
 
-    try:
-        bot = await _resolve_bot(channel_id)
-        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "tasks.md")
-        if content:
-            columns = parse_tasks_md(content)
-        else:
+        # Try to import from markdown
+        from app.services.channel_workspace import read_workspace_file
+        from app.services.task_board import default_columns, parse_tasks_md
+
+        try:
+            bot = await _resolve_bot(channel_id)
+            content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "tasks.md")
+            if content:
+                columns = parse_tasks_md(content)
+            else:
+                columns = default_columns()
+        except Exception:
             columns = default_columns()
-    except Exception:
-        columns = default_columns()
 
-    await _import_kanban_columns(channel_id, columns)
-    _kanban_migrated.add(channel_id)
+        await _import_kanban_columns(channel_id, columns)
+        _kanban_migrated.add(channel_id)
 
 
 async def _import_kanban_columns(channel_id: str, columns: list[dict]) -> None:
@@ -306,41 +315,44 @@ async def _ensure_timeline_migrated(channel_id: str) -> None:
     if channel_id in _timeline_migrated:
         return
 
-    from integrations.mission_control.db.engine import mc_session
-    from integrations.mission_control.db.models import McTimelineEvent
+    async with _timeline_lock:
+        if channel_id in _timeline_migrated:
+            return
 
-    async with await mc_session() as session:
-        result = await session.execute(
-            select(func.count()).select_from(McTimelineEvent)
-            .where(McTimelineEvent.channel_id == channel_id)
-        )
-        count = result.scalar() or 0
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McTimelineEvent
 
-    if count > 0:
-        _timeline_migrated.add(channel_id)
-        return
+        async with await mc_session() as session:
+            result = await session.execute(
+                select(func.count()).select_from(McTimelineEvent)
+                .where(McTimelineEvent.channel_id == channel_id)
+            )
+            count = result.scalar() or 0
 
-    # Try to import from markdown
-    from app.services.channel_workspace import read_workspace_file
+        if count > 0:
+            _timeline_migrated.add(channel_id)
+            return
 
-    try:
-        bot = await _resolve_bot(channel_id)
-        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "timeline.md")
-        if content:
-            events = parse_timeline_md(content)
-            async with await mc_session() as session:
-                for ev in events:
-                    session.add(McTimelineEvent(
-                        channel_id=channel_id,
-                        event_date=ev["date"],
-                        event_time=ev["time"],
-                        event=ev["event"],
-                    ))
-                await session.commit()
-    except Exception:
-        logger.debug("No timeline to migrate for channel %s", channel_id, exc_info=True)
+        # Try to import from markdown
+        from app.services.channel_workspace import read_workspace_file
 
-    _timeline_migrated.add(channel_id)
+        try:
+            bot = await _resolve_bot(channel_id)
+            content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "timeline.md")
+            if content:
+                events = parse_timeline_md(content)
+                async with await mc_session() as session:
+                    for ev in events:
+                        session.add(McTimelineEvent(
+                            channel_id=channel_id,
+                            event_date=ev["date"],
+                            event_time=ev["time"],
+                            event=ev["event"],
+                        ))
+                    await session.commit()
+            _timeline_migrated.add(channel_id)
+        except Exception:
+            logger.debug("No timeline to migrate for channel %s", channel_id, exc_info=True)
 
 
 async def _ensure_plans_migrated(channel_id: str) -> None:
@@ -348,34 +360,37 @@ async def _ensure_plans_migrated(channel_id: str) -> None:
     if channel_id in _plans_migrated:
         return
 
-    from integrations.mission_control.db.engine import mc_session
-    from integrations.mission_control.db.models import McPlan
+    async with _plans_lock:
+        if channel_id in _plans_migrated:
+            return
 
-    async with await mc_session() as session:
-        result = await session.execute(
-            select(func.count()).select_from(McPlan)
-            .where(McPlan.channel_id == channel_id)
-        )
-        count = result.scalar() or 0
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
 
-    if count > 0:
-        _plans_migrated.add(channel_id)
-        return
+        async with await mc_session() as session:
+            result = await session.execute(
+                select(func.count()).select_from(McPlan)
+                .where(McPlan.channel_id == channel_id)
+            )
+            count = result.scalar() or 0
 
-    # Try to import from markdown
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.plan_board import parse_plans_md
+        if count > 0:
+            _plans_migrated.add(channel_id)
+            return
 
-    try:
-        bot = await _resolve_bot(channel_id)
-        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "plans.md")
-        if content:
-            plans = parse_plans_md(content)
-            await _import_plans(channel_id, plans)
-    except Exception:
-        logger.debug("No plans to migrate for channel %s", channel_id, exc_info=True)
+        # Try to import from markdown
+        from app.services.channel_workspace import read_workspace_file
+        from app.services.plan_board import parse_plans_md
 
-    _plans_migrated.add(channel_id)
+        try:
+            bot = await _resolve_bot(channel_id)
+            content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "plans.md")
+            if content:
+                plans = parse_plans_md(content)
+                await _import_plans(channel_id, plans)
+            _plans_migrated.add(channel_id)
+        except Exception:
+            logger.debug("No plans to migrate for channel %s", channel_id, exc_info=True)
 
 
 async def _import_plans(channel_id: str, plans: list[dict]) -> None:
@@ -623,7 +638,9 @@ async def move_card(
     async with await mc_session() as session:
         # Find the card
         result = await session.execute(
-            select(McKanbanCard).where(McKanbanCard.card_id == card_id)
+            select(McKanbanCard)
+            .where(McKanbanCard.card_id == card_id)
+            .where(McKanbanCard.channel_id == channel_id)
         )
         db_card = result.scalar_one_or_none()
         if not db_card:
@@ -739,7 +756,9 @@ async def update_card(
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McKanbanCard).where(McKanbanCard.card_id == card_id)
+            select(McKanbanCard)
+            .where(McKanbanCard.card_id == card_id)
+            .where(McKanbanCard.channel_id == channel_id)
         )
         db_card = result.scalar_one_or_none()
         if not db_card:
@@ -820,7 +839,9 @@ async def approve_plan(channel_id: str, plan_id: str) -> dict:
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
         )
         db_plan = result.scalar_one_or_none()
 
@@ -858,7 +879,9 @@ async def reject_plan(channel_id: str, plan_id: str) -> dict:
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
         )
         db_plan = result.scalar_one_or_none()
 
@@ -896,7 +919,9 @@ async def resume_plan(channel_id: str, plan_id: str) -> dict:
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
         )
         db_plan = result.scalar_one_or_none()
 

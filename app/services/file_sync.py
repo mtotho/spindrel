@@ -450,6 +450,12 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
             tag = f"integration:{ci}"
             if tag not in tags:
                 tags.append(tag)
+        # Expand mc_min_version frontmatter into mc_min_version:* tag
+        mc_ver = meta.get("mc_min_version")
+        if mc_ver:
+            ver_tag = f"mc_min_version:{mc_ver}"
+            if ver_tag not in tags:
+                tags.append(ver_tag)
 
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
@@ -757,6 +763,12 @@ async def sync_changed_file(path: Path) -> None:
             tag = f"integration:{ci}"
             if tag not in tags:
                 tags.append(tag)
+        # Expand mc_min_version frontmatter into mc_min_version:* tag
+        mc_ver = meta.get("mc_min_version")
+        if mc_ver:
+            ver_tag = f"mc_min_version:{mc_ver}"
+            if ver_tag not in tags:
+                tags.append(ver_tag)
         async with async_session() as session:
             stmt = select(PromptTemplate).where(
                 PromptTemplate.source_path == path_str,

@@ -19,6 +19,7 @@ import {
   useDeleteChannelWorkspaceFile,
   useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
+import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { InfoBanner } from "@/src/components/shared/SettingsControls";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
@@ -505,6 +506,18 @@ export function ChannelWorkspaceTab({
     : "";
   const hasNoSchema = !form.workspace_schema_template_id && !form.workspace_schema_content;
 
+  // Version compatibility check: extract mc_min_version tag from selected template
+  const { data: allTemplates } = usePromptTemplates(undefined, "workspace_schema");
+  const selectedTemplate = allTemplates?.find((t) => t.id === form.workspace_schema_template_id);
+  const mcMinVersionTag = selectedTemplate?.tags?.find((t: string) => t.startsWith("mc_min_version:"));
+  const templateMinVersion = mcMinVersionTag?.split(":")[1] ?? null;
+  const mcIntegration = (activatable ?? []).find((ig) => ig.integration_type === "mission_control");
+  const mcInstalledVersion = mcIntegration?.version ?? null;
+  const versionMismatch =
+    templateMinVersion && mcInstalledVersion
+      ? parseFloat(templateMinVersion) > parseFloat(mcInstalledVersion)
+      : false;
+
   const { data: filesData, isLoading } = useChannelWorkspaceFiles(
     enabled ? channelId : undefined,
     { includeArchive: true, includeData: true },
@@ -548,6 +561,11 @@ export function ChannelWorkspaceTab({
               highlightTag={highlightTag}
               activeIntegrationName={activeIntName || undefined}
             />
+            {versionMismatch && (
+              <InfoBanner variant="warning">
+                This template requires Mission Control v{templateMinVersion}+ but v{mcInstalledVersion} is installed. Some features may not work correctly.
+              </InfoBanner>
+            )}
           </Section>
 
           {workspaceId && (

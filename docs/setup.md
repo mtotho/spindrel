@@ -13,7 +13,8 @@ The wizard will walk you through:
 1. Choosing a deployment mode (Docker or local dev)
 2. Configuring your LLM provider
 3. Selecting a default model
-4. Setting up authentication
+4. Choosing a web search backend
+5. Setting up authentication
 
 After setup, start the server:
 
@@ -60,18 +61,28 @@ The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable a
 
 | Mode | Backend | Containers | Description |
 |---|---|---|---|
-| `searxng` (default) | SearXNG + Playwright | 2 containers | Self-hosted, private, JS rendering |
+| `searxng` (default) | SearXNG + Playwright | built-in or external | Self-hosted, private, JS rendering |
 | `ddgs` | DuckDuckGo + public engines | none | Lightweight, no infrastructure needed |
 | `none` | disabled | none | Bring your own search tool in `tools/` |
 
 ### SearXNG mode (default)
+
+**Built-in containers** (simplest):
 
 ```bash
 WEB_SEARCH_MODE=searxng
 COMPOSE_PROFILES=web-search
 ```
 
-Self-hosted search via SearXNG with Playwright for JS-rendered page fetching. Private — queries never leave your network.
+**External instances** (bring your own SearXNG/Playwright):
+
+```bash
+WEB_SEARCH_MODE=searxng
+SEARXNG_URL=http://my-searxng:8080
+PLAYWRIGHT_WS_URL=ws://my-playwright:3000   # optional — fetch_url falls back to httpx
+```
+
+Both URLs are also configurable at runtime in **Settings > Web Search**. Private — queries never leave your network.
 
 ### DuckDuckGo mode
 

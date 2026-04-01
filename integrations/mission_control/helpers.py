@@ -122,38 +122,56 @@ async def get_mc_prefs(db: AsyncSession, user: User | None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# File existence checks (sync, batch-friendly)
+# DB existence checks (async — check MC SQLite for data)
 # ---------------------------------------------------------------------------
 
-def has_tasks_file(channel: Channel) -> bool:
-    """Quick check whether a channel has a tasks.md on disk."""
-    from app.services.channel_workspace import get_channel_workspace_root
+async def has_kanban_data(channel: Channel) -> bool:
+    """Check whether a channel has any kanban cards in the MC database."""
     try:
-        bot = get_bot(channel.bot_id)
-        ws_root = get_channel_workspace_root(str(channel.id), bot)
-        return os.path.isfile(os.path.join(ws_root, "tasks.md"))
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McKanbanCard
+        from sqlalchemy import func
+
+        async with await mc_session() as session:
+            count = (await session.execute(
+                select(func.count(McKanbanCard.id))
+                .where(McKanbanCard.channel_id == str(channel.id))
+            )).scalar() or 0
+            return count > 0
     except Exception:
         return False
 
 
-def has_timeline_file(channel: Channel) -> bool:
-    """Quick check whether a channel has a timeline.md on disk."""
-    from app.services.channel_workspace import get_channel_workspace_root
+async def has_timeline_data(channel: Channel) -> bool:
+    """Check whether a channel has any timeline events in the MC database."""
     try:
-        bot = get_bot(channel.bot_id)
-        ws_root = get_channel_workspace_root(str(channel.id), bot)
-        return os.path.isfile(os.path.join(ws_root, "timeline.md"))
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McTimelineEvent
+        from sqlalchemy import func
+
+        async with await mc_session() as session:
+            count = (await session.execute(
+                select(func.count(McTimelineEvent.id))
+                .where(McTimelineEvent.channel_id == str(channel.id))
+            )).scalar() or 0
+            return count > 0
     except Exception:
         return False
 
 
-def has_plans_file(channel: Channel) -> bool:
-    """Quick check whether a channel has a plans.md on disk."""
-    from app.services.channel_workspace import get_channel_workspace_root
+async def has_plans_data(channel: Channel) -> bool:
+    """Check whether a channel has any plans in the MC database."""
     try:
-        bot = get_bot(channel.bot_id)
-        ws_root = get_channel_workspace_root(str(channel.id), bot)
-        return os.path.isfile(os.path.join(ws_root, "plans.md"))
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import func
+
+        async with await mc_session() as session:
+            count = (await session.execute(
+                select(func.count(McPlan.id))
+                .where(McPlan.channel_id == str(channel.id))
+            )).scalar() or 0
+            return count > 0
     except Exception:
         return False
 

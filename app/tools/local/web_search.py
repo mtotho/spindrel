@@ -88,7 +88,7 @@ async def web_search(query: str, num_results: int = 5) -> str:
     elif mode == "ddgs":
         return await _web_search_ddgs(query, num_results)
     else:
-        return json.dumps({"error": "Web search is disabled. Ask your admin to enable it in Settings > Web Search."})
+        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Web Search."})
 
 
 async def _web_search_searxng(query: str, num_results: int = 5) -> str:
@@ -104,6 +104,10 @@ async def _web_search_searxng(query: str, num_results: int = 5) -> str:
             data = resp.json()
     except httpx.ConnectError:
         return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Are the containers running? (COMPOSE_PROFILES=web-search)"})
+    except httpx.TimeoutException:
+        return json.dumps({"error": f"SearXNG request timed out ({settings.SEARXNG_URL})"})
+    except httpx.HTTPStatusError as exc:
+        return json.dumps({"error": f"SearXNG returned HTTP {exc.response.status_code}"})
 
     results = data.get("results", [])[:num_results]
     return json.dumps([
@@ -117,7 +121,11 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
     import asyncio
     from ddgs import DDGS
 
-    results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
+    try:
+        results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
+    except Exception as exc:
+        logger.warning("ddgs search failed: %s", exc)
+        return json.dumps({"error": f"Web search failed: {exc}"})
     if not results:
         return json.dumps([])
     return json.dumps([

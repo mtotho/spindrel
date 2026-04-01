@@ -2,8 +2,8 @@ id: mission-control
 name: Mission Control
 description: >-
   Task tracking, project management, planning workflows, content feeds, and
-  external service integration. Provides kanban boards, structured plans,
-  cross-channel portfolio oversight, and integration setup guides.
+  external service integration. Provides DB-backed kanban boards, structured plans
+  with automatic execution, cross-channel portfolio oversight, and integration setup guides.
 tags: [project-management, tasks, planning, feeds, integrations]
 
 requires:
@@ -41,14 +41,19 @@ system_prompt_fragment: |
   ## Mission Control
 
   You have structured project management and external service capabilities.
-  Use the tools below for task/plan operations. Fetch skills for deeper guidance.
+  All task/plan data is stored in the MC database. Workspace files (tasks.md,
+  timeline.md, plans.md) are auto-generated read-only renderings — never edit
+  them directly. Use the tools below for all mutations.
+
+  Plan execution is automatic after approval — do NOT call schedule_task() to
+  advance plan steps. The plan executor handles step sequencing.
 
   ### Tools Quick Reference
   | Tool | Purpose |
   |------|---------|
-  | `create_task_card` | Create a kanban card in tasks.md |
+  | `create_task_card` | Create a kanban card (stored in MC database) |
   | `move_task_card` | Move a card between columns (auto-timestamps) |
-  | `append_timeline_event` | Log an event to timeline.md |
+  | `append_timeline_event` | Log an event (stored in MC database) |
   | `draft_plan` | Create a structured plan for user approval |
   | `update_plan_step` | Mark plan steps in_progress/done/skipped |
   | `update_plan_status` | Change overall plan status |
@@ -58,7 +63,7 @@ system_prompt_fragment: |
   | When you need... | Fetch this skill |
   |---|---|
   | Task board format, card metadata, status.md, kanban conventions | `get_skill('integrations/mission_control/mission_control')` |
-  | Plan workflow — drafting, approval, step execution, progress tracking | `get_skill('integrations/mission_control/planning')` |
+  | Plan workflow — drafting, approval gates, automatic execution, progress tracking | `get_skill('integrations/mission_control/planning')` |
   | Cross-channel project tracking, portfolio reports, status dashboards | `get_skill('integrations/mission_control/project-management')` |
   | Feed content (email, RSS), searching data/ files, creating digests | `get_skill('integrations/mission_control/content_feeds')` |
   | Connecting external services (email, RSS, webhooks, APIs, polling) | `get_skill('integrations/mission_control/integration-builder')` |

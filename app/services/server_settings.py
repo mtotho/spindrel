@@ -98,7 +98,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},
     "WHISPER_LANGUAGE": {"group": "Speech-to-Text", "label": "Language", "description": "Transcription language code", "type": "string"},
     # --- Web Search ---
-    "WEB_SEARCH_MODE": {"group": "Web Search", "label": "Search Backend", "description": "How the built-in web_search tool works. SearXNG: self-hosted, private, requires SearXNG + Playwright containers. DDGs: lightweight, uses DuckDuckGo and other public search engines, no extra containers. None: disables web_search — bring your own search tool in tools/.", "type": "string", "options": ["searxng", "ddgs", "none"]},
+    "WEB_SEARCH_MODE": {"group": "Web Search", "label": "Search Backend", "description": "SearXNG: self-hosted, private — uses a SearXNG instance (built-in containers or your own). DDGs: lightweight, uses DuckDuckGo and other public search engines, no containers needed. None: disables web_search — bring your own search tool in tools/.", "type": "string", "options": ["searxng", "ddgs", "none"]},
+    "SEARXNG_URL": {"group": "Web Search", "label": "SearXNG URL", "description": "URL of the SearXNG instance (only used in searxng mode). Default points to the built-in container; change to use an external instance.", "type": "string"},
+    "PLAYWRIGHT_WS_URL": {"group": "Web Search", "label": "Playwright WebSocket URL", "description": "Playwright/Chromium instance for JS-rendered page fetching (used by fetch_url). Default points to the built-in container; change to use an external instance.", "type": "string"},
     # --- Security ---
     "SECRET_REDACTION_ENABLED": {"group": "Security", "label": "Secret Redaction", "description": "Redact known secrets from tool results and LLM output", "type": "bool"},
     # --- Tool Policies ---
