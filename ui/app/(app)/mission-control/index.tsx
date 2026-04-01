@@ -8,6 +8,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useMCOverview,
   useMCPrefs,
+  useMCPlans,
   useUpdateMCPrefs,
   useJoinChannel,
   useLeaveChannel,
@@ -386,7 +387,7 @@ export default function MCDashboard() {
   const [pendingChannelId, setPendingChannelId] = useState<string | null>(null);
   const scope = ((prefs?.layout_prefs as any)?.scope as "fleet" | "personal") || "fleet";
   const { data, isLoading, error } = useMCOverview(scope);
-  const { refreshing, onRefresh } = usePageRefresh([["mc-overview"]]);
+  const { refreshing, onRefresh } = usePageRefresh([["mc-overview"], ["mc-plans"]]);
   const t = useThemeTokens();
   const { width } = useWindowDimensions();
   const isWide = width >= 1024;
@@ -406,7 +407,8 @@ export default function MCDashboard() {
   };
 
   // Plan count for stat card
-  const totalPlans = 0; // Will be populated from plans hook below
+  const { data: plansData } = useMCPlans(scope);
+  const totalPlans = plansData?.plans?.length ?? 0;
 
   return (
     <View className="flex-1 bg-surface">

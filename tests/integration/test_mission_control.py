@@ -674,3 +674,394 @@ class TestMCPlanResume:
         )
 
         assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Helper to create a channel + draft plan
+# ---------------------------------------------------------------------------
+
+async def _create_channel_with_plan(
+    db_session,
+    name: str = "test-ch",
+    steps: list[str] | None = None,
+    approval_steps: list[int] | None = None,
+    plan_status: str = "draft",
+):
+    """Create a channel and a draft plan. Returns (channel, plan_id)."""
+    import re
+
+    from app.db.models import Channel
+    from integrations.mission_control.tools.plans import draft_plan
+
+    ch = Channel(
+        id=uuid.uuid4(),
+        name=name,
+        bot_id="test-bot",
+        channel_workspace_enabled=True,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(ch)
+    await db_session.commit()
+
+    result_text = await draft_plan(
+        str(ch.id),
+        "Test Plan",
+        steps or ["Step 1", "Step 2", "Step 3"],
+        approval_steps=approval_steps,
+    )
+    plan_id = re.search(r"plan-\w+", result_text).group()
+
+    if plan_status != "draft":
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = plan_status
+            if plan_status in ("approved", "executing", "awaiting_approval"):
+                db_plan.approved_date = date.today().isoformat()
+            await session.commit()
+
+    return ch, plan_id
+
+
+class TestMCPlanDetail:
+    """Tests for GET /channels/{channel_id}/plans/{plan_id}."""
+
+    async def test_get_plan_detail(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(db_session)
+        resp = await client.get(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["id"] == plan_id
+        assert body["title"] == "Test Plan"
+        assert body["status"] == "draft"
+        assert len(body["steps"]) == 3
+        assert body["channel_id"] == str(ch.id)
+        # Timestamps present
+        assert "created_at" in body
+        assert "updated_at" in body
+        # Step timestamps present
+        for step in body["steps"]:
+            assert "started_at" in step
+            assert "completed_at" in step
+
+    async def test_get_plan_detail_not_found(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="detail-404",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/integrations/mission_control/channels/{ch.id}/plans/plan-nonexistent",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+
+class TestMCPlanCreate:
+    """Tests for POST /channels/{channel_id}/plans."""
+
+    async def test_create_plan(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="create-test",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans",
+            headers=AUTH_HEADERS,
+            json={
+                "title": "My UI Plan",
+                "notes": "Created from UI",
+                "steps": [
+                    {"content": "First step", "requires_approval": False},
+                    {"content": "Second step", "requires_approval": True},
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["status"] == "draft"
+        assert body["plan_id"].startswith("plan-")
+
+        # Verify in DB
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == body["plan_id"])
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            assert db_plan.title == "My UI Plan"
+            assert db_plan.notes == "Created from UI"
+            assert len(db_plan.steps) == 2
+            assert db_plan.steps[1].requires_approval is True
+
+    async def test_create_plan_no_steps(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="create-empty",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans",
+            headers=AUTH_HEADERS,
+            json={"title": "Empty Plan", "steps": []},
+        )
+        assert resp.status_code == 422
+
+    async def test_create_plan_workspace_disabled(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="no-workspace",
+            bot_id="test-bot",
+            channel_workspace_enabled=False,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans",
+            headers=AUTH_HEADERS,
+            json={"title": "Plan", "steps": [{"content": "A step"}]},
+        )
+        assert resp.status_code == 400
+
+
+class TestMCPlanEdit:
+    """Tests for PATCH /channels/{channel_id}/plans/{plan_id}."""
+
+    async def test_edit_draft_plan(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(db_session)
+        resp = await client.patch(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+            json={
+                "title": "Updated Title",
+                "notes": "New notes",
+                "steps": [
+                    {"content": "New step 1"},
+                    {"content": "New step 2", "requires_approval": True},
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+
+        # Verify in DB
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            assert db_plan.title == "Updated Title"
+            assert db_plan.notes == "New notes"
+            assert len(db_plan.steps) == 2
+            assert db_plan.steps[1].requires_approval is True
+
+    async def test_edit_non_draft_rejected(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session, plan_status="executing"
+        )
+        resp = await client.patch(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+            json={"title": "Nope"},
+        )
+        assert resp.status_code == 409
+
+
+class TestMCPlanSkipStep:
+    """Tests for POST /channels/{channel_id}/plans/{plan_id}/steps/{position}/skip."""
+
+    async def test_skip_pending_step(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session, plan_status="executing"
+        )
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+        ) as mock_advance:
+            resp = await client.post(
+                f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/1/skip",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["status"] == "skipped"
+
+        # Verify step is skipped
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            step1 = next(s for s in db_plan.steps if s.position == 1)
+            assert step1.status == "skipped"
+            assert step1.completed_at is not None
+
+        mock_advance.assert_called_once()
+
+    async def test_skip_on_awaiting_approval(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session,
+            approval_steps=[1],
+            plan_status="awaiting_approval",
+        )
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/1/skip",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "executing"
+
+    async def test_skip_wrong_plan_status(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(db_session)
+
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/1/skip",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 409
+
+
+class TestMCPlanDelete:
+    """Tests for DELETE /channels/{channel_id}/plans/{plan_id}."""
+
+    async def test_delete_draft_plan(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(db_session)
+
+        resp = await client.delete(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+
+        # Verify gone from DB
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            result = await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )
+            assert result.scalar_one_or_none() is None
+
+    async def test_delete_complete_plan(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session, plan_status="complete"
+        )
+        resp = await client.delete(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+
+    async def test_delete_abandoned_plan(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session, plan_status="abandoned"
+        )
+        resp = await client.delete(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+
+    async def test_delete_executing_plan_rejected(self, client, db_session, _mc_db):
+        ch, plan_id = await _create_channel_with_plan(
+            db_session, plan_status="executing"
+        )
+        resp = await client.delete(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 409
+
+    async def test_delete_plan_not_found(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="del-404",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        resp = await client.delete(
+            f"/integrations/mission_control/channels/{ch.id}/plans/plan-nonexistent",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404

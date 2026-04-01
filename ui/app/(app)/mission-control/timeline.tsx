@@ -11,6 +11,7 @@ import {
   type MCTimelineEvent,
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
+import { ChannelFilterBar } from "@/src/components/mission-control/ChannelFilterBar";
 import { channelColor } from "@/src/components/mission-control/botColors";
 import {
   Calendar,
@@ -326,54 +327,12 @@ export default function MCTimeline() {
           style={{ width: 1, height: 16, backgroundColor: t.surfaceBorder, marginHorizontal: 4 }}
         />
 
-        {/* Channel filter pills */}
-        {channels.length > 1 && (
-          <>
-            <Pressable
-              onPress={() => setFilterChannel(null)}
-              className={`rounded-full px-3 py-1 border ${
-                !filterChannel ? "border-accent bg-accent/10" : "border-surface-border"
-              }`}
-            >
-              <Text
-                className={`text-xs ${
-                  !filterChannel ? "text-accent font-medium" : "text-text-muted"
-                }`}
-              >
-                All
-              </Text>
-            </Pressable>
-            {channels.map((ch) => {
-              const active = filterChannel === ch.id;
-              const cc = channelColor(ch.id);
-              return (
-                <Pressable
-                  key={ch.id}
-                  onPress={() => setFilterChannel(active ? null : ch.id)}
-                  className={`rounded-full px-3 py-1 border flex-row items-center gap-1.5 ${
-                    active ? "border-accent bg-accent/10" : "border-surface-border"
-                  }`}
-                >
-                  <View
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      backgroundColor: cc,
-                    }}
-                  />
-                  <Text
-                    className={`text-xs ${
-                      active ? "text-accent font-medium" : "text-text-muted"
-                    }`}
-                  >
-                    {ch.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </>
-        )}
+        {/* Channel filter */}
+        <ChannelFilterBar
+          channels={channels}
+          value={filterChannel}
+          onChange={setFilterChannel}
+        />
       </View>
 
       {/* Content */}
